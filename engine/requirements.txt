@@ -1,0 +1,5 @@
+sounddevice>=0.4.6
+numpy>=1.24.0
+rumps>=0.4.0
+pyobjc-core>=9.0
+pyobjc-framework-Cocoa>=9.0
