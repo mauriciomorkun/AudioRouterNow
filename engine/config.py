@@ -1,0 +1,88 @@
+"""
+Config — Persistente Konfiguration fuer AudioRouterNow.
+
+Speichert und laedt Einstellungen als JSON in ~/.audiorouter/config.json.
+
+Gespeicherte Felder:
+  - output_device_names: Liste von Device-Namen (nicht Indizes!)
+  - sample_rate: Sample Rate in Hz
+  - buffer_size: Buffer-Groesse in Frames
+
+Hinweis: Device-Namen statt Indizes werden gespeichert, weil Indizes sich
+nach einem Neustart oder beim An-/Abstecken von Devices aendern koennen.
+"""
+
+import json
+import logging
+import os
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+from typing import Dict, List
+
+logger = logging.getLogger(__name__)
+
+# Verzeichnis fuer Konfigurationsdateien
+CONFIG_DIR = Path.home() / ".audiorouter"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+
+
+@dataclass
+class AppConfig:
+    """Alle persistenten Einstellungen der Applikation."""
+    output_device_names: List[str] = field(default_factory=list)
+    sample_rate: int = 48000
+    buffer_size: int = 512
+    # Donation-Hinweis: wird einmalig nach erstem erfolgreichen Routing gezeigt
+    donation_hint_shown: bool = False
+    # Channel-Offsets pro Device: device_name -> channel_offset (0 = Ch 1-2, 2 = Ch 3-4, ...)
+    output_device_offsets: Dict[str, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AppConfig":
+        return cls(
+            output_device_names=data.get("output_device_names", []),
+            sample_rate=int(data.get("sample_rate", 48000)),
+            buffer_size=int(data.get("buffer_size", 512)),
+            donation_hint_shown=bool(data.get("donation_hint_shown", False)),
+            output_device_offsets=dict(data.get("output_device_offsets", {})),
+        )
+
+
+def load_config() -> AppConfig:
+    """
+    Laedt die Konfiguration aus ~/.audiorouter/config.json.
+
+    Falls die Datei nicht existiert oder ungueltiges JSON enthaelt,
+    wird eine Standard-Konfiguration zurueckgegeben.
+    """
+    if not CONFIG_FILE.exists():
+        logger.debug("Keine Konfigurationsdatei gefunden — Standardwerte werden verwendet")
+        return AppConfig()
+
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        config = AppConfig.from_dict(data)
+        logger.info(f"Konfiguration geladen: {config.output_device_names}")
+        return config
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        logger.warning(f"Konfigurationsdatei konnte nicht gelesen werden: {e} — Standardwerte")
+        return AppConfig()
+
+
+def save_config(config: AppConfig):
+    """
+    Speichert die Konfiguration in ~/.audiorouter/config.json.
+
+    Erstellt das Verzeichnis falls es nicht existiert.
+    """
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config.to_dict(), f, indent=2, ensure_ascii=False)
+        logger.debug(f"Konfiguration gespeichert: {CONFIG_FILE}")
+    except OSError as e:
+        logger.error(f"Konfiguration konnte nicht gespeichert werden: {e}")
