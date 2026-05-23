@@ -139,11 +139,11 @@ codesign \
 
 ok "Ad-hoc signiert (Entitlements: library-validation deaktiviert)"
 
-# --- DMG-Hintergrundbild + Pfeil-Icon generieren -----------------------------
-log "Erstelle DMG-Grafiken..."
+# --- DMG-Hintergrundbild generieren ------------------------------------------
+# Das Hintergrundbild enthaelt Pfeil + Labels — kein separates Pfeil-Icon noetig.
+log "Erstelle DMG-Hintergrundbild..."
 BACKGROUND_PNG="$SCRIPT_DIR/dmg_background.png"
-ARROW_PNG="$SCRIPT_DIR/dmg_arrow.png"
-"$VENV_PY" "$SCRIPT_DIR/create_dmg_background.py" && ok "Hintergrundbild + Pfeil-Icon erstellt" || warn "Grafik-Generierung fehlgeschlagen"
+"$VENV_PY" "$SCRIPT_DIR/create_dmg_background.py" && ok "Hintergrundbild erstellt" || warn "Grafik-Generierung fehlgeschlagen"
 
 # --- DMG erstellen -----------------------------------------------------------
 log "Erstelle DMG mit dmgbuild..."
@@ -152,13 +152,11 @@ log "Erstelle DMG mit dmgbuild..."
 [[ -f "$DMG_OUTPUT" ]] && rm -f "$DMG_OUTPUT"
 
 # Arrow-PNG als sichtbares '→'-Icon ins DMG einbetten (macOS-26-kompatibel).
-# Hintergrundbild wird weiterhin mitgegeben (fuer kompatible macOS-Versionen).
 "$VENV_DIR/bin/dmgbuild" \
     -s "$SCRIPT_DIR/dmg_settings.py" \
     -D "app_path=$APP_PATH" \
     -D "icon_path=$SCRIPT_DIR/AudioRouterNow.icns" \
     -D "bg_path=$BACKGROUND_PNG" \
-    -D "arrow_path=$ARROW_PNG" \
     "$APP_NAME" \
     "$DMG_OUTPUT"
 
