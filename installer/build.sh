@@ -139,10 +139,11 @@ codesign \
 
 ok "Ad-hoc signiert (Entitlements: library-validation deaktiviert)"
 
-# --- DMG-Hintergrundbild generieren ------------------------------------------
-log "Erstelle DMG-Hintergrundbild..."
+# --- DMG-Hintergrundbild + Pfeil-Icon generieren -----------------------------
+log "Erstelle DMG-Grafiken..."
 BACKGROUND_PNG="$SCRIPT_DIR/dmg_background.png"
-"$VENV_PY" "$SCRIPT_DIR/create_dmg_background.py" && ok "Hintergrundbild erstellt" || warn "Hintergrundbild fehlgeschlagen"
+ARROW_PNG="$SCRIPT_DIR/dmg_arrow.png"
+"$VENV_PY" "$SCRIPT_DIR/create_dmg_background.py" && ok "Hintergrundbild + Pfeil-Icon erstellt" || warn "Grafik-Generierung fehlgeschlagen"
 
 # --- DMG erstellen -----------------------------------------------------------
 log "Erstelle DMG mit dmgbuild..."
@@ -150,15 +151,14 @@ log "Erstelle DMG mit dmgbuild..."
 # Alte Artefakte aufraumen
 [[ -f "$DMG_OUTPUT" ]] && rm -f "$DMG_OUTPUT"
 
-# dmgbuild schreibt DS_Store direkt (kein AppleScript noetig):
-# - Hintergrundbild, Icon-Positionen, text size 1 (unsichtbar)
-# - Weisse Labels kommen aus dem Hintergrundbild (create_dmg_background.py)
-# - Volume-Icon (AudioRouterNow.icns)
+# Arrow-PNG als sichtbares '→'-Icon ins DMG einbetten (macOS-26-kompatibel).
+# Hintergrundbild wird weiterhin mitgegeben (fuer kompatible macOS-Versionen).
 "$VENV_DIR/bin/dmgbuild" \
     -s "$SCRIPT_DIR/dmg_settings.py" \
     -D "app_path=$APP_PATH" \
     -D "icon_path=$SCRIPT_DIR/AudioRouterNow.icns" \
     -D "bg_path=$BACKGROUND_PNG" \
+    -D "arrow_path=$ARROW_PNG" \
     "$APP_NAME" \
     "$DMG_OUTPUT"
 
@@ -166,31 +166,116 @@ log "Erstelle DMG mit dmgbuild..."
 DMG_SIZE=$(du -sh "$DMG_OUTPUT" | cut -f1)
 ok "DMG erstellt: $DMG_OUTPUT ($DMG_SIZE)"
 
+# --- Hintergrund via Finder-AppleScript setzen (macOS Sequoia/Tahoe fix) ------
+# Problem: dmgbuild schreibt einen Legacy-HFS+-Alias in .DS_Store (mit dem
+#   temporaeren Build-Pfad). macOS Sequoia/Tahoe loest diesen Alias in Finder
+#   nicht mehr auf — der Hintergrund bleibt unsichtbar.
+# Problem 2: -nobrowse versteckt das Volume vor Finder, daher schlaegt
+#   AppleScript mit Fehler -10006 fehl.
+# Loesung: UDRW mounten OHNE -nobrowse → Finder sieht das Volume → AppleScript
+#   setzt Background direkt → Finder schreibt DS_Store im aktuellen Format
+#   (NSURL-Bookmark statt Legacy-Alias).
+log "Setze DMG-Hintergrund via Finder AppleScript..."
+
+DMG_RW="/tmp/${APP_NAME}_rw.dmg"
+# Mounten unter /Volumes/<Name>: Finder zeigt exakt diesen Namen als Volume-Label.
+# Der erzeugte DS_Store-Alias referenziert dann "AudioRouterNow" — identisch mit
+# dem HFS-Volume-Namen der finalen UDZO-DMG. Beim User loest sich der Alias auf.
+DMG_MOUNT="/Volumes/${APP_NAME}"
+rm -f "$DMG_RW"
+
+# Alle vorhandenen AudioRouterNow-Volumes auswerfen (kein Namenskonflikt).
+for _vol in \
+    "/Volumes/${APP_NAME}" \
+    "/Volumes/${APP_NAME} 1" \
+    "/Volumes/${APP_NAME} 2" \
+    "/Volumes/${APP_NAME} 3"; do
+    [[ -d "$_vol" ]] && { hdiutil detach "$_vol" -quiet 2>/dev/null \
+        || diskutil unmount force "$_vol" 2>/dev/null || true; }
+done
+sleep 1
+
+hdiutil convert "$DMG_OUTPUT" -format UDRW -o "$DMG_RW" -quiet
+
+# Ohne -nobrowse: Finder muss das Volume kennen fuer AppleScript-Zugriff
+hdiutil attach "$DMG_RW" -mountpoint "$DMG_MOUNT" -quiet
+sleep 3
+
+ok "Volume gemountet als: '$DMG_MOUNT'"
+
+# Hintergrundbild in .background/ Ordner kopieren.
+# Finder kann auf dot-DATEIEN nicht per AppleScript als Background zugreifen,
+# aber auf Dateien INNERHALB eines dot-ORDNERS schon (HFS-Pfad: ".background:background.png").
+if [[ -f "$DMG_MOUNT/.background.png" ]]; then
+    mkdir -p "$DMG_MOUNT/.background"
+    cp "$DMG_MOUNT/.background.png" "$DMG_MOUNT/.background/background.png"
+    ok ".background/background.png erstellt"
+
+    ASCRIPT_OUT=$(osascript 2>&1 << ASEOF
+tell application "Finder"
+    set theVol to disk "$APP_NAME"
+    open theVol
+    delay 2
+    set w to container window of theVol
+    set current view of w to icon view
+    set toolbar visible of w to false
+    set statusbar visible of w to false
+    set bounds of w to {200, 120, 880, 560}
+    set vo to icon view options of w
+    set arrangement of vo to not arranged
+    set icon size of vo to 100
+    try
+        set text size of vo to 1
+    end try
+    -- HFS-Pfad-Notation: Ordner ".background", Datei "background.png"
+    -- Erzeugt volume-relativen Alias → loest sich bei jedem User auf
+    set background picture of vo to file ".background:background.png" of theVol
+    set position of item "$APP_NAME.app" of w to {160, 210}
+    set position of item "Applications" of w to {520, 210}
+    update theVol without registering applications
+    delay 3
+    try
+        close w
+    end try
+end tell
+ASEOF
+    )
+    ASCRIPT_EXIT=$?
+
+    if [[ $ASCRIPT_EXIT -eq 0 ]]; then
+        ok "Hintergrund via Finder AppleScript gesetzt"
+    else
+        warn "Finder AppleScript fehlgeschlagen (Exit $ASCRIPT_EXIT): $ASCRIPT_OUT"
+    fi
+else
+    warn ".background.png nicht in DMG — Hintergrund-Schritt uebersprungen"
+fi
+
+sleep 2
+
+# Finder-Fenster sicherheitshalber schliessen
+osascript -e "tell application \"Finder\"" \
+          -e "try" \
+          -e "close container window of disk \"$APP_NAME\"" \
+          -e "end try" \
+          -e "end tell" 2>/dev/null || true
+sleep 1
+
+hdiutil detach "$DMG_MOUNT" -quiet 2>/dev/null || true
+
+# UDRW → UDZO
+rm -f "$DMG_OUTPUT"
+hdiutil convert "$DMG_RW" -format UDZO -o "$DMG_OUTPUT" -quiet
+rm -f "$DMG_RW"
+ok "Hintergrund-Fix abgeschlossen"
+
 # --- DMG-Datei-Icon setzen (Finder-Icon der .dmg-Datei selbst) ---------------
 DMG_ICON="$SCRIPT_DIR/AudioRouterNow_dmg.icns"
 if [[ -f "$DMG_ICON" ]]; then
     log "Setze DMG-Datei-Icon..."
-    "$VENV_PY" << PYEOF
-import subprocess, sys
-
-dmg_path  = "$DMG_OUTPUT"
-icon_path = "$DMG_ICON"
-
-try:
-    from AppKit import NSWorkspace, NSImage
-    icon  = NSImage.alloc().initWithContentsOfFile_(icon_path)
-    ws    = NSWorkspace.sharedWorkspace()
-    ok_   = ws.setIcon_forFile_options_(icon, dmg_path, 0)
-    print("DMG-Icon gesetzt (AppKit)" if ok_ else "AppKit setIcon gab False zurueck")
-except ImportError:
-    # Fallback: fileicon CLI falls vorhanden
-    result = subprocess.run(["fileicon", "set", dmg_path, icon_path],
-                            capture_output=True, text=True)
-    if result.returncode == 0:
-        print("DMG-Icon gesetzt (fileicon)")
-    else:
-        print(f"Icon konnte nicht gesetzt werden: {result.stderr.strip()}")
-PYEOF
+    # Als eigenstaendiges Script (nicht Heredoc) damit AppKit korrekt initialisiert
+    # KEIN "tell Finder to update" danach — das loescht den kHasCustomIcon-Flag!
+    "$VENV_PY" "$SCRIPT_DIR/set_dmg_icon.py" "$DMG_OUTPUT" "$DMG_ICON"
     ok "DMG-Datei-Icon gesetzt"
 else
     warn "AudioRouterNow_dmg.icns nicht gefunden — Standard-Icon bleibt"
