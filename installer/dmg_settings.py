@@ -14,12 +14,14 @@ Weisse Label-Texte kommen aus dem Hintergrundbild (create_dmg_background.py).
 """
 
 # ── Pfade (via -D defines von build.sh) ──────────────────────────────────────
-_app  = defines.get('app_path',  '')  # noqa: F821  (defines injiziert von dmgbuild)
-_icon = defines.get('icon_path', '')
-_bg   = defines.get('bg_path',   '')
+_app   = defines.get('app_path',   '')  # noqa: F821  (defines injiziert von dmgbuild)
+_icon  = defines.get('icon_path',  '')
+_bg    = defines.get('bg_path',    '')
+_arrow = defines.get('arrow_path', '')
 
 # ── Inhalte -------------------------------------------------------------------
-files    = [_app]
+# Arrow-PNG als '→' (sichtbar, kein Hintergrundbild-Hack noetig)
+files    = [_app] + ([(_arrow, '→.png')] if _arrow else [])
 symlinks = {'Applications': '/Applications'}
 
 # ── Icons --------------------------------------------------------------------
@@ -49,5 +51,6 @@ text_size = 1    # 1pt = unsichtbar; weisse Labels kommen aus dem Hintergrundbil
 # ── Icon-Positionen (Mittelpunkt im Fenster, in Punkten) ---------------------
 icon_locations = {
     'AudioRouterNow.app': (160, 210),
+    '→.png':              (340, 210),   # Pfeil-Icon mittig zwischen App und Applications
     'Applications':       (520, 210),
 }

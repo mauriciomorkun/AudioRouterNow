@@ -126,6 +126,50 @@ def create_background(output_path: Path):
     print(f"Hintergrundbild erstellt: {output_path} ({W}x{H}px @2x)")
 
 
+def create_arrow_icon(output_path: Path):
+    """
+    Erstellt ein standalone Pfeil-Icon fuer das DMG-Fenster.
+    Transparenter Hintergrund → funktioniert auf Dark Mode und Light Mode.
+    Wird als sichtbares File '→' ins DMG eingebettet.
+    """
+    W, H = 400, 400
+    TEAL_A = (0, 190, 165, 220)
+
+    img  = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    # ── "Drag & Drop" Text ────────────────────────────────────────────────────
+    font_label = load_font(56)
+    draw_text_centered(draw, "Drag & Drop", W // 2, 60, font_label, TEAL_A)
+
+    # ── Pfeil → ───────────────────────────────────────────────────────────────
+    LINE_Y   = 260
+    LINE_X1  = 40
+    LINE_X2  = W - 40
+    LINE_W   = 22
+    HEAD_LEN = 90
+    HEAD_H   = 55
+
+    # Linie
+    draw.rectangle(
+        [LINE_X1, LINE_Y - LINE_W // 2, LINE_X2 - HEAD_LEN + 4, LINE_Y + LINE_W // 2],
+        fill=TEAL_A,
+    )
+    # Pfeilspitze
+    draw.polygon(
+        [
+            (LINE_X2,            LINE_Y),
+            (LINE_X2 - HEAD_LEN, LINE_Y - HEAD_H),
+            (LINE_X2 - HEAD_LEN, LINE_Y + HEAD_H),
+        ],
+        fill=TEAL_A,
+    )
+
+    img.save(str(output_path), "PNG")
+    print(f"Pfeil-Icon erstellt: {output_path} ({W}x{H}px RGBA)")
+
+
 if __name__ == "__main__":
-    out = Path(__file__).parent / "dmg_background.png"
-    create_background(out)
+    parent = Path(__file__).parent
+    create_background(parent / "dmg_background.png")
+    create_arrow_icon(parent / "dmg_arrow.png")
