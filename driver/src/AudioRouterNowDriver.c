@@ -177,7 +177,7 @@ static void *ipc_connector_main(void *unused)
             if (fd >= 0) {
                 int expected = -1;
                 if (atomic_compare_exchange_strong(&gSocketFD, &expected, fd)) {
-                    os_log(gLog, "IPC: mit Python Engine verbunden (%s)",
+                    os_log(gLog, "IPC: connected to Python engine (%s)",
                            kSocketPath);
                 } else {
                     close(fd); /* RT-Pfad war schneller — sollte nicht passieren */
@@ -516,7 +516,7 @@ static OSStatus ARN_PerformDeviceConfigurationChange(AudioServerPlugInDriverRef 
 
     /* inChangeAction transportiert die neue Sample-Rate (siehe SetPropertyData). */
     Float64 newRate = (Float64)inChangeAction;
-    if (newRate == 44100.0 || newRate == 48000.0 || newRate == 96000.0) {
+    if (newRate == 48000.0) {
         pthread_mutex_lock(&gStateMutex);
         gSampleRate = newRate;
         struct mach_timebase_info tb;
@@ -712,7 +712,7 @@ static OSStatus ARN_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver,
             size = sizeof(Float64);
             break;
         case kAudioDevicePropertyAvailableNominalSampleRates:
-            size = 3 * sizeof(AudioValueRange);
+            size = 1 * sizeof(AudioValueRange);
             break;
         case kAudioDevicePropertyBufferFrameSizeRange:
             size = sizeof(AudioValueRange);
@@ -742,10 +742,6 @@ static OSStatus ARN_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver,
         case kAudioDevicePropertyZeroTimeStampPeriod:
             size = sizeof(UInt32);
             break;
-        case kAudioDevicePropertyIcon:
-            size = sizeof(CFURLRef);
-            break;
-
         /* --- Stream ---------------------------------------------------- */
         case kAudioStreamPropertyIsActive:
         case kAudioStreamPropertyDirection:
@@ -762,7 +758,7 @@ static OSStatus ARN_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver,
             break;
         case kAudioStreamPropertyAvailableVirtualFormats:
         case kAudioStreamPropertyAvailablePhysicalFormats:
-            size = 3 * sizeof(AudioStreamRangedDescription);
+            size = 1 * sizeof(AudioStreamRangedDescription);
             break;
 
         /* --- Controls (Volume / Mute) ---------------------------------- */
@@ -1099,13 +1095,11 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
             break;
 
         case kAudioDevicePropertyAvailableNominalSampleRates: {
-            if (inDataSize < 3 * sizeof(AudioValueRange))
+            if (inDataSize < 1 * sizeof(AudioValueRange))
                 return kAudioHardwareBadPropertySizeError;
             AudioValueRange *ranges = (AudioValueRange *)outData;
-            ranges[0].mMinimum = 44100.0; ranges[0].mMaximum = 44100.0;
-            ranges[1].mMinimum = 48000.0; ranges[1].mMaximum = 48000.0;
-            ranges[2].mMinimum = 96000.0; ranges[2].mMaximum = 96000.0;
-            written = 3 * sizeof(AudioValueRange);
+            ranges[0].mMinimum = 48000.0; ranges[0].mMaximum = 48000.0;
+            written = 1 * sizeof(AudioValueRange);
             break;
         }
 
@@ -1210,17 +1204,14 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
 
         case kAudioStreamPropertyAvailableVirtualFormats:
         case kAudioStreamPropertyAvailablePhysicalFormats: {
-            if (inDataSize < 3 * sizeof(AudioStreamRangedDescription))
+            if (inDataSize < 1 * sizeof(AudioStreamRangedDescription))
                 return kAudioHardwareBadPropertySizeError;
             AudioStreamRangedDescription *d =
                 (AudioStreamRangedDescription *)outData;
-            const Float64 rates[3] = { 44100.0, 48000.0, 96000.0 };
-            for (int i = 0; i < 3; i++) {
-                FillASBD(&d[i].mFormat, rates[i]);
-                d[i].mSampleRateRange.mMinimum = rates[i];
-                d[i].mSampleRateRange.mMaximum = rates[i];
-            }
-            written = 3 * sizeof(AudioStreamRangedDescription);
+            FillASBD(&d[0].mFormat, 48000.0);
+            d[0].mSampleRateRange.mMinimum = 48000.0;
+            d[0].mSampleRateRange.mMaximum = 48000.0;
+            written = 1 * sizeof(AudioStreamRangedDescription);
             break;
         }
 
@@ -1326,10 +1317,11 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
         case kAudioDevicePropertyNominalSampleRate: {
             if (inObjectID != kObjectID_Device) return kAudioHardwareUnknownPropertyError;
             if (inDataSize < sizeof(Float64))   return kAudioHardwareBadPropertySizeError;
-            Float64 req = *((const Float64 *)inData);
-            if (req != 44100.0 && req != 48000.0 && req != 96000.0) {
-                return kAudioHardwareIllegalOperationError;
+            Float64 requestedRate = *((Float64*)inData);
+            if (requestedRate != 48000.0) {
+                return kAudioHardwareUnsupportedOperationError;
             }
+            Float64 req = requestedRate;
             pthread_mutex_lock(&gStateMutex);
             bool changed = (req != gSampleRate);
             pthread_mutex_unlock(&gStateMutex);
@@ -1350,16 +1342,14 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
                 return kAudioHardwareBadPropertySizeError;
             const AudioStreamBasicDescription *fmt =
                 (const AudioStreamBasicDescription *)inData;
-            /* Nur Float32-Stereo wird akzeptiert; Rate per Config-Change. */
+            /* Nur Float32-Stereo bei 48000 Hz wird akzeptiert. */
             if (fmt->mFormatID != kAudioFormatLinearPCM ||
                 fmt->mChannelsPerFrame != kChannelsPerFrame ||
                 fmt->mBitsPerChannel != kBitsPerChannel) {
                 return kAudioHardwareIllegalOperationError;
             }
-            if (fmt->mSampleRate != 44100.0 &&
-                fmt->mSampleRate != 48000.0 &&
-                fmt->mSampleRate != 96000.0) {
-                return kAudioHardwareIllegalOperationError;
+            if (fmt->mSampleRate != 48000.0) {
+                return kAudioHardwareUnsupportedOperationError;
             }
             pthread_mutex_lock(&gStateMutex);
             bool changed = (fmt->mSampleRate != gSampleRate);
@@ -1393,6 +1383,14 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             pthread_mutex_lock(&gStateMutex);
             gVolume = v;
             pthread_mutex_unlock(&gStateMutex);
+            /* CoreAudio (HUD) ueber Wertaenderung benachrichtigen */
+            if (gPlugInHost != NULL) {
+                AudioObjectPropertyAddress volProps[] = {
+                    { kAudioLevelControlPropertyScalarValue,  kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain },
+                    { kAudioLevelControlPropertyDecibelValue, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain },
+                };
+                gPlugInHost->PropertiesChanged(gPlugInHost, kObjectID_Volume_Output, 2, volProps);
+            }
             return kAudioHardwareNoError;
         }
 
@@ -1406,6 +1404,14 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             pthread_mutex_lock(&gStateMutex);
             gVolume = (db / 96.0f) + 1.0f;
             pthread_mutex_unlock(&gStateMutex);
+            /* CoreAudio (HUD) ueber Wertaenderung benachrichtigen */
+            if (gPlugInHost != NULL) {
+                AudioObjectPropertyAddress volProps[] = {
+                    { kAudioLevelControlPropertyScalarValue,  kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain },
+                    { kAudioLevelControlPropertyDecibelValue, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain },
+                };
+                gPlugInHost->PropertiesChanged(gPlugInHost, kObjectID_Volume_Output, 2, volProps);
+            }
             return kAudioHardwareNoError;
         }
 
@@ -1416,6 +1422,13 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             pthread_mutex_lock(&gStateMutex);
             gMute = (*((const UInt32 *)inData) != 0);
             pthread_mutex_unlock(&gStateMutex);
+            /* CoreAudio (HUD) ueber Mute-Aenderung benachrichtigen */
+            if (gPlugInHost != NULL) {
+                AudioObjectPropertyAddress muteProps[] = {
+                    { kAudioBooleanControlPropertyValue, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain },
+                };
+                gPlugInHost->PropertiesChanged(gPlugInHost, kObjectID_Mute_Output, 1, muteProps);
+            }
             return kAudioHardwareNoError;
         }
 
@@ -1581,14 +1594,23 @@ static OSStatus ARN_DoIOOperation(AudioServerPlugInDriverRef inDriver,
          * damit die Python-Engine ihren Takt behaelt. Volume wird in der
          * Engine angewandt, hier nur Mute-Gate. */
         if (atomic_load_explicit(&gDeviceIsRunning, memory_order_relaxed)) {
-            /* gMute wird ohne Lock gelesen — ein bool, Tearing unkritisch. */
-            if (gMute) {
-                /* In-Place: Puffer ist ohnehin "unser"; Stille rausschicken
-                 * wuerde einen Scratch-Buffer brauchen -> wir senden den
-                 * Originalpuffer trotzdem, Mute betrifft nur lokale Wiedergabe.
-                 * Da dieses Device virtuell ist, gibt es keine lokale
-                 * Wiedergabe; Mute wird daher in der Engine ausgewertet. */
+            /* gVolume und gMute ohne Lock lesen — Float/bool Tearing ist auf
+             * arm64 und x86_64 bei aligned Reads unkritisch. */
+            float vol  = gVolume;
+            bool  mute = gMute;
+
+            if (mute || vol <= 0.0f) {
+                /* Stilles Signal senden — Python-Engine haelt ihren Takt. */
+                memset(ioMainBuffer, 0, byteCount);
+            } else if (vol < 0.999f) {
+                /* Volume-Scaling in-place (Float32-Samples). */
+                float  *samples  = (float *)ioMainBuffer;
+                size_t  nSamples = byteCount / sizeof(float);
+                for (size_t i = 0; i < nSamples; i++) {
+                    samples[i] *= vol;
+                }
             }
+            /* vol >= 0.999f: keine Bearbeitung, unveraendert senden. */
             ipc_send_rt(ioMainBuffer, byteCount);
         }
 

@@ -190,23 +190,26 @@ class DeviceManager:
         removed = old_keys - new_keys
 
         if added or removed:
+            # Capture removed device names BEFORE overwriting _known_devices
+            removed_names = [
+                self._known_devices[i].name
+                for i in removed
+                if i in self._known_devices
+            ]
             self._known_devices = new_devices
             device_list = list(new_devices.values())
 
             if added:
                 names = [new_devices[i].name for i in added]
-                logger.info(f"Neue Audio-Devices erkannt: {', '.join(names)}")
-            if removed:
-                names = [self._known_devices.get(i, AudioDevice(i, f"#{i}", 0, 0.0)).name
-                         for i in removed]
-                logger.info(f"Audio-Devices entfernt: {', '.join(names)}")
+                logger.info("New audio devices detected: %s", ", ".join(names))
+            if removed_names:
+                logger.info("Audio devices removed: %s", ", ".join(removed_names))
 
-            # Callback auserhalb des Locks aufrufen
+            # Invoke callback outside the lock (see _poll_loop)
             if self._on_devices_changed:
-                # Callback wird nach Lock-Freigabe aufgerufen (s. _poll_loop)
                 return device_list
         else:
-            # Keine Aenderung
+            # No change
             self._known_devices = new_devices
 
         return None

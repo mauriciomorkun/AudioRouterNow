@@ -57,7 +57,7 @@ macOS System Audio
 ## Requirements
 
 - macOS 11 (Big Sur) or later
-- Apple Silicon (arm64) — Intel build requires recompiling the HAL driver
+- Apple Silicon (arm64) — Intel Macs are not supported by the prebuilt binary. The entire app must be rebuilt from source (Apple Silicon only).
 
 ---
 
@@ -76,8 +76,8 @@ No Terminal. No restart. No security approval.
 
 1. Click `🎛️` in the menu bar
 2. Check the output devices you want to route to
-3. Click **"System-Audio → Audio Router"** to switch macOS system audio
-4. Click **"Routing starten"**
+3. Click **"System Audio → Audio Router"** to switch macOS system audio
+4. Click **"Start Routing"**
 5. Audio now plays through all selected outputs simultaneously
 
 ---
@@ -88,7 +88,7 @@ AudioRouterNow was built as a complete, license-free replacement:
 
 | | BlackHole | AudioRouterNow |
 |---|---|---|
-| License | GPL-3.0 | MIT / Proprietary |
+| License | GPL-3.0 | MIT |
 | Kernel Extension | Yes | **No** |
 | Security approval | Yes, manual | **No** |
 | System restart | Yes | **No** |
@@ -125,8 +125,7 @@ cd installer && ./build.sh
 # Output: ~/Desktop/AudioRouterNow.dmg
 ```
 
-> The HAL driver must be built before running `build.sh`.  
-> The compiled driver (`driver/build/AudioRouterNow.driver`) is included in the repo for convenience.
+> The HAL driver must be built first — run `make` in the `driver/` directory before running `build.sh`.
 
 ---
 

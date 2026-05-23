@@ -92,7 +92,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="AudioRouterNow.app",
-    icon=None,
+    icon=str(Path(SPECPATH) / "AudioRouterNow.icns"),
     bundle_identifier="com.audiorouter.now",
     version="1.0.0",
     info_plist={
