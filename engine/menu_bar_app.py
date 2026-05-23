@@ -1,35 +1,39 @@
 """
-MenuBarApp — macOS Menu Bar Widget fuer AudioRouterNow.
+MenuBarApp — macOS menu bar widget for AudioRouterNow.
 
-Zeigt Status in der Menueleiste und erlaubt:
-  - Routing starten / stoppen
-  - Output-Devices waehlen (mehrere gleichzeitig moeglich)
-  - System-Audio nativ auf "Audio Router" umschalten (kein externes Tool noetig)
-  - Hot-plug: neue Devices werden automatisch im Menu angezeigt
+Shows status in the menu bar and allows:
+  - Starting / stopping routing
+  - Selecting output devices (multiple simultaneously)
+  - Switching system audio natively to "Audio Router" (no external tools needed)
+  - Hot-plug: new devices appear in the menu automatically
 
-Menu-Struktur:
+Menu structure:
   🎛️ AudioRouterNow
   ─────────────────────────
-  Status: Aktiv / Gestoppt
+  Status: Active / Stopped
   ─────────────────────────
-  ▶ Routing starten / ⏹ stoppen
+  ▶ Start Routing / ⏹ Stop Routing
   ─────────────────────────
-  System-Audio → Audio Router
+  System Audio → Audio Router
   ─────────────────────────
   OUTPUT DEVICES:
     ☑ Komplete Audio 6 — 6ch
-    ☐ MacBook Pro Lautsprecher — 2ch
+    ☐ MacBook Pro Speakers — 2ch
     ...
   ─────────────────────────
-  Beenden
+  Quit
 
-Abhaengigkeiten: rumps, sounddevice, numpy
-Keine externen Tools noetig — System-Audio-Umschaltung via nativen osascript/AppleScript.
+Dependencies: rumps, sounddevice, numpy
+No external tools needed — system audio switching via native CoreAudio API.
 """
 
+import fcntl
 import logging
+import os
 import sys
 import webbrowser
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Dict, List
 
 import rumps
@@ -42,94 +46,105 @@ from socket_receiver import SocketReceiver
 
 logger = logging.getLogger(__name__)
 
-# Name des virtuellen Audio-Devices (muss mit HAL-Treiber uebereinstimmen)
+# Name of the virtual audio device (must match the HAL driver)
 AUDIO_ROUTER_DEVICE_NAME = "Audio Router"
 
 # Donation
 DONATION_URL = "https://www.buymeacoffee.com/mauriciomorkun"
-DONATION_HINT_DELAY = 15  # Sekunden nach erstem erfolgreichem Routing
+DONATION_HINT_DELAY = 15  # seconds after first successful routing
+
+# Single-instance lock
+_LOCK_DIR = Path.home() / ".audiorouter"
+_LOCK_FILE = _LOCK_DIR / "audiorouter.lock"
+_lock_fd = None  # Keep global reference to prevent GC closing the file
 
 
 class AudioRouterApp(rumps.App):
     """
-    Haupt-Applikation: verbindet alle Komponenten und stellt das Menu bereit.
+    Main application: connects all components and provides the menu.
     """
 
     def __init__(self):
         super().__init__("🔇", quit_button=None)
 
-        # Konfiguration laden
+        # Load configuration
         self._config: AppConfig = load_config()
 
-        # Aktive Output-Device-Namen (fuer Toggle-Logik)
+        # Active output device names (for toggle logic)
         self._active_device_names: set = set(self._config.output_device_names)
 
-        # Channel-Offsets pro Device (device_name -> channel_offset)
-        self._device_offsets: Dict[str, int] = dict(self._config.output_device_offsets)
+        # Active channel offsets per device (device_name -> list of active offsets)
+        # Multiple offsets = multiple channel pairs active simultaneously
+        self._device_offsets: Dict[str, List[int]] = {
+            k: list(v) for k, v in self._config.output_device_offsets.items()
+        }
 
-        # --- Komponenten ---
+        # --- Components ---
         self._routing_engine = RoutingEngine(on_status=self._on_routing_status)
         self._socket_receiver = SocketReceiver(on_frames=self._routing_engine.on_frames)
         self._device_manager = DeviceManager(on_devices_changed=self._on_devices_changed)
 
-        # --- Menu-Items ---
-        self._status_item = rumps.MenuItem("⚫ Gestoppt")
+        # --- Menu items ---
+        self._status_item = rumps.MenuItem("⚫ Stopped")
         self._status_item.set_callback(None)
 
         self._toggle_btn = rumps.MenuItem(
-            "▶  Routing starten", callback=self._toggle_routing
+            "▶  Start Routing", callback=self._toggle_routing
         )
 
         self._switch_audio_btn = rumps.MenuItem(
-            "System-Audio → Audio Router", callback=self._switch_system_audio
+            "System Audio → Audio Router", callback=self._switch_system_audio
         )
 
         self._output_header = rumps.MenuItem("OUTPUT DEVICES:")
         self._output_header.set_callback(None)
 
-        self._quit_btn = rumps.MenuItem("Beenden", callback=self._quit_app)
+        self._quit_btn = rumps.MenuItem("Quit", callback=self._quit_app)
 
-        # Donation-Menu-Items
+        # Donation menu items
         self._donation_btn = rumps.MenuItem(
             "☕  Support AudioRouterNow", callback=self._open_donation
         )
         self._donation_footer = rumps.MenuItem("Made with ♥ by Mauricio · free forever")
         self._donation_footer.set_callback(None)
 
-        # Device-Menu-Items (werden dynamisch befuellt)
+        # Device menu items (populated dynamically)
         self._device_menu_items: Dict[str, rumps.MenuItem] = {}
 
-        # --- Thread-sichere Update-Flags ---
-        # rumps.Timer funktioniert nur im Haupt-Thread.
-        # Hintergrund-Threads (DeviceManager, RoutingEngine) setzen nur Flags —
-        # ein einziger Haupt-Thread-Timer liest sie aus.
+        # --- Thread-safe update flags ---
+        # rumps.Timer only works on the main thread.
+        # Background threads (DeviceManager, RoutingEngine) only set flags —
+        # a single main-thread timer reads them.
         self._pending_status: tuple | None = None
         self._device_update_pending: bool = False
-        self._donation_hint_at: float | None = None  # timestamp wenn zu zeigen
+        self._donation_hint_at: float | None = None  # timestamp when to show
 
-        # Haupt-Thread UI-Update-Timer (alle 0.25s — liest pending Flags)
+        # Main-thread UI update timer (every 0.25s — reads pending flags)
         self._ui_timer = rumps.Timer(self._process_pending_updates, 0.25)
         self._ui_timer.start()
 
-        # Komponenten starten
-        self._device_manager.start()   # Befüllt _known_devices via _scan_devices()
+        # Start components
+        self._device_manager.start()   # Populates _known_devices via _scan_devices()
         self._socket_receiver.start()
 
-        # Menu aufbauen + gespeicherte Devices wiederherstellen
-        # (NACH start() — damit _known_devices bereits befüllt ist)
+        # Build menu + restore saved devices
+        # (AFTER start() — so _known_devices is already populated)
         self._restore_saved_outputs()
 
+        # Auto-start: begin routing immediately if saved devices exist
+        self._auto_start_if_configured()
+
     # ------------------------------------------------------------------
-    # Menu aufbauen
+    # Menu building
     # ------------------------------------------------------------------
 
     def _build_menu(self):
-        """Baut das komplette Menu neu auf."""
+        """Rebuilds the entire menu from scratch."""
         self.menu.clear()
 
         items = [
             self._status_item,
-            None,  # Trennlinie
+            None,  # separator
             self._toggle_btn,
             None,
             self._switch_audio_btn,
@@ -137,7 +152,7 @@ class AudioRouterApp(rumps.App):
             self._output_header,
         ]
 
-        # Aktuell bekannte Devices hinzufuegen
+        # Add currently known devices
         devices = self._device_manager.get_output_devices()
         self._device_menu_items.clear()
 
@@ -147,7 +162,7 @@ class AudioRouterApp(rumps.App):
             items.append(item)
 
         if not devices:
-            no_dev = rumps.MenuItem("  (keine Devices gefunden)")
+            no_dev = rumps.MenuItem("  (no devices found)")
             no_dev.set_callback(None)
             items.append(no_dev)
 
@@ -162,11 +177,11 @@ class AudioRouterApp(rumps.App):
         self.menu = items
 
     def _make_device_menu_item(self, device: AudioDevice) -> rumps.MenuItem:
-        """Erstellt ein Menu-Item fuer ein Output-Device."""
+        """Creates a menu item for an output device."""
         is_active = device.name in self._active_device_names
 
         if device.max_output_channels <= 2:
-            # Simple 2-channel device: no submenu, behavior unchanged
+            # Simple stereo device: no submenu
             checkmark = "☑" if is_active else "☐"
             title = f"{checkmark}  {device.name} — {device.max_output_channels}ch"
             item = rumps.MenuItem(
@@ -175,28 +190,33 @@ class AudioRouterApp(rumps.App):
             )
             return item
 
-        # Multi-channel device: show active pair in title + submenu for pair selection
-        current_offset = self._device_offsets.get(device.name, 0)
-        checkmark = "☑" if is_active else "☐"
-        title = (
-            f"{checkmark}  {device.name} — "
-            f"Ch {current_offset + 1}-{current_offset + 2}"
-        )
+        # Multi-channel device: title shows active pairs, submenu allows multi-select
+        active_offsets = self._device_offsets.get(device.name, [])
+        checkmark = "☑" if is_active and active_offsets else "☐"
+
+        if is_active and active_offsets:
+            pairs_str = ", ".join(
+                f"Ch {o + 1}-{o + 2}" for o in sorted(active_offsets)
+            )
+            title = f"{checkmark}  {device.name} — {pairs_str}"
+        else:
+            title = f"{checkmark}  {device.name} — {device.max_output_channels}ch"
+
         item = rumps.MenuItem(
             title,
             callback=lambda sender, d=device: self._toggle_device(sender, d),
         )
 
-        # Build submenu: one entry per stereo pair
+        # Submenu: one entry per stereo pair, each independently toggleable
         num_pairs = device.max_output_channels // 2
         for pair_idx in range(num_pairs):
             offset = pair_idx * 2
             pair_label = f"Ch {offset + 1}-{offset + 2}"
-            selected = (offset == current_offset) and is_active
+            selected = (offset in active_offsets) and is_active
             pair_mark = "☑" if selected else "☐"
             sub_item = rumps.MenuItem(
                 f"{pair_mark}  {pair_label}",
-                callback=lambda sender, d=device, o=offset: self._select_channel_pair(sender, d, o),
+                callback=lambda sender, d=device, o=offset: self._toggle_channel_pair(sender, d, o),
             )
             item[pair_label] = sub_item
 
@@ -207,73 +227,70 @@ class AudioRouterApp(rumps.App):
     # ------------------------------------------------------------------
 
     def _toggle_routing(self, sender):
-        """Startet oder stoppt das Routing."""
+        """Starts or stops routing."""
         if self._routing_engine.is_running:
             self._routing_engine.stop()
             self._socket_receiver.stop()
         else:
-            # Ausgaenge konfigurieren bevor gestartet wird
+            # Configure outputs before starting
             self._apply_active_outputs()
             self._socket_receiver.start()
-            # System-Audio automatisch auf "Audio Router" setzen
+            # Automatically switch system audio to "Audio Router"
             set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
             success = self._routing_engine.start()
             if not success:
                 rumps.alert(
-                    title="AudioRouterNow — Kein Ausgabegeraet",
+                    title="AudioRouterNow — No Output Device",
                     message=(
-                        "Bitte zuerst ein Ausgabegeraet auswaehlen:\n\n"
-                        "Klicke auf ein Geraet in der OUTPUT-DEVICES-Liste "
-                        "um es mit ☑ zu markieren, dann 'Routing starten'."
+                        "Please select an output device first:\n\n"
+                        "Click a device in the OUTPUT DEVICES list "
+                        "to check it with ☑, then click 'Start Routing'."
                     ),
                 )
 
     def _toggle_device(self, sender, device: AudioDevice):
-        """Schaltet ein Output-Device an oder aus."""
+        """Toggles an output device on or off (main checkbox)."""
         if device.name in self._active_device_names:
+            # Deactivate: remove all channel pairs
             self._active_device_names.discard(device.name)
+            self._device_offsets.pop(device.name, None)
         else:
+            # Activate: pre-select default Ch 1-2 (offset 0)
             self._active_device_names.add(device.name)
+            if device.max_output_channels > 2:
+                self._device_offsets[device.name] = [0]
 
-        # Menu-Item aktualisieren
-        is_active = device.name in self._active_device_names
-        checkmark = "☑" if is_active else "☐"
-        if device.max_output_channels <= 2:
-            sender.title = f"{checkmark}  {device.name} — {device.max_output_channels}ch"
-        else:
-            current_offset = self._device_offsets.get(device.name, 0)
-            sender.title = (
-                f"{checkmark}  {device.name} — "
-                f"Ch {current_offset + 1}-{current_offset + 2}"
-            )
-
-        # Engine neu konfigurieren
-        self._apply_active_outputs()
-
-        # Konfiguration speichern
-        self._config.output_device_offsets = dict(self._device_offsets)
-        self._config.output_device_names = list(self._active_device_names)
-        save_config(self._config)
-
-    def _select_channel_pair(self, sender, device: AudioDevice, offset: int):
-        """Aktiviert ein Device und setzt das Kanal-Paar (channel_offset)."""
-        # Activate device
-        self._active_device_names.add(device.name)
-        # Set channel offset
-        self._device_offsets[device.name] = offset
-        # Update config
-        self._config.output_device_offsets = dict(self._device_offsets)
-        self._config.output_device_names = list(self._active_device_names)
-        save_config(self._config)
-        # Rebuild menu to reflect changes
+        self._save_and_apply()
         self._build_menu()
-        # Reconfigure routing
-        self._apply_active_outputs()
+
+    def _toggle_channel_pair(self, sender, device: AudioDevice, offset: int):
+        """
+        Toggles a single channel pair on or off (submenu checkbox).
+        Multiple pairs can be active simultaneously.
+        """
+        offsets = self._device_offsets.get(device.name, [])
+
+        if offset in offsets:
+            offsets = [o for o in offsets if o != offset]
+        else:
+            offsets = sorted(offsets + [offset])
+
+        if offsets:
+            # At least one pair active → device active
+            self._device_offsets[device.name] = offsets
+            self._active_device_names.add(device.name)
+        else:
+            # No pairs active → deactivate device
+            self._device_offsets.pop(device.name, None)
+            self._active_device_names.discard(device.name)
+
+        self._save_and_apply()
+        self._build_menu()
 
     def _switch_system_audio(self, sender):
         """
-        Setzt macOS System-Audio-Ausgang auf 'Audio Router' via CoreAudio API.
-        Funktioniert auf allen macOS-Versionen ohne AppleScript oder externe Tools.
+        Sets the macOS system audio output to 'Audio Router' via CoreAudio API.
+        Works on all macOS versions without AppleScript or external tools.
         """
         success, error_msg = set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
 
@@ -281,22 +298,22 @@ class AudioRouterApp(rumps.App):
             rumps.notification(
                 title="AudioRouterNow",
                 subtitle="",
-                message="System-Audio wurde auf 'Audio Router' umgestellt.",
+                message="System audio switched to 'Audio Router'.",
             )
         else:
             rumps.alert(
-                title="Fehler beim Umschalten",
+                title="AudioRouterNow — Switch Failed",
                 message=(
-                    f"System-Audio konnte nicht umgestellt werden:\n\n{error_msg}"
+                    f"Could not switch system audio:\n\n{error_msg}"
                 ),
             )
 
     def _open_donation(self, sender):
-        """Oeffnet die Buy Me a Coffee Seite im Browser."""
+        """Opens the Buy Me a Coffee page in the browser."""
         webbrowser.open(DONATION_URL)
 
     def _quit_app(self, sender):
-        """Stoppt alle Komponenten und beendet die Applikation."""
+        """Stops all components and exits the application."""
         self._ui_timer.stop()
         self._routing_engine.stop()
         self._socket_receiver.stop()
@@ -305,18 +322,18 @@ class AudioRouterApp(rumps.App):
         rumps.quit_application()
 
     # ------------------------------------------------------------------
-    # Status-Callbacks von Komponenten
+    # Status callbacks from components
     # ------------------------------------------------------------------
 
     def _on_routing_status(self, is_running: bool, message: str):
         """
-        Wird vom RoutingEngine-Thread aufgerufen — setzt nur ein Flag.
-        Der Haupt-Thread-Timer (_ui_timer) verarbeitet es thread-sicher.
+        Called by the RoutingEngine thread — sets a flag only.
+        The main-thread timer (_ui_timer) processes it in a thread-safe manner.
         """
         import time
         self._pending_status = (is_running, message)
 
-        # Donation-Hint: Timestamp merken, Haupt-Thread zeigt es spaeter
+        # Donation hint: record timestamp, main thread shows it later
         if is_running and not self._config.donation_hint_shown:
             self._config.donation_hint_shown = True
             save_config(self._config)
@@ -324,38 +341,38 @@ class AudioRouterApp(rumps.App):
 
     def _on_devices_changed(self, new_devices: list):
         """
-        Wird vom DeviceManager-Thread aufgerufen — setzt nur ein Flag.
-        Der Haupt-Thread-Timer (_ui_timer) baut das Menu neu auf.
+        Called by the DeviceManager thread — sets a flag only.
+        The main-thread timer (_ui_timer) rebuilds the menu.
         """
         self._device_update_pending = True
 
     def _process_pending_updates(self, timer):
         """
-        Laeuft alle 0.25s im Haupt-Thread (MacOS Main RunLoop).
-        Verarbeitet alle pending Updates von Hintergrund-Threads thread-sicher.
+        Runs every 0.25s on the main thread (macOS main run loop).
+        Processes all pending updates from background threads in a thread-safe way.
         """
         import time
 
-        # Device-Liste aktualisieren
+        # Refresh device list if needed
         if self._device_update_pending:
             self._device_update_pending = False
             self._build_menu()
 
-        # Routing-Status aktualisieren
+        # Update routing status
         status = self._pending_status
         if status is not None:
             self._pending_status = None
             is_running, _ = status
             if is_running:
                 self.title = "🎛️"
-                self._toggle_btn.title = "⏹  Routing stoppen"
-                self._status_item.title = "🟢 Aktiv"
+                self._toggle_btn.title = "⏹  Stop Routing"
+                self._status_item.title = "🟢 Active"
             else:
                 self.title = "🔇"
-                self._toggle_btn.title = "▶  Routing starten"
-                self._status_item.title = "⚫ Gestoppt"
+                self._toggle_btn.title = "▶  Start Routing"
+                self._status_item.title = "⚫ Stopped"
 
-        # Donation-Hint anzeigen (einmalig, nach Delay)
+        # Show donation hint once, after delay
         hint_at = self._donation_hint_at
         if hint_at is not None and time.monotonic() >= hint_at:
             self._donation_hint_at = None
@@ -370,57 +387,149 @@ class AudioRouterApp(rumps.App):
             )
 
     # ------------------------------------------------------------------
-    # Interne Hilfsmethoden
+    # Internal helpers
     # ------------------------------------------------------------------
 
     def _apply_active_outputs(self):
         """
-        Konfiguriert die RoutingEngine anhand der aktiven Device-Namen.
-        Loest Device-Namen zu aktuellen Indizes auf.
+        Configures the RoutingEngine based on the active device names.
+        Creates one OutputTarget per active channel pair per device.
         """
         devices = self._device_manager.get_output_devices()
         targets: List[OutputTarget] = []
 
         for device in devices:
-            if device.name in self._active_device_names:
+            if device.name not in self._active_device_names:
+                continue
+
+            if device.max_output_channels <= 2:
+                # Simple stereo device: one target, no offset
                 targets.append(
                     OutputTarget(
                         device_index=device.index,
                         device_name=device.name,
                         channel_count=device.max_output_channels,
-                        channel_offset=self._device_offsets.get(device.name, 0),
+                        channel_offset=0,
                     )
                 )
+            else:
+                # Multi-channel: one target per active channel pair
+                offsets = self._device_offsets.get(device.name, [0])
+                for offset in offsets:
+                    targets.append(
+                        OutputTarget(
+                            device_index=device.index,
+                            device_name=f"{device.name} Ch {offset + 1}-{offset + 2}",
+                            channel_count=device.max_output_channels,
+                            channel_offset=offset,
+                        )
+                    )
 
         self._routing_engine.set_outputs(targets)
 
         if targets:
             names = ", ".join(t.device_name for t in targets)
-            logger.info(f"Aktive Outputs: {names}")
+            logger.info("Active outputs: %s", names)
         else:
-            logger.info("Keine Outputs konfiguriert")
+            logger.info("No outputs configured")
+
+    def _auto_start_if_configured(self):
+        """
+        Automatically starts routing on app launch if output devices were
+        previously selected and saved.
+
+        Condition: at least one active device in _active_device_names
+        (populated by _restore_saved_outputs).
+        """
+        if not self._active_device_names:
+            logger.info("Auto-start: no saved devices — waiting for manual selection")
+            return
+
+        logger.info("Auto-start: starting routing with: %s", ", ".join(self._active_device_names))
+
+        # Switch system audio to "Audio Router"
+        set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
+
+        # Configure outputs and start routing
+        self._apply_active_outputs()
+        success = self._routing_engine.start()
+
+        if not success:
+            logger.warning("Auto-start: routing could not be started")
+
+    def _save_and_apply(self):
+        """Saves the current selection and reconfigures the RoutingEngine."""
+        self._config.output_device_offsets = {
+            k: list(v) for k, v in self._device_offsets.items()
+        }
+        self._config.output_device_names = list(self._active_device_names)
+        save_config(self._config)
+        self._apply_active_outputs()
 
     def _restore_saved_outputs(self):
         """
-        Stellt gespeicherte Output-Devices beim Start wieder her.
-        Sucht Devices anhand des gespeicherten Namens (Substring-Matching).
-        Baut das Menu immer neu auf — auch auf Fresh Install ohne gespeicherte Devices.
+        Restores saved output devices on startup.
+        Looks up devices by saved name (substring matching).
+        Always rebuilds the menu — even on a fresh install with no saved devices.
         """
         if self._config.output_device_names:
             restored = self._device_manager.get_devices_by_names(
                 self._config.output_device_names
             )
-            # Aktive Devices auf die gefundenen setzen
+            # Set active devices to those found
             self._active_device_names = {d.name for d in restored}
-            # Channel-Offsets wiederherstellen
-            self._device_offsets = dict(self._config.output_device_offsets)
+            # Restore channel offsets (Dict[str, List[int]])
+            self._device_offsets = {
+                k: list(v) for k, v in self._config.output_device_offsets.items()
+            }
 
             if restored:
                 names = ", ".join(d.name for d in restored)
-                logger.info(f"Output-Devices aus Konfiguration wiederhergestellt: {names}")
+                logger.info("Output devices restored from config: %s", names)
 
-        # Menu immer aufbauen (zeigt alle bekannten Devices, auch ohne gespeicherte Auswahl)
+        # Always build the menu (shows all known devices, even without saved selection)
         self._build_menu()
+
+
+def _acquire_instance_lock() -> None:
+    """
+    Ensures only one instance of AudioRouterNow runs at a time.
+    Uses an exclusive file lock on ~/.audiorouter/audiorouter.lock.
+    Exits with a user-visible alert if another instance is already running.
+    """
+    global _lock_fd
+    _LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        _lock_fd = open(_LOCK_FILE, "w")
+        fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_fd.write(str(os.getpid()))
+        _lock_fd.flush()
+    except IOError:
+        rumps.alert(
+            title="AudioRouterNow",
+            message="AudioRouterNow is already running. Check the menu bar icon.",
+        )
+        sys.exit(0)
+
+
+def _setup_file_logging() -> None:
+    """
+    Adds a rotating file handler to the root logger.
+    Logs are written to ~/.audiorouter/logs/audiorouter.log (max 5 MB × 3 files).
+    """
+    log_dir = Path.home() / ".audiorouter" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    file_handler = RotatingFileHandler(
+        log_dir / "audiorouter.log",
+        maxBytes=5 * 1024 * 1024,  # 5 MB
+        backupCount=3,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(name)-20s %(levelname)-8s %(message)s")
+    )
+    logging.getLogger().addHandler(file_handler)
 
 
 def main():
@@ -429,7 +538,13 @@ def main():
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
 
-    # Erster Start: HAL-Treiber pruefen und ggf. installieren
+    # Set up file logging before anything else
+    _setup_file_logging()
+
+    # Ensure only one instance runs
+    _acquire_instance_lock()
+
+    # First launch: check and install HAL driver if needed
     from first_launch import check_and_install
     if not check_and_install():
         sys.exit(1)

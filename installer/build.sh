@@ -74,9 +74,9 @@ log "Installiere App-Dependencies..."
 "$VENV_PIP" install --quiet -r "$ENGINE_DIR/requirements.txt"
 ok "App-Dependencies installiert"
 
-# PyInstaller + Pillow (fuer DMG-Hintergrundbild) installieren
+# PyInstaller + Pillow + dmgbuild installieren
 log "Installiere PyInstaller + Build-Tools..."
-"$VENV_PIP" install --quiet "pyinstaller>=6.0" "Pillow>=10.0"
+"$VENV_PIP" install --quiet "pyinstaller>=6.0" "Pillow>=10.0" "dmgbuild>=1.6"
 PYINSTALLER="$VENV_DIR/bin/pyinstaller"
 ok "PyInstaller: $($PYINSTALLER --version)"
 
@@ -142,85 +142,59 @@ ok "Ad-hoc signiert (Entitlements: library-validation deaktiviert)"
 # --- DMG-Hintergrundbild generieren ------------------------------------------
 log "Erstelle DMG-Hintergrundbild..."
 BACKGROUND_PNG="$SCRIPT_DIR/dmg_background.png"
-"$VENV_PY" "$SCRIPT_DIR/create_dmg_background.py" && ok "Hintergrundbild erstellt" || warn "Hintergrundbild fehlgeschlagen — DMG ohne Hintergrund"
+"$VENV_PY" "$SCRIPT_DIR/create_dmg_background.py" && ok "Hintergrundbild erstellt" || warn "Hintergrundbild fehlgeschlagen"
 
 # --- DMG erstellen -----------------------------------------------------------
-log "Erstelle DMG mit Installer-Hintergrund..."
+log "Erstelle DMG mit dmgbuild..."
 
 # Alte Artefakte aufraumen
 [[ -f "$DMG_OUTPUT" ]] && rm -f "$DMG_OUTPUT"
-RW_DMG="/tmp/${APP_NAME}_rw.dmg"
-[[ -f "$RW_DMG"  ]] && rm -f "$RW_DMG"
 
-# Staging: App + Applications-Symlink + versteckter Hintergrundordner
-rm -rf "$STAGING_DIR"
-mkdir -p "$STAGING_DIR/.background"
-cp -r "$APP_PATH" "$STAGING_DIR/"
-ln -s /Applications "$STAGING_DIR/Applications"
-
-if [[ -f "$BACKGROUND_PNG" ]]; then
-    cp "$BACKGROUND_PNG" "$STAGING_DIR/.background/background.png"
-    HAS_BACKGROUND=true
-else
-    HAS_BACKGROUND=false
-fi
-
-# Schritt 1: Read-Write DMG erstellen
-hdiutil create \
-    -volname "$APP_NAME" \
-    -srcfolder "$STAGING_DIR" \
-    -ov \
-    -format UDRW \
-    -o "$RW_DMG" \
-    > /dev/null
-
-# Schritt 2: Mounten
-MOUNT_DIR="/Volumes/$APP_NAME"
-[[ -d "$MOUNT_DIR" ]] && hdiutil detach "$MOUNT_DIR" -quiet > /dev/null 2>&1 || true
-hdiutil attach "$RW_DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
-sleep 2
-
-# Schritt 3: Fenster-Layout + Hintergrund via AppleScript
-if [[ "$HAS_BACKGROUND" == true ]]; then
-    osascript << 'APPLESCRIPT'
-tell application "Finder"
-    tell disk "AudioRouterNow"
-        open
-        set current view of container window to icon view
-        set toolbar visible of container window to false
-        set statusbar visible of container window to false
-        set the bounds of container window to {200, 120, 820, 520}
-        set theViewOptions to the icon view options of container window
-        set arrangement of theViewOptions to not arranged
-        set icon size of theViewOptions to 100
-        set background picture of theViewOptions to file ".background:background.png"
-        set position of item "AudioRouterNow" of container window to {160, 185}
-        set position of item "Applications" of container window to {460, 185}
-        close
-        open
-        update without registering applications
-        delay 2
-        close
-    end tell
-end tell
-APPLESCRIPT
-    ok "Fenster-Layout gesetzt"
-else
-    warn "Kein Hintergrundbild — einfaches Layout"
-fi
-
-# Schritt 4: Aushaengen + in komprimiertes UDZO konvertieren
-sleep 1
-hdiutil detach "$MOUNT_DIR" -quiet
-hdiutil convert "$RW_DMG" -format UDZO -o "$DMG_OUTPUT" > /dev/null
-rm -f "$RW_DMG"
-
-# Aufraumen
-rm -rf "$STAGING_DIR"
+# dmgbuild schreibt DS_Store direkt (kein AppleScript noetig):
+# - Hintergrundbild, Icon-Positionen, text size 1 (unsichtbar)
+# - Weisse Labels kommen aus dem Hintergrundbild (create_dmg_background.py)
+# - Volume-Icon (AudioRouterNow.icns)
+"$VENV_DIR/bin/dmgbuild" \
+    -s "$SCRIPT_DIR/dmg_settings.py" \
+    -D "app_path=$APP_PATH" \
+    -D "icon_path=$SCRIPT_DIR/AudioRouterNow.icns" \
+    -D "bg_path=$BACKGROUND_PNG" \
+    "$APP_NAME" \
+    "$DMG_OUTPUT"
 
 [[ -f "$DMG_OUTPUT" ]] || fail "DMG wurde nicht erstellt."
 DMG_SIZE=$(du -sh "$DMG_OUTPUT" | cut -f1)
 ok "DMG erstellt: $DMG_OUTPUT ($DMG_SIZE)"
+
+# --- DMG-Datei-Icon setzen (Finder-Icon der .dmg-Datei selbst) ---------------
+DMG_ICON="$SCRIPT_DIR/AudioRouterNow_dmg.icns"
+if [[ -f "$DMG_ICON" ]]; then
+    log "Setze DMG-Datei-Icon..."
+    "$VENV_PY" << PYEOF
+import subprocess, sys
+
+dmg_path  = "$DMG_OUTPUT"
+icon_path = "$DMG_ICON"
+
+try:
+    from AppKit import NSWorkspace, NSImage
+    icon  = NSImage.alloc().initWithContentsOfFile_(icon_path)
+    ws    = NSWorkspace.sharedWorkspace()
+    ok_   = ws.setIcon_forFile_options_(icon, dmg_path, 0)
+    print("DMG-Icon gesetzt (AppKit)" if ok_ else "AppKit setIcon gab False zurueck")
+except ImportError:
+    # Fallback: fileicon CLI falls vorhanden
+    result = subprocess.run(["fileicon", "set", dmg_path, icon_path],
+                            capture_output=True, text=True)
+    if result.returncode == 0:
+        print("DMG-Icon gesetzt (fileicon)")
+    else:
+        print(f"Icon konnte nicht gesetzt werden: {result.stderr.strip()}")
+PYEOF
+    ok "DMG-Datei-Icon gesetzt"
+else
+    warn "AudioRouterNow_dmg.icns nicht gefunden — Standard-Icon bleibt"
+fi
 
 # --- Fertig ------------------------------------------------------------------
 echo ""
