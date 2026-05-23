@@ -34,20 +34,30 @@ class AppConfig:
     buffer_size: int = 512
     # Donation-Hinweis: wird einmalig nach erstem erfolgreichen Routing gezeigt
     donation_hint_shown: bool = False
-    # Channel-Offsets pro Device: device_name -> channel_offset (0 = Ch 1-2, 2 = Ch 3-4, ...)
-    output_device_offsets: Dict[str, int] = field(default_factory=dict)
+    # Channel-Offsets pro Device: device_name -> Liste aktiver Offsets
+    # (0 = Ch 1-2, 2 = Ch 3-4, 4 = Ch 5-6, ...)
+    # Mehrere Offsets = mehrere Kanal-Paare gleichzeitig aktiv
+    output_device_offsets: Dict[str, List[int]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "AppConfig":
+        # Migration: altes Format war Dict[str, int], neues ist Dict[str, List[int]]
+        raw_offsets = data.get("output_device_offsets", {})
+        offsets: Dict[str, List[int]] = {}
+        for k, v in raw_offsets.items():
+            if isinstance(v, list):
+                offsets[k] = [int(x) for x in v]
+            else:
+                offsets[k] = [int(v)]   # altes Single-Int-Format migrieren
         return cls(
             output_device_names=data.get("output_device_names", []),
             sample_rate=int(data.get("sample_rate", 48000)),
             buffer_size=int(data.get("buffer_size", 512)),
             donation_hint_shown=bool(data.get("donation_hint_shown", False)),
-            output_device_offsets=dict(data.get("output_device_offsets", {})),
+            output_device_offsets=offsets,
         )
 
 
