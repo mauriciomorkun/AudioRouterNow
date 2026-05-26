@@ -16,9 +16,10 @@ Architektur:
 Performance-Optimierungen:
   - Thread-Prioritaet: QOS_CLASS_USER_INTERACTIVE via ctypes (macOS)
     → verhindert GIL-Starvation unter CPU-Last
-  - Pre-allokierter numpy-Array (FRAMES_PER_BLOCK, CHANNELS) wird
-    wiederverwendet → 0 Heap-Allokationen im Empfangs-Hot-Path
-  - recv_buffer als feste memoryview — kein bytearray-Slicing
+  - recv_into() mit fester memoryview statt bytearray.extend()
+    → kein Puffer-Allokations-Overhead im Receive-Pfad
+  - Pro Frame wird eine Kopie erstellt (.copy()) — zwingend noetig,
+    da die RoutingEngine die Referenz in eine Queue legt (kein Data-Race)
 """
 
 import ctypes
@@ -83,12 +84,6 @@ class SocketReceiver:
         # Referenz auf den Server-Socket fuer sauberes Shutdown
         self._server_socket: Optional[socket.socket] = None
 
-        # Pre-allokierter Ausgabe-Array — wird pro Frame wiederverwendet.
-        # np.frombuffer + copy entfaellt vollstaendig: raw bytes werden
-        # direkt in diesen Array geschrieben (np.copyto aus memoryview).
-        self._frame_buf: np.ndarray = np.zeros(
-            (FRAMES_PER_BLOCK, CHANNELS), dtype=np.float32
-        )
 
     def start(self):
         """Startet den Socket-Server in einem Hintergrund-Thread."""
@@ -190,9 +185,9 @@ class SocketReceiver:
         """
         Empfangs-Loop fuer eine aktive Treiber-Verbindung.
 
-        Liest genau BLOCK_SIZE_BYTES (4096 Bytes) per recv_into() direkt
-        in den pre-allokierten numpy-Buffer — keine Heap-Allokation im
-        Hot-Path. Bei Verbindungsabbruch oder Fehler wird der Loop beendet.
+        Liest genau BLOCK_SIZE_BYTES (4096 Bytes) per recv_into() in einen
+        festen Staging-Buffer, erstellt dann eine unabhaengige Kopie fuer
+        die RoutingEngine-Queue. Bei Verbindungsabbruch wird der Loop beendet.
         """
         conn.settimeout(2.0)
 
@@ -220,20 +215,19 @@ class SocketReceiver:
                         return  # Treiber hat Verbindung geschlossen
                     bytes_in += n
 
-                # Vollstaendigen Block in pre-allokierten numpy-Array kopieren.
-                # np.frombuffer(mv, ...) erzeugt eine view (kein Copy);
-                # np.copyto schreibt sie zero-copy in self._frame_buf.
-                np.copyto(
-                    self._frame_buf,
-                    np.frombuffer(mv, dtype=np.float32).reshape(
-                        FRAMES_PER_BLOCK, CHANNELS
-                    ),
-                )
-                bytes_in = 0  # Buffer zuruecksetzen — keine Allokation
+                # Vollstaendigen Block in einen neuen unabhaengigen Array kopieren.
+                # .copy() ist zwingend: die RoutingEngine legt die Referenz in
+                # eine Queue; wuerde mv/raw_buf wiederverwendet, ueberschreibt
+                # der naechste recv_into()-Aufruf den noch-gequeueten Frame
+                # (Data-Race → Glitches / korruptes Audio).
+                frames   = np.frombuffer(mv, dtype=np.float32,
+                                         count=FRAMES_PER_BLOCK * CHANNELS
+                                         ).reshape(FRAMES_PER_BLOCK, CHANNELS).copy()
+                bytes_in = 0  # Buffer-Position zuruecksetzen
 
                 # Callback aufrufen (RoutingEngine)
                 try:
-                    self._on_frames(self._frame_buf)
+                    self._on_frames(frames)
                 except Exception as e:
                     logger.error(f"Fehler im Frame-Callback: {e}")
 
