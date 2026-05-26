@@ -337,28 +337,243 @@ Python sitzt im Audio-Datenpfad zwischen zwei CoreAudio-Stacks. Python-Threads s
 
 ---
 
-## 14. Geplante Architektur v2.0 — C-natives Routing
+## 14. Architektur v2.0 — C-natives Routing (vollständiger Plan)
 
-> Plan wird via SuperClaude-Analyse erstellt. Dieser Abschnitt wird nach der Analyse befüllt.
+> Analysiert und ausgearbeitet: 26.05.2026
+> Status: **Dokumentiert, bereit zur Implementierung**
 
-### Kern-Idee
-Den Python-Routing-Hot-Path eliminieren. Der Treiber empfängt Audio von CoreAudio
-und routet es direkt an die Ausgabe-Devices — vollständig in C, ohne Unix Socket,
-ohne Python-GIL.
+---
 
-Python bleibt für: Menubar-UI, Device-Picker, Konfigurations-Speicherung.
-IPC wird nur noch für Konfiguration (Ziel-Devices) genutzt, nicht für Audio.
+### 14.1 Kern-Erkenntnis: Was NICHT geht
 
-### Audio-Flow v2.0 (geplant)
+**Der HAL-Plugin kann NICHT selbst CoreAudio-Client sein.**
+
+Ein AudioServerPlugin läuft als In-Process-Server innerhalb von `coreaudiod`.
+Wenn es selbst `AudioDeviceCreateIOProcID` oder `AudioDeviceStart` aufruft,
+versucht es denselben internen HAL-Lock zweimal zu nehmen → Deadlock.
+Apple verbietet das explizit (AudioServerPlugin.h, TN2091, WWDC 2013 Session 602).
+
+Kein bekanntes HAL-Plugin (BlackHole, Soundflower, Loopback, RogueAmoeba ACE)
+macht das. Alle nutzen externe Prozesse für Audio-Routing.
+
+**Gleiches gilt für AudioQueue und alle anderen CoreAudio-Client-APIs.**
+
+---
+
+### 14.2 Was BlackHole macht (und warum es unser Problem nicht löst)
+
+BlackHole ist reines Loopback — kein Router:
+- `DoIOOperation/WriteMix`: schreibt Frames in einen prozessinternen Ring-Buffer in coreaudiod
+- `DoIOOperation/ReadInput`: liest aus demselben Ring-Buffer
+- Audio fließt von App-A (Output auf BlackHole) → BlackHole → App-B (Input von BlackHole, z.B. DAW)
+- BlackHole routet NICHT selbst an Hardware — das übernimmt der externe Client (DAW, oder v1: Python)
+
+v1 von AudioRouterNow nutzte BlackHole genau so: BlackHole = virtueller Output, Python = Client
+der BlackHole-Input liest und an Hardware schickt. Ohne externen Client ist BlackHole stumm.
+
+**v2.0 folgt demselben Muster** — nur ersetzt ein eigener C-Helper die Python-Schicht.
+
+---
+
+### 14.3 Gewählte Architektur: HAL-Plugin als Producer, C-Helper als RT-Consumer
+
 ```
-System Audio → Audio Router (HAL Plugin, C)
-                    │
-                    ├─ CoreAudio Output API → Komplete Audio 6 Out 1/2
-                    ├─ CoreAudio Output API → Komplete Audio 6 Out 3/4
-                    └─ CoreAudio Output API → MacBook Pro Lautsprecher
-
-Python (Menu Bar) → IPC (Config only) → Treiber: "Route to device X"
+┌──────────────────────────────────────────────────────────────────┐
+│  macOS System Audio (Spotify, YouTube, Safari, ...)              │
+└───────────────────────────┬──────────────────────────────────────┘
+                            │ CoreAudio HAL
+┌───────────────────────────▼──────────────────────────────────────┐
+│  coreaudiod (root)                                               │
+│  └─ AudioRouterNow.driver  (C HAL Plugin)                        │
+│     • DoIOOperation/WriteMix → schreibt Frames in SHM-Ring       │
+│     • Kein Socket, keine Python-Verbindung mehr                  │
+│     • POSIX shm_open() + mmap() beim Initialize                  │
+└───────────────────────────┬──────────────────────────────────────┘
+                            │ POSIX Shared Memory
+                            │ Lock-free SPSC Ring-Buffer
+                            │ ~8192 Frames ≈ 170ms @48kHz
+                            │ Atomic write_idx / read_idx
+┌───────────────────────────▼──────────────────────────────────────┐
+│  AudioRouterNowHelper  (C Daemon, User-Prozess, nicht root)      │
+│  • RT-Thread mit THREAD_TIME_CONSTRAINT_POLICY                   │
+│  • Liest Frames aus SHM-Ring (atomic, lock-free)                 │
+│  • AudioDeviceCreateIOProcID pro physischem Output-Device        │
+│  • Verteilt Frames an N Devices + Channel-Mapping                │
+│  • Volume/Mute-Polling via C (AudioObjectGetPropertyData)        │
+│  • Config-Socket-Server (JSON-Lines, non-RT-Thread)              │
+│  • gestartet via launchd User-Agent (KeepAlive=true)             │
+└───────────────────────────┬──────────────────────────────────────┘
+                            │ CoreAudio Client API
+            ┌───────────────┼──────────────────┐
+            ▼               ▼                  ▼
+       Komplete Audio 6  MacBook Pro     weitere Devices
+       (Out 1-2, 3-4)    Speakers        (Kopfhörer, HDMI, ...)
+                            ▲
+                            │ Config-IPC (Unix Socket, JSON-Lines)
+                            │ Nur Konfiguration, kein Audio
+                  ┌─────────┴────────────────┐
+                  │  Python Menubar-App       │
+                  │  (rumps, Device-Picker)   │
+                  │  nur noch UI + Config     │
+                  └───────────────────────────┘
 ```
+
+---
+
+### 14.4 IPC: Warum POSIX Shared Memory (und nicht Socket)
+
+| Mechanismus | RT-safe? | Latenz | Für Audio? |
+|---|---|---|---|
+| Unix Socket (aktuell) | bedingt | 50–500µs + Jitter | suboptimal |
+| **POSIX SHM + atomic Index** | **JA** | **~50ns** | **✅ Empfohlen** |
+| POSIX Semaphore (`sem_post`) | NEIN | — | ❌ kann blockieren |
+| Mach Port (`mach_msg`) | NEIN | ~5–50µs | ❌ kann blockieren |
+| `dispatch_semaphore_signal` | JA | ~100ns | als Wake-up OK |
+
+**Shared Memory Layout (`shared_ring.h`):**
+```c
+typedef struct {
+    uint32_t magic;           // ABI-Version-Check
+    uint32_t sample_rate;     // 48000
+    uint32_t channel_count;   // 2
+    uint32_t frame_capacity;  // 8192
+
+    atomic_uint write_idx;    // Producer bumpt (memory_order_release)
+    atomic_uint read_idx;     // Consumer bumpt (memory_order_acquire)
+
+    float    volume;          // atomic read/write
+    uint32_t muted;           // atomic read/write
+
+    float    frames[];        // frame_capacity * channel_count Float32
+} ARNSharedRing;
+```
+
+---
+
+### 14.5 Config-IPC: Python Menubar ↔ Helper
+
+**Mechanismus:** Unix Domain Socket `/tmp/audiorouter.config.sock`, JSON-Lines, non-RT
+
+**Protokoll:**
+```json
+// Python → Helper (Konfiguration setzen)
+{"cmd": "set_outputs", "outputs": [
+  {"device_uid": "AppleHDAEngine:1B,0,1,2:0", "channels": [0,1]},
+  {"device_uid": "NI-Komplete-Audio-6-UID",   "channels": [0,1]},
+  {"device_uid": "NI-Komplete-Audio-6-UID",   "channels": [2,3]}
+]}
+
+// Helper → Python (Response)
+{"ok": true, "active": ["MacBook Pro Speakers", "Komplete Audio 6 Ch 1-2", "Ch 3-4"]}
+{"ok": false, "error": "device_uid not found"}
+
+// Sonstige Commands
+{"cmd": "ping"}
+{"cmd": "shutdown"}
+```
+
+**Wichtig:** Device-UIDs statt Indizes (UIDs sind stabil über Reboots).
+
+---
+
+### 14.6 Clock-Drift Strategie
+
+Virtueller Treiber und physisches Device haben separate Uhren (Crystal-Oszillator-Drift ~50ppm).
+Bei 48kHz: max ~2.4ms/Minute Drift. Bei 30min Wiedergabe: ~72ms möglicher Drift.
+
+**v2.0: Pragmatischer Ansatz**
+- Großer Ring-Buffer (8192 Frames = 170ms) als Puffer-Reserve
+- Bei Underflow (Ring leer): Stille einfügen (selten, maximal einmal pro Stunde)
+- Akzeptabel für Musik-Wiedergabe
+
+**v2.1: Saubere Lösung (geplant)**
+- `AudioConverter` mit variabler Output-Sample-Rate
+- Drift-Messung via Ring-Fill-Level → adaptive Rate-Anpassung
+- Entspricht Apple-empfohlener Methode für asynchrone Audio-Streams
+
+---
+
+### 14.7 Komponenten: was bleibt / wird geändert / fällt weg / kommt neu
+
+#### ✅ Bleibt unverändert
+| Datei | Warum |
+|---|---|
+| `engine/menu_bar_app.py` | Nur kleine Änderung: Helper-Spawn + Config-Socket statt RoutingEngine |
+| `engine/device_manager.py` | Hot-plug Detection (sounddevice/PortAudio) bleibt |
+| `engine/config.py` | Minimal: Device-UID statt Index |
+| `engine/first_launch.py` | Unverändert |
+| `engine/cli.py` | Unverändert |
+| `engine/audio_device_control.py` | Optional für UI-Anzeige |
+
+#### 🔄 Wird modifiziert
+| Datei | Änderung |
+|---|---|
+| `driver/src/AudioRouterNowDriver.c` | Socket-Code (~150 Zeilen) raus, SHM-Ring (~200 Zeilen) rein |
+| `driver/Makefile` | SHM-Header einbinden |
+| `installer/build.sh` | Helper-Binary kompilieren, ins Bundle packen |
+| `installer/AudioRouterNow.spec` | sounddevice/numpy/PortAudio entfernen (~30-50MB kleiner) |
+| `engine/menu_bar_app.py` | Helper-Spawn + Config-Socket-Client statt RoutingEngine |
+
+#### ❌ Wird gelöscht
+| Datei | Grund |
+|---|---|
+| `engine/routing_engine.py` (385 Zeilen) | Ersetzt durch C-Helper |
+| `engine/socket_receiver.py` (240 Zeilen) | SHM ersetzt Socket für Audio-Frames |
+
+#### 🆕 Neu
+| Datei | Inhalt |
+|---|---|
+| `helper/shared_ring.h` | Lock-free SPSC Ring-Buffer Layout + atomic ops (~150 Zeilen) |
+| `helper/AudioRouterNowHelper.c` | C-Daemon: SHM-Consumer, CoreAudio-Client, Config-Server (~700 Zeilen) |
+| `helper/Makefile` | Universal Binary Build |
+| `installer/com.audiorouter.now.helper.plist` | launchd User-Agent (KeepAlive=true) |
+
+---
+
+### 14.8 Risiken & Mitigation
+
+| # | Risiko | W'keit | Impact | Mitigation |
+|---|---|---|---|---|
+| R1 | Clock-Drift → Underruns bei langen Sessions | hoch | mittel | 170ms Ring-Buffer; v2.1: AudioConverter SRC |
+| R2 | Helper crashed → kein Audio | mittel | hoch | launchd `KeepAlive=true`, automatischer Restart |
+| R3 | Helper startet bevor SHM-Segment existiert | hoch | mittel | Retry-Loop beim `shm_open` (wie aktueller Connector-Thread) |
+| R4 | SHM-Segment leakt nach Crash | mittel | niedrig | `shm_unlink` in Plugin-Destructor + Helper-Cleanup |
+| R5 | RT-Thread im Helper kriegt keine Priority | hoch | hoch | `THREAD_TIME_CONSTRAINT_POLICY` explizit setzen — **kritisch** |
+| R6 | Plugin/Helper ABI-Mismatch nach Update | niedrig | hoch | Magic/Version im SHM-Header, Helper prüft beim mmap |
+| R7 | Multi-User: zwei Sessions → zwei Helpers → SHM-Konflikt | mittel | mittel | SHM-Pfad per-UID: `/audiorouter.shm.<uid>` |
+| R8 | Sample-Rate-Wechsel zur Laufzeit | mittel | mittel | Header-Field signalisiert Helper → rebuild OutputStream |
+| R9 | malloc/lock im RT-Thread unbemerkt eingebaut | mittel | hoch | Debug: `os_signpost` + Latenz-Histogramm |
+| R10 | Notarization: Hardened Runtime erlaubt kein shm? | niedrig | mittel | `com.apple.security.cs.disable-library-validation` + Test |
+
+---
+
+### 14.9 Implementierungs-Phasen
+
+| Phase | Inhalt | Dauer | Exit-Kriterium |
+|---|---|---|---|
+| **0 — Spike** | Minimaler Sinuston: Plugin schreibt in SHM, Helper liest + spielt ab. Beweist Machbarkeit. | 1–2 Tage | 5 Min Sinuston ohne Glitch |
+| **1 — Helper-Skelett** | RT-Thread + `THREAD_TIME_CONSTRAINT_POLICY`, ein Device hardcoded, SHM-Verbindung | 3–4 Tage | Spotify → Audio Router → Built-in Speakers ohne Python |
+| **2 — Multi-Device + Channel-Routing** | N parallele OutputStreams, Channel-Mapping, Hot-Plug-Listener | 3–4 Tage | Komplete Audio 6 Out 1-2 + Out 3-4 + Built-in parallel |
+| **3 — Config-Socket + Python-Integration** | JSON-Lines-Server im Helper, menu_bar_app.py angepasst | 2–3 Tage | Device-Picker in Menubar steuert Helper end-to-end |
+| **4 — Volume/Mute in C, Python-Deps raus** | CoreAudio-Volume-Polling in C, sounddevice/numpy aus Bundle | 1–2 Tage | Helper läuft selbständig wenn Python crashed |
+| **5 — launchd + Robustheit** | launchd User-Agent, KeepAlive, SHM-Cleanup, Version-Check | 2–3 Tage | Reboot-Test, Crash-Test, Logout/Login-Test bestanden |
+| **6 — Clock-Drift SRC** *(v2.1)* | AudioConverter mit variabler Rate, Drift-Messung | 3–5 Tage | 4h Musik ohne Glitch |
+| **7 — Build + Installer** | build.sh + .spec anpassen, Helper ins Bundle, launchd-Plist | 2 Tage | DMG-Build auf jungfräulichem Mac funktioniert |
+| **8 — Test-Matrix** | macOS 11–15, Intel + ARM, verschiedene Interfaces, Stress-Tests | 2–3 Tage | Alle Kombinationen 30min ohne Glitch |
+
+**Gesamt v2.0 (Phase 0–5 + 7–8): ~18–24 Arbeitstage**
+**Gesamt inkl. v2.1 (Phase 6): ~22–29 Arbeitstage**
+
+---
+
+### 14.10 Nächster Schritt
+
+**Phase 0 — Spike** beginnen:
+1. `helper/shared_ring.h` — Lock-free Ring-Buffer Header
+2. Plugin-Patch: schreibt Silence/Frames in SHM (WriteMix)
+3. Minimaler Helper: liest SHM, spielt auf Built-in Speakers ab
+4. Ergebnis verifizieren: Glitch-frei für 5+ Minuten?
+5. Wenn JA → Phase 1 beginnen
 
 ---
 
