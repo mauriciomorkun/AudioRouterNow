@@ -35,8 +35,11 @@ logger = logging.getLogger(__name__)
 SAMPLE_RATE = 48000
 BLOCK_SIZE = 512
 
-# Maximale Puffer-Tiefe pro Output-Stream (Frames, nicht Bytes)
-QUEUE_DEPTH = 8
+# Maximale Puffer-Tiefe pro Output-Stream (Frames, nicht Bytes).
+# 32 × 512 Frames / 48000 Hz ≈ 341 ms Buffer — fuer Musik-Wiedergabe
+# (kein Live-Monitoring) absolut akzeptabel und glaettet kurze
+# GIL-Pausen / Thread-Scheduling-Jitter aus.
+QUEUE_DEPTH = 32
 
 
 @dataclass
@@ -84,11 +87,16 @@ class RoutingEngine:
         self._streams: Dict[int, _StreamState] = {}
         self._targets: List[OutputTarget] = []
 
-        # Volume-Cache: CoreAudio-Abfrage ist teuer (syscall), daher alle 50ms
+        # Volume-Cache: CoreAudio-Abfrage ist teuer (pyobjc-Syscall, mehrere ms).
+        # Sie darf NICHT im Audio-Hot-Path (on_frames) stattfinden — sonst
+        # blockiert der SocketReceiver-Thread, der Unix-Socket-Buffer laeuft
+        # voll, der Treiber droppt Frames → Glitches.
+        # Loesung: separater Hintergrund-Thread (_volume_poll_thread)
+        # aktualisiert die Cache-Werte alle 50 ms; on_frames liest sie nur.
         self._cached_volume: float = 1.0
         self._cached_muted: bool = False
-        self._volume_last_checked: float = 0.0
-        self._VOLUME_CACHE_INTERVAL: float = 0.05   # 50 ms
+        self._VOLUME_POLL_INTERVAL: float = 0.05   # 50 ms
+        self._volume_thread: Optional[threading.Thread] = None
 
     # ------------------------------------------------------------------
     # Oeffentliche API
@@ -120,6 +128,14 @@ class RoutingEngine:
             self._running = True
             ok = self._start_all_streams_locked()
             if ok:
+                # Volume-Polling-Thread starten — haelt die Cache-Werte
+                # ausserhalb des Audio-Hot-Paths aktuell.
+                self._volume_thread = threading.Thread(
+                    target=self._volume_poll_loop,
+                    name="audiorouter-volume-poll",
+                    daemon=True,
+                )
+                self._volume_thread.start()
                 logger.info("RoutingEngine gestartet")
                 self._notify_status(True, "Routing aktiv")
             else:
@@ -134,8 +150,31 @@ class RoutingEngine:
                 return
             self._stop_all_streams_locked()
             self._running = False
+            volume_thread = self._volume_thread
+            self._volume_thread = None
+        # Volume-Polling-Thread sauber beenden — _running ist bereits False,
+        # also bricht die Schleife beim naechsten Tick ab.
+        if volume_thread and volume_thread.is_alive():
+            volume_thread.join(timeout=1.0)
         logger.info("RoutingEngine gestoppt")
         self._notify_status(False, "Routing gestoppt")
+
+    def _volume_poll_loop(self):
+        """
+        Hintergrund-Thread: aktualisiert Volume- und Mute-Cache periodisch.
+
+        Laeuft ausserhalb des Audio-Hot-Paths, damit teure pyobjc-Calls
+        nach Core Audio den SocketReceiver-Thread nicht blockieren.
+        """
+        while self._running:
+            try:
+                self._cached_muted  = get_default_output_muted()
+                self._cached_volume = get_default_output_volume()
+            except Exception as e:
+                # Bei Fehlern (z.B. waehrend Device-Wechsel) altes Cache
+                # behalten und weitermachen — kein Audio-Stop.
+                logger.debug(f"Volume-Poll Fehler (ignoriert): {e}")
+            time.sleep(self._VOLUME_POLL_INTERVAL)
 
     def on_frames(self, frames: np.ndarray):
         """
@@ -150,17 +189,15 @@ class RoutingEngine:
         if not self._running:
             return
 
-        # Volume-Scaling via gecachter CoreAudio-Abfrage (kein Syscall pro Frame)
-        now = time.monotonic()
-        if now - self._volume_last_checked > self._VOLUME_CACHE_INTERVAL:
-            self._volume_last_checked = now
-            self._cached_muted  = get_default_output_muted()
-            self._cached_volume = get_default_output_volume()
-
+        # Volume-Scaling via Cache — die teure CoreAudio-Abfrage laeuft
+        # im separaten _volume_poll_loop, hier nur Read.
         if self._cached_muted or self._cached_volume <= 0.0:
             scaled = np.zeros_like(frames)
         elif self._cached_volume < 0.999:
-            scaled = (frames * self._cached_volume).astype(np.float32)
+            # Multiplikation mit einem np.float32-Skalar erzeugt nur
+            # EIN temporaeres Float32-Array statt zwei (frames*float +
+            # .astype). Spart Alloc/GC pro Frame.
+            scaled = frames * np.float32(self._cached_volume)
         else:
             scaled = frames   # vol == 1.0 → keine Kopie nötig
 

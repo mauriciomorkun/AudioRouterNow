@@ -201,7 +201,7 @@ Buffer:      [512 ▼]
 ### Phase 1 — Fundament (Treiber)
 1. [x] HAL Plugin (AudioServerPlugin) in C implementieren — 1686 Zeilen ✅
 2. [x] Unix Socket IPC zwischen Treiber und Python Engine ✅
-3. [ ] Treiber in `/Library/Audio/Plug-Ins/HAL/` installieren & testen
+3. [x] Treiber installiert & aktiv ✅ — läuft als Default Output Device in Core Audio (Stand: 26.05.2026)
 4. [x] Universal Binary (arm64 + x86_64) kompiliert ✅
 
 ### Phase 2 — Engine & UI
