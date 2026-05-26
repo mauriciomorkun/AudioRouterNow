@@ -17,6 +17,8 @@ Thread-Sicherheit:
   - Frame-Daten werden ueber Queue an jeden OutputStream weitergeleitet
 """
 
+import ctypes
+import ctypes.util
 import queue
 import threading
 import logging
@@ -36,10 +38,19 @@ SAMPLE_RATE = 48000
 BLOCK_SIZE = 512
 
 # Maximale Puffer-Tiefe pro Output-Stream (Frames, nicht Bytes).
-# 32 × 512 Frames / 48000 Hz ≈ 341 ms Buffer — fuer Musik-Wiedergabe
-# (kein Live-Monitoring) absolut akzeptabel und glaettet kurze
-# GIL-Pausen / Thread-Scheduling-Jitter aus.
-QUEUE_DEPTH = 32
+# 64 × 512 Frames / 48000 Hz ≈ 683 ms Buffer — glaettet GIL-Bursts
+# unter CPU-Last aus ohne hoerbarer Latenz (Musik-Wiedergabe, kein Live-Monitoring).
+QUEUE_DEPTH = 64
+
+
+def _boost_thread_priority() -> bool:
+    """Hebt QoS-Klasse des aktuellen Threads auf USER_INTERACTIVE (macOS)."""
+    try:
+        lib = ctypes.CDLL(ctypes.util.find_library("pthread") or "libpthread.dylib")
+        QOS_CLASS_USER_INTERACTIVE = 0x21
+        return lib.pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) == 0
+    except Exception:
+        return False
 
 
 @dataclass
@@ -137,6 +148,10 @@ class RoutingEngine:
                 )
                 self._volume_thread.start()
                 logger.info("RoutingEngine gestartet")
+                # Haupt-Thread-Prioritaet erhoehen: falls start() vom
+                # SocketReceiver-Kontext aufgerufen wird, hilft das nichts —
+                # aber schadet auch nicht.
+                _boost_thread_priority()
                 self._notify_status(True, "Routing aktiv")
             else:
                 self._running = False

@@ -111,7 +111,17 @@ static bool                             gMute               = false;
 /* Zeitbasis fuer GetZeroTimeStamp --------------------------------------- */
 static UInt64                           gAnchorHostTime     = 0;
 static atomic_ullong                    gNumberTimeStamps   = 0;
-static Float64                          gHostTicksPerFrame  = 0.0;
+/*
+ * gHostTicksPerFrame: wird nur von nicht-RT-Pfaden geschrieben (Initialize,
+ * StartIO). Von GetZeroTimeStamp atomar gelesen — kein Mutex noetig.
+ * Double hat auf arm64/x86_64 keine guaranteed atomic load via C11,
+ * daher als atomic_ullong (bit-reinterpret). Schreiben nur unter gStateMutex.
+ */
+static atomic_ullong                    gHostTicksPerFrameBits = 0; /* bits von Float64 */
+
+/* Hilfs-Makros fuer bit-reinterpretierende Konvertierung Float64 ↔ uint64 */
+static inline UInt64  _f64_to_u64(Float64 v) { UInt64  u; memcpy(&u, &v, 8); return u; }
+static inline Float64 _u64_to_f64(UInt64  u) { Float64 v; memcpy(&v, &u, 8); return v; }
 
 #pragma mark - Unix Socket IPC
 
@@ -126,6 +136,12 @@ static atomic_int                       gSocketFD           = -1;
 static atomic_bool                      gConnectorRun       = false;
 static pthread_t                        gConnectorThread;
 static bool                             gConnectorStarted   = false;
+/*
+ * gClosePendingFD: RT-Pfad kann hier einen FD hinterlegen, der geschlossen
+ * werden soll. close() ist NICHT RT-safe — der Connector-Thread uebernimmt.
+ * -1 = nichts zu tun.
+ */
+static atomic_int                       gClosePendingFD     = -1;
 
 /* Verbindet (blockierend) einmalig. Gibt FD oder -1 zurueck. */
 static int ipc_try_connect(void)
@@ -172,6 +188,13 @@ static void *ipc_connector_main(void *unused)
     pthread_setname_np("com.audiorouter.now.connector");
 
     while (atomic_load(&gConnectorRun)) {
+        /* Pending-Close aus dem RT-Pfad abarbeiten (close ist hier erlaubt). */
+        int pending = atomic_exchange(&gClosePendingFD, -1);
+        if (pending >= 0) {
+            close(pending);
+            os_log(gLog, "IPC: Verbindung verworfen (FD %d) — reconnect folgt", pending);
+        }
+
         if (atomic_load(&gSocketFD) < 0) {
             int fd = ipc_try_connect();
             if (fd >= 0) {
@@ -255,16 +278,18 @@ static void ipc_send_rt(const void *data, size_t length)
 
     if (n > 0) {
         /*
-         * Partial Send — Block-Framing korrupt. FD zuruecksetzen, damit
-         * der Connector-Thread eine neue, sauber alignte Verbindung
-         * aufbaut. RT-safe: atomic_exchange + close.
+         * Partial Send — Block-Framing korrupt. FD zuruecksetzen.
+         * close() ist NICHT RT-safe — FD im gClosePendingFD-Slot hinterlegen,
+         * Connector-Thread schiesst ihn sauber zu. Kein os_log auf RT-Thread.
          */
         int old_fd = atomic_exchange(&gSocketFD, -1);
         if (old_fd >= 0) {
-            close(old_fd);
-            os_log(gLog,
-                   "IPC: Partial-Send (%zd/%zu) — Verbindung verworfen, reconnect folgt",
-                   n, length);
+            /* Falls der Slot noch belegt ist (sehr unwahrscheinlich):
+             * alten FD direkt schliessen, neuen eintragen. */
+            int expected_close = -1;
+            if (!atomic_compare_exchange_strong(&gClosePendingFD, &expected_close, old_fd)) {
+                close(old_fd); /* Slot war voll — direkt schliessen als Fallback */
+            }
         }
         return;
     }
@@ -277,8 +302,10 @@ static void ipc_send_rt(const void *data, size_t length)
     /* Echter Fehler (EPIPE, ECONNRESET, ...): Verbindung fallen lassen. */
     int expected = fd;
     if (atomic_compare_exchange_strong(&gSocketFD, &expected, -1)) {
-        close(fd);
-        os_log(gLog, "IPC: Peer verloren (errno=%d) — reconnect folgt", errno);
+        int expected_close = -1;
+        if (!atomic_compare_exchange_strong(&gClosePendingFD, &expected_close, fd)) {
+            close(fd); /* Slot war voll — direkt schliessen als Fallback */
+        }
     }
 }
 
@@ -458,7 +485,8 @@ static OSStatus ARN_Initialize(AudioServerPlugInDriverRef inDriver,
     struct mach_timebase_info tb;
     mach_timebase_info(&tb);
     Float64 nanosPerTick = (Float64)tb.numer / (Float64)tb.denom;
-    gHostTicksPerFrame   = (1.0e9 / gSampleRate) / nanosPerTick;
+    atomic_store(&gHostTicksPerFrameBits,
+                 _f64_to_u64((1.0e9 / gSampleRate) / nanosPerTick));
 
     /* IPC-Connector starten — Verbindung wird im Hintergrund gehalten. */
     ipc_start();
@@ -544,7 +572,8 @@ static OSStatus ARN_PerformDeviceConfigurationChange(AudioServerPlugInDriverRef 
         struct mach_timebase_info tb;
         mach_timebase_info(&tb);
         Float64 nanosPerTick = (Float64)tb.numer / (Float64)tb.denom;
-        gHostTicksPerFrame   = (1.0e9 / gSampleRate) / nanosPerTick;
+        atomic_store(&gHostTicksPerFrameBits,
+                     _f64_to_u64((1.0e9 / gSampleRate) / nanosPerTick));
         pthread_mutex_unlock(&gStateMutex);
         os_log(gLog, "AudioRouterNow: SampleRate -> %.0f", newRate);
         return kAudioHardwareNoError;
@@ -1519,12 +1548,11 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
      */
     UInt64 now      = mach_absolute_time();
     UInt64 anchor   = gAnchorHostTime;
-    Float64 ticksPerFrame;
 
-    pthread_mutex_lock(&gStateMutex);
-    ticksPerFrame = gHostTicksPerFrame;
-    pthread_mutex_unlock(&gStateMutex);
-
+    /* Kein Mutex im RT-Pfad — atomic_load verhindert Priority-Inversion. */
+    Float64 ticksPerFrame = _u64_to_f64(
+        atomic_load_explicit(&gHostTicksPerFrameBits, memory_order_relaxed)
+    );
     if (ticksPerFrame <= 0.0) {
         ticksPerFrame = 1.0;
     }
