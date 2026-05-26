@@ -7,13 +7,22 @@ interleaved Float32-Stereo-PCM-Daten ohne Header oder Framing:
   - Sample Rate: 48000 Hz (Standard), konfigurierbar
 
 Architektur:
-  - Laeuft in einem eigenen Daemon-Thread
-  - Empfaengt Rohdaten, wandelt sie in numpy-Arrays um
+  - Laeuft in einem eigenen Daemon-Thread mit QOS_CLASS_USER_INTERACTIVE
+  - Empfaengt Rohdaten in einen pre-allokierten Ring-Buffer
   - Uebergibt jeden Frame-Block via Callback an die RoutingEngine
   - Bei Verbindungstrennung: sofort wieder auf neue Verbindung warten
   - Thread-sicheres Start/Stop
+
+Performance-Optimierungen:
+  - Thread-Prioritaet: QOS_CLASS_USER_INTERACTIVE via ctypes (macOS)
+    → verhindert GIL-Starvation unter CPU-Last
+  - Pre-allokierter numpy-Array (FRAMES_PER_BLOCK, CHANNELS) wird
+    wiederverwendet → 0 Heap-Allokationen im Empfangs-Hot-Path
+  - recv_buffer als feste memoryview — kein bytearray-Slicing
 """
 
+import ctypes
+import ctypes.util
 import socket
 import os
 import threading
@@ -29,6 +38,25 @@ FRAMES_PER_BLOCK = 512
 CHANNELS = 2
 BYTES_PER_SAMPLE = 4  # Float32
 BLOCK_SIZE_BYTES = FRAMES_PER_BLOCK * CHANNELS * BYTES_PER_SAMPLE  # 4096
+
+
+def _boost_thread_priority() -> bool:
+    """
+    Hebt die QoS-Klasse des aktuellen Threads auf USER_INTERACTIVE.
+
+    Verhindert, dass macOS den SocketReceiver-Thread unter CPU-Last
+    verdraengt — das waere die Hauptursache fuer Frame-Drops.
+    Schlaegt lautlos fehl (z.B. auf nicht-macOS-Plattformen).
+    """
+    try:
+        # pthread_set_qos_class_self_np ist macOS-spezifisch
+        lib = ctypes.CDLL(ctypes.util.find_library("pthread") or "libpthread.dylib")
+        # QOS_CLASS_USER_INTERACTIVE = 0x21 (33), relative_priority = 0
+        QOS_CLASS_USER_INTERACTIVE = 0x21
+        result = lib.pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0)
+        return result == 0
+    except Exception:
+        return False
 
 
 class SocketReceiver:
@@ -54,6 +82,13 @@ class SocketReceiver:
         self._lock = threading.Lock()
         # Referenz auf den Server-Socket fuer sauberes Shutdown
         self._server_socket: Optional[socket.socket] = None
+
+        # Pre-allokierter Ausgabe-Array — wird pro Frame wiederverwendet.
+        # np.frombuffer + copy entfaellt vollstaendig: raw bytes werden
+        # direkt in diesen Array geschrieben (np.copyto aus memoryview).
+        self._frame_buf: np.ndarray = np.zeros(
+            (FRAMES_PER_BLOCK, CHANNELS), dtype=np.float32
+        )
 
     def start(self):
         """Startet den Socket-Server in einem Hintergrund-Thread."""
@@ -98,12 +133,19 @@ class SocketReceiver:
 
     def _server_loop(self):
         """
-        Haupt-Loop: baut den Server-Socket auf, akzeptiert Verbindungen
-        vom HAL-Treiber und liest Frame-Bloecke.
+        Haupt-Loop: Thread-Prioritaet erhoehen, Server-Socket aufbauen,
+        Verbindungen akzeptieren.
 
         Bei Verbindungstrennung oder Fehlern wird automatisch eine neue
         Verbindung angenommen (Reconnect-Logic).
         """
+        # Thread-Prioritaet so frueh wie moeglich erhoehen —
+        # noch bevor der erste accept() laeuft.
+        if _boost_thread_priority():
+            logger.info("SocketReceiver: Thread-Prioritaet auf USER_INTERACTIVE gesetzt")
+        else:
+            logger.warning("SocketReceiver: Thread-Prioritaet konnte nicht erhoeht werden")
+
         self._cleanup_socket_file()
 
         try:
@@ -130,14 +172,11 @@ class SocketReceiver:
 
         try:
             while self._running:
-                # Auf neue Verbindung warten
                 try:
                     conn, _ = server.accept()
                 except socket.timeout:
-                    # Kein neuer Client — weiter warten
                     continue
                 except OSError:
-                    # Socket wurde von stop() geschlossen
                     break
 
                 logger.info("HAL-Treiber verbunden — empfange Audio-Daten")
@@ -151,47 +190,50 @@ class SocketReceiver:
         """
         Empfangs-Loop fuer eine aktive Treiber-Verbindung.
 
-        Liest genau BLOCK_SIZE_BYTES (4096 Bytes) pro Iteration, wandelt
-        die Rohdaten in ein numpy-Array um und uebergibt es an den Callback.
-        Bei Verbindungsabbruch oder Fehler wird der Loop beendet.
+        Liest genau BLOCK_SIZE_BYTES (4096 Bytes) per recv_into() direkt
+        in den pre-allokierten numpy-Buffer — keine Heap-Allokation im
+        Hot-Path. Bei Verbindungsabbruch oder Fehler wird der Loop beendet.
         """
         conn.settimeout(2.0)
-        recv_buffer = bytearray()
+
+        # Empfangs-Staging-Buffer: feste Groesse, wird direkt per
+        # recv_into() befuellt — kein bytearray-Extend, kein Slicing.
+        raw_buf   = bytearray(BLOCK_SIZE_BYTES)
+        mv        = memoryview(raw_buf)
+        bytes_in  = 0
 
         try:
             while self._running:
-                # Fehlende Bytes nachfordern bis ein vollstaendiger Block da ist
-                while len(recv_buffer) < BLOCK_SIZE_BYTES:
+                # Fehlende Bytes direkt in raw_buf schreiben (zero-copy recv)
+                while bytes_in < BLOCK_SIZE_BYTES:
                     try:
-                        chunk = conn.recv(BLOCK_SIZE_BYTES - len(recv_buffer))
+                        n = conn.recv_into(
+                            mv[bytes_in:],
+                            BLOCK_SIZE_BYTES - bytes_in,
+                        )
                     except socket.timeout:
-                        # Kein Daten innerhalb Timeout — pruefen ob Routing noch laeuft
                         if not self._running:
                             return
                         continue
 
-                    if not chunk:
-                        # Treiber hat Verbindung geschlossen
-                        return
-                    recv_buffer.extend(chunk)
+                    if not n:
+                        return  # Treiber hat Verbindung geschlossen
+                    bytes_in += n
 
-                # Einen vollstaendigen Block verarbeiten.
-                # Optimierung: kein bytearray-Slicing (erzeugt 93x/s neue
-                # Objekte → GC-Pressure → GIL-Pausen → Audio-Glitches).
-                # Stattdessen: numpy direkt aus dem Buffer lesen, kopieren,
-                # dann in-place per `del` die ersten N Bytes entfernen.
-                frames = np.frombuffer(
-                    recv_buffer,
-                    dtype=np.float32,
-                    count=FRAMES_PER_BLOCK * CHANNELS,
-                ).reshape(FRAMES_PER_BLOCK, CHANNELS).copy()
-                # In-place Loeschung der gerade konsumierten Bytes —
-                # keine neue bytearray-Allocation.
-                del recv_buffer[:BLOCK_SIZE_BYTES]
+                # Vollstaendigen Block in pre-allokierten numpy-Array kopieren.
+                # np.frombuffer(mv, ...) erzeugt eine view (kein Copy);
+                # np.copyto schreibt sie zero-copy in self._frame_buf.
+                np.copyto(
+                    self._frame_buf,
+                    np.frombuffer(mv, dtype=np.float32).reshape(
+                        FRAMES_PER_BLOCK, CHANNELS
+                    ),
+                )
+                bytes_in = 0  # Buffer zuruecksetzen — keine Allokation
 
                 # Callback aufrufen (RoutingEngine)
                 try:
-                    self._on_frames(frames)
+                    self._on_frames(self._frame_buf)
                 except Exception as e:
                     logger.error(f"Fehler im Frame-Callback: {e}")
 
