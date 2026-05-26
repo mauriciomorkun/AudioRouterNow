@@ -139,11 +139,12 @@ codesign \
 
 ok "Ad-hoc signiert (Entitlements: library-validation deaktiviert)"
 
-# --- DMG-Hintergrundbild generieren ------------------------------------------
-# Das Hintergrundbild enthaelt Pfeil + Labels — kein separates Pfeil-Icon noetig.
-log "Erstelle DMG-Hintergrundbild..."
+# --- DMG-Grafiken generieren -------------------------------------------------
+# Hintergrundbild enthaelt den weissen Pfeil direkt eingezeichnet.
+# Keine separate Pfeil-Datei im DMG-Fenster — nur App + Applications.
+log "Erstelle DMG-Grafiken..."
 BACKGROUND_PNG="$SCRIPT_DIR/dmg_background.png"
-"$VENV_PY" "$SCRIPT_DIR/create_dmg_background.py" && ok "Hintergrundbild erstellt" || warn "Grafik-Generierung fehlgeschlagen"
+"$VENV_PY" "$SCRIPT_DIR/create_dmg_background.py" && ok "Hintergrundbild erstellt (mit Pfeil)" || warn "Grafik-Generierung fehlgeschlagen"
 
 # --- DMG erstellen -----------------------------------------------------------
 log "Erstelle DMG mit dmgbuild..."
@@ -151,7 +152,6 @@ log "Erstelle DMG mit dmgbuild..."
 # Alte Artefakte aufraumen
 [[ -f "$DMG_OUTPUT" ]] && rm -f "$DMG_OUTPUT"
 
-# Arrow-PNG als sichtbares '→'-Icon ins DMG einbetten (macOS-26-kompatibel).
 "$VENV_DIR/bin/dmgbuild" \
     -s "$SCRIPT_DIR/dmg_settings.py" \
     -D "app_path=$APP_PATH" \
@@ -228,8 +228,9 @@ tell application "Finder"
     -- HFS-Pfad-Notation: Ordner ".background", Datei "background.png"
     -- Erzeugt volume-relativen Alias → loest sich bei jedem User auf
     set background picture of vo to file ".background:background.png" of theVol
-    set position of item "$APP_NAME.app" of w to {160, 210}
-    set position of item "Applications" of w to {520, 210}
+    -- KEINE set position hier: dmgbuild schreibt korrekte Positionen in DS_Store.
+    -- AppleScript-Positions ueberschreiben diese auf Retina-Displays mit falschen
+    -- physischen Pixel-Koordinaten (2x-Skalierung), was Icons in die falsche Ecke setzt.
     update theVol without registering applications
     delay 3
     try

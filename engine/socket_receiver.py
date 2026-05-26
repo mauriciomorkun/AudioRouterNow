@@ -175,13 +175,19 @@ class SocketReceiver:
                         return
                     recv_buffer.extend(chunk)
 
-                # Einen vollstaendigen Block verarbeiten
-                block_bytes = bytes(recv_buffer[:BLOCK_SIZE_BYTES])
-                recv_buffer = recv_buffer[BLOCK_SIZE_BYTES:]
-
-                # Float32-Bytes -> numpy-Array (512, 2), native Byte-Order
-                frames = np.frombuffer(block_bytes, dtype=np.float32)
-                frames = frames.reshape(FRAMES_PER_BLOCK, CHANNELS)
+                # Einen vollstaendigen Block verarbeiten.
+                # Optimierung: kein bytearray-Slicing (erzeugt 93x/s neue
+                # Objekte → GC-Pressure → GIL-Pausen → Audio-Glitches).
+                # Stattdessen: numpy direkt aus dem Buffer lesen, kopieren,
+                # dann in-place per `del` die ersten N Bytes entfernen.
+                frames = np.frombuffer(
+                    recv_buffer,
+                    dtype=np.float32,
+                    count=FRAMES_PER_BLOCK * CHANNELS,
+                ).reshape(FRAMES_PER_BLOCK, CHANNELS).copy()
+                # In-place Loeschung der gerade konsumierten Bytes —
+                # keine neue bytearray-Allocation.
+                del recv_buffer[:BLOCK_SIZE_BYTES]
 
                 # Callback aufrufen (RoutingEngine)
                 try:
