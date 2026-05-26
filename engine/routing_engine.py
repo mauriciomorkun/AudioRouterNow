@@ -314,6 +314,10 @@ class RoutingEngine:
                 outdata[:, offset : offset + 2] = raw
 
         try:
+            # latency=0.05 (50ms): gibt Python 50ms Puffer-Reserve.
+            # "low" waere 1.9ms — bei GIL-Pausen oder GC reicht das nicht.
+            # 50ms Latenz ist bei Musik-Wiedergabe voellig unhoerbar;
+            # nur bei Live-Monitoring waere es ein Problem (kein Use-Case hier).
             stream = sd.OutputStream(
                 device=device_index,
                 samplerate=SAMPLE_RATE,
@@ -321,7 +325,7 @@ class RoutingEngine:
                 dtype="float32",
                 channels=n_channels,
                 callback=_callback,
-                latency="low",
+                latency=0.05,
             )
             stream.start()
 
