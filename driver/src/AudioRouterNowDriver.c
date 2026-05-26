@@ -233,8 +233,13 @@ static void ipc_stop(void)
 /*
  * RT-sicherer Send: wird aus dem IO-Callback aufgerufen.
  * Sendet non-blocking. Bei vollem Puffer / fehlendem Peer wird verworfen.
- * Bei einem echten Verbindungsfehler wird der FD geschlossen; der
- * Connector-Thread baut die Verbindung dann neu auf.
+ * Bei einem echten Verbindungsfehler ODER bei einem Partial-Send wird
+ * der FD geschlossen; der Connector-Thread baut die Verbindung neu auf.
+ *
+ * Wichtig: Ein Partial-Send (n > 0 && n < length) zerstoert das
+ * Block-Framing der Python-Seite (numpy interpretiert Bytes am falschen
+ * Offset → Verzerrungen/Knackser). Deshalb wird die Verbindung in dem
+ * Fall verworfen statt die Restbytes zu droppen.
  */
 static void ipc_send_rt(const void *data, size_t length)
 {
@@ -244,10 +249,27 @@ static void ipc_send_rt(const void *data, size_t length)
     }
 
     ssize_t n = send(fd, data, length, MSG_DONTWAIT);
-    if (n >= 0) {
-        return; /* Erfolg (oder Teil-Send; Drops sind tolerierbar). */
+    if (n == (ssize_t)length) {
+        return; /* Vollstaendiger Send — OK. */
     }
 
+    if (n > 0) {
+        /*
+         * Partial Send — Block-Framing korrupt. FD zuruecksetzen, damit
+         * der Connector-Thread eine neue, sauber alignte Verbindung
+         * aufbaut. RT-safe: atomic_exchange + close.
+         */
+        int old_fd = atomic_exchange(&gSocketFD, -1);
+        if (old_fd >= 0) {
+            close(old_fd);
+            os_log(gLog,
+                   "IPC: Partial-Send (%zd/%zu) — Verbindung verworfen, reconnect folgt",
+                   n, length);
+        }
+        return;
+    }
+
+    /* n < 0 ab hier — errno auswerten. */
     if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
         return; /* Puffer voll — Frame verwerfen, kein Fehler. */
     }

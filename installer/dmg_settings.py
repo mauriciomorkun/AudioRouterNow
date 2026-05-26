@@ -5,12 +5,13 @@ DMG-Einstellungen fuer AudioRouterNow.
 Wird von build.sh via dmgbuild aufgerufen.
 
 Pfade werden via -D von build.sh uebergeben:
-  -D app_path=<...>   Pfad zur AudioRouterNow.app
-  -D icon_path=<...>  Pfad zur AudioRouterNow.icns (Volume-Icon)
-  -D bg_path=<...>    Pfad zum Hintergrundbild (PNG)
+  -D app_path=<...>    Pfad zur AudioRouterNow.app
+  -D icon_path=<...>   Pfad zur AudioRouterNow.icns (Volume-Icon)
+  -D bg_path=<...>     Pfad zum Hintergrundbild (PNG, enthaelt weissen Pfeil)
 
-text_size = 1  →  Finder-Labels quasi unsichtbar (1pt)
-Weisse Label-Texte + Pfeil kommen aus dem Hintergrundbild (create_dmg_background.py).
+Der Pfeil ist direkt ins Hintergrundbild eingezeichnet — keine extra Datei
+im DMG-Fenster. Nur 2 Icons: App (links) und Applications-Alias (rechts).
+Finder zeigt Icon-Labels bei dunklem Hintergrund automatisch in Weiss.
 """
 
 # ── Pfade (via -D defines von build.sh) ──────────────────────────────────────
@@ -19,7 +20,7 @@ _icon  = defines.get('icon_path',  '')
 _bg    = defines.get('bg_path',    '')
 
 # ── Inhalte -------------------------------------------------------------------
-# Nur die App — Pfeil und Labels kommen aus dem Hintergrundbild
+# Nur die App — kein Arrow-File mehr (Pfeil ist im Hintergrundbild)
 files    = [_app]
 symlinks = {'Applications': '/Applications'}
 
@@ -45,7 +46,7 @@ window_rect = ((200, 120), (680, 440))
 
 # ── Icon-Darstellung ---------------------------------------------------------
 icon_size = 100
-text_size = 1    # 1pt = unsichtbar; weisse Labels kommen aus dem Hintergrundbild
+text_size = 13   # sichtbare Labels — Finder zeigt Weiss auf dunklem Hintergrund
 
 # ── Icon-Positionen (Mittelpunkt im Fenster, in Punkten) ---------------------
 icon_locations = {
