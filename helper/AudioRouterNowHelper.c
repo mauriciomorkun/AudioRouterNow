@@ -378,18 +378,19 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
     uint32_t ratio_q20 = atomic_load_explicit(&dev->src_ratio_q20, memory_order_relaxed);
     double   ratio     = (double)ratio_q20 / (double)(1u << 20);
 
-    /* Pruefe ob genug Samples verfuegbar (mit ratio-Headroom) */
+    /* Pruefe ob genug Frames verfuegbar (mit ratio-Headroom).
+     * src_frac_ridx ist Frame-Index → *2 fuer Sample-Vergleich mit widx (Sample-Index). */
     uint32_t widx  = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
-    uint32_t needed_samples = (uint32_t)(nFrames * ratio * 2.0 + 2.0); /* +2 fuer Interpolations-Lookahead */
-    uint32_t avail = widx - (uint32_t)dev->src_frac_ridx;
+    uint32_t needed_samples = (uint32_t)(nFrames * ratio * 2.0 + 4.0); /* +4 fuer Interpolations-Lookahead */
+    uint32_t avail = widx - (uint32_t)(dev->src_frac_ridx * 2.0);
 
     int underrun = 0;
     if (avail < needed_samples) {
         memset(dev->temp_buf, 0, nSamplesStereo * sizeof(float));
         underrun = 1;
         atomic_fetch_add_explicit(&dev->underruns, 1u, memory_order_relaxed);
-        /* Frac-Ridx auf write_idx setzen damit beim naechsten Call frische Samples da sind */
-        dev->src_frac_ridx = (double)widx;
+        /* Frac-Ridx auf write_idx/2 setzen (Frame-Index!) */
+        dev->src_frac_ridx = (double)widx / 2.0;
     } else {
         for (uint32_t f = 0; f < nFrames; f++) {
             uint32_t idx0 = (uint32_t)dev->src_frac_ridx;
@@ -406,8 +407,8 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
 
             dev->src_frac_ridx += ratio;
         }
-        /* local_ridx (integer) fuer update_global_read_idx() ableiten */
-        dev->local_ridx = (uint32_t)dev->src_frac_ridx;
+        /* local_ridx (Sample-Index!) aus Frame-Index ableiten: *2 */
+        dev->local_ridx = (uint32_t)(dev->src_frac_ridx * 2.0);
     }
 
     /* ── In Output-Buffer schreiben mit Channel-Mapping ── */
@@ -566,10 +567,13 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
     }
     atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
 
-    /* Phase 6: Adaptive SRC initialisieren */
-    dev->src_frac_ridx   = (double)dev->local_ridx;
+    /* Phase 6: Adaptive SRC initialisieren.
+     * src_frac_ridx ist ein FRAME-Index (nicht Sample-Index):
+     *   frame i → ring samples [i*2] (L) und [i*2+1] (R)
+     * local_ridx ist ein Sample-Index → /2 fuer Konvertierung. */
+    dev->src_frac_ridx   = (double)dev->local_ridx / 2.0;
     atomic_store_explicit(&dev->src_ratio_q20, 1u << 20, memory_order_relaxed);
-    dev->src_ring_target = ARN_RING_CAPACITY / 2;  /* 50% Fuellstand als Ziel */
+    dev->src_ring_target = ARN_RING_CAPACITY / 2;  /* 50% Fuellstand als Ziel (in Samples) */
 
     OSStatus err = AudioDeviceCreateIOProcID(dev_id, device_ioproc, dev, &dev->proc_id);
     if (err != noErr) {
@@ -794,7 +798,8 @@ static void *volume_poll_thread(void *arg)
                     uint32_t w = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
                     pthread_mutex_lock(&g_outputs_lock);
                     for (int i = 0; i < g_n_outputs; i++) {
-                        g_outputs[i].local_ridx = w;
+                        g_outputs[i].local_ridx    = w;
+                        g_outputs[i].src_frac_ridx = (double)w / 2.0; /* Frame-Index! */
                     }
                     pthread_mutex_unlock(&g_outputs_lock);
                 }
