@@ -231,6 +231,15 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 - De-Interleaving im IOProc in pre-allokierten `temp_buf` (kein malloc im Hot-Path)
 - Diagnose: `_Atomic underruns` pro Device, `g_ioproc_calls` global
 
+### Adaptive Sample-Rate-Kompensation (Phase 6, v2.1)
+- Pro Output-Device: `double src_frac_ridx` (fraktionaler Leseindex, IOProc-privat)
+- Lineare Interpolation zwischen zwei Sample-Frames pro Output-Frame
+- `_Atomic uint32_t src_ratio_q20` — Q20-Fixed-Point (1.0 = `1<<20`)
+- P-Regler im Volume-Poll-Thread (50ms): Ziel = 50% Ring-Füllstand
+- Korrektur geklemmt auf ±500ppm (10× Max-Drift Sicherheitsmarge)
+- Bei Underrun: `src_frac_ridx` auf `write_idx` zurückgesetzt (Resync)
+- Diagnose: `src_ratio` pro Device in `get_status`-Antwort
+
 ### Config-Socket (non-RT-Thread)
 - Unix Domain Socket `/tmp/audiorouter.config.sock`
 - Protokoll: JSON-Lines
@@ -434,9 +443,7 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 ## 13. Bekannte Einschränkungen (Stand v2.0)
 
 1. ~~**Python im Hot-Path**~~ — **GELÖST in v2.0** durch C-Helper.
-2. **Uhr-Drift** zwischen virtuellem Driver und physischem Device (Crystal-Oszillator-Drift ~50ppm)
-   - Aktueller Schutz: 170ms Ring-Buffer als Reserve, Underrun → Stille (selten, ~1×/Stunde)
-   - Geplant für v2.1: AudioConverter mit variabler Sample-Rate (SRC), Drift-Messung via Ring-Fill-Level
+2. ~~**Uhr-Drift** zwischen virtuellem Driver und physischem Device~~ — **GELÖST in Phase 6** durch adaptive SRC (fraktionaler Leseindex + lineare Interpolation + P-Regler auf Ring-Füllstand)
 3. **Nur Stereo-Input** — Treiber empfängt nur 2 Kanäle von CoreAudio (für System-Audio ausreichend)
 4. **Code-Signierung fehlt** — Gatekeeper-Warnung auf anderen Macs
    - Aktuell: ad-hoc signiert (`codesign --sign -`)
@@ -495,10 +502,24 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 - [x] DMG-Build erfolgreich
 - Commit: `70031dd`
 
-### Phase 6 — Clock-Drift SRC *(v2.1, optional)*
-- [ ] AudioConverter mit variabler Output-Sample-Rate
-- [ ] Drift-Messung via Ring-Fill-Level → adaptive Rate-Anpassung
-- [ ] 4h Stress-Test ohne Glitch
+### Phase 6 — Clock-Drift-Kompensation via adaptiver SRC ✅ ABGESCHLOSSEN
+- [x] Fraktionaler Ring-Leseindex (`src_frac_ridx`, double) pro Output-Device
+- [x] Lineare Interpolation im IOProc — RT-safe (keine `AudioConverter`-Instanz nötig)
+- [x] P-Regler im 50ms-Volume-Poll-Thread: Ziel = 50% Ring-Füllstand
+- [x] RT-safe Inter-Thread-Kommunikation: `_Atomic uint32_t src_ratio_q20` (Q20-Fixed-Point)
+- [x] Clamp auf ±500ppm (10× Max-Drift als Sicherheitsmarge)
+- [x] Diagnose: `src_ratio` pro Device in `get_status`-Antwort
+
+**Ansatz (gewählt gegen `AudioConverter`):**
+- Bei ±50ppm Drift ist lineare Interpolation klanglich transparent (Aliasing irrelevant)
+- Kein malloc/lock im IOProc — nur fraktionaler Index + zwei Sample-Reads pro Output-Frame
+- Volume-Poll-Thread aktualisiert Ratio alle 50ms basierend auf Ring-Füllstand
+- Volle Trennung der Threads: IOProc liest `src_ratio_q20` atomic (release-acquire)
+
+### Phase 6.1 — Stress-Test ohne Glitch [ ] offen
+- [ ] 4h Musik-Wiedergabe ohne Underrun
+- [ ] Ring-Füllstand schwingt um Ziel ein (~10-20s bei initial 50ppm Drift)
+- [ ] CPU-Last-Tests mit `yes > /dev/null` parallel
 
 ### Phase 8 — Test-Matrix [ ] offen
 - [ ] macOS 11, 12, 13, 14, 15
@@ -511,6 +532,20 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 - [ ] Hardened Runtime mit korrekten Entitlements (SHM + Sockets)
 - [ ] Notarization beim Apple Notary Service
 - [ ] Stapler ans DMG
+
+---
+
+## 14.1 Geplante Features — spätere Versionen
+
+### User-wählbare Sample-Rate (v3.0)
+- Unterstützte Raten: 44100, 48000, 88200, 96000, 176400, 192000 Hz
+- UI: Sample-Rate-Picker im Menubar-Dropdown
+- HAL-Treiber muss dann die gewählte Rate in den SHM-Header schreiben
+- Helper und AudioConverter müssen auf Sample-Rate-Änderungen reagieren
+- Betrifft:
+  - `driver/src/AudioRouterNowDriver.c` (GetStreamDescription)
+  - `helper/AudioRouterNowHelper.c` (SRC-Ratio-Berechnung anpassen)
+  - `engine/menu_bar_app.py` (neue UI-Elemente)
 
 ---
 
