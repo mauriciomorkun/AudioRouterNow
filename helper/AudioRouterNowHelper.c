@@ -374,31 +374,47 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
     uint32_t nSamplesStereo = nFrames * 2u;
     if (nSamplesStereo > ARN_RING_CAPACITY) nSamplesStereo = ARN_RING_CAPACITY;
 
-    /* ── Fraktionaler Ring-Read mit linearer Interpolation (Phase 6 SRC) ── */
+    /* ── Fraktionaler Ring-Read mit linearer Interpolation (Phase 6 SRC) ──
+     *
+     * src_frac_ridx  = Frame-Index (nicht Sample-Index!)
+     *   Frame i → L = ring->samples[i*2], R = ring->samples[i*2+1]
+     * widx (write_idx) = Sample-Index → Vergleich via src_frac_ridx * 2.0
+     *
+     * Underrun-Strategie: Position NICHT zurücksetzen — nur Stille ausgeben
+     * und beim nächsten IOProc-Call mehr Daten abwarten. Nur bei Ring-Overflow
+     * (wir sind weiter als ARN_RING_CAPACITY hinter write_idx) wird
+     * src_frac_ridx auf write_idx gesprungen (veraltete Daten überspringen). */
     uint32_t ratio_q20 = atomic_load_explicit(&dev->src_ratio_q20, memory_order_relaxed);
     double   ratio     = (double)ratio_q20 / (double)(1u << 20);
 
-    /* Pruefe ob genug Frames verfuegbar (mit ratio-Headroom).
-     * src_frac_ridx ist Frame-Index → *2 fuer Sample-Vergleich mit widx (Sample-Index). */
-    uint32_t widx  = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
-    uint32_t needed_samples = (uint32_t)(nFrames * ratio * 2.0 + 4.0); /* +4 fuer Interpolations-Lookahead */
-    uint32_t avail = widx - (uint32_t)(dev->src_frac_ridx * 2.0);
+    uint32_t widx          = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
+    uint32_t frac_as_samp  = (uint32_t)(dev->src_frac_ridx * 2.0);
+    uint32_t behind        = widx - frac_as_samp;   /* unsigned wrap = korrekt */
+
+    /* Overflow-Guard: Ring wurde ueberschrieben → auf write_idx springen */
+    if (behind > ARN_RING_CAPACITY) {
+        dev->src_frac_ridx = (double)widx / 2.0;
+        frac_as_samp       = widx;
+        behind             = 0;
+    }
+
+    /* Benötigte Samples: nFrames*ratio*2 + 2 (1 extra Frame fuer Interpolations-Lookahead) */
+    uint32_t needed_samples = (uint32_t)(nFrames * ratio * 2.0) + 2u;
 
     int underrun = 0;
-    if (avail < needed_samples) {
+    if (behind < needed_samples) {
+        /* Underrun: Stille — Position NICHT veraendern, naechster Call holt auf */
         memset(dev->temp_buf, 0, nSamplesStereo * sizeof(float));
         underrun = 1;
         atomic_fetch_add_explicit(&dev->underruns, 1u, memory_order_relaxed);
-        /* Frac-Ridx auf write_idx/2 setzen (Frame-Index!) */
-        dev->src_frac_ridx = (double)widx / 2.0;
     } else {
         for (uint32_t f = 0; f < nFrames; f++) {
             uint32_t idx0 = (uint32_t)dev->src_frac_ridx;
-            float    frac  = (float)(dev->src_frac_ridx - (double)idx0);
-            float    inv   = 1.0f - frac;
+            float    frac = (float)(dev->src_frac_ridx - (double)idx0);
+            float    inv  = 1.0f - frac;
 
-            uint32_t si0 = (idx0 * 2u    ) & ARN_RING_MASK;  /* L sample bei idx0   */
-            uint32_t si1 = (idx0 * 2u + 1) & ARN_RING_MASK;  /* R sample bei idx0   */
+            uint32_t si0 = ( idx0      * 2u    ) & ARN_RING_MASK;  /* L bei idx0   */
+            uint32_t si1 = ( idx0      * 2u + 1) & ARN_RING_MASK;  /* R bei idx0   */
             uint32_t si2 = ((idx0 + 1u) * 2u    ) & ARN_RING_MASK; /* L bei idx0+1 */
             uint32_t si3 = ((idx0 + 1u) * 2u + 1) & ARN_RING_MASK; /* R bei idx0+1 */
 
@@ -407,7 +423,7 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
 
             dev->src_frac_ridx += ratio;
         }
-        /* local_ridx (Sample-Index!) aus Frame-Index ableiten: *2 */
+        /* local_ridx (Sample-Index) aus Frame-Index ableiten */
         dev->local_ridx = (uint32_t)(dev->src_frac_ridx * 2.0);
     }
 
