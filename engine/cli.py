@@ -1,20 +1,24 @@
 """
-CLI — Terminal-Interface fuer AudioRouterNow (Testing und Diagnose).
+CLI — Terminal-Interface fuer AudioRouterNow v2.0 (Diagnose und Steuerung).
+
+v2.0: Audio laeuft ueber den nativen C-Helper-Daemon (AudioRouterNowHelper).
+Python ist nur noch fuer UI und Konfiguration via Unix-Socket zustaendig.
+sounddevice, SocketReceiver und RoutingEngine sind NICHT mehr Teil dieses CLIs.
 
 Verwendung:
     python cli.py --list-devices
-    python cli.py --output "Komplete Audio 6" --output "AirPods Pro"
-    python cli.py --test-socket
+    python cli.py --status
+    python cli.py --ping
+    python cli.py --set-outputs AppleHDAEngineOutput:0 AppleUSBAudio:2
+    python cli.py --start-helper
+    python cli.py --stop-helper
 
-Ohne Argumente: Zeigt Hilfe an.
+Hinweis: --test-socket (v1) wurde durch --ping ersetzt.
 """
 
 import argparse
 import logging
-import signal
-import socket
 import sys
-import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,228 +28,273 @@ logger = logging.getLogger(__name__)
 
 
 def cmd_list_devices():
-    """Listet alle verfuegbaren Output-Devices auf."""
-    # Importiere hier damit CLI auch ohne alle Abhaengigkeiten lauffaehig bleibt
-    try:
-        import sounddevice as sd
-    except ImportError:
-        print("FEHLER: sounddevice nicht installiert. Bitte: pip install sounddevice")
-        sys.exit(1)
-
-    print("\nVerfuegbare Audio-Devices:")
-    print("-" * 60)
-
-    devices = sd.query_devices()
-    has_output = False
-
-    for i, dev in enumerate(devices):
-        in_ch = int(dev["max_input_channels"])
-        out_ch = int(dev["max_output_channels"])
-        sr = int(dev["default_samplerate"])
-
-        if out_ch > 0:
-            marker = "  >> "  # Output-Device hervorheben
-            has_output = True
-        else:
-            marker = "     "
-
-        print(
-            f"{marker}[{i:2}]  {dev['name']:<40}  "
-            f"In:{in_ch}  Out:{out_ch}  SR:{sr} Hz"
-        )
-
-    if not has_output:
-        print("  (keine Output-Devices gefunden)")
-
-    print()
-
-
-def cmd_test_socket():
-    """Prueft ob der HAL-Treiber eine Verbindung aufbaut."""
-    from socket_receiver import SOCKET_PATH, BLOCK_SIZE_BYTES
-
-    print(f"Starte Unix Socket Server auf {SOCKET_PATH} ...")
-    print("Warte auf Verbindung vom HAL-Treiber (Ctrl+C zum Abbrechen)...")
-    print()
-
-    import os
-    if os.path.exists(SOCKET_PATH):
-        os.unlink(SOCKET_PATH)
-
-    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    server.bind(SOCKET_PATH)
-    server.listen(1)
-    server.settimeout(30.0)
-
-    try:
-        conn, _ = server.accept()
-        print("HAL-Treiber verbunden!")
-        print(f"Empfange Daten... (erwarte {BLOCK_SIZE_BYTES} Bytes pro Block)")
-        print()
-
-        blocks_received = 0
-        start_time = time.time()
-        recv_buffer = bytearray()
-
-        conn.settimeout(5.0)
-        try:
-            while blocks_received < 50:  # max. 50 Bloecke testen
-                while len(recv_buffer) < BLOCK_SIZE_BYTES:
-                    chunk = conn.recv(BLOCK_SIZE_BYTES - len(recv_buffer))
-                    if not chunk:
-                        break
-                    recv_buffer.extend(chunk)
-
-                if len(recv_buffer) < BLOCK_SIZE_BYTES:
-                    break
-
-                block = bytes(recv_buffer[:BLOCK_SIZE_BYTES])
-                recv_buffer = recv_buffer[BLOCK_SIZE_BYTES:]
-                blocks_received += 1
-
-                if blocks_received % 10 == 0:
-                    elapsed = time.time() - start_time
-                    blocks_per_sec = blocks_received / elapsed
-                    print(
-                        f"  {blocks_received} Bloecke empfangen  "
-                        f"({blocks_per_sec:.1f} Bloecke/s, "
-                        f"{blocks_per_sec * 512:.0f} Frames/s)"
-                    )
-        except socket.timeout:
-            print("Timeout — keine Daten empfangen.")
-        finally:
-            conn.close()
-
-        if blocks_received > 0:
-            print(f"\nERFOLG: {blocks_received} Bloecke empfangen — HAL-Treiber funktioniert!")
-        else:
-            print("\nFEHLER: Verbindung hergestellt, aber keine Daten empfangen.")
-
-    except socket.timeout:
-        print("FEHLER: Kein HAL-Treiber verbunden innerhalb von 30 Sekunden.")
-        print("Ist der Treiber in /Library/Audio/Plug-Ins/HAL/ installiert?")
-        print("Pruefe: sudo killall -9 coreaudiod  (startet Core Audio neu)")
-        sys.exit(1)
-    finally:
-        server.close()
-        if os.path.exists(SOCKET_PATH):
-            os.unlink(SOCKET_PATH)
-
-
-def cmd_start_routing(output_names: list):
-    """Startet das Routing zu den angegebenen Output-Devices."""
+    """Listet alle verfuegbaren CoreAudio Output-Devices mit UIDs auf."""
     try:
         from device_manager import DeviceManager
-        from routing_engine import OutputTarget, RoutingEngine
-        from socket_receiver import SocketReceiver
     except ImportError as e:
-        print(f"FEHLER: Abhaengigkeit fehlt: {e}")
-        print("Bitte: pip install -r requirements.txt")
+        print(f"FEHLER: device_manager konnte nicht importiert werden: {e}")
         sys.exit(1)
 
-    print(f"Suche Devices: {output_names}")
-
-    # Device-Manager einmalig starten um aktuelle Device-Liste zu erhalten
     dm = DeviceManager()
     dm.start()
-    time.sleep(0.2)  # kurz warten bis initiales Scan abgeschlossen
+    devices = dm.get_output_devices()
+    dm.stop()
 
-    targets = []
-    for name in output_names:
-        device = dm.find_device_by_name(name)
-        if device is None:
-            print(f"  NICHT GEFUNDEN: '{name}'")
-            print("  Verfuegbare Devices: python cli.py --list-devices")
-        else:
-            targets.append(
-                OutputTarget(
-                    device_index=device.index,
-                    device_name=device.name,
-                    channel_count=device.max_output_channels,
-                )
-            )
-            print(f"  Gefunden: {device.name} ({device.max_output_channels}ch, Index {device.index})")
+    if not devices:
+        print("Keine Output-Devices gefunden (>= 2 Kanaele benoetigt).")
+        return
 
-    if not targets:
-        print("\nFEHLER: Kein Output-Device gefunden. Abbruch.")
-        dm.stop()
+    print()
+    print("Verfuegbare CoreAudio Output-Devices:")
+    print("-" * 72)
+    print(f"  {'#':<4}  {'Name':<36}  {'Ch':>4}  {'SR':>8}  UID")
+    print("-" * 72)
+
+    for i, dev in enumerate(devices):
+        sr_str = f"{dev.default_samplerate:.0f} Hz" if dev.default_samplerate else "unbekannt"
+        print(
+            f"  {i:<4}  {dev.name:<36}  {dev.max_output_channels:>4}  "
+            f"{sr_str:>8}  {dev.uid}"
+        )
+
+    print()
+    print(f"{len(devices)} Device(s) gefunden.")
+    print()
+    print("Tipp: UID verwenden mit --set-outputs <uid>:<ch_offset>")
+    print()
+
+
+def cmd_status():
+    """Fragt den Helper-Status via Config-Socket ab."""
+    try:
+        from helper_client import HelperClient
+    except ImportError as e:
+        print(f"FEHLER: helper_client konnte nicht importiert werden: {e}")
         sys.exit(1)
 
-    engine = RoutingEngine()
-    engine.set_outputs(targets)
+    helper = HelperClient()
+    status = helper.get_status()
 
-    receiver = SocketReceiver(on_frames=engine.on_frames)
+    if status is None:
+        print("FEHLER: Kein Status vom Helper erhalten. Laeuft der Helper?")
+        print("  Tipp: python cli.py --ping")
+        print("  Tipp: python cli.py --start-helper")
+        sys.exit(1)
 
-    def shutdown(sig, frame):
-        print("\nStoppe Routing...")
-        engine.stop()
-        receiver.stop()
-        dm.stop()
-        sys.exit(0)
+    print()
+    print("Helper-Status:")
+    print("-" * 40)
+    for key, value in status.items():
+        print(f"  {key}: {value}")
+    print()
 
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
 
-    receiver.start()
+def cmd_ping():
+    """Prueft ob der Helper-Daemon erreichbar ist."""
+    try:
+        from helper_client import HelperClient
+    except ImportError as e:
+        print(f"FEHLER: helper_client konnte nicht importiert werden: {e}")
+        sys.exit(1)
 
-    if engine.start():
-        print("\nRouting aktiv. Ctrl+C zum Beenden.")
-        print("Output-Devices:")
-        for t in targets:
-            print(f"  - {t.device_name} ({t.channel_count}ch)")
-        print()
+    helper = HelperClient()
+    ok = helper.ping()
 
-        while True:
-            time.sleep(1)
+    if ok:
+        print("Helper erreichbar (pong empfangen).")
     else:
-        print("\nFEHLER: Routing konnte nicht gestartet werden.")
-        receiver.stop()
-        dm.stop()
+        print("FEHLER: Helper antwortet nicht.")
+        print("  Tipp: python cli.py --start-helper")
         sys.exit(1)
+
+
+def cmd_set_outputs(uid_offset_pairs: list):
+    """
+    Konfiguriert die Output-Streams des Helpers.
+
+    Erwartet eine Liste von 'uid:ch_offset'-Strings.
+    """
+    try:
+        from helper_client import HelperClient, OutputSpec
+    except ImportError as e:
+        print(f"FEHLER: helper_client konnte nicht importiert werden: {e}")
+        sys.exit(1)
+
+    outputs = []
+    for pair in uid_offset_pairs:
+        parts = pair.rsplit(":", 1)
+        if len(parts) != 2:
+            print(f"FEHLER: Ungaeltiges Format '{pair}' — erwartet uid:ch_offset")
+            sys.exit(1)
+        uid, ch_offset_str = parts
+        try:
+            ch_offset = int(ch_offset_str)
+        except ValueError:
+            print(f"FEHLER: ch_offset muss eine Ganzzahl sein ('{pair}')")
+            sys.exit(1)
+        outputs.append(OutputSpec(uid=uid, ch_offset=ch_offset))
+
+    if not outputs:
+        print("FEHLER: Keine gueltigen uid:ch_offset-Paare angegeben.")
+        sys.exit(1)
+
+    helper = HelperClient()
+    print(f"Setze {len(outputs)} Output(s):")
+    for o in outputs:
+        print(f"  UID={o.uid}  ch_offset={o.ch_offset}")
+
+    result = helper.set_outputs(outputs)
+
+    if result is None:
+        print("FEHLER: Keine Antwort vom Helper.")
+        sys.exit(1)
+
+    print()
+    print("Antwort vom Helper:")
+    for key, value in result.items():
+        print(f"  {key}: {value}")
+    print()
+
+
+def cmd_start_helper():
+    """Startet den Helper-Daemon (falls noch nicht aktiv)."""
+    try:
+        from helper_client import HelperClient
+    except ImportError as e:
+        print(f"FEHLER: helper_client konnte nicht importiert werden: {e}")
+        sys.exit(1)
+
+    helper = HelperClient()
+    print("Starte Helper-Daemon...")
+    ok = helper.ensure_running()
+
+    if ok:
+        print("Helper laeuft.")
+    else:
+        print("FEHLER: Helper konnte nicht gestartet werden.")
+        print("  Logs: /tmp/audiorouter.helper.log")
+        print("  Fehler: /tmp/audiorouter.helper.err")
+        sys.exit(1)
+
+
+def cmd_stop_helper():
+    """Sendet Shutdown-Kommando an den Helper-Daemon."""
+    try:
+        from helper_client import HelperClient
+    except ImportError as e:
+        print(f"FEHLER: helper_client konnte nicht importiert werden: {e}")
+        sys.exit(1)
+
+    helper = HelperClient()
+    print("Sende Shutdown an Helper...")
+    helper.shutdown()
+    print("Shutdown-Kommando gesendet.")
+    print("Hinweis: Wenn launchd den Helper verwaltet, wird er ggf. neu gestartet.")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="AudioRouterNow CLI — Diagnose und Testing",
+        description="AudioRouterNow CLI v2.0 — Diagnose und Steuerung",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Beispiele:
   python cli.py --list-devices
-  python cli.py --output "Komplete Audio 6" --output "AirPods Pro"
-  python cli.py --test-socket
+  python cli.py --ping
+  python cli.py --status
+  python cli.py --set-outputs AppleHDAEngineOutput:0 AppleUSBAudio:2
+  python cli.py --start-helper
+  python cli.py --stop-helper
+
+Hinweis: --test-socket (v1) wurde durch --ping ersetzt.
+         --output / RoutingEngine / sounddevice sind in v2.0 entfallen.
         """,
     )
 
     parser.add_argument(
         "--list-devices",
         action="store_true",
-        help="Alle verfuegbaren Audio-Devices anzeigen",
+        help="Alle verfuegbaren CoreAudio Output-Devices mit UIDs anzeigen",
+    )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Helper-Status via Config-Socket abfragen",
+    )
+    parser.add_argument(
+        "--ping",
+        action="store_true",
+        help="Prueft ob der Helper-Daemon erreichbar ist (ersetzt --test-socket)",
+    )
+    parser.add_argument(
+        "--set-outputs",
+        nargs="+",
+        metavar="UID:CH_OFFSET",
+        help="Output-Streams konfigurieren (uid:ch_offset, ein oder mehrere)",
+    )
+    parser.add_argument(
+        "--start-helper",
+        action="store_true",
+        help="Helper-Daemon starten (falls nicht aktiv)",
+    )
+    parser.add_argument(
+        "--stop-helper",
+        action="store_true",
+        help="Shutdown-Kommando an Helper senden",
+    )
+
+    # Verstecktes v1-Argument fuer Rueckwaerts-Hinweis
+    parser.add_argument(
+        "--test-socket",
+        action="store_true",
+        help=argparse.SUPPRESS,  # v1-Deprecation, nicht in Hilfe anzeigen
     )
     parser.add_argument(
         "--output",
         action="append",
         metavar="DEVICE_NAME",
-        dest="outputs",
-        help="Output-Device hinzufuegen (kann mehrfach angegeben werden)",
-    )
-    parser.add_argument(
-        "--test-socket",
-        action="store_true",
-        help="Unix Socket Server starten und auf HAL-Treiber-Verbindung testen",
+        dest="outputs_v1",
+        help=argparse.SUPPRESS,  # v1-Deprecation, nicht in Hilfe anzeigen
     )
 
     args = parser.parse_args()
+
+    # v1-Deprecation-Hinweise
+    if args.test_socket:
+        print("HINWEIS: --test-socket ist in v2.0 nicht mehr verfuegbar.")
+        print("         Verwende stattdessen: python cli.py --ping")
+        print()
+        cmd_ping()
+        return
+
+    if args.outputs_v1:
+        print("HINWEIS: --output / RoutingEngine ist in v2.0 entfallen.")
+        print("         Der Helper-Daemon uebernimmt das Audio-Routing.")
+        print("         Verwende --set-outputs <uid>:<ch_offset> zum Konfigurieren.")
+        print("         Devices anzeigen: python cli.py --list-devices")
+        sys.exit(1)
 
     if args.list_devices:
         cmd_list_devices()
         return
 
-    if args.test_socket:
-        cmd_test_socket()
+    if args.status:
+        cmd_status()
         return
 
-    if args.outputs:
-        cmd_start_routing(args.outputs)
+    if args.ping:
+        cmd_ping()
+        return
+
+    if args.set_outputs:
+        cmd_set_outputs(args.set_outputs)
+        return
+
+    if args.start_helper:
+        cmd_start_helper()
+        return
+
+    if args.stop_helper:
+        cmd_stop_helper()
         return
 
     # Keine Argumente — Hilfe anzeigen
