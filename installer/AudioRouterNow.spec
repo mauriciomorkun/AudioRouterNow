@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 #
-# PyInstaller Spec-Datei fuer AudioRouterNow
+# PyInstaller Spec-Datei fuer AudioRouterNow (Phase 4+: ohne sounddevice/numpy)
 # Build: cd installer && .venv/bin/pyinstaller AudioRouterNow.spec
 #
 
@@ -12,50 +12,42 @@ PROJECT_ROOT = Path(SPECPATH).parent
 ENGINE_DIR   = PROJECT_ROOT / "engine"
 DRIVER_BUILD = PROJECT_ROOT / "driver" / "build" / "AudioRouterNow.driver"
 
-# Sounddevice portaudio Library finden
-import sounddevice
-import os
-_sd_data_dir = Path(sounddevice.__file__).parent / "_sounddevice_data"
-_portaudio_libs = []
-for lib_path in _sd_data_dir.rglob("libportaudio*"):
-    _portaudio_libs.append((str(lib_path), "_sounddevice_data"))
+# launchd plist (wird vom first_launch ggf. nach ~/Library/LaunchAgents/ kopiert)
+HELPER_PLIST = PROJECT_ROOT / "helper" / "com.audiorouter.now.helper.plist"
 
 a = Analysis(
     [str(ENGINE_DIR / "menu_bar_app.py")],
     pathex=[str(ENGINE_DIR)],
-    binaries=_portaudio_libs,
+    binaries=[],
     datas=[
-        # HAL-Treiber Bundle einbetten (wird bei Erststart installiert)
+        # HAL-Treiber Bundle einbetten (enthaelt jetzt auch das Helper-Binary).
         # Zugriff zur Laufzeit: os.path.join(sys._MEIPASS, "AudioRouterNow.driver")
         (str(DRIVER_BUILD), "AudioRouterNow.driver"),
-        # HINWEIS: Python-Module (.py) werden von Analysis automatisch gefunden
-        # und als kompiliertes .pyc in base_library.zip gebündelt.
-        # Explizites Kopieren als .py wuerde rohe Quelldateien in Contents/Frameworks
-        # erzeugen, was codesign blockiert (keine signierbaren Mach-O Binaries).
+        # launchd plist (wird beim Erststart nach ~/Library/LaunchAgents/ kopiert)
+        (str(HELPER_PLIST), "."),
     ],
     hiddenimports=[
         "rumps",
-        "sounddevice",
-        "_sounddevice_data",
-        "numpy",
-        "numpy.core",
-        "numpy.core._multiarray_umath",
-        "cffi",
-        "_cffi_backend",
         "AppKit",
         "Foundation",
         "objc",
-        "socket_receiver",
-        "routing_engine",
-        "device_manager",
         "config",
+        "device_manager",
+        "helper_client",
         "first_launch",
         "audio_device_control",
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "PIL"],
+    excludes=[
+        "tkinter", "matplotlib", "PIL",
+        # Phase 4: alte Audio-Deps explizit ausschliessen
+        "sounddevice", "numpy", "_sounddevice_data",
+        "cffi", "_cffi_backend",
+        # alte Module die jetzt entfernt sind
+        "socket_receiver", "routing_engine",
+    ],
     noarchive=False,
     optimize=1,
 )
@@ -72,9 +64,9 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,   # Kein Terminal-Fenster
+    console=False,
     disable_windowed_traceback=False,
-    target_arch="arm64",   # arm64 (Apple Silicon) — universal2 erfordert fat binaries in allen Paketen
+    target_arch="arm64",
     codesign_identity=None,
     entitlements_file=str(Path(SPECPATH) / "entitlements.plist"),
 )
@@ -94,17 +86,16 @@ app = BUNDLE(
     name="AudioRouterNow.app",
     icon=str(Path(SPECPATH) / "AudioRouterNow.icns"),
     bundle_identifier="com.audiorouter.now",
-    version="1.0.0",
+    version="2.0.0",
     info_plist={
         "CFBundleName":               "AudioRouterNow",
         "CFBundleDisplayName":        "AudioRouterNow",
         "CFBundleIdentifier":         "com.audiorouter.now",
-        "CFBundleVersion":            "1.0.0",
-        "CFBundleShortVersionString": "1.0.0",
+        "CFBundleVersion":            "2.0.0",
+        "CFBundleShortVersionString": "2.0.0",
         "NSHighResolutionCapable":    True,
-        "LSUIElement":                True,   # Kein Dock-Icon (Menu-Bar-Only App)
+        "LSUIElement":                True,
         "NSHumanReadableCopyright":   "AudioRouterNow",
         "LSMinimumSystemVersion":     "11.0",
-        "NSMicrophoneUsageDescription": "AudioRouterNow benoetigt Zugriff auf Audio-Geraete.",
     },
 )
