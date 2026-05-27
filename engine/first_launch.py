@@ -10,6 +10,7 @@ and restarts coreaudiod so Core Audio recognises the new device.
 
 import logging
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 DRIVER_NAME = "AudioRouterNow.driver"
 DRIVER_INSTALL_PATH = Path("/Library/Audio/Plug-Ins/HAL") / DRIVER_NAME
+
+LAUNCHD_PLIST_NAME  = "com.audiorouter.now.helper.plist"
+LAUNCHD_LABEL       = "com.audiorouter.now.helper"
+LAUNCHD_AGENTS_DIR  = Path.home() / "Library" / "LaunchAgents"
+LAUNCHD_INSTALL_PATH = LAUNCHD_AGENTS_DIR / LAUNCHD_PLIST_NAME
 
 
 def _get_driver_source_path() -> Path:
@@ -132,6 +138,207 @@ def install_driver() -> tuple[bool, str]:
     return True, ""
 
 
+def _get_launchd_plist_source() -> Path:
+    """
+    Returns the path to the launchd plist bundled inside the INSTALLED driver.
+
+    The plist lives at:
+        /Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver/Contents/Resources/
+            com.audiorouter.now.helper.plist
+    """
+    return DRIVER_INSTALL_PATH / "Contents" / "Resources" / LAUNCHD_PLIST_NAME
+
+
+def is_launchd_agent_installed() -> bool:
+    """
+    Checks whether the launchd plist has been copied to ~/Library/LaunchAgents/.
+
+    Returns:
+        True if LAUNCHD_INSTALL_PATH exists on disk.
+    """
+    installed = LAUNCHD_INSTALL_PATH.exists()
+    logger.debug(
+        "LaunchAgent check: %s → %s",
+        LAUNCHD_INSTALL_PATH,
+        "present" if installed else "not found",
+    )
+    return installed
+
+
+def install_launchd_agent() -> tuple[bool, str]:
+    """
+    Installs the Helper launchd User Agent — no administrator privileges required.
+
+    Steps:
+    1. Create ~/Library/LaunchAgents/ if it does not exist.
+    2. Copy the plist from the installed driver bundle into LaunchAgents/.
+    3. Bootstrap the agent with `launchctl bootstrap gui/<uid> <plist>`.
+       Falls back to `launchctl load <plist>` if bootstrap fails.
+
+    Returns:
+        (True, "")            on success.
+        (False, error_message) on failure.
+    """
+    source = _get_launchd_plist_source()
+
+    if not source.exists():
+        msg = (
+            f"LaunchAgent plist not found in driver bundle: {source}\n"
+            "The driver may not be fully installed yet."
+        )
+        logger.warning(msg)
+        return False, msg
+
+    try:
+        LAUNCHD_AGENTS_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        msg = f"Failed to create LaunchAgents directory: {exc}"
+        logger.warning(msg)
+        return False, msg
+
+    try:
+        shutil.copy2(source, LAUNCHD_INSTALL_PATH)
+        logger.info("LaunchAgent plist copied to: %s", LAUNCHD_INSTALL_PATH)
+    except OSError as exc:
+        msg = f"Failed to copy LaunchAgent plist: {exc}"
+        logger.warning(msg)
+        return False, msg
+
+    uid = os.getuid()
+
+    # Try modern bootstrap API first (macOS 11+)
+    try:
+        result = subprocess.run(
+            ["launchctl", "bootstrap", f"gui/{uid}", str(LAUNCHD_INSTALL_PATH)],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode == 0:
+            logger.info("LaunchAgent bootstrapped successfully (gui/%d).", uid)
+            return True, ""
+        logger.warning(
+            "launchctl bootstrap failed (rc=%d): %s — trying legacy load.",
+            result.returncode,
+            result.stderr.strip(),
+        )
+    except Exception as exc:
+        logger.warning("launchctl bootstrap raised an exception: %s — trying legacy load.", exc)
+
+    # Fallback: legacy load (macOS 10.x compatibility)
+    try:
+        result = subprocess.run(
+            ["launchctl", "load", str(LAUNCHD_INSTALL_PATH)],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode == 0:
+            logger.info("LaunchAgent loaded via legacy launchctl load.")
+            return True, ""
+        msg = f"launchctl load failed (rc={result.returncode}): {result.stderr.strip()}"
+        logger.warning(msg)
+        return False, msg
+    except Exception as exc:
+        msg = f"launchctl load raised an exception: {exc}"
+        logger.warning(msg)
+        return False, msg
+
+
+def unload_launchd_agent() -> None:
+    """
+    Unloads and removes the Helper launchd User Agent.
+
+    Called during a clean uninstall. All errors are silently ignored so that
+    the uninstall path never fails because of a launchd edge case.
+    """
+    uid = os.getuid()
+
+    # Attempt modern bootout first; ignore return code
+    try:
+        subprocess.run(
+            ["launchctl", "bootout", f"gui/{uid}", str(LAUNCHD_INSTALL_PATH)],
+            capture_output=True,
+            timeout=15,
+        )
+    except Exception:
+        # Legacy fallback: launchctl unload
+        try:
+            subprocess.run(
+                ["launchctl", "unload", str(LAUNCHD_INSTALL_PATH)],
+                capture_output=True,
+                timeout=15,
+            )
+        except Exception:
+            pass
+
+    try:
+        if LAUNCHD_INSTALL_PATH.exists():
+            LAUNCHD_INSTALL_PATH.unlink()
+            logger.info("LaunchAgent plist removed: %s", LAUNCHD_INSTALL_PATH)
+    except OSError as exc:
+        logger.warning("Could not remove LaunchAgent plist: %s", exc)
+
+
+def _check_and_install_launchd_agent() -> None:
+    """
+    Ensures the Helper launchd User Agent is installed and running.
+
+    Called from check_and_install() after the driver is confirmed ready.
+    All failures are non-fatal — the app can still spawn the helper directly
+    if launchd registration is unavailable.
+
+    Logic:
+    - Agent registered with launchd (`launchctl list` returns 0) → nothing to do.
+    - Plist present but not loaded → attempt to load it.
+    - Plist missing → call install_launchd_agent().
+    """
+    uid = os.getuid()
+
+    # Check whether the service is already known to launchd
+    try:
+        list_result = subprocess.run(
+            ["launchctl", "list", LAUNCHD_LABEL],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if list_result.returncode == 0:
+            logger.info("LaunchAgent '%s' is already registered — skipping install.", LAUNCHD_LABEL)
+            return
+    except Exception as exc:
+        logger.warning("launchctl list check raised an exception: %s", exc)
+
+    if is_launchd_agent_installed():
+        # Plist exists but service is not loaded — try to load it
+        logger.info("LaunchAgent plist found but not loaded — attempting to load.")
+        try:
+            result = subprocess.run(
+                ["launchctl", "bootstrap", f"gui/{uid}", str(LAUNCHD_INSTALL_PATH)],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode == 0:
+                logger.info("LaunchAgent loaded successfully.")
+            else:
+                logger.warning(
+                    "Failed to load existing LaunchAgent (rc=%d): %s",
+                    result.returncode,
+                    result.stderr.strip(),
+                )
+        except Exception as exc:
+            logger.warning("Exception while loading LaunchAgent: %s", exc)
+    else:
+        # Plist not present — full install
+        success, error_msg = install_launchd_agent()
+        if not success:
+            logger.warning(
+                "LaunchAgent installation failed (non-fatal): %s",
+                error_msg,
+            )
+
+
 def check_and_install() -> bool:
     """
     Main entry point: checks whether the driver is installed and installs it
@@ -149,6 +356,8 @@ def check_and_install() -> bool:
     """
     if is_driver_installed():
         logger.info("Driver already installed — no action needed.")
+        # Install launchd User Agent (no sudo — user domain)
+        _check_and_install_launchd_agent()
         return True
 
     logger.info("Driver not found — starting installation.")
@@ -174,6 +383,10 @@ def check_and_install() -> bool:
         return False
 
     logger.info("Driver installation completed and verified.")
+
+    # Install launchd User Agent (no sudo — user domain)
+    _check_and_install_launchd_agent()
+
     return True
 
 
