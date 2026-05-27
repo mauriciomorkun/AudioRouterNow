@@ -73,6 +73,10 @@ typedef struct DeviceOutput {
     char                 name[256];
     bool                 active;
     _Atomic uint32_t     underruns;      /* Diagnostic: Underrun-Zaehler         */
+    /* Phase 6 — Adaptive SRC fuer Clock-Drift-Kompensation */
+    double               src_frac_ridx;    /* fraktionaler Leseindex (ersetzt local_ridx im IOProc) */
+    _Atomic uint32_t     src_ratio_q20;    /* Q20-Ratio: 1.0 = 1<<20. Volume-Thread schreibt, IOProc liest */
+    uint32_t             src_ring_target;  /* Ziel-Fuellstand in Samples (= ARN_RING_CAPACITY/2) */
     /* Pre-allokierter Temp-Buffer fuer De-Interleaving im IOProc (RT-safe). */
     float                temp_buf[ARN_RING_CAPACITY];
 } DeviceOutput;
@@ -370,23 +374,40 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
     uint32_t nSamplesStereo = nFrames * 2u;
     if (nSamplesStereo > ARN_RING_CAPACITY) nSamplesStereo = ARN_RING_CAPACITY;
 
-    /* ── Lokaler Read aus dem Ring (statt arn_ring_read) ── */
+    /* ── Fraktionaler Ring-Read mit linearer Interpolation (Phase 6 SRC) ── */
+    uint32_t ratio_q20 = atomic_load_explicit(&dev->src_ratio_q20, memory_order_relaxed);
+    double   ratio     = (double)ratio_q20 / (double)(1u << 20);
+
+    /* Pruefe ob genug Samples verfuegbar (mit ratio-Headroom) */
     uint32_t widx  = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
-    uint32_t avail = widx - dev->local_ridx;   /* unsigned sub = korrekt    */
+    uint32_t needed_samples = (uint32_t)(nFrames * ratio * 2.0 + 2.0); /* +2 fuer Interpolations-Lookahead */
+    uint32_t avail = widx - (uint32_t)dev->src_frac_ridx;
 
     int underrun = 0;
-    if (avail < nSamplesStereo) {
-        /* Underrun — Stille schreiben */
+    if (avail < needed_samples) {
         memset(dev->temp_buf, 0, nSamplesStereo * sizeof(float));
         underrun = 1;
         atomic_fetch_add_explicit(&dev->underruns, 1u, memory_order_relaxed);
-        /* local_ridx NICHT vorruecken — beim naechsten Mal weiter versuchen.
-         * (Falls Driver gerade still steht, holen wir spaeter auf.)       */
+        /* Frac-Ridx auf write_idx setzen damit beim naechsten Call frische Samples da sind */
+        dev->src_frac_ridx = (double)widx;
     } else {
-        for (uint32_t i = 0; i < nSamplesStereo; i++) {
-            dev->temp_buf[i] = ring->samples[(dev->local_ridx + i) & ARN_RING_MASK];
+        for (uint32_t f = 0; f < nFrames; f++) {
+            uint32_t idx0 = (uint32_t)dev->src_frac_ridx;
+            float    frac  = (float)(dev->src_frac_ridx - (double)idx0);
+            float    inv   = 1.0f - frac;
+
+            uint32_t si0 = (idx0 * 2u    ) & ARN_RING_MASK;  /* L sample bei idx0   */
+            uint32_t si1 = (idx0 * 2u + 1) & ARN_RING_MASK;  /* R sample bei idx0   */
+            uint32_t si2 = ((idx0 + 1u) * 2u    ) & ARN_RING_MASK; /* L bei idx0+1 */
+            uint32_t si3 = ((idx0 + 1u) * 2u + 1) & ARN_RING_MASK; /* R bei idx0+1 */
+
+            dev->temp_buf[f * 2    ] = ring->samples[si0] * inv + ring->samples[si2] * frac;
+            dev->temp_buf[f * 2 + 1] = ring->samples[si1] * inv + ring->samples[si3] * frac;
+
+            dev->src_frac_ridx += ratio;
         }
-        dev->local_ridx += nSamplesStereo;
+        /* local_ridx (integer) fuer update_global_read_idx() ableiten */
+        dev->local_ridx = (uint32_t)dev->src_frac_ridx;
     }
 
     /* ── In Output-Buffer schreiben mit Channel-Mapping ── */
@@ -544,6 +565,11 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
         dev->local_ridx = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
     }
     atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
+
+    /* Phase 6: Adaptive SRC initialisieren */
+    dev->src_frac_ridx   = (double)dev->local_ridx;
+    atomic_store_explicit(&dev->src_ratio_q20, 1u << 20, memory_order_relaxed);
+    dev->src_ring_target = ARN_RING_CAPACITY / 2;  /* 50% Fuellstand als Ziel */
 
     OSStatus err = AudioDeviceCreateIOProcID(dev_id, device_ioproc, dev, &dev->proc_id);
     if (err != noErr) {
@@ -784,6 +810,38 @@ static void *volume_poll_thread(void *arg)
             atomic_store_explicit(&g_ring->volume_q16, vol_q16, memory_order_release);
             atomic_store_explicit(&g_ring->muted,      muted,   memory_order_release);
 
+            /* ── Phase 6: Adaptive SRC-Ratio pro Output-Device aktualisieren ── */
+            #define SRC_P_GAIN       0.01f    /* P-Verstaerkung — stabil bei +/-500ppm Headroom */
+            #define SRC_MAX_PPM      500.0f   /* Maximale Korrektur +/-500ppm                   */
+            #define SRC_RATIO_CLAMP  (SRC_MAX_PPM / 1000000.0f)
+
+            pthread_mutex_lock(&g_outputs_lock);
+            uint32_t w_now = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
+
+            for (int i = 0; i < g_n_outputs; i++) {
+                DeviceOutput *dev = &g_outputs[i];
+                if (!dev->active) continue;
+
+                uint32_t fill_samples  = w_now - dev->local_ridx;
+                uint32_t fill_frames   = fill_samples / 2u;   /* Stereo -> /2 */
+                uint32_t target_frames = dev->src_ring_target / 2u;
+
+                /* P-Regler: positiver Fehler = Ring laeuft voll -> schneller abspielen */
+                float error_norm = (float)((int32_t)fill_frames - (int32_t)target_frames)
+                                   / (float)(ARN_RING_CAPACITY / 2u);
+                float correction = error_norm * SRC_P_GAIN;
+
+                /* Clamp auf +/-500ppm */
+                if (correction >  SRC_RATIO_CLAMP) correction =  SRC_RATIO_CLAMP;
+                if (correction < -SRC_RATIO_CLAMP) correction = -SRC_RATIO_CLAMP;
+
+                float ratio_f = 1.0f + correction;
+                uint32_t ratio_q20 = (uint32_t)(ratio_f * (float)(1u << 20));
+
+                atomic_store_explicit(&dev->src_ratio_q20, ratio_q20, memory_order_release);
+            }
+            pthread_mutex_unlock(&g_outputs_lock);
+
             /* Auch globalen read_idx aktualisieren — Producer kann sonst voll laufen. */
             update_global_read_idx();
         }
@@ -902,9 +960,18 @@ static void format_active_outputs(char *buf, size_t bufsz)
         }
         safe_name[j] = '\0';
 
+        /* Phase 6: src_ratio (Q20 -> float) und underruns mit ausgeben */
+        uint32_t ratio_q20 = atomic_load_explicit(&g_outputs[i].src_ratio_q20,
+                                                  memory_order_relaxed);
+        double   src_ratio = (double)ratio_q20 / (double)(1u << 20);
+        uint32_t underruns = atomic_load_explicit(&g_outputs[i].underruns,
+                                                  memory_order_relaxed);
+
         written = snprintf(buf + pos, bufsz - pos,
-                           "%s{\"uid\":\"%s\",\"name\":\"%s\",\"ch_offset\":%u}",
-                           sep, g_outputs[i].uid, safe_name, g_outputs[i].ch_offset);
+                           "%s{\"uid\":\"%s\",\"name\":\"%s\",\"ch_offset\":%u,"
+                           "\"src_ratio\":%.6f,\"underruns\":%u}",
+                           sep, g_outputs[i].uid, safe_name, g_outputs[i].ch_offset,
+                           src_ratio, underruns);
         if (written < 0) break;
         pos += (size_t)written;
     }
