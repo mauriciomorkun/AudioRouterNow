@@ -398,8 +398,11 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
         behind             = 0;
     }
 
-    /* Benötigte Samples: nFrames*ratio*2 + 2 (1 extra Frame fuer Interpolations-Lookahead) */
-    uint32_t needed_samples = (uint32_t)(nFrames * ratio * 2.0) + 2u;
+    /* Benötigte Samples: floor(nFrames * ratio * 2).
+     * Kein +N Lookahead — der Ring ist zirkulaer, 1 Stichprobe am Rand
+     * ist vernachlaessigbar. Beim originalen v1-Code war needed = nFrames*2
+     * (ratio=1.0), dies ist damit identisch oder strenger fuer ratio>1. */
+    uint32_t needed_samples = (uint32_t)(nFrames * ratio * 2.0);
 
     int underrun = 0;
     if (behind < needed_samples) {
