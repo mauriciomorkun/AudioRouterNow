@@ -27,6 +27,9 @@
 #include <CoreFoundation/CoreFoundation.h>
 
 #include <fcntl.h>
+#include <sys/mman.h>   /* shm_open, mmap, munmap, shm_unlink */
+
+#include "../../helper/shared_ring.h"
 
 #include <dispatch/dispatch.h>
 #include <mach/mach_time.h>
@@ -39,9 +42,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/un.h>
 #include <unistd.h>
 
 #pragma mark - Konstanten & Konfiguration
@@ -62,8 +62,8 @@
 #define kDefaultSampleRate          48000.0
 #define kRingBufferFrames           512u          /* Buffer-Frame-Size      */
 
-/* IPC -------------------------------------------------------------------- */
-#define kSocketPath                 "/tmp/audiorouter.sock"
+/* IPC (v2.0: POSIX Shared Memory, kein Unix Socket mehr) ----------------- */
+/* ARN_SHM_NAME ist in shared_ring.h definiert: "/audiorouter_shm"         */
 
 /* Objekt-IDs des statischen Objektmodells -------------------------------- */
 enum {
@@ -123,190 +123,79 @@ static atomic_ullong                    gHostTicksPerFrameBits = 0; /* bits von 
 static inline UInt64  _f64_to_u64(Float64 v) { UInt64  u; memcpy(&u, &v, 8); return u; }
 static inline Float64 _u64_to_f64(UInt64  u) { Float64 v; memcpy(&v, &u, 8); return v; }
 
-#pragma mark - Unix Socket IPC
+#pragma mark - Shared Memory IPC (v2.0)
 
 /*
- * Der Socket-Zustand ist von zwei Welten erreichbar:
- *   - RT-IO-Thread: liest gSocketFD atomar, sendet non-blocking.
- *   - Connector-Thread: oeffnet/verbindet den Socket (blockierend erlaubt).
- * gSocketFD == -1 bedeutet "kein Peer". Der Send-Pfad fasst niemals
- * blockierende Aufrufe an.
- */
-static atomic_int                       gSocketFD           = -1;
-static atomic_bool                      gConnectorRun       = false;
-static pthread_t                        gConnectorThread;
-static bool                             gConnectorStarted   = false;
-/*
- * gClosePendingFD: RT-Pfad kann hier einen FD hinterlegen, der geschlossen
- * werden soll. close() ist NICHT RT-safe — der Connector-Thread uebernimmt.
- * -1 = nichts zu tun.
- */
-static atomic_int                       gClosePendingFD     = -1;
-
-/* Verbindet (blockierend) einmalig. Gibt FD oder -1 zurueck. */
-static int ipc_try_connect(void)
-{
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd < 0) {
-        return -1;
-    }
-
-    struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, kSocketPath, sizeof(addr.sun_path) - 1);
-
-    if (connect(fd, (struct sockaddr *)&addr, (socklen_t)SUN_LEN(&addr)) != 0) {
-        close(fd);
-        return -1;
-    }
-
-    /* Send-Buffer klein halten und SIGPIPE unterdruecken. */
-    int one = 1;
-    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
-
-    int sndbuf = (int)(kRingBufferFrames * kBytesPerFrame * 8);
-    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
-
-    /* Non-blocking, damit der RT-Send niemals blockiert. */
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags >= 0) {
-        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    }
-
-    return fd;
-}
-
-/*
- * Connector-Thread: haelt im Hintergrund die Verbindung zur Python Engine.
- * Versucht alle 500 ms zu verbinden, solange kein Peer vorhanden ist.
- * Laeuft ausserhalb des RT-Pfades — blockierende Aufrufe sind hier erlaubt.
- */
-static void *ipc_connector_main(void *unused)
-{
-    (void)unused;
-    pthread_setname_np("com.audiorouter.now.connector");
-
-    while (atomic_load(&gConnectorRun)) {
-        /* Pending-Close aus dem RT-Pfad abarbeiten (close ist hier erlaubt). */
-        int pending = atomic_exchange(&gClosePendingFD, -1);
-        if (pending >= 0) {
-            close(pending);
-            os_log(gLog, "IPC: Verbindung verworfen (FD %d) — reconnect folgt", pending);
-        }
-
-        if (atomic_load(&gSocketFD) < 0) {
-            int fd = ipc_try_connect();
-            if (fd >= 0) {
-                int expected = -1;
-                if (atomic_compare_exchange_strong(&gSocketFD, &expected, fd)) {
-                    os_log(gLog, "IPC: connected to Python engine (%s)",
-                           kSocketPath);
-                } else {
-                    close(fd); /* RT-Pfad war schneller — sollte nicht passieren */
-                }
-            }
-        }
-        usleep(500 * 1000); /* 500 ms */
-    }
-    return NULL;
-}
-
-static void ipc_start(void)
-{
-    pthread_mutex_lock(&gStateMutex);
-    if (!gConnectorStarted) {
-        atomic_store(&gConnectorRun, true);
-        if (pthread_create(&gConnectorThread, NULL,
-                           ipc_connector_main, NULL) == 0) {
-            gConnectorStarted = true;
-            os_log(gLog, "IPC: Connector-Thread gestartet");
-        } else {
-            atomic_store(&gConnectorRun, false);
-            os_log_error(gLog, "IPC: Connector-Thread konnte nicht starten");
-        }
-    }
-    pthread_mutex_unlock(&gStateMutex);
-}
-
-static void ipc_stop(void)
-{
-    pthread_t thread_to_join = 0;
-    bool should_join = false;
-
-    pthread_mutex_lock(&gStateMutex);
-    if (gConnectorStarted) {
-        atomic_store(&gConnectorRun, false);
-        thread_to_join = gConnectorThread;
-        should_join = true;
-        gConnectorStarted = false;
-    }
-    pthread_mutex_unlock(&gStateMutex);
-
-    if (should_join) {
-        pthread_join(thread_to_join, NULL);
-    }
-
-    int fd = atomic_exchange(&gSocketFD, -1);
-    if (fd >= 0) {
-        close(fd);
-    }
-}
-
-/*
- * RT-sicherer Send: wird aus dem IO-Callback aufgerufen.
- * Sendet non-blocking. Bei vollem Puffer / fehlendem Peer wird verworfen.
- * Bei einem echten Verbindungsfehler ODER bei einem Partial-Send wird
- * der FD geschlossen; der Connector-Thread baut die Verbindung neu auf.
+ * v2.0: Der Socket-IPC wurde durch POSIX Shared Memory ersetzt.
+ * Der Treiber ist reiner PRODUCER: WriteMix schreibt Frames in den Ring.
+ * Der Helper-Daemon ist CONSUMER: liest Frames und gibt sie an CoreAudio weiter.
  *
- * Wichtig: Ein Partial-Send (n > 0 && n < length) zerstoert das
- * Block-Framing der Python-Seite (numpy interpretiert Bytes am falschen
- * Offset → Verzerrungen/Knackser). Deshalb wird die Verbindung in dem
- * Fall verworfen statt die Restbytes zu droppen.
+ * RT-Garantien:
+ *   - arn_ring_write(): kein Lock, kein malloc, kein Syscall → RT-safe
+ *   - shm_open/mmap/shm_unlink: NUR in Initialize/Release (nicht-RT)
  */
-static void ipc_send_rt(const void *data, size_t length)
+
+static ARNSharedRing *gSHMRing   = NULL;   /* mmap-Pointer, NULL = nicht bereit */
+static int            gSHMFD     = -1;     /* shm_open file descriptor           */
+
+/*
+ * arn_shm_init — oeffnet/erstellt das SHM-Segment und initialisiert den Ring.
+ * Wird in ARN_Initialize aufgerufen (nicht-RT, einmalig).
+ */
+static void arn_shm_init(void)
 {
-    int fd = atomic_load(&gSocketFD);
-    if (fd < 0 || length == 0) {
-        return; /* Kein Peer — Audio einfach droppen. */
-    }
+    /* Altes Segment entfernen (z.B. nach hartem Crash ohne Cleanup). */
+    shm_unlink(ARN_SHM_NAME);
 
-    ssize_t n = send(fd, data, length, MSG_DONTWAIT);
-    if (n == (ssize_t)length) {
-        return; /* Vollstaendiger Send — OK. */
-    }
-
-    if (n > 0) {
-        /*
-         * Partial Send — Block-Framing korrupt. FD zuruecksetzen.
-         * close() ist NICHT RT-safe — FD im gClosePendingFD-Slot hinterlegen,
-         * Connector-Thread schiesst ihn sauber zu. Kein os_log auf RT-Thread.
-         */
-        int old_fd = atomic_exchange(&gSocketFD, -1);
-        if (old_fd >= 0) {
-            /* Falls der Slot noch belegt ist (sehr unwahrscheinlich):
-             * alten FD direkt schliessen, neuen eintragen. */
-            int expected_close = -1;
-            if (!atomic_compare_exchange_strong(&gClosePendingFD, &expected_close, old_fd)) {
-                close(old_fd); /* Slot war voll — direkt schliessen als Fallback */
-            }
-        }
+    int fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0666);
+    if (fd < 0) {
+        os_log_error(gLog, "SHM: shm_open fehlgeschlagen (errno=%d)", errno);
         return;
     }
 
-    /* n < 0 ab hier — errno auswerten. */
-    if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-        return; /* Puffer voll — Frame verwerfen, kein Fehler. */
+    if (ftruncate(fd, (off_t)ARN_SHM_SIZE) != 0) {
+        os_log_error(gLog, "SHM: ftruncate fehlgeschlagen (errno=%d)", errno);
+        close(fd);
+        shm_unlink(ARN_SHM_NAME);
+        return;
     }
 
-    /* Echter Fehler (EPIPE, ECONNRESET, ...): Verbindung fallen lassen. */
-    int expected = fd;
-    if (atomic_compare_exchange_strong(&gSocketFD, &expected, -1)) {
-        int expected_close = -1;
-        if (!atomic_compare_exchange_strong(&gClosePendingFD, &expected_close, fd)) {
-            close(fd); /* Slot war voll — direkt schliessen als Fallback */
-        }
+    void *ptr = mmap(NULL, ARN_SHM_SIZE,
+                     PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (ptr == MAP_FAILED) {
+        os_log_error(gLog, "SHM: mmap fehlgeschlagen (errno=%d)", errno);
+        close(fd);
+        shm_unlink(ARN_SHM_NAME);
+        return;
     }
+
+    gSHMFD   = fd;
+    gSHMRing = (ARNSharedRing *)ptr;
+
+    /* Ring-Header initialisieren und version als letztes schreiben
+     * (Consumer prueft version als "bereit"-Signal). */
+    arn_ring_init(gSHMRing);
+
+    os_log(gLog, "SHM: Ring bereit — %s (%zu Bytes, %u Frames Kapazitaet)",
+           ARN_SHM_NAME, ARN_SHM_SIZE, ARN_RING_CAPACITY / 2u);
+}
+
+/*
+ * arn_shm_cleanup — gibt SHM-Ressourcen frei.
+ * Wird in ARN_Release aufgerufen.
+ */
+static void arn_shm_cleanup(void)
+{
+    if (gSHMRing != NULL && gSHMRing != MAP_FAILED) {
+        munmap(gSHMRing, ARN_SHM_SIZE);
+        gSHMRing = NULL;
+    }
+    if (gSHMFD >= 0) {
+        close(gSHMFD);
+        gSHMFD = -1;
+    }
+    shm_unlink(ARN_SHM_NAME);
+    os_log(gLog, "SHM: Segment freigegeben");
 }
 
 #pragma mark - Format-Helfer
@@ -466,6 +355,10 @@ static ULONG ARN_Release(void *inDriver)
         gPlugInRefCount -= 1;
     }
     ULONG result = gPlugInRefCount;
+    if (result == 0) {
+        /* Letzter Release — SHM freigeben. */
+        arn_shm_cleanup();
+    }
     pthread_mutex_unlock(&gStateMutex);
     return result;
 }
@@ -488,8 +381,8 @@ static OSStatus ARN_Initialize(AudioServerPlugInDriverRef inDriver,
     atomic_store(&gHostTicksPerFrameBits,
                  _f64_to_u64((1.0e9 / gSampleRate) / nanosPerTick));
 
-    /* IPC-Connector starten — Verbindung wird im Hintergrund gehalten. */
-    ipc_start();
+    /* Shared Memory Ring initialisieren — Helper liest daraus. */
+    arn_shm_init();
 
     os_log(gLog, "AudioRouterNow: Initialize OK (SR=%.0f, Buffer=%u)",
            gSampleRate, gBufferFrameSize);
@@ -1661,7 +1554,13 @@ static OSStatus ARN_DoIOOperation(AudioServerPlugInDriverRef inDriver,
                 }
             }
             /* vol >= 0.999f: keine Bearbeitung, unveraendert senden. */
-            ipc_send_rt(ioMainBuffer, byteCount);
+            /* v2.0: SHM-Ring statt Unix Socket — kein Syscall, RT-safe */
+            if (gSHMRing != NULL) {
+                uint32_t nSamples = (uint32_t)(byteCount / sizeof(float));
+                arn_ring_write(gSHMRing,
+                               (const float *)ioMainBuffer,
+                               nSamples);
+            }
         }
 
         /*
@@ -1754,5 +1653,6 @@ void *AudioRouterNowDriver_Create(CFAllocatorRef inAllocator,
 __attribute__((destructor))
 static void AudioRouterNowDriver_Destroy(void)
 {
-    ipc_stop();
+    /* v2.0: SHM-Cleanup statt Socket-Stop */
+    arn_shm_cleanup();
 }
