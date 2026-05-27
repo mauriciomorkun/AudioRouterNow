@@ -46,14 +46,22 @@ echo ""
 # --- Voraussetzungen pruefen -------------------------------------------------
 log "Pruefe Voraussetzungen..."
 
-[[ -d "$DRIVER_BUILD" ]] || fail "HAL-Treiber nicht gefunden: $DRIVER_BUILD\nFuehre zuerst 'cd driver && make' aus."
-
 PYTHON=$(command -v python3) || fail "python3 nicht gefunden."
 PY_VERSION=$("$PYTHON" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 ok "Python $PY_VERSION ($PYTHON)"
 
 command -v clang >/dev/null || fail "Xcode Command Line Tools nicht installiert. Ausfuehren: xcode-select --install"
 ok "Xcode CLTools vorhanden"
+
+# --- Driver + Helper bauen ---------------------------------------------------
+# Driver-Makefile baut jetzt beides: AudioRouterNowDriver + AudioRouterNowHelper (Phase 7)
+log "Baue HAL-Treiber + Helper-Binary (Universal Binary)..."
+DRIVER_DIR="$PROJECT_ROOT/driver"
+make -C "$DRIVER_DIR" clean 2>/dev/null || true
+make -C "$DRIVER_DIR" build || fail "Driver/Helper Build fehlgeschlagen. Siehe Ausgabe oben."
+[[ -f "$DRIVER_BUILD/Contents/MacOS/AudioRouterNowDriver" ]] || fail "Driver-Binary fehlt nach Build."
+[[ -f "$DRIVER_BUILD/Contents/MacOS/AudioRouterNowHelper" ]] || fail "Helper-Binary fehlt nach Build."
+ok "Driver + Helper gebaut und ad-hoc signiert"
 
 # --- Python venv -------------------------------------------------------------
 log "Richte Python-Umgebung ein..."
