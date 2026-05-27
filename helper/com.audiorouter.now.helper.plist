@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.audiorouter.now.helper</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver/Contents/MacOS/AudioRouterNowHelper</string>
+    </array>
+
+    <!-- Beim Login starten -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Bei Crash automatisch neu starten -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Min. 5s zwischen Restart-Versuchen — verhindert Crash-Loops -->
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <!-- Logging -->
+    <key>StandardOutPath</key>
+    <string>/tmp/audiorouter.helper.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/audiorouter.helper.err</string>
+
+    <!-- Hoehere Prioritaet, da Audio-RT -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
