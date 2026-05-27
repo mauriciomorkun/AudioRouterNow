@@ -516,6 +516,16 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 - Volume-Poll-Thread aktualisiert Ratio alle 50ms basierend auf Ring-Füllstand
 - Volle Trennung der Threads: IOProc liest `src_ratio_q20` atomic (release-acquire)
 
+**3 Fix-Iterationen während Implementierung:**
+1. `d192de2` — Unit-Konsistenz: `src_frac_ridx` durchgehend als Frame-Index (nicht Sample-Index)
+2. `40a0652` — Underrun-Strategie: Position nicht zurücksetzen bei Underrun, Overflow-Guard korrigiert
+3. `276a4a2` — Root-Cause-Fix: `+2` Lookahead entfernt (`needed=1025 > batch=1024` → Endlos-Underrun)
+
+**Verifiziert (Komplete Audio 6 MK2, 48kHz, 512 Frames/Batch):**
+- Ring stabilisiert bei ~4096 Frames (Ziel: 4096) ✓
+- `src_ratio` konvergiert: `0.999499` → `1.000259` (P-Regler aktiv) ✓
+- Underruns: +1 über 68.000 IOProc-Calls nach Ring-Aufbau ✓
+
 ### Phase 6.1 — Stress-Test ohne Glitch [ ] offen
 - [ ] 4h Musik-Wiedergabe ohne Underrun
 - [ ] Ring-Füllstand schwingt um Ziel ein (~10-20s bei initial 50ppm Drift)
