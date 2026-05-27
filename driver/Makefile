@@ -1,7 +1,7 @@
 # =============================================================================
-# AudioRouterNow — HAL AudioServerPlugin Build
+# AudioRouterNow — HAL AudioServerPlugin + Helper Build (Phase 7)
 #
-#   make            Baut das .driver Bundle (Universal Binary arm64 + x86_64)
+#   make            Baut das .driver Bundle (inkl. Helper-Binary, Universal)
 #   make install    Kopiert das Bundle nach /Library/Audio/Plug-Ins/HAL/ (sudo)
 #   make uninstall  Entfernt das installierte Bundle (sudo)
 #   make reload     Startet coreaudiod neu, damit der Treiber geladen wird (sudo)
@@ -16,6 +16,7 @@ CC          := clang
 # --- Namen / Pfade -----------------------------------------------------------
 DRIVER_NAME := AudioRouterNow
 EXEC_NAME   := AudioRouterNowDriver
+HELPER_NAME := AudioRouterNowHelper
 BUNDLE      := $(DRIVER_NAME).driver
 
 SRC_DIR     := src
@@ -25,15 +26,22 @@ BUILD_DIR   := build
 SRC         := $(SRC_DIR)/AudioRouterNowDriver.c
 PLIST       := $(RES_DIR)/Info.plist
 
+HELPER_DIR  := ../helper
+HELPER_SRC  := $(HELPER_DIR)/AudioRouterNowHelper.c
+HELPER_HDR  := $(HELPER_DIR)/shared_ring.h
+HELPER_PLIST_SRC := $(HELPER_DIR)/com.audiorouter.now.helper.plist
+
 BUNDLE_DIR  := $(BUILD_DIR)/$(BUNDLE)
 CONTENTS    := $(BUNDLE_DIR)/Contents
 MACOS_DIR   := $(CONTENTS)/MacOS
+RES_BUNDLE  := $(CONTENTS)/Resources
 BINARY      := $(MACOS_DIR)/$(EXEC_NAME)
+HELPER_BIN  := $(MACOS_DIR)/$(HELPER_NAME)
+HELPER_PLIST_DST := $(RES_BUNDLE)/com.audiorouter.now.helper.plist
 
 INSTALL_DIR := /Library/Audio/Plug-Ins/HAL
 
 # --- Compiler-Flags ----------------------------------------------------------
-# Universal Binary: arm64 (Apple Silicon) + x86_64 (Intel).
 ARCHS       := -arch arm64 -arch x86_64
 
 CFLAGS      := $(ARCHS) \
@@ -49,6 +57,16 @@ LDFLAGS     := $(ARCHS) \
                -framework CoreAudio \
                -framework CoreFoundation
 
+# Flags fuer Helper (Executable, kein dynamiclib, mit AudioToolbox)
+HELPER_CFLAGS := $(ARCHS) \
+                 -mmacosx-version-min=11.0 \
+                 -O2 -Wall -Wextra -std=c11 \
+                 -I$(HELPER_DIR)
+HELPER_LDFLAGS := $(ARCHS) \
+                  -framework CoreAudio \
+                  -framework AudioToolbox \
+                  -framework CoreFoundation
+
 # =============================================================================
 # Targets
 # =============================================================================
@@ -57,20 +75,28 @@ LDFLAGS     := $(ARCHS) \
 
 all: build
 
-# --- Bundle bauen ------------------------------------------------------------
-build: $(BINARY) $(CONTENTS)/Info.plist
+build: $(BINARY) $(HELPER_BIN) $(CONTENTS)/Info.plist $(HELPER_PLIST_DST)
 	@echo ""
 	@echo "  Build fertig:  $(BUNDLE_DIR)"
-	@echo "  Architekturen: $$(lipo -archs $(BINARY))"
+	@echo "  Driver Archs:  $$(lipo -archs $(BINARY))"
+	@echo "  Helper Archs:  $$(lipo -archs $(HELPER_BIN))"
 	@echo ""
 	@echo "  Naechster Schritt:  sudo make install && sudo make reload"
 	@echo ""
 
-# Universal-Binary kompilieren und linken
+# Driver-Binary
 $(BINARY): $(SRC) | $(MACOS_DIR)
 	@echo "==> Kompiliere & linke $(EXEC_NAME) (Universal Binary)"
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRC)
-	@echo "==> Ad-hoc Code-Signierung (noetig fuer Apple Silicon)"
+	@echo "==> Ad-hoc Code-Signierung Driver"
+	codesign --force --sign - --timestamp=none $@
+	@echo "==> OK: $@"
+
+# Helper-Binary (Phase 7: ins Bundle eingebettet)
+$(HELPER_BIN): $(HELPER_SRC) $(HELPER_HDR) | $(MACOS_DIR)
+	@echo "==> Kompiliere & linke $(HELPER_NAME) (Universal Binary)"
+	$(CC) $(HELPER_CFLAGS) $(HELPER_LDFLAGS) -o $@ $(HELPER_SRC)
+	@echo "==> Ad-hoc Code-Signierung Helper"
 	codesign --force --sign - --timestamp=none $@
 	@echo "==> OK: $@"
 
@@ -79,12 +105,20 @@ $(CONTENTS)/Info.plist: $(PLIST) | $(CONTENTS)
 	@echo "==> Kopiere Info.plist"
 	cp $(PLIST) $@
 
+# launchd plist ins Bundle/Resources kopieren
+$(HELPER_PLIST_DST): $(HELPER_PLIST_SRC) | $(RES_BUNDLE)
+	@echo "==> Kopiere launchd plist"
+	cp $(HELPER_PLIST_SRC) $@
+
 # --- Verzeichnis-Regeln ------------------------------------------------------
 $(MACOS_DIR):
 	mkdir -p $(MACOS_DIR)
 
 $(CONTENTS):
 	mkdir -p $(CONTENTS)
+
+$(RES_BUNDLE):
+	mkdir -p $(RES_BUNDLE)
 
 # --- Installation ------------------------------------------------------------
 install: build
@@ -101,7 +135,6 @@ install: build
 	chmod -R 755 "$(INSTALL_DIR)/$(BUNDLE)"
 	@echo "==> Installiert. Jetzt: sudo make reload"
 
-# --- Deinstallation ----------------------------------------------------------
 uninstall:
 	@echo "==> Entferne $(INSTALL_DIR)/$(BUNDLE)"
 	@if [ "$$(id -u)" != "0" ]; then \
@@ -111,7 +144,6 @@ uninstall:
 	rm -rf "$(INSTALL_DIR)/$(BUNDLE)"
 	@echo "==> Entfernt. Jetzt: sudo make reload"
 
-# --- coreaudiod neu starten --------------------------------------------------
 reload:
 	@echo "==> Starte coreaudiod neu (Treiber wird neu geladen)"
 	@if [ "$$(id -u)" != "0" ]; then \
@@ -121,7 +153,6 @@ reload:
 	killall coreaudiod || true
 	@echo "==> coreaudiod neu gestartet."
 
-# --- Aufraeumen --------------------------------------------------------------
 clean:
 	@echo "==> Loesche $(BUILD_DIR)"
 	rm -rf $(BUILD_DIR)
