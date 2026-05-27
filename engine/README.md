@@ -1,7 +1,8 @@
-# AudioRouterNow — Python Engine (Phase 2)
+# AudioRouterNow — Python Engine (v2.0)
 
-Die Python Routing Engine empfaengt Audio-Daten vom HAL-Treiber via Unix Socket
-und leitet sie an beliebige Core Audio Output-Devices weiter.
+Die Python Engine ist in v2.0 ausschliesslich fuer UI und Konfiguration zustaendig.
+Das Audio-Routing selbst uebernimmt der native C-Helper-Daemon (`AudioRouterNowHelper`)
+ueber POSIX Shared Memory und CoreAudio direkt.
 
 ---
 
@@ -10,6 +11,7 @@ und leitet sie an beliebige Core Audio Output-Devices weiter.
 - macOS 11 (Big Sur) oder neuer
 - Python 3.10 oder neuer
 - HAL-Treiber installiert (siehe `../driver/README.md`)
+- Helper-Binary vorhanden (siehe `../helper/`)
 
 ---
 
@@ -29,6 +31,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+> Hinweis: `sounddevice` und `numpy` sind in v2.0 keine Abhaengigkeiten mehr.
+> Das Audio-Routing laeuft vollstaendig im nativen C-Helper.
+
 ---
 
 ## Starten
@@ -42,43 +47,62 @@ python menu_bar_app.py
 
 Das Widget erscheint in der Menueleiste als `🔇` (gestoppt) oder `🎛️` (aktiv).
 
-### CLI (fuer Testing)
+### CLI (Diagnose und Konfiguration)
 
 ```bash
-# Alle verfuegbaren Devices anzeigen
+# Alle verfuegbaren CoreAudio-Devices mit UIDs anzeigen
 python cli.py --list-devices
 
-# Routing starten (ein oder mehrere Outputs)
-python cli.py --output "Komplete Audio 6"
-python cli.py --output "Komplete Audio 6" --output "AirPods Pro"
+# Helper-Daemon pruefen
+python cli.py --ping
 
-# HAL-Treiber-Verbindung testen
-python cli.py --test-socket
+# Helper-Status abfragen
+python cli.py --status
+
+# Output-Streams konfigurieren (UID aus --list-devices entnehmen)
+python cli.py --set-outputs AppleHDAEngineOutput:0
+python cli.py --set-outputs AppleHDAEngineOutput:0 AppleUSBAudio:2
+
+# Helper-Daemon starten / stoppen
+python cli.py --start-helper
+python cli.py --stop-helper
 ```
 
 ---
 
-## Funktionsweise
+## Architektur v2.0
 
 ```
 macOS System-Audio
       |
       v
   HAL-Treiber (AudioRouterNow.driver)
-      |  Unix Socket /tmp/audiorouter.sock
-      |  Float32 PCM, 512 Frames × 2ch × 4 Bytes = 4096 Bytes/Block
+      |  POSIX Shared Memory Ring Buffer (SHM)
+      |  Float32 PCM
       v
-  SocketReceiver (socket_receiver.py)
-      |  numpy-Array (512, 2) float32
-      v
-  RoutingEngine (routing_engine.py)
-      |  sounddevice.OutputStream pro Output-Device
-      |  Channel-Duplikation fuer > 2 Ausgaenge
+  AudioRouterNowHelper  (C-Daemon, nativer CoreAudio)
+      |  Config-Socket: /tmp/audiorouter.config.sock  (JSON-Lines)
+      |  Python sendet: ping / get_status / set_outputs / shutdown
+      |  CoreAudio direkt pro Output-Device
       +---> Komplete Audio 6 (6ch)
       +---> AirPods Pro (2ch)
       +---> MacBook Pro Lautsprecher (2ch)
       ...
+
+  Python (Engine)
+      |  UI + Konfiguration via HelperClient
+      +---> Menu Bar Widget (menu_bar_app.py)
+      +---> CLI (cli.py)
 ```
+
+### Vergleich v1 vs. v2.0
+
+| Schicht | v1 (Legacy) | v2.0 (aktuell) |
+|---------|------------|----------------|
+| Audio-Transport | Unix Socket (PCM-Bytes) | POSIX SHM Ring Buffer |
+| Audio-Ausgabe | Python `sounddevice` | C-Daemon + CoreAudio direkt |
+| Konfiguration | Python-intern | JSON-Lines Unix Socket |
+| Python-Deps | sounddevice, numpy | nur ctypes (stdlib) |
 
 ---
 
@@ -86,13 +110,14 @@ macOS System-Audio
 
 | Datei | Beschreibung |
 |---|---|
-| `socket_receiver.py` | Unix Socket Server, empfaengt PCM vom HAL-Treiber |
-| `routing_engine.py` | Verteilt Frames auf Output-Devices |
-| `device_manager.py` | Core Audio Device-Liste + Hot-plug-Erkennung |
-| `config.py` | Persistente Konfiguration (~/.audiorouter/config.json) |
+| `helper_client.py` | Steuert den C-Helper-Daemon via `/tmp/audiorouter.config.sock` |
+| `device_manager.py` | CoreAudio Device-Liste + Hot-plug-Erkennung (ctypes, kein sounddevice) |
+| `config.py` | Persistente Konfiguration (`~/.audiorouter/config.json`) |
 | `menu_bar_app.py` | macOS Menu Bar Widget (rumps) |
-| `cli.py` | Terminal-Interface fuer Testing |
+| `cli.py` | Terminal-Interface fuer Diagnose und Konfiguration (v2.0) |
 | `requirements.txt` | Python-Abhaengigkeiten |
+| `socket_receiver.py` | **LEGACY** — v1, nicht mehr aktiv genutzt |
+| `routing_engine.py` | **LEGACY** — v1, nicht mehr aktiv genutzt |
 
 ---
 
@@ -102,20 +127,40 @@ Die Konfiguration wird automatisch in `~/.audiorouter/config.json` gespeichert:
 
 ```json
 {
-  "output_device_names": ["Komplete Audio 6", "AirPods Pro"],
-  "sample_rate": 48000,
-  "buffer_size": 512
+  "outputs": [
+    {"uid": "AppleHDAEngineOutput:1,0,1,1:0", "ch_offset": 0},
+    {"uid": "AppleUSBAudio:1,0,0,0:0", "ch_offset": 0}
+  ]
 }
+```
+
+UIDs sind persistent ueber Reboot und Replug. Devices und UIDs anzeigen:
+
+```bash
+python cli.py --list-devices
 ```
 
 ---
 
 ## Troubleshooting
 
-### HAL-Treiber verbindet sich nicht
+### Helper antwortet nicht
 
 ```bash
-# Core Audio neu starten (als Administrator)
+# Erreichbarkeit pruefen
+python cli.py --ping
+
+# Helper manuell starten
+python cli.py --start-helper
+
+# Logs pruefen
+tail -f /tmp/audiorouter.helper.log
+tail -f /tmp/audiorouter.helper.err
+```
+
+### Core Audio neu starten
+
+```bash
 sudo killall -9 coreaudiod
 ```
 
@@ -129,3 +174,4 @@ python cli.py --list-devices
 
 1. In macOS Systemeinstellungen > Ton pruefen ob "Audio Router" als Ausgabe gewaehlt ist
 2. Oder im Menu Bar Widget: "System-Audio → Audio Router" klicken
+3. Helper-Status pruefen: `python cli.py --status`
