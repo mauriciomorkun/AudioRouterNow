@@ -107,6 +107,9 @@ static volatile int            g_volume_running   = 0;
 /* Hot-Plug-Listener flag */
 static volatile int            g_hotplug_registered = 0;
 
+/* SHM-Bereitschafts-Flag: 0 = noch nicht verbunden, 1 = Ring bereit */
+static volatile int            g_shm_ready          = 0;
+
 /* ── Forward Declarations ───────────────────────────────────────────────── */
 
 static int   output_add_locked(const char *uid, uint32_t ch_offset);
@@ -274,6 +277,46 @@ static AudioDeviceID find_device_by_uid(const char *uid)
         free(dev_uid);
     }
     free(devices);
+    return result;
+}
+
+/* Gibt die AudioDeviceID des virtuellen "Audio Router" Devices zurueck (oder kAudioDeviceUnknown). */
+static AudioDeviceID find_audio_router_device(void) {
+    AudioObjectPropertyAddress addr = {
+        kAudioHardwarePropertyDevices,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    UInt32 size = 0;
+    if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &addr, 0, NULL, &size) != noErr)
+        return kAudioDeviceUnknown;
+    int n = (int)(size / sizeof(AudioDeviceID));
+    AudioDeviceID *list = malloc(size);
+    if (!list) return kAudioDeviceUnknown;
+    AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &size, list);
+
+    AudioObjectPropertyAddress uid_addr = {
+        kAudioDevicePropertyDeviceUID,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    AudioDeviceID result = kAudioDeviceUnknown;
+    for (int i = 0; i < n; i++) {
+        CFStringRef uid_ref = NULL;
+        UInt32 sz = sizeof(CFStringRef);
+        if (AudioObjectGetPropertyData(list[i], &uid_addr, 0, NULL, &sz, &uid_ref) != noErr)
+            continue;
+        char buf[256] = {0};
+        if (uid_ref) {
+            CFStringGetCString(uid_ref, buf, sizeof(buf), kCFStringEncodingUTF8);
+            CFRelease(uid_ref);
+        }
+        if (strcmp(buf, OUR_DEVICE_UID) == 0) {
+            result = list[i];
+            break;
+        }
+    }
+    free(list);
     return result;
 }
 
@@ -1152,13 +1195,25 @@ static int parse_and_execute(int fd, const char *line)
         return 1;
     }
 
+    /* Commands die SHM benoetigen — noch nicht bereit? */
+    if (!g_shm_ready && !json_has_cmd(line, "ping") && !json_has_cmd(line, "shutdown") && !json_has_cmd(line, "get_status")) {
+        snprintf(resp, sizeof(resp), "{\"ok\":false,\"error\":\"not_ready\"}");
+        send_line(fd, resp);
+        return 0;
+    }
+
     if (json_has_cmd(line, "get_status")) {
+        if (!g_shm_ready) {
+            snprintf(resp, sizeof(resp), "{\"ok\":true,\"active\":[],\"ring_frames\":0,\"ioproc_calls\":0,\"ready\":false}");
+            send_line(fd, resp);
+            return 0;
+        }
         char active_buf[4096];
         format_active_outputs(active_buf, sizeof(active_buf));
         uint32_t frames = g_ring ? arn_ring_frames_available(g_ring) : 0u;
         uint32_t calls  = atomic_load_explicit(&g_ioproc_calls, memory_order_relaxed);
         snprintf(resp, sizeof(resp),
-                 "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u}",
+                 "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u,\"ready\":true}",
                  active_buf, frames, calls);
         send_line(fd, resp);
         return 0;
@@ -1173,30 +1228,39 @@ static int parse_and_execute(int fd, const char *line)
 
         pthread_mutex_lock(&g_outputs_lock);
 
-        /* 1) Entferne alle aktuellen Outputs, die NICHT in der neuen Liste sind */
-        int i = 0;
-        while (i < g_n_outputs) {
-            bool keep = false;
-            for (int k = 0; k < n_new; k++) {
-                if (strcmp(g_outputs[i].uid, new_uids[k]) == 0 &&
-                    g_outputs[i].ch_offset == new_offs[k]) {
-                    keep = true;
-                    break;
-                }
-            }
-            if (!keep) {
-                output_remove_locked(g_outputs[i].uid, g_outputs[i].ch_offset);
-                /* nicht inkrementieren */
-            } else {
-                i++;
+        /* 1) Fuege neue Outputs hinzu die noch nicht aktiv sind (idempotent) */
+        int failures = 0;
+        for (int k = 0; k < n_new; k++) {
+            /* Bereits vorhanden? Nichts tun. */
+            if (find_output_slot_locked(new_uids[k], new_offs[k]) >= 0) continue;
+            if (output_add_locked(new_uids[k], new_offs[k]) != 0) {
+                failures++;
             }
         }
 
-        /* 2) Fuege neue Outputs hinzu (idempotent) */
-        int failures = 0;
+        /* 2) Entferne alte Outputs NUR wenn mindestens ein neues erfolgreich war
+         *    ODER wenn n_new == 0 (explizites "alles loeschen") */
+        int n_added_successfully = 0;
         for (int k = 0; k < n_new; k++) {
-            if (output_add_locked(new_uids[k], new_offs[k]) != 0) {
-                failures++;
+            if (find_output_slot_locked(new_uids[k], new_offs[k]) >= 0) n_added_successfully++;
+        }
+
+        if (n_new == 0 || n_added_successfully > 0) {
+            int i = 0;
+            while (i < g_n_outputs) {
+                bool keep = false;
+                for (int k = 0; k < n_new; k++) {
+                    if (strcmp(g_outputs[i].uid, new_uids[k]) == 0 &&
+                        g_outputs[i].ch_offset == new_offs[k]) {
+                        keep = true;
+                        break;
+                    }
+                }
+                if (!keep) {
+                    output_remove_locked(g_outputs[i].uid, g_outputs[i].ch_offset);
+                } else {
+                    i++;
+                }
             }
         }
 
@@ -1212,6 +1276,64 @@ static int parse_and_execute(int fd, const char *line)
                      "{\"ok\":false,\"error\":\"%d output(s) failed\",\"active\":%s}",
                      failures, active_buf);
         }
+        send_line(fd, resp);
+        return 0;
+    }
+
+    if (json_has_cmd(line, "set_sample_rate")) {
+        /* Parse rate: "rate":N */
+        uint32_t new_sr = 0;
+        const char *rate_key = strstr(line, "\"rate\"");
+        if (rate_key) {
+            const char *col = strchr(rate_key, ':');
+            if (col) {
+                col++;
+                while (*col == ' ' || *col == '\t') col++;
+                new_sr = (uint32_t)atoi(col);
+            }
+        }
+
+        /* Validate: muss eine der unterstuetzten Raten sein */
+        static const uint32_t valid_rates[] = {44100, 48000, 88200, 96000, 176400, 192000};
+        bool valid = false;
+        for (int vi = 0; vi < 6; vi++) {
+            if (new_sr == valid_rates[vi]) { valid = true; break; }
+        }
+
+        if (!valid || new_sr == 0) {
+            snprintf(resp, sizeof(resp), "{\"ok\":false,\"error\":\"invalid rate\"}");
+            send_line(fd, resp);
+            return 0;
+        }
+
+        if (!g_ring) {
+            snprintf(resp, sizeof(resp), "{\"ok\":false,\"error\":\"ring not ready\"}");
+            send_line(fd, resp);
+            return 0;
+        }
+
+        /* Schritt 1: Ring-SR direkt setzen (loest sr_change_gen aus) */
+        arn_ring_set_sample_rate(g_ring, new_sr);
+        fprintf(stdout, "Helper: set_sample_rate %u Hz (via Config-Socket)\n", new_sr);
+
+        /* Schritt 2: Treiber ueber die neue SR informieren (damit gSampleRate + Timing stimmen).
+         * Da der Ring jetzt schon bei new_sr ist, passiert der Driver-Guard und erlaubt die Aenderung.
+         * arn_ring_set_sample_rate im Driver ist dann ein NO-OP (gleiche SR). */
+        AudioDeviceID arn_dev = find_audio_router_device();
+        if (arn_dev != kAudioDeviceUnknown) {
+            AudioObjectPropertyAddress sr_prop = {
+                kAudioDevicePropertyNominalSampleRate,
+                kAudioObjectPropertyScopeGlobal,
+                kAudioObjectPropertyElementMain
+            };
+            Float64 sr_f = (Float64)new_sr;
+            OSStatus st = AudioObjectSetPropertyData(arn_dev, &sr_prop, 0, NULL, sizeof(Float64), &sr_f);
+            if (st != noErr) {
+                fprintf(stderr, "Helper: Warnung — Driver-SR-Update fehlgeschlagen (OSStatus %d)\n", (int)st);
+            }
+        }
+
+        snprintf(resp, sizeof(resp), "{\"ok\":true,\"rate\":%u}", new_sr);
         send_line(fd, resp);
         return 0;
     }
@@ -1384,7 +1506,21 @@ int main(int argc, char *argv[])
             ARN_RING_CAPACITY / 2u,
             (ARN_RING_CAPACITY / 2.0) / 48000.0 * 1000.0);
 
-    /* 1. SHM-Ring verbinden (Retry bis Plugin bereit ist) */
+    /* 1. Config-Socket ZUERST starten — damit die App waehrend des SHM-Wartens
+     *    bereits verbinden kann (ping beantwortet, andere Commands liefern not_ready). */
+    g_config_listen_fd = config_socket_create();
+    if (g_config_listen_fd >= 0) {
+        g_config_running = 1;
+        if (pthread_create(&g_config_thread, NULL, config_thread_main, NULL) != 0) {
+            fprintf(stderr, "Helper: Config-Thread konnte nicht gestartet werden\n");
+            g_config_running = 0;
+            close(g_config_listen_fd);
+            unlink(CONFIG_SOCKET_PATH);
+            g_config_listen_fd = -1;
+        }
+    }
+
+    /* 2. SHM-Ring verbinden (Retry bis Plugin bereit ist) */
     fprintf(stdout, "Warte auf SHM-Ring vom Plugin...\n");
     while (g_running && g_ring == NULL) {
         g_ring = shm_connect();
@@ -1392,12 +1528,25 @@ int main(int argc, char *argv[])
             usleep(SHM_RETRY_INTERVAL_US);
         }
     }
-    if (!g_running) return 0;
+    if (!g_running) {
+        g_config_running = 0;
+        if (g_config_listen_fd >= 0) {
+            close(g_config_listen_fd);
+            g_config_listen_fd = -1;
+            pthread_join(g_config_thread, NULL);
+            unlink(CONFIG_SOCKET_PATH);
+        }
+        return 0;
+    }
 
-    /* 2. Hot-Plug-Listener registrieren */
+    /* SHM bereit — ab jetzt sind alle Commands erlaubt */
+    g_shm_ready = 1;
+    fprintf(stdout, "Helper: SHM bereit — Routing kann starten\n");
+
+    /* 3. Hot-Plug-Listener registrieren */
     hotplug_register();
 
-    /* 3. Outputs hinzufuegen — entweder aus CLI-Args oder Auto-Default */
+    /* 4. Outputs hinzufuegen — entweder aus CLI-Args oder Auto-Default */
     pthread_mutex_lock(&g_outputs_lock);
     if (argc >= 2) {
         for (int a = 1; a < argc && g_n_outputs < MAX_OUTPUTS; a++) {
@@ -1418,19 +1567,6 @@ int main(int argc, char *argv[])
 
     if (n_initial == 0) {
         fprintf(stderr, "Helper: Kein initiales Output-Device — warte auf Config-Socket\n");
-    }
-
-    /* 4. Config-Socket starten */
-    g_config_listen_fd = config_socket_create();
-    if (g_config_listen_fd >= 0) {
-        g_config_running = 1;
-        if (pthread_create(&g_config_thread, NULL, config_thread_main, NULL) != 0) {
-            fprintf(stderr, "Helper: Config-Thread konnte nicht gestartet werden\n");
-            g_config_running = 0;
-            close(g_config_listen_fd);
-            unlink(CONFIG_SOCKET_PATH);
-            g_config_listen_fd = -1;
-        }
     }
 
     /* 5. Volume-Polling Thread starten */
