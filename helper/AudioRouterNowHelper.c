@@ -75,8 +75,9 @@ typedef struct DeviceOutput {
     _Atomic uint32_t     underruns;      /* Diagnostic: Underrun-Zaehler         */
     /* Phase 6 — Adaptive SRC fuer Clock-Drift-Kompensation */
     double               src_frac_ridx;    /* fraktionaler Leseindex (ersetzt local_ridx im IOProc) */
-    _Atomic uint32_t     src_ratio_q20;    /* Q20-Ratio: 1.0 = 1<<20. Volume-Thread schreibt, IOProc liest */
+    _Atomic uint32_t     src_ratio_q20;    /* Q20-Ratio: base_ratio = 1<<20. Volume-Thread schreibt, IOProc liest */
     uint32_t             src_ring_target;  /* Ziel-Fuellstand in Samples (= ARN_RING_CAPACITY/2) */
+    double               base_ratio;       /* ring_sr / device_sr: 1.0 bei gleicher Rate, z.B. 1.0884 bei 44100->48000 */
     /* Pre-allokierter Temp-Buffer fuer De-Interleaving im IOProc (RT-safe). */
     float                temp_buf[ARN_RING_CAPACITY];
 } DeviceOutput;
@@ -591,8 +592,44 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
      *   frame i → ring samples [i*2] (L) und [i*2+1] (R)
      * local_ridx ist ein Sample-Index → /2 fuer Konvertierung. */
     dev->src_frac_ridx   = (double)dev->local_ridx / 2.0;
-    atomic_store_explicit(&dev->src_ratio_q20, 1u << 20, memory_order_relaxed);
+    /* Initialer Ratio: base_ratio (nicht 1.0!) damit SRC ab dem ersten IOProc-Call */
+    /* korrekt rechnet — auch bei Rate-Mismatch (z.B. 44100 Hz HDMI). */
+    uint32_t init_ratio_q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
+    atomic_store_explicit(&dev->src_ratio_q20, init_ratio_q20, memory_order_relaxed);
     dev->src_ring_target = ARN_RING_CAPACITY / 2;  /* 50% Fuellstand als Ziel (in Samples) */
+
+    /* ── Sample-Rate abgleichen ──────────────────────────────────────────────
+     * Ring enthaelt Audio bei ring_sr (typisch 48000 Hz). Laeuft das Output-
+     * Device bei einer anderen Rate (z.B. HDMI 44100 Hz), klingt das Routing
+     * als Kratzen. Loesung:
+     *   1. Versuche Device auf ring_sr zu setzen (HDMI oft abgelehnt).
+     *   2. Schlaegt das fehl: base_ratio = ring_sr / device_sr (z.B. 1.0884).
+     *      Der IOProc liest pro Output-Frame proportional mehr Ring-Frames →
+     *      korrekte Zeitstreckung / Tonhoehe. P-Regler korrigiert um base_ratio.
+     * ──────────────────────────────────────────────────────────────────────── */
+    Float64 ring_sr   = (Float64)(g_ring ? g_ring->sample_rate : 48000u);
+    Float64 device_sr = ring_sr;
+    AudioObjectPropertyAddress sr_prop = {
+        kAudioDevicePropertyNominalSampleRate,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    UInt32 sr_size = sizeof(Float64);
+    if (AudioObjectGetPropertyData(dev_id, &sr_prop, 0, NULL, &sr_size, &device_sr) != noErr) {
+        device_sr = ring_sr; /* Fallback: gleiche Rate annehmen */
+    }
+    if ((uint32_t)device_sr != (uint32_t)ring_sr) {
+        /* Versuche Device-Rate auf Ring-Rate zu setzen */
+        if (AudioObjectSetPropertyData(dev_id, &sr_prop, 0, NULL, sizeof(Float64), &ring_sr) == noErr) {
+            fprintf(stdout, "Helper: '%s' Sample-Rate auf %.0f Hz gesetzt\n", uid, ring_sr);
+            device_sr = ring_sr;
+        } else {
+            fprintf(stderr, "Helper: Warnung — '%s' laeuft auf %.0f Hz (Ring: %.0f Hz) "
+                    "— SRC-Basisverhaeltnis %.6f\n",
+                    uid, device_sr, ring_sr, ring_sr / device_sr);
+        }
+    }
+    dev->base_ratio = ring_sr / device_sr; /* 1.0 bei gleicher Rate */
 
     OSStatus err = AudioDeviceCreateIOProcID(dev_id, device_ioproc, dev, &dev->proc_id);
     if (err != noErr) {
@@ -859,7 +896,9 @@ static void *volume_poll_thread(void *arg)
                 if (correction >  SRC_RATIO_CLAMP) correction =  SRC_RATIO_CLAMP;
                 if (correction < -SRC_RATIO_CLAMP) correction = -SRC_RATIO_CLAMP;
 
-                float ratio_f = 1.0f + correction;
+                /* Basisverhaeltnis: ring_sr/device_sr. Gleiche Rate: 1.0. */
+                /* Verschiedene Rate (z.B. HDMI 44100 Hz): 1.0884.         */
+                float ratio_f = (float)dev->base_ratio + correction;
                 uint32_t ratio_q20 = (uint32_t)(ratio_f * (float)(1u << 20));
 
                 atomic_store_explicit(&dev->src_ratio_q20, ratio_q20, memory_order_release);
