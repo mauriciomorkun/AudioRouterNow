@@ -381,6 +381,7 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 | **E5** | Helper-Spawn | Race: Helper startet bevor Plugin SHM erstellt hat | Retry-Loop bei `shm_open` (500ms-Intervall) im Helper |
 | **E6** | Volume-Polling | pyobjc-Call in Python war früher Quelle für GIL-Jitter | C-natives Polling via `AudioObjectGetPropertyData`, 50ms |
 | **E7** | launchd-Restart | Helper-Crash würde Audio sofort stoppen | `KeepAlive=true` + `ThrottleInterval=5` für robusten Auto-Restart |
+| **E8** | Sample-Rate-Mismatch | HDMI-Monitor (BenQ 44100Hz) + USB-Interface (48000Hz) gleichzeitig → Kratzen auf allen Outputs | `base_ratio = ring_sr/device_sr` in SRC; IOProc+P-Regler verwenden base_ratio statt 1.0 |
 
 ---
 
