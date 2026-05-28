@@ -1290,6 +1290,17 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             if (!ARN_IsValidSampleRate(requestedRate)) {
                 return kAudioHardwareUnsupportedOperationError;
             }
+            /* Guard: Wenn der Ring aktiv ist und eine andere SR hat als angefordert,
+             * handelt es sich um eine externe Anfrage (Spotify, Music.app, etc.).
+             * Diese ignorieren wir — SR wird ausschliesslich vom Helper gesteuert. */
+            if (gSHMRing != NULL) {
+                uint32_t ring_sr = atomic_load_explicit(&gSHMRing->sample_rate, memory_order_acquire);
+                if (ring_sr != 0 && ring_sr != (uint32_t)requestedRate) {
+                    os_log(gLog, "AudioRouterNow: Externe SR %.0f Hz ignoriert (Ring: %u Hz)",
+                           requestedRate, ring_sr);
+                    return kAudioHardwareNoError;
+                }
+            }
             Float64 req = requestedRate;
             pthread_mutex_lock(&gStateMutex);
             bool changed = (req != gSampleRate);
@@ -1319,6 +1330,16 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             }
             if (!ARN_IsValidSampleRate(fmt->mSampleRate)) {
                 return kAudioHardwareUnsupportedOperationError;
+            }
+            /* Gleicher Guard wie bei kAudioDevicePropertyNominalSampleRate:
+             * externe SR-Aenderungen via Stream-Format ignorieren. */
+            if (gSHMRing != NULL) {
+                uint32_t ring_sr = atomic_load_explicit(&gSHMRing->sample_rate, memory_order_acquire);
+                if (ring_sr != 0 && ring_sr != (uint32_t)fmt->mSampleRate) {
+                    os_log(gLog, "AudioRouterNow: Externe Stream-SR %.0f Hz ignoriert (Ring: %u Hz)",
+                           fmt->mSampleRate, ring_sr);
+                    return kAudioHardwareNoError;
+                }
             }
             pthread_mutex_lock(&gStateMutex);
             bool changed = (fmt->mSampleRate != gSampleRate);

@@ -282,61 +282,36 @@ def unload_launchd_agent() -> None:
 
 def _check_and_install_launchd_agent() -> None:
     """
-    Ensures the Helper launchd User Agent is installed and running.
+    Ensures the Helper is NOT managed by launchd — the app manages the helper
+    lifecycle directly via ensure_running().
 
-    Called from check_and_install() after the driver is confirmed ready.
-    All failures are non-fatal — the app can still spawn the helper directly
-    if launchd registration is unavailable.
-
-    Logic:
-    - Agent registered with launchd (`launchctl list` returns 0) → nothing to do.
-    - Plist present but not loaded → attempt to load it.
-    - Plist missing → call install_launchd_agent().
+    If a launchd agent is registered or the plist exists, it is removed to
+    prevent dual-helper conflicts (two helpers splitting the ring buffer).
     """
     uid = os.getuid()
 
-    # Check whether the service is already known to launchd
+    # If launchd has the service registered, unload and disable it
     try:
         list_result = subprocess.run(
             ["launchctl", "list", LAUNCHD_LABEL],
-            capture_output=True,
-            text=True,
-            timeout=10,
+            capture_output=True, text=True, timeout=10,
         )
         if list_result.returncode == 0:
-            logger.info("LaunchAgent '%s' is already registered — skipping install.", LAUNCHD_LABEL)
-            return
+            logger.info("LaunchAgent '%s' is registered — disabling to prevent dual-helper conflict.", LAUNCHD_LABEL)
+            subprocess.run(
+                ["launchctl", "bootout", f"gui/{uid}", str(LAUNCHD_INSTALL_PATH)],
+                capture_output=True, timeout=15,
+            )
     except Exception as exc:
-        logger.warning("launchctl list check raised an exception: %s", exc)
+        logger.debug("launchctl list/bootout: %s", exc)
 
-    if is_launchd_agent_installed():
-        # Plist exists but service is not loaded — try to load it
-        logger.info("LaunchAgent plist found but not loaded — attempting to load.")
+    # Remove plist from LaunchAgents to prevent re-registration on next login
+    if LAUNCHD_INSTALL_PATH.exists():
         try:
-            result = subprocess.run(
-                ["launchctl", "bootstrap", f"gui/{uid}", str(LAUNCHD_INSTALL_PATH)],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            if result.returncode == 0:
-                logger.info("LaunchAgent loaded successfully.")
-            else:
-                logger.warning(
-                    "Failed to load existing LaunchAgent (rc=%d): %s",
-                    result.returncode,
-                    result.stderr.strip(),
-                )
-        except Exception as exc:
-            logger.warning("Exception while loading LaunchAgent: %s", exc)
-    else:
-        # Plist not present — full install
-        success, error_msg = install_launchd_agent()
-        if not success:
-            logger.warning(
-                "LaunchAgent installation failed (non-fatal): %s",
-                error_msg,
-            )
+            LAUNCHD_INSTALL_PATH.unlink()
+            logger.info("LaunchAgent plist removed: %s (app manages helper directly)", LAUNCHD_INSTALL_PATH)
+        except OSError as exc:
+            logger.warning("Could not remove LaunchAgent plist: %s", exc)
 
 
 def check_and_install() -> bool:
@@ -356,7 +331,7 @@ def check_and_install() -> bool:
     """
     if is_driver_installed():
         logger.info("Driver already installed — no action needed.")
-        # Install launchd User Agent (no sudo — user domain)
+        # Clean up any launchd agent — app manages helper directly
         _check_and_install_launchd_agent()
         return True
 
@@ -384,7 +359,7 @@ def check_and_install() -> bool:
 
     logger.info("Driver installation completed and verified.")
 
-    # Install launchd User Agent (no sudo — user domain)
+    # Clean up any launchd agent — app manages helper directly
     _check_and_install_launchd_agent()
 
     return True

@@ -103,6 +103,9 @@ arn_ring_init(ARNSharedRing *ring)
 /* Aendert SR zur Laufzeit: flusht Ring, inkrementiert sr_change_gen */
 static inline void
 arn_ring_set_sample_rate(ARNSharedRing *ring, uint32_t new_sr) {
+    /* GUARD: NO-OP wenn SR bereits uebereinstimmt — verhindert spurious sr_change_gen-Inkremente */
+    uint32_t old_sr = atomic_load_explicit(&ring->sample_rate, memory_order_acquire);
+    if (old_sr == new_sr) return;
     atomic_store_explicit(&ring->write_idx,    0u,     memory_order_seq_cst);
     atomic_store_explicit(&ring->sample_rate,  new_sr, memory_order_release);
     atomic_fetch_add_explicit(&ring->sr_change_gen, 1u, memory_order_release);
