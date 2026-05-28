@@ -82,12 +82,21 @@ class HelperClient:
 
     def ensure_running(self) -> bool:
         """
-        Stellt sicher, dass der Helper läuft. Wenn er bereits via launchd
-        läuft (Socket erreichbar), nichts tun. Sonst Helper spawnen.
+        Stellt sicher, dass der Helper läuft UND routing-bereit ist.
+
+        Phasen:
+          1. Socket erreichbar?  → weiter zu Phase 2
+          2. Warte auf SHM-bereit (get_status → ready:true) → return True
+          Falls Socket tot: Helper spawnen, dann Phase 1+2 durchlaufen.
         """
         with self._lock:
             if self._is_socket_alive():
-                logger.info("Helper bereits aktiv (vermutlich via launchd)")
+                logger.info("Helper Socket erreichbar — warte auf SHM-Bereitschaft")
+                if self._wait_for_ready():
+                    return True
+                # Socket lebt aber SHM bleibt unreachable — trotzdem True
+                # (App-Retry via _needs_reconfigure greift als Fallback)
+                logger.warning("Helper Socket erreichbar, SHM-Timeout — App retries via Timer")
                 return True
 
             binary = _find_helper_binary()
@@ -112,16 +121,41 @@ class HelperClient:
                 logger.error(f"Helper konnte nicht gestartet werden: {e}")
                 return False
 
-            # Warte bis Socket erreichbar ist (max 15s)
+            # Phase 1: Warte bis Socket erreichbar (max 15s)
             deadline = time.monotonic() + 15.0
             while time.monotonic() < deadline:
                 if self._is_socket_alive():
                     logger.info("Helper-Socket erreichbar")
-                    return True
+                    break
                 time.sleep(0.1)
+            else:
+                logger.error("Helper gestartet, aber Socket nicht erreichbar")
+                return False
 
-            logger.error("Helper gestartet, aber Socket nicht erreichbar")
-            return False
+            # Phase 2: Warte bis SHM-Ring bereit (max 10s zusätzlich)
+            if self._wait_for_ready():
+                logger.info("Helper vollständig bereit (Socket + SHM)")
+                return True
+
+            logger.warning("Helper Socket OK, SHM-Timeout — App retries via Timer")
+            return True
+
+    def _wait_for_ready(self, timeout: float = 10.0) -> bool:
+        """
+        Wartet bis get_status() → ready:true meldet (SHM verbunden).
+        Gibt True zurück wenn bereit, False bei Timeout.
+        Darf NUR unter self._lock aufgerufen werden.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                status = self._send_no_lock({"cmd": "get_status"})
+                if status.get("ready") is not False:
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.2)
+        return False
 
     def shutdown(self) -> None:
         """
