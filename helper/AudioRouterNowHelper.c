@@ -682,6 +682,76 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
 }
 
 /*
+ * sr_reinit_all_outputs — wird aufgerufen wenn der SHM-Ring eine neue
+ * Sample-Rate meldet (sr_change_gen hat sich geaendert).
+ * MUSS unter g_outputs_lock aufgerufen werden.
+ *
+ * Stoppt alle IOProcs, berechnet base_ratio neu, startet IOProcs neu.
+ */
+static void sr_reinit_all_outputs(void) {
+    uint32_t new_sr = atomic_load_explicit(&g_ring->sample_rate, memory_order_acquire);
+    fprintf(stdout, "Helper: Sample-Rate geaendert auf %u Hz — reinit alle Outputs\n", new_sr);
+
+    /* Schritt 1: Alle IOProcs stoppen */
+    for (int i = 0; i < g_n_outputs; i++) {
+        DeviceOutput *dev = &g_outputs[i];
+        if (!dev->active || !dev->proc_id) continue;
+        AudioDeviceStop(dev->dev_id, dev->proc_id);
+        AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
+        dev->proc_id = NULL;
+        dev->active  = false;
+    }
+
+    /* Schritt 2: Leseposition auf aktuellen write_idx setzen */
+    uint32_t w = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
+    for (int i = 0; i < g_n_outputs; i++) {
+        DeviceOutput *dev = &g_outputs[i];
+        dev->local_ridx    = w;
+        dev->src_frac_ridx = (double)w / 2.0;
+    }
+
+    /* Schritt 3: base_ratio neu berechnen + IOProcs neu starten */
+    for (int i = 0; i < g_n_outputs; i++) {
+        DeviceOutput *dev = &g_outputs[i];
+        if (!dev->uid[0]) continue;
+
+        /* Aktuelle Device-SR lesen */
+        Float64 device_sr = (Float64)new_sr;
+        AudioObjectPropertyAddress sr_prop = {
+            kAudioDevicePropertyNominalSampleRate,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain
+        };
+        UInt32 sz = sizeof(Float64);
+        AudioObjectGetPropertyData(dev->dev_id, &sr_prop, 0, NULL, &sz, &device_sr);
+
+        /* Versuche Device auf neue Ring-SR zu setzen */
+        Float64 ring_sr_f = (Float64)new_sr;
+        if ((uint32_t)device_sr != new_sr) {
+            if (AudioObjectSetPropertyData(dev->dev_id, &sr_prop, 0, NULL,
+                                           sizeof(Float64), &ring_sr_f) == noErr) {
+                device_sr = ring_sr_f;
+            }
+        }
+        dev->base_ratio = (double)new_sr / (double)device_sr;
+        uint32_t init_q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
+        atomic_store_explicit(&dev->src_ratio_q20, init_q20, memory_order_relaxed);
+        atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
+
+        /* IOProc neu starten */
+        OSStatus err = AudioDeviceCreateIOProcID(dev->dev_id, device_ioproc, dev, &dev->proc_id);
+        if (err == noErr) {
+            err = AudioDeviceStart(dev->dev_id, dev->proc_id);
+            if (err == noErr) {
+                dev->active = true;
+                fprintf(stdout, "Helper: Output neu gestartet nach SR-Wechsel: %s [Ch %u-%u]\n",
+                        dev->name, dev->ch_offset + 1, dev->ch_offset + 2);
+            }
+        }
+    }
+}
+
+/*
  * Stoppt alle Outputs (z.B. beim Shutdown).
  */
 static void outputs_stop_all(void)
@@ -908,6 +978,23 @@ static void *volume_poll_thread(void *arg)
             /* Auch globalen read_idx aktualisieren — Producer kann sonst voll laufen. */
             update_global_read_idx();
         }
+
+        /* SR-Aenderung erkennen (sr_change_gen wird vom Driver inkrementiert) */
+        {
+            static uint32_t last_sr_gen = UINT32_MAX; /* UINT32_MAX = noch nicht initialisiert */
+            if (g_ring) {
+                uint32_t cur_gen = atomic_load_explicit(&g_ring->sr_change_gen, memory_order_acquire);
+                if (last_sr_gen == UINT32_MAX) {
+                    last_sr_gen = cur_gen; /* Initialisierung: aktuellen Wert merken */
+                } else if (cur_gen != last_sr_gen) {
+                    last_sr_gen = cur_gen;
+                    pthread_mutex_lock(&g_outputs_lock);
+                    sr_reinit_all_outputs();
+                    pthread_mutex_unlock(&g_outputs_lock);
+                }
+            }
+        }
+
         usleep(VOLUME_POLL_INTERVAL_US);
     }
     return NULL;

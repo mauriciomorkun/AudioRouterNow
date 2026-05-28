@@ -62,6 +62,12 @@
 #define kDefaultSampleRate          48000.0
 #define kRingBufferFrames           512u          /* Buffer-Frame-Size      */
 
+/* Alle unterstuetzten Sample-Raten */
+static const Float64 kSupportedSampleRates[] = {
+    44100.0, 48000.0, 88200.0, 96000.0, 176400.0, 192000.0
+};
+#define kNumSupportedSampleRates (sizeof(kSupportedSampleRates) / sizeof(kSupportedSampleRates[0]))
+
 /* IPC (v2.0: POSIX Shared Memory, kein Unix Socket mehr) ----------------- */
 /* ARN_SHM_NAME ist in shared_ring.h definiert: "/audiorouter_shm"         */
 
@@ -77,6 +83,13 @@ enum {
 
 /* Zeitmodell ------------------------------------------------------------- */
 #define kZeroTimeStampPeriod        (kRingBufferFrames * 64u)  /* Frames    */
+
+static bool ARN_IsValidSampleRate(Float64 sr) {
+    for (size_t i = 0; i < kNumSupportedSampleRates; i++) {
+        if (kSupportedSampleRates[i] == sr) return true;
+    }
+    return false;
+}
 
 #pragma mark - Globaler Zustand
 
@@ -459,7 +472,7 @@ static OSStatus ARN_PerformDeviceConfigurationChange(AudioServerPlugInDriverRef 
 
     /* inChangeAction transportiert die neue Sample-Rate (siehe SetPropertyData). */
     Float64 newRate = (Float64)inChangeAction;
-    if (newRate == 48000.0) {
+    if (ARN_IsValidSampleRate(newRate)) {
         pthread_mutex_lock(&gStateMutex);
         gSampleRate = newRate;
         struct mach_timebase_info tb;
@@ -467,6 +480,10 @@ static OSStatus ARN_PerformDeviceConfigurationChange(AudioServerPlugInDriverRef 
         Float64 nanosPerTick = (Float64)tb.numer / (Float64)tb.denom;
         atomic_store(&gHostTicksPerFrameBits,
                      _f64_to_u64((1.0e9 / gSampleRate) / nanosPerTick));
+        /* SHM-Ring mit neuer SR neu initialisieren */
+        if (gSHMRing != NULL) {
+            arn_ring_set_sample_rate(gSHMRing, (uint32_t)newRate);
+        }
         pthread_mutex_unlock(&gStateMutex);
         os_log(gLog, "AudioRouterNow: SampleRate -> %.0f", newRate);
         return kAudioHardwareNoError;
@@ -656,7 +673,7 @@ static OSStatus ARN_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver,
             size = sizeof(Float64);
             break;
         case kAudioDevicePropertyAvailableNominalSampleRates:
-            size = 1 * sizeof(AudioValueRange);
+            size = (UInt32)(kNumSupportedSampleRates * sizeof(AudioValueRange));
             break;
         case kAudioDevicePropertyBufferFrameSizeRange:
             size = sizeof(AudioValueRange);
@@ -702,7 +719,7 @@ static OSStatus ARN_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver,
             break;
         case kAudioStreamPropertyAvailableVirtualFormats:
         case kAudioStreamPropertyAvailablePhysicalFormats:
-            size = 1 * sizeof(AudioStreamRangedDescription);
+            size = (UInt32)(kNumSupportedSampleRates * sizeof(AudioStreamRangedDescription));
             break;
 
         /* --- Controls (Volume / Mute) ---------------------------------- */
@@ -1039,11 +1056,14 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
             break;
 
         case kAudioDevicePropertyAvailableNominalSampleRates: {
-            if (inDataSize < 1 * sizeof(AudioValueRange))
-                return kAudioHardwareBadPropertySizeError;
+            UInt32 needed = (UInt32)(kNumSupportedSampleRates * sizeof(AudioValueRange));
+            if (inDataSize < needed) return kAudioHardwareBadPropertySizeError;
             AudioValueRange *ranges = (AudioValueRange *)outData;
-            ranges[0].mMinimum = 48000.0; ranges[0].mMaximum = 48000.0;
-            written = 1 * sizeof(AudioValueRange);
+            for (size_t i = 0; i < kNumSupportedSampleRates; i++) {
+                ranges[i].mMinimum = kSupportedSampleRates[i];
+                ranges[i].mMaximum = kSupportedSampleRates[i];
+            }
+            written = needed;
             break;
         }
 
@@ -1148,14 +1168,19 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
 
         case kAudioStreamPropertyAvailableVirtualFormats:
         case kAudioStreamPropertyAvailablePhysicalFormats: {
-            if (inDataSize < 1 * sizeof(AudioStreamRangedDescription))
-                return kAudioHardwareBadPropertySizeError;
-            AudioStreamRangedDescription *d =
-                (AudioStreamRangedDescription *)outData;
-            FillASBD(&d[0].mFormat, 48000.0);
-            d[0].mSampleRateRange.mMinimum = 48000.0;
-            d[0].mSampleRateRange.mMaximum = 48000.0;
-            written = 1 * sizeof(AudioStreamRangedDescription);
+            UInt32 needed = (UInt32)(kNumSupportedSampleRates * sizeof(AudioStreamRangedDescription));
+            if (inDataSize < needed) return kAudioHardwareBadPropertySizeError;
+            AudioStreamRangedDescription *d = (AudioStreamRangedDescription *)outData;
+            pthread_mutex_lock(&gStateMutex);
+            Float64 sr = gSampleRate;
+            pthread_mutex_unlock(&gStateMutex);
+            for (size_t i = 0; i < kNumSupportedSampleRates; i++) {
+                FillASBD(&d[i].mFormat, kSupportedSampleRates[i]);
+                d[i].mSampleRateRange.mMinimum = kSupportedSampleRates[i];
+                d[i].mSampleRateRange.mMaximum = kSupportedSampleRates[i];
+            }
+            (void)sr;
+            written = needed;
             break;
         }
 
@@ -1262,7 +1287,7 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             if (inObjectID != kObjectID_Device) return kAudioHardwareUnknownPropertyError;
             if (inDataSize < sizeof(Float64))   return kAudioHardwareBadPropertySizeError;
             Float64 requestedRate = *((Float64*)inData);
-            if (requestedRate != 48000.0) {
+            if (!ARN_IsValidSampleRate(requestedRate)) {
                 return kAudioHardwareUnsupportedOperationError;
             }
             Float64 req = requestedRate;
@@ -1292,7 +1317,7 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
                 fmt->mBitsPerChannel != kBitsPerChannel) {
                 return kAudioHardwareIllegalOperationError;
             }
-            if (fmt->mSampleRate != 48000.0) {
+            if (!ARN_IsValidSampleRate(fmt->mSampleRate)) {
                 return kAudioHardwareUnsupportedOperationError;
             }
             pthread_mutex_lock(&gStateMutex);
