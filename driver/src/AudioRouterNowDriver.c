@@ -118,8 +118,8 @@ static UInt32                           gDeviceClientCount  = 0;
 
 /* Stream / Controls ------------------------------------------------------ */
 static bool                             gStreamIsActive     = true;
-static Float32                          gVolume             = 1.0f;  /* 0..1   */
-static bool                             gMute               = false;
+static _Atomic float                    gVolume             = 1.0f;  /* 0..1, atomar fuer RT-Pfad */
+static _Atomic bool                     gMute               = false; /* atomar fuer RT-Pfad */
 
 /* Zeitbasis fuer GetZeroTimeStamp --------------------------------------- */
 static UInt64                           gAnchorHostTime     = 0;
@@ -154,13 +154,71 @@ static int            gSHMFD     = -1;     /* shm_open file descriptor          
 /*
  * arn_shm_init — oeffnet/erstellt das SHM-Segment und initialisiert den Ring.
  * Wird in ARN_Initialize aufgerufen (nicht-RT, einmalig).
+ *
+ * Driver-Reload-Sicherheit (Fix 4):
+ *   Beim Reload durch coreaudiod (z.B. sudo killall coreaudiod) kann der
+ *   Helper das Segment noch gemapt haben. Blindes shm_unlink + memset
+ *   wuerde den Helper-State korrumpieren.
+ *
+ *   Strategie: Zuerst pruefen ob ein gueltiges Segment mit passendem
+ *   magic + version existiert. Falls ja, Ring sanft leeren (write_idx
+ *   auf read_idx setzen) und sr_change_gen inkrementieren damit der
+ *   Helper neu synchronisiert. Falls nein (Crash-Relikt oder falsche
+ *   Version), Segment entfernen und frisch erstellen.
  */
 static void arn_shm_init(void)
 {
-    /* Altes Segment entfernen (z.B. nach hartem Crash ohne Cleanup). */
-    shm_unlink(ARN_SHM_NAME);
+    int fd = -1;
 
-    int fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0666);
+    /* --- Schritt 1: Pruefen ob ein vorhandenes Segment weiterverwendet werden kann --- */
+    fd = shm_open(ARN_SHM_NAME, O_RDWR, 0);  /* Kein O_CREAT — nur oeffnen falls vorhanden */
+    if (fd >= 0) {
+        ARNSharedRing *existing = (ARNSharedRing *)mmap(NULL, ARN_SHM_SIZE,
+                                                         PROT_READ | PROT_WRITE,
+                                                         MAP_SHARED, fd, 0);
+        if (existing != MAP_FAILED) {
+            if (existing->magic == ARN_RING_MAGIC &&
+                existing->version == ARN_RING_VERSION) {
+                /*
+                 * Gueltiges Segment gefunden — sanft leeren:
+                 * write_idx auf read_idx setzen (Buffer leer, kein memset).
+                 * sr_change_gen inkrementieren damit der Helper einen
+                 * Konfigurations-Wechsel erkennt und neu synchronisiert.
+                 */
+                uint32_t ridx = atomic_load_explicit(&existing->read_idx,
+                                                     memory_order_acquire);
+                atomic_store_explicit(&existing->write_idx, ridx,
+                                      memory_order_release);
+                atomic_fetch_add_explicit(&existing->sr_change_gen, 1u,
+                                          memory_order_release);
+                munmap(existing, ARN_SHM_SIZE);
+
+                gSHMFD   = fd;
+                gSHMRing = (ARNSharedRing *)mmap(NULL, ARN_SHM_SIZE,
+                                                  PROT_READ | PROT_WRITE,
+                                                  MAP_SHARED, fd, 0);
+                if (gSHMRing == MAP_FAILED) {
+                    os_log_error(gLog, "SHM: Zweites mmap fehlgeschlagen (errno=%d)", errno);
+                    close(fd);
+                    gSHMFD   = -1;
+                    gSHMRing = NULL;
+                    return;
+                }
+                os_log(gLog, "SHM: Bestehendes Segment wiederverwendet — %s (magic OK, v%u)",
+                       ARN_SHM_NAME, ARN_RING_VERSION);
+                return;
+            }
+            /* Ungueltige magic/version — Segment verwerfen */
+            munmap(existing, ARN_SHM_SIZE);
+        }
+        close(fd);
+        fd = -1;
+        shm_unlink(ARN_SHM_NAME);  /* Altes/ungueltiges Segment entfernen */
+        os_log(gLog, "SHM: Ungueltige magic/version — Segment neu erstellt");
+    }
+
+    /* --- Schritt 2: Neues Segment erstellen (kein vorhandenes oder ungueltiges verworfen) --- */
+    fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0660);
     if (fd < 0) {
         os_log_error(gLog, "SHM: shm_open fehlgeschlagen (errno=%d)", errno);
         return;
@@ -189,7 +247,7 @@ static void arn_shm_init(void)
      * (Consumer prueft version als "bereit"-Signal). */
     arn_ring_init(gSHMRing);
 
-    os_log(gLog, "SHM: Ring bereit — %s (%zu Bytes, %u Frames Kapazitaet)",
+    os_log(gLog, "SHM: Neuer Ring erstellt — %s (%zu Bytes, %u Frames Kapazitaet, mode=0660)",
            ARN_SHM_NAME, ARN_SHM_SIZE, ARN_RING_CAPACITY / 2u);
 }
 
@@ -1195,17 +1253,13 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
 
         case kAudioLevelControlPropertyScalarValue:
             if (inObjectID != kObjectID_Volume_Output) return kAudioHardwareUnknownPropertyError;
-            pthread_mutex_lock(&gStateMutex);
-            WRITE_SCALAR(Float32, gVolume);
-            pthread_mutex_unlock(&gStateMutex);
+            WRITE_SCALAR(Float32, atomic_load_explicit(&gVolume, memory_order_acquire));
             break;
 
         case kAudioLevelControlPropertyDecibelValue: {
             if (inObjectID != kObjectID_Volume_Output) return kAudioHardwareUnknownPropertyError;
             if (inDataSize < sizeof(Float32)) return kAudioHardwareBadPropertySizeError;
-            pthread_mutex_lock(&gStateMutex);
-            Float32 v = gVolume;
-            pthread_mutex_unlock(&gStateMutex);
+            Float32 v = atomic_load_explicit(&gVolume, memory_order_acquire);
             /* Scalar (0..1) -> dB (-96..0), einfache Kennlinie. */
             Float32 db = (v <= 0.0f) ? -96.0f : (96.0f * (v - 1.0f));
             *((Float32 *)outData) = db;
@@ -1245,9 +1299,7 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
 
         case kAudioBooleanControlPropertyValue:
             if (inObjectID != kObjectID_Mute_Output) return kAudioHardwareUnknownPropertyError;
-            pthread_mutex_lock(&gStateMutex);
-            WRITE_SCALAR(UInt32, gMute ? 1u : 0u);
-            pthread_mutex_unlock(&gStateMutex);
+            WRITE_SCALAR(UInt32, atomic_load_explicit(&gMute, memory_order_acquire) ? 1u : 0u);
             break;
 
         default:
@@ -1370,9 +1422,12 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             Float32 v = *((const Float32 *)inData);
             if (v < 0.0f) v = 0.0f;
             if (v > 1.0f) v = 1.0f;
-            pthread_mutex_lock(&gStateMutex);
-            gVolume = v;
-            pthread_mutex_unlock(&gStateMutex);
+            atomic_store_explicit(&gVolume, v, memory_order_release);
+            /* SHM volume sync — Fix M3: Driver schreibt volume_q16, Helper skaliert. */
+            if (gSHMRing != NULL) {
+                uint32_t q16_val = (uint32_t)(v * 65536.0f);
+                atomic_store_explicit(&gSHMRing->volume_q16, q16_val, memory_order_release);
+            }
             /* CoreAudio (HUD) ueber Wertaenderung benachrichtigen */
             if (gPlugInHost != NULL) {
                 AudioObjectPropertyAddress volProps[] = {
@@ -1391,9 +1446,13 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             Float32 db = *((const Float32 *)inData);
             if (db < -96.0f) db = -96.0f;
             if (db >  0.0f)  db =  0.0f;
-            pthread_mutex_lock(&gStateMutex);
-            gVolume = (db / 96.0f) + 1.0f;
-            pthread_mutex_unlock(&gStateMutex);
+            Float32 v = (db / 96.0f) + 1.0f;
+            atomic_store_explicit(&gVolume, v, memory_order_release);
+            /* SHM volume sync — Fix M3: Driver schreibt volume_q16, Helper skaliert. */
+            if (gSHMRing != NULL) {
+                uint32_t q16_val = (uint32_t)(v * 65536.0f);
+                atomic_store_explicit(&gSHMRing->volume_q16, q16_val, memory_order_release);
+            }
             /* CoreAudio (HUD) ueber Wertaenderung benachrichtigen */
             if (gPlugInHost != NULL) {
                 AudioObjectPropertyAddress volProps[] = {
@@ -1409,9 +1468,7 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             if (inObjectID != kObjectID_Mute_Output)
                 return kAudioHardwareUnknownPropertyError;
             if (inDataSize < sizeof(UInt32)) return kAudioHardwareBadPropertySizeError;
-            pthread_mutex_lock(&gStateMutex);
-            gMute = (*((const UInt32 *)inData) != 0);
-            pthread_mutex_unlock(&gStateMutex);
+            atomic_store_explicit(&gMute, (*((const UInt32 *)inData) != 0), memory_order_release);
             /* CoreAudio (HUD) ueber Mute-Aenderung benachrichtigen */
             if (gPlugInHost != NULL) {
                 AudioObjectPropertyAddress muteProps[] = {
@@ -1583,23 +1640,26 @@ static OSStatus ARN_DoIOOperation(AudioServerPlugInDriverRef inDriver,
          * damit die Python-Engine ihren Takt behaelt. Volume wird in der
          * Engine angewandt, hier nur Mute-Gate. */
         if (atomic_load_explicit(&gDeviceIsRunning, memory_order_relaxed)) {
-            /* gVolume und gMute ohne Lock lesen — Float/bool Tearing ist auf
-             * arm64 und x86_64 bei aligned Reads unkritisch. */
-            float vol  = gVolume;
-            bool  mute = gMute;
+            /* gVolume und gMute atomar lesen (memory_order_relaxed genuegt im RT-Pfad). */
+            float vol  = atomic_load_explicit(&gVolume, memory_order_relaxed);
+            bool  mute = atomic_load_explicit(&gMute,   memory_order_relaxed);
 
             if (mute || vol <= 0.0f) {
-                /* Stilles Signal senden — Python-Engine haelt ihren Takt. */
+                /* Stilles Signal senden — Helper haelt ihren Takt. */
                 memset(ioMainBuffer, 0, byteCount);
-            } else if (vol < 0.999f) {
-                /* Volume-Scaling in-place (Float32-Samples). */
-                float  *samples  = (float *)ioMainBuffer;
-                size_t  nSamples = byteCount / sizeof(float);
-                for (size_t i = 0; i < nSamples; i++) {
-                    samples[i] *= vol;
-                }
             }
-            /* vol >= 0.999f: keine Bearbeitung, unveraendert senden. */
+            // Volume-Scaling wurde in Helper delegiert (via ring->volume_q16).
+            // Doppelte Skalierung entfernt — Fix M3.
+            //
+            // else if (vol < 0.999f) {
+            //     /* Volume-Scaling in-place (Float32-Samples). */
+            //     float  *samples  = (float *)ioMainBuffer;
+            //     size_t  nSamples = byteCount / sizeof(float);
+            //     for (size_t i = 0; i < nSamples; i++) {
+            //         samples[i] *= vol;
+            //     }
+            // }
+            /* Samples unveraendert an Helper weitergeben — dieser skaliert via volume_q16. */
             /* v2.0: SHM-Ring statt Unix Socket — kein Syscall, RT-safe */
             if (gSHMRing != NULL) {
                 uint32_t nSamples = (uint32_t)(byteCount / sizeof(float));
