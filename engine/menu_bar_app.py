@@ -23,6 +23,7 @@ import fcntl
 import logging
 import os
 import sys
+import threading
 import time
 import webbrowser
 from logging.handlers import RotatingFileHandler
@@ -33,7 +34,6 @@ import rumps
 
 from audio_device_control import (
     set_default_output_device,
-    set_audio_router_sample_rate,
     get_device_supported_sample_rates,
     SUPPORTED_SAMPLE_RATES,
 )
@@ -99,6 +99,7 @@ class AudioRouterApp(rumps.App):
         self._device_update_pending: bool = False
         self._donation_hint_at: float | None = None
         self._helper_alive: bool = False
+        self._needs_reconfigure: bool = False  # set when set_outputs gets not_ready
 
         # Main-thread UI-Timer
         self._ui_timer = rumps.Timer(self._process_pending_updates, 0.5)
@@ -272,11 +273,12 @@ class AudioRouterApp(rumps.App):
         self._config.auto_sample_rate = False
         self._config.sample_rate = rate
         save_config(self._config)
-        success, msg = set_audio_router_sample_rate(rate)
-        if not success:
+        resp = self._helper.set_sample_rate(rate)
+        if not resp or not resp.get("ok"):
+            err = resp.get("error", "unknown") if resp else "helper not reachable"
             rumps.alert(
                 title="AudioRouterNow — Sample Rate",
-                message=f"Could not set sample rate:\n{msg}",
+                message=f"Could not set sample rate:\n{err}",
             )
         self._build_menu()
 
@@ -303,8 +305,11 @@ class AudioRouterApp(rumps.App):
         if best != self._config.sample_rate:
             self._config.sample_rate = best
             save_config(self._config)
-            set_audio_router_sample_rate(best)
-            logger.info(f"Auto Sample-Rate: {best} Hz")
+            resp = self._helper.set_sample_rate(best)
+            if resp and resp.get("ok"):
+                logger.info(f"Auto Sample-Rate: {best} Hz")
+            else:
+                logger.warning(f"Auto Sample-Rate {best} Hz fehlgeschlagen: {resp}")
 
     def _switch_system_audio(self, sender):
         success, error_msg = set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
@@ -348,8 +353,30 @@ class AudioRouterApp(rumps.App):
         # Status-Update via Helper-Ping
         alive_now = self._helper.ping()
         if alive_now != self._helper_alive:
+            old_alive = self._helper_alive
             self._helper_alive = alive_now
             self._update_status_ui()
+            # Helper went from dead → alive (e.g., slow start, or respawn succeeded)
+            if alive_now and not old_alive:
+                logger.info("Helper jetzt erreichbar — Outputs neu konfigurieren")
+                self._auto_start_if_configured()
+            # Helper went from alive → dead → try to respawn
+            elif not alive_now and old_alive:
+                logger.warning("Helper nicht mehr erreichbar — versuche Neustart")
+                def _respawn():
+                    ok = self._helper.ensure_running()
+                    if ok:
+                        logger.info("Helper erfolgreich neugestartet")
+                    else:
+                        logger.error("Helper-Neustart fehlgeschlagen")
+                threading.Thread(target=_respawn, name="helper-respawn", daemon=True).start()
+
+        # Retry set_outputs wenn Helper noch nicht SHM-bereit war
+        if self._needs_reconfigure and alive_now:
+            status = self._helper.get_status()
+            if status is not None and status.get('ready') is not False:
+                logger.info("Helper SHM bereit — Outputs neu konfigurieren (retry)")
+                self._auto_start_if_configured()
 
         # Donation-Hint einmalig nach Verzögerung
         hint_at = self._donation_hint_at
@@ -409,6 +436,12 @@ class AudioRouterApp(rumps.App):
                     specs.append(OutputSpec(uid=uid, ch_offset=off))
 
         resp = self._helper.set_outputs(specs)
+        if resp is not None and resp.get('error') == 'not_ready':
+            # Helper socket is up but SHM not yet ready — schedule retry via timer
+            logger.info("Helper SHM noch nicht bereit — warte auf Bereitschaft (auto-retry)")
+            self._needs_reconfigure = True
+            return
+        self._needs_reconfigure = False
         if resp is None:
             logger.warning("Helper antwortet nicht — bitte prüfen")
         else:

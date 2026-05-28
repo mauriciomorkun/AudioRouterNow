@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 CONFIG_SOCKET = "/tmp/audiorouter.config.sock"
 CONNECT_TIMEOUT = 2.0
-READ_TIMEOUT = 3.0
+READ_TIMEOUT = 10.0
 
 
 @dataclass
@@ -112,8 +112,8 @@ class HelperClient:
                 logger.error(f"Helper konnte nicht gestartet werden: {e}")
                 return False
 
-            # Warte bis Socket erreichbar ist (max 5s)
-            deadline = time.monotonic() + 5.0
+            # Warte bis Socket erreichbar ist (max 15s)
+            deadline = time.monotonic() + 15.0
             while time.monotonic() < deadline:
                 if self._is_socket_alive():
                     logger.info("Helper-Socket erreichbar")
@@ -175,6 +175,14 @@ class HelperClient:
             return self._send(payload)
         except Exception as e:
             logger.warning(f"set_outputs fehlgeschlagen: {e}")
+            return None
+
+    def set_sample_rate(self, rate: int) -> Optional[dict]:
+        payload = {"cmd": "set_sample_rate", "rate": rate}
+        try:
+            return self._send(payload)
+        except Exception as e:
+            logger.warning(f"set_sample_rate fehlgeschlagen: {e}")
             return None
 
     # ------------------------------------------------------------------
