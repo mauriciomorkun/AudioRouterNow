@@ -12,6 +12,12 @@
  * Layout-Versioning:    magic + version im Header.  Helper prueft beim
  *                       Attach — weicht die Version ab, wartet er auf ein
  *                       neues Segment (Plugin-Reload).
+ *
+ * Version 3:
+ *   - sample_rate ist jetzt _Atomic uint32_t (schreibbar zur Laufzeit)
+ *   - sr_change_gen: atomarer Generationszaehler — wird vom Driver inkrementiert
+ *     wenn die Sample-Rate geaendert wird. Helper erkennt aendert SR-Wechsel
+ *     ohne Polling der sample_rate selbst.
  */
 
 #pragma once
@@ -22,7 +28,7 @@
 
 /* ── Identitaet ─────────────────────────────────────────────────────────── */
 #define ARN_RING_MAGIC    0x41524E52u   /* 'A','R','N','R' */
-#define ARN_RING_VERSION  2u            /* erhoehen bei ABI-Aenderung       */
+#define ARN_RING_VERSION  3u            /* erhoehen bei ABI-Aenderung       */
 #define ARN_SHM_NAME      "/audiorouter_shm"
 
 /* ── Kapazitaet ─────────────────────────────────────────────────────────── */
@@ -45,13 +51,14 @@
  *  Offset 256: Sample-Buffer      (ARN_RING_CAPACITY × float32)
  */
 typedef struct {
-    /* --- 0..63: Read-Only nach Initialize --- */
-    uint32_t magic;           /* ARN_RING_MAGIC                     */
-    uint32_t version;         /* ARN_RING_VERSION                   */
-    uint32_t sample_rate;     /* 48000                              */
-    uint32_t channels;        /* 2 (Stereo)                         */
-    uint32_t capacity;        /* ARN_RING_CAPACITY                  */
-    uint8_t  _pad0[44];       /* auf 64 Bytes auffuellen            */
+    /* --- 0..63: Read-Only nach Initialize (ausser sample_rate + sr_change_gen) --- */
+    uint32_t         magic;           /* ARN_RING_MAGIC                         */
+    uint32_t         version;         /* ARN_RING_VERSION                       */
+    _Atomic uint32_t sample_rate;     /* dynamisch: 44100/48000/88200/96000/... */
+    uint32_t         channels;        /* 2 (Stereo)                             */
+    uint32_t         capacity;        /* ARN_RING_CAPACITY                      */
+    _Atomic uint32_t sr_change_gen;   /* Generationszaehler — inkrementiert bei SR-Wechsel */
+    uint8_t          _pad0[40];       /* auf 64 Bytes auffuellen                */
 
     /* --- 64..127: Producer-Hot (nur vom RT-Write-Thread gelesen/geschrieben) --- */
     _Atomic uint32_t write_idx;   /* monoton steigend, uint32 Overflow OK */
@@ -79,17 +86,26 @@ static inline void
 arn_ring_init(ARNSharedRing *ring)
 {
     memset(ring, 0, ARN_SHM_SIZE);
-    atomic_store_explicit(&ring->write_idx,   0u, memory_order_relaxed);
-    atomic_store_explicit(&ring->read_idx,    0u, memory_order_relaxed);
-    atomic_store_explicit(&ring->volume_q16, 65536u, memory_order_relaxed);
-    atomic_store_explicit(&ring->muted,       0u, memory_order_relaxed);
-    ring->magic       = ARN_RING_MAGIC;
-    ring->sample_rate = 48000u;
-    ring->channels    = 2u;
-    ring->capacity    = ARN_RING_CAPACITY;
+    atomic_store_explicit(&ring->write_idx,    0u,     memory_order_relaxed);
+    atomic_store_explicit(&ring->read_idx,     0u,     memory_order_relaxed);
+    atomic_store_explicit(&ring->volume_q16,  65536u,  memory_order_relaxed);
+    atomic_store_explicit(&ring->muted,        0u,     memory_order_relaxed);
+    atomic_store_explicit(&ring->sr_change_gen, 0u,    memory_order_relaxed);
+    ring->magic    = ARN_RING_MAGIC;
+    ring->channels = 2u;
+    ring->capacity = ARN_RING_CAPACITY;
+    atomic_store_explicit(&ring->sample_rate, 48000u,  memory_order_relaxed);
     /* version zuletzt schreiben — Consumer prueft magic+version als Bereit-Signal */
     atomic_thread_fence(memory_order_release);
     ring->version = ARN_RING_VERSION;
+}
+
+/* Aendert SR zur Laufzeit: flusht Ring, inkrementiert sr_change_gen */
+static inline void
+arn_ring_set_sample_rate(ARNSharedRing *ring, uint32_t new_sr) {
+    atomic_store_explicit(&ring->write_idx,    0u,     memory_order_seq_cst);
+    atomic_store_explicit(&ring->sample_rate,  new_sr, memory_order_release);
+    atomic_fetch_add_explicit(&ring->sr_change_gen, 1u, memory_order_release);
 }
 
 /* ── Producer-Seite (RT-safe: kein Lock, kein malloc, kein Syscall) ─────── */
