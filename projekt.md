@@ -1,7 +1,7 @@
 # AudioRouterNow — Projektdokumentation
 
-> Zuletzt aktualisiert: 27.05.2026
-> Stand: **v2.0 — ausgeliefert**. C-natives Routing aktiv, Python aus dem Audio-Hot-Path entfernt.
+> Zuletzt aktualisiert: 28.05.2026
+> Stand: **v2.1 — ausgeliefert**. Dynamische Sample-Rate-Auswahl, SR-Mismatch-Fix, Auto-Switch System-Audio.
 > Ziel: Eigenständiger, lizenzfreier Audio-Router für macOS — universell für alle Audio-Interfaces.
 
 ---
@@ -235,10 +235,24 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 - Pro Output-Device: `double src_frac_ridx` (fraktionaler Leseindex, IOProc-privat)
 - Lineare Interpolation zwischen zwei Sample-Frames pro Output-Frame
 - `_Atomic uint32_t src_ratio_q20` — Q20-Fixed-Point (1.0 = `1<<20`)
-- P-Regler im Volume-Poll-Thread (50ms): Ziel = 50% Ring-Füllstand
+- `double base_ratio` — Basisverhältnis `ring_sr / device_sr` (1.0 bei gleicher Rate, z.B. 1.0884 für HDMI 44100Hz bei 48kHz Ring)
+- P-Regler im Volume-Poll-Thread (50ms): Ziel = 50% Ring-Füllstand, korrigiert um `base_ratio`
 - Korrektur geklemmt auf ±500ppm (10× Max-Drift Sicherheitsmarge)
 - Bei Underrun: `src_frac_ridx` auf `write_idx` zurückgesetzt (Resync)
 - Diagnose: `src_ratio` pro Device in `get_status`-Antwort
+
+### Dynamische Sample-Rate (v2.1, 28.05.2026)
+- Ring-SR zur Laufzeit änderbar: 44100, 48000, 88200, 96000, 176400, 192000 Hz
+- `shared_ring.h`: `sample_rate` jetzt `_Atomic uint32_t`, neues `sr_change_gen` Feld (Generationszähler)
+- `arn_ring_set_sample_rate()`: flusht Ring (write_idx=0), setzt neue SR, inkrementiert sr_change_gen
+- Driver: `kSupportedSampleRates[]` + `ARN_IsValidSampleRate()`, alle 6 Raten in `AvailableNominalSampleRates`
+- Helper: `sr_reinit_all_outputs()` — stoppt IOProcs, berechnet `base_ratio` neu, startet IOProcs neu
+- SR-Änderung-Detection im Volume-Poll-Thread via `sr_change_gen` (polling alle 50ms)
+
+### SR-Mismatch-Fix (v2.1, 28.05.2026)
+- Problem erkannt bei Phase-8-Test: BenQ PD2700U (HDMI, 44100Hz) + Komplete Audio 6 MK2 (USB, 48kHz) → Kratzen
+- `output_add_locked`: liest Device-SR, versucht auf Ring-SR zu setzen, berechnet `base_ratio = ring_sr / device_sr`
+- Verifiziert: BenQ (44100Hz) + Komplete (48kHz) gleichzeitig ohne Kratzen
 
 ### Config-Socket (non-RT-Thread)
 - Unix Domain Socket `/tmp/audiorouter.config.sock`
@@ -382,6 +396,7 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 | **E6** | Volume-Polling | pyobjc-Call in Python war früher Quelle für GIL-Jitter | C-natives Polling via `AudioObjectGetPropertyData`, 50ms |
 | **E7** | launchd-Restart | Helper-Crash würde Audio sofort stoppen | `KeepAlive=true` + `ThrottleInterval=5` für robusten Auto-Restart |
 | **E8** | Sample-Rate-Mismatch | HDMI-Monitor (BenQ 44100Hz) + USB-Interface (48000Hz) gleichzeitig → Kratzen auf allen Outputs | `base_ratio = ring_sr/device_sr` in SRC; IOProc+P-Regler verwenden base_ratio statt 1.0 |
+| **E9** | UX Erststart | Neue User mussten manuell „System Audio → Audio Router" klicken — nicht intuitiv | `_save_and_apply`: Auto-Switch wenn erstes Output-Device aktiviert wird |
 
 ---
 
@@ -441,16 +456,18 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 
 ---
 
-## 13. Bekannte Einschränkungen (Stand v2.0)
+## 13. Bekannte Einschränkungen (Stand v2.1)
 
 1. ~~**Python im Hot-Path**~~ — **GELÖST in v2.0** durch C-Helper.
 2. ~~**Uhr-Drift** zwischen virtuellem Driver und physischem Device~~ — **GELÖST in Phase 6** durch adaptive SRC (fraktionaler Leseindex + lineare Interpolation + P-Regler auf Ring-Füllstand)
-3. **Nur Stereo-Input** — Treiber empfängt nur 2 Kanäle von CoreAudio (für System-Audio ausreichend)
-4. **Code-Signierung fehlt** — Gatekeeper-Warnung auf anderen Macs
+3. ~~**Sample-Rate-Mismatch** (HDMI 44100Hz + USB 48kHz → Kratzen)~~ — **GELÖST in v2.1** durch `base_ratio = ring_sr / device_sr`
+4. ~~**Nur eine feste Sample-Rate (48kHz)**~~ — **GELÖST in v2.1** durch dynamische SR-Auswahl (44100–192000 Hz)
+5. **Nur Stereo-Input** — Treiber empfängt nur 2 Kanäle von CoreAudio (für System-Audio ausreichend)
+6. **Code-Signierung fehlt** — Gatekeeper-Warnung auf anderen Macs
    - Aktuell: ad-hoc signiert (`codesign --sign -`)
    - Geplant: Apple Developer ID + Notarization wenn kommerzielle Vermarktung
-5. **MAX_OUTPUTS = 8** Devices parallel (kompiliert) — kann durch Recompile erhöht werden
-6. **Hardened Runtime + Notarization** noch nicht getestet — `entitlements.plist` enthält `disable-library-validation`, weitere Entitlements für SHM/Sockets prüfen
+7. **MAX_OUTPUTS = 8** Devices parallel (kompiliert) — kann durch Recompile erhöht werden
+8. **Hardened Runtime + Notarization** noch nicht getestet — `entitlements.plist` enthält `disable-library-validation`, weitere Entitlements für SHM/Sockets prüfen
 
 ---
 
@@ -503,7 +520,7 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 - [x] DMG-Build erfolgreich
 - Commit: `70031dd`
 
-### Phase 6 — Clock-Drift-Kompensation via adaptiver SRC ✅ ABGESCHLOSSEN
+### Phase 6 + v2.1 — Adaptive SRC + Dynamische Sample-Rate ✅ ABGESCHLOSSEN
 - [x] Fraktionaler Ring-Leseindex (`src_frac_ridx`, double) pro Output-Device
 - [x] Lineare Interpolation im IOProc — RT-safe (keine `AudioConverter`-Instanz nötig)
 - [x] P-Regler im 50ms-Volume-Poll-Thread: Ziel = 50% Ring-Füllstand
@@ -532,10 +549,15 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 - [ ] Ring-Füllstand schwingt um Ziel ein (~10-20s bei initial 50ppm Drift)
 - [ ] CPU-Last-Tests mit `yes > /dev/null` parallel
 
-### Phase 8 — Test-Matrix [ ] offen
-- [ ] macOS 11, 12, 13, 14, 15
-- [ ] Intel Mac + Apple Silicon
-- [ ] Audio-Interfaces: Komplete Audio 6, Focusrite, SSL, MOTU, RME (sofern verfügbar)
+### Phase 8 — Test-Matrix (teilweise abgeschlossen)
+- [x] Komplete Audio 6 MK2 (USB, 48kHz, 6ch) — ✅ verifiziert
+- [x] MacBook Pro Built-in Speakers (2ch) — ✅ verifiziert
+- [x] Externe Kopfhörer 3.5mm (2ch) — ✅ verifiziert
+- [x] BenQ PD2700U (HDMI, 44100Hz, 2ch) — ✅ nach SR-Mismatch-Fix
+- [x] Multi-Device gleichzeitig (4 Devices) — ✅ verifiziert
+- [ ] macOS 11, 12, 13, 14, 15 (aktuell: macOS 26/Tahoe auf Apple Silicon)
+- [ ] Intel Mac (Universal Binary gebaut, aber nicht auf echter Hardware getestet)
+- [ ] Andere Interfaces: Focusrite, SSL, MOTU, RME (sofern verfügbar)
 - [ ] Stress-Tests: 4h Musik, CPU-Last-Tests, Sleep/Wake, Logout/Login
 
 ### Phase 9 — Code-Signierung + Notarization [ ] offen (für kommerzielle Nutzung)
@@ -548,11 +570,12 @@ Datei: `helper/AudioRouterNowHelper.c` (~45 KB, Phase 5)
 
 ## 14.1 Geplante Features — spätere Versionen
 
-### User-wählbare Sample-Rate (v3.0)
-- Unterstützte Raten: 44100, 48000, 88200, 96000, 176400, 192000 Hz
-- UI: Sample-Rate-Picker im Menubar-Dropdown
-- HAL-Treiber muss dann die gewählte Rate in den SHM-Header schreiben
-- Helper und AudioConverter müssen auf Sample-Rate-Änderungen reagieren
+### ~~User-wählbare Sample-Rate~~ ✅ IMPLEMENTIERT in v2.1 (28.05.2026)
+- ~~Unterstützte Raten: 44100, 48000, 88200, 96000, 176400, 192000 Hz~~
+- ~~UI: Sample-Rate-Picker im Menubar-Dropdown~~
+- ~~HAL-Treiber muss dann die gewählte Rate in den SHM-Header schreiben~~
+- ~~Helper und AudioConverter müssen auf Sample-Rate-Änderungen reagieren~~
+- Vollständig implementiert: Auto-Mode + manuelle Auswahl + SR-Mismatch-SRC
 - Betrifft:
   - `driver/src/AudioRouterNowDriver.c` (GetStreamDescription)
   - `helper/AudioRouterNowHelper.c` (SRC-Ratio-Berechnung anpassen)
