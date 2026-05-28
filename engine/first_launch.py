@@ -165,122 +165,7 @@ def is_launchd_agent_installed() -> bool:
     return installed
 
 
-def install_launchd_agent() -> tuple[bool, str]:
-    """
-    Installs the Helper launchd User Agent — no administrator privileges required.
-
-    Steps:
-    1. Create ~/Library/LaunchAgents/ if it does not exist.
-    2. Copy the plist from the installed driver bundle into LaunchAgents/.
-    3. Bootstrap the agent with `launchctl bootstrap gui/<uid> <plist>`.
-       Falls back to `launchctl load <plist>` if bootstrap fails.
-
-    Returns:
-        (True, "")            on success.
-        (False, error_message) on failure.
-    """
-    source = _get_launchd_plist_source()
-
-    if not source.exists():
-        msg = (
-            f"LaunchAgent plist not found in driver bundle: {source}\n"
-            "The driver may not be fully installed yet."
-        )
-        logger.warning(msg)
-        return False, msg
-
-    try:
-        LAUNCHD_AGENTS_DIR.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        msg = f"Failed to create LaunchAgents directory: {exc}"
-        logger.warning(msg)
-        return False, msg
-
-    try:
-        shutil.copy2(source, LAUNCHD_INSTALL_PATH)
-        logger.info("LaunchAgent plist copied to: %s", LAUNCHD_INSTALL_PATH)
-    except OSError as exc:
-        msg = f"Failed to copy LaunchAgent plist: {exc}"
-        logger.warning(msg)
-        return False, msg
-
-    uid = os.getuid()
-
-    # Try modern bootstrap API first (macOS 11+)
-    try:
-        result = subprocess.run(
-            ["launchctl", "bootstrap", f"gui/{uid}", str(LAUNCHD_INSTALL_PATH)],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if result.returncode == 0:
-            logger.info("LaunchAgent bootstrapped successfully (gui/%d).", uid)
-            return True, ""
-        logger.warning(
-            "launchctl bootstrap failed (rc=%d): %s — trying legacy load.",
-            result.returncode,
-            result.stderr.strip(),
-        )
-    except Exception as exc:
-        logger.warning("launchctl bootstrap raised an exception: %s — trying legacy load.", exc)
-
-    # Fallback: legacy load (macOS 10.x compatibility)
-    try:
-        result = subprocess.run(
-            ["launchctl", "load", str(LAUNCHD_INSTALL_PATH)],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if result.returncode == 0:
-            logger.info("LaunchAgent loaded via legacy launchctl load.")
-            return True, ""
-        msg = f"launchctl load failed (rc={result.returncode}): {result.stderr.strip()}"
-        logger.warning(msg)
-        return False, msg
-    except Exception as exc:
-        msg = f"launchctl load raised an exception: {exc}"
-        logger.warning(msg)
-        return False, msg
-
-
-def unload_launchd_agent() -> None:
-    """
-    Unloads and removes the Helper launchd User Agent.
-
-    Called during a clean uninstall. All errors are silently ignored so that
-    the uninstall path never fails because of a launchd edge case.
-    """
-    uid = os.getuid()
-
-    # Attempt modern bootout first; ignore return code
-    try:
-        subprocess.run(
-            ["launchctl", "bootout", f"gui/{uid}", str(LAUNCHD_INSTALL_PATH)],
-            capture_output=True,
-            timeout=15,
-        )
-    except Exception:
-        # Legacy fallback: launchctl unload
-        try:
-            subprocess.run(
-                ["launchctl", "unload", str(LAUNCHD_INSTALL_PATH)],
-                capture_output=True,
-                timeout=15,
-            )
-        except Exception:
-            pass
-
-    try:
-        if LAUNCHD_INSTALL_PATH.exists():
-            LAUNCHD_INSTALL_PATH.unlink()
-            logger.info("LaunchAgent plist removed: %s", LAUNCHD_INSTALL_PATH)
-    except OSError as exc:
-        logger.warning("Could not remove LaunchAgent plist: %s", exc)
-
-
-def _check_and_install_launchd_agent() -> None:
+def _ensure_no_launchd_agent() -> None:
     """
     Ensures the Helper is NOT managed by launchd — the app manages the helper
     lifecycle directly via ensure_running().
@@ -332,7 +217,7 @@ def check_and_install() -> bool:
     if is_driver_installed():
         logger.info("Driver already installed — no action needed.")
         # Clean up any launchd agent — app manages helper directly
-        _check_and_install_launchd_agent()
+        _ensure_no_launchd_agent()
         return True
 
     logger.info("Driver not found — starting installation.")
@@ -360,7 +245,7 @@ def check_and_install() -> bool:
     logger.info("Driver installation completed and verified.")
 
     # Clean up any launchd agent — app manages helper directly
-    _check_and_install_launchd_agent()
+    _ensure_no_launchd_agent()
 
     return True
 

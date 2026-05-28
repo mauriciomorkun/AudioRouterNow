@@ -175,6 +175,7 @@ arn_ring_read(ARNSharedRing *ring, float *out, uint32_t count)
 static inline uint32_t
 arn_ring_frames_available(const ARNSharedRing *ring)
 {
+    if (ring->channels == 0) return 0u;
     uint32_t w = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
     uint32_t r = atomic_load_explicit(&ring->read_idx,  memory_order_relaxed);
     return (w - r) / ring->channels;

@@ -52,6 +52,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <stdatomic.h>
 
 /* ── Konfiguration ──────────────────────────────────────────────────────── */
 
@@ -67,7 +68,7 @@
 typedef struct DeviceOutput {
     AudioDeviceID        dev_id;
     AudioDeviceIOProcID  proc_id;
-    uint32_t             local_ridx;     /* Eigene Leseposition (nicht in SHM) */
+    _Atomic uint32_t     local_ridx;     /* Eigene Leseposition (nicht in SHM) */
     uint32_t             ch_offset;      /* 0=Ch1-2, 2=Ch3-4, ...                */
     char                 uid[512];
     char                 name[256];
@@ -84,7 +85,7 @@ typedef struct DeviceOutput {
 
 /* ── Globaler Zustand ───────────────────────────────────────────────────── */
 
-static volatile int            g_running        = 1;
+static atomic_int              g_running        = 1;
 static ARNSharedRing          *g_ring           = NULL;
 static int                     g_shm_fd         = -1;
 
@@ -98,17 +99,17 @@ static _Atomic uint32_t        g_ioproc_calls   = 0;
 /* Config-Socket Thread */
 static pthread_t               g_config_thread;
 static int                     g_config_listen_fd = -1;
-static volatile int            g_config_running   = 0;
+static atomic_int              g_config_running   = 0;
 
 /* Volume-Polling Thread */
 static pthread_t               g_volume_thread;
-static volatile int            g_volume_running   = 0;
+static atomic_int              g_volume_running   = 0;
 
 /* Hot-Plug-Listener flag */
 static volatile int            g_hotplug_registered = 0;
 
 /* SHM-Bereitschafts-Flag: 0 = noch nicht verbunden, 1 = Ring bereit */
-static volatile int            g_shm_ready          = 0;
+static atomic_int              g_shm_ready          = 0;
 
 /* ── Forward Declarations ───────────────────────────────────────────────── */
 
@@ -125,7 +126,7 @@ static void  update_global_read_idx(void);
 static void handle_signal(int sig)
 {
     (void)sig;
-    g_running = 0;
+    atomic_store_explicit(&g_running, 0, memory_order_release);
 }
 
 /* ── SHM-Verbindung ─────────────────────────────────────────────────────── */
@@ -471,7 +472,7 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
             dev->src_frac_ridx += ratio;
         }
         /* local_ridx (Sample-Index) aus Frame-Index ableiten */
-        dev->local_ridx = (uint32_t)(dev->src_frac_ridx * 2.0);
+        atomic_store_explicit(&dev->local_ridx, (uint32_t)(dev->src_frac_ridx * 2.0), memory_order_release);
     }
 
     /* ── In Output-Buffer schreiben mit Channel-Mapping ── */
@@ -553,10 +554,11 @@ static void update_global_read_idx(void)
     bool     have_active = false;
     for (int i = 0; i < g_n_outputs; i++) {
         if (!g_outputs[i].active) continue;
-        uint32_t dist = w - g_outputs[i].local_ridx;
+        uint32_t ridx_i = atomic_load_explicit(&g_outputs[i].local_ridx, memory_order_acquire);
+        uint32_t dist = w - ridx_i;
         if (!have_active || dist > max_dist) {
             max_dist = dist;
-            min_ridx = g_outputs[i].local_ridx;
+            min_ridx = ridx_i;
             have_active = true;
         }
     }
@@ -612,6 +614,14 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
         return -1;
     }
 
+    /* Security Fix 3c: ch_offset Bounds-Check */
+    UInt32 max_ch = device_output_channels(dev_id);
+    if (ch_offset + 2 > max_ch) {
+        fprintf(stderr, "Helper: ch_offset %u ungueltig fuer '%s' (%u Channels)\n",
+                ch_offset, uid, max_ch);
+        return -1;
+    }
+
     DeviceOutput *dev = &g_outputs[g_n_outputs];
     memset(dev, 0, sizeof(*dev));
     dev->dev_id    = dev_id;
@@ -626,7 +636,8 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
 
     /* Start-Position: aktueller write_idx — neue Outputs hoeren ab JETZT */
     if (g_ring) {
-        dev->local_ridx = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
+        uint32_t widx = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
+        atomic_store_explicit(&dev->local_ridx, widx, memory_order_relaxed);
     }
     atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
 
@@ -634,7 +645,7 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
      * src_frac_ridx ist ein FRAME-Index (nicht Sample-Index):
      *   frame i → ring samples [i*2] (L) und [i*2+1] (R)
      * local_ridx ist ein Sample-Index → /2 fuer Konvertierung. */
-    dev->src_frac_ridx   = (double)dev->local_ridx / 2.0;
+    dev->src_frac_ridx   = (double)atomic_load_explicit(&dev->local_ridx, memory_order_relaxed) / 2.0;
     /* Initialer Ratio: base_ratio (nicht 1.0!) damit SRC ab dem ersten IOProc-Call */
     /* korrekt rechnet — auch bei Rate-Mismatch (z.B. 44100 Hz HDMI). */
     uint32_t init_ratio_q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
@@ -749,7 +760,7 @@ static void sr_reinit_all_outputs(void) {
     uint32_t w = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
     for (int i = 0; i < g_n_outputs; i++) {
         DeviceOutput *dev = &g_outputs[i];
-        dev->local_ridx    = w;
+        atomic_store_explicit(&dev->local_ridx, w, memory_order_release);
         dev->src_frac_ridx = (double)w / 2.0;
     }
 
@@ -949,7 +960,8 @@ static uint32_t get_default_output_muted_c(void)
 static void *volume_poll_thread(void *arg)
 {
     (void)arg;
-    while (g_volume_running && g_running) {
+    while (atomic_load_explicit(&g_volume_running, memory_order_acquire) &&
+           atomic_load_explicit(&g_running, memory_order_acquire)) {
         if (g_ring) {
             /* Robustheit: Driver wurde evtl. neu geladen — magic/version pruefen.
              * Bei Mismatch (z.B. coreaudiod restart): SHM neu verbinden. */
@@ -957,7 +969,8 @@ static void *volume_poll_thread(void *arg)
                 fprintf(stderr, "Helper: SHM-Header invalid — Driver wurde neu geladen, reconnect...\n");
                 shm_disconnect();
                 /* Reconnect — bis es klappt oder shutdown */
-                while (g_running && g_volume_running) {
+                while (atomic_load_explicit(&g_running, memory_order_acquire) &&
+                       atomic_load_explicit(&g_volume_running, memory_order_acquire)) {
                     g_ring = shm_connect();
                     if (g_ring) break;
                     usleep(SHM_RETRY_INTERVAL_US);
@@ -967,7 +980,7 @@ static void *volume_poll_thread(void *arg)
                     uint32_t w = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
                     pthread_mutex_lock(&g_outputs_lock);
                     for (int i = 0; i < g_n_outputs; i++) {
-                        g_outputs[i].local_ridx    = w;
+                        atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
                         g_outputs[i].src_frac_ridx = (double)w / 2.0; /* Frame-Index! */
                     }
                     pthread_mutex_unlock(&g_outputs_lock);
@@ -996,7 +1009,7 @@ static void *volume_poll_thread(void *arg)
                 DeviceOutput *dev = &g_outputs[i];
                 if (!dev->active) continue;
 
-                uint32_t fill_samples  = w_now - dev->local_ridx;
+                uint32_t fill_samples  = w_now - atomic_load_explicit(&dev->local_ridx, memory_order_acquire);
                 uint32_t fill_frames   = fill_samples / 2u;   /* Stereo -> /2 */
                 uint32_t target_frames = dev->src_ring_target / 2u;
 
@@ -1109,6 +1122,10 @@ static int parse_outputs(const char *line,
                 off = (uint32_t)atoi(col2);
             }
         }
+        /* Security Fix 3c: negative oder zu grosse Werte abfangen */
+        if ((int32_t)off < 0 || off > 32) {
+            off = 0;  /* Clamp */
+        }
         out_offsets[n] = off;
         n++;
 
@@ -1191,19 +1208,19 @@ static int parse_and_execute(int fd, const char *line)
     if (json_has_cmd(line, "shutdown")) {
         snprintf(resp, sizeof(resp), "{\"ok\":true,\"shutting_down\":true}");
         send_line(fd, resp);
-        g_running = 0;
+        atomic_store_explicit(&g_running, 0, memory_order_release);
         return 1;
     }
 
     /* Commands die SHM benoetigen — noch nicht bereit? */
-    if (!g_shm_ready && !json_has_cmd(line, "ping") && !json_has_cmd(line, "shutdown") && !json_has_cmd(line, "get_status")) {
+    if (!atomic_load_explicit(&g_shm_ready, memory_order_acquire) && !json_has_cmd(line, "ping") && !json_has_cmd(line, "shutdown") && !json_has_cmd(line, "get_status")) {
         snprintf(resp, sizeof(resp), "{\"ok\":false,\"error\":\"not_ready\"}");
         send_line(fd, resp);
         return 0;
     }
 
     if (json_has_cmd(line, "get_status")) {
-        if (!g_shm_ready) {
+        if (!atomic_load_explicit(&g_shm_ready, memory_order_acquire)) {
             snprintf(resp, sizeof(resp), "{\"ok\":true,\"active\":[],\"ring_frames\":0,\"ioproc_calls\":0,\"ready\":false}");
             send_line(fd, resp);
             return 0;
@@ -1350,7 +1367,8 @@ static void handle_config_client(int fd)
     char   linebuf[16384];
     size_t pos = 0;
 
-    while (g_config_running && g_running) {
+    while (atomic_load_explicit(&g_config_running, memory_order_acquire) &&
+           atomic_load_explicit(&g_running, memory_order_acquire)) {
         if (pos >= sizeof(linebuf) - 1) {
             /* Linie zu lang — Verbindung schliessen */
             break;
@@ -1421,7 +1439,7 @@ static int config_socket_create(void)
         return -1;
     }
 
-    if (chmod(CONFIG_SOCKET_PATH, 0666) != 0) {
+    if (chmod(CONFIG_SOCKET_PATH, 0600) != 0) {  /* Nur Owner — Security Fix 3a */
         /* nicht fatal */
     }
 
@@ -1443,7 +1461,8 @@ static int config_socket_create(void)
 static void *config_thread_main(void *arg)
 {
     (void)arg;
-    while (g_config_running && g_running) {
+    while (atomic_load_explicit(&g_config_running, memory_order_acquire) &&
+           atomic_load_explicit(&g_running, memory_order_acquire)) {
         fd_set rfds;
         FD_ZERO(&rfds);
         FD_SET(g_config_listen_fd, &rfds);
@@ -1510,10 +1529,10 @@ int main(int argc, char *argv[])
      *    bereits verbinden kann (ping beantwortet, andere Commands liefern not_ready). */
     g_config_listen_fd = config_socket_create();
     if (g_config_listen_fd >= 0) {
-        g_config_running = 1;
+        atomic_store_explicit(&g_config_running, 1, memory_order_release);
         if (pthread_create(&g_config_thread, NULL, config_thread_main, NULL) != 0) {
             fprintf(stderr, "Helper: Config-Thread konnte nicht gestartet werden\n");
-            g_config_running = 0;
+            atomic_store_explicit(&g_config_running, 0, memory_order_release);
             close(g_config_listen_fd);
             unlink(CONFIG_SOCKET_PATH);
             g_config_listen_fd = -1;
@@ -1522,14 +1541,14 @@ int main(int argc, char *argv[])
 
     /* 2. SHM-Ring verbinden (Retry bis Plugin bereit ist) */
     fprintf(stdout, "Warte auf SHM-Ring vom Plugin...\n");
-    while (g_running && g_ring == NULL) {
+    while (atomic_load_explicit(&g_running, memory_order_acquire) && g_ring == NULL) {
         g_ring = shm_connect();
         if (g_ring == NULL) {
             usleep(SHM_RETRY_INTERVAL_US);
         }
     }
-    if (!g_running) {
-        g_config_running = 0;
+    if (!atomic_load_explicit(&g_running, memory_order_acquire)) {
+        atomic_store_explicit(&g_config_running, 0, memory_order_release);
         if (g_config_listen_fd >= 0) {
             close(g_config_listen_fd);
             g_config_listen_fd = -1;
@@ -1540,7 +1559,7 @@ int main(int argc, char *argv[])
     }
 
     /* SHM bereit — ab jetzt sind alle Commands erlaubt */
-    g_shm_ready = 1;
+    atomic_store_explicit(&g_shm_ready, 1, memory_order_release);
     fprintf(stdout, "Helper: SHM bereit — Routing kann starten\n");
 
     /* 3. Hot-Plug-Listener registrieren */
@@ -1570,10 +1589,10 @@ int main(int argc, char *argv[])
     }
 
     /* 5. Volume-Polling Thread starten */
-    g_volume_running = 1;
+    atomic_store_explicit(&g_volume_running, 1, memory_order_release);
     if (pthread_create(&g_volume_thread, NULL, volume_poll_thread, NULL) != 0) {
         fprintf(stderr, "Helper: Volume-Thread konnte nicht gestartet werden\n");
-        g_volume_running = 0;
+        atomic_store_explicit(&g_volume_running, 0, memory_order_release);
     }
 
     /* RT-Priorität für den main-Thread (kosmetisch — IOProcs sind eh RT) */
@@ -1585,7 +1604,7 @@ int main(int argc, char *argv[])
     /* 6. Hauptschleife: Diagnostics alle 2s */
     int tick = 0;
     uint32_t prev_calls = 0;
-    while (g_running) {
+    while (atomic_load_explicit(&g_running, memory_order_acquire)) {
         usleep(200000); /* 200ms */
         tick++;
         if (tick % 10 == 0) {
@@ -1605,8 +1624,8 @@ int main(int argc, char *argv[])
     /* 7. Cleanup */
     fprintf(stdout, "\nHelper: wird beendet...\n");
 
-    g_config_running = 0;
-    g_volume_running = 0;
+    atomic_store_explicit(&g_config_running, 0, memory_order_release);
+    atomic_store_explicit(&g_volume_running, 0, memory_order_release);
 
     if (g_volume_thread) {
         pthread_join(g_volume_thread, NULL);

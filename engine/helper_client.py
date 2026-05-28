@@ -106,9 +106,11 @@ class HelperClient:
 
             logger.info(f"Helper wird gespawnt: {binary}")
             try:
-                # stdout/stderr nach /tmp loggen, damit Diagnose moeglich ist
-                log_out = open("/tmp/audiorouter.helper.log",  "ab", buffering=0)
-                log_err = open("/tmp/audiorouter.helper.err",  "ab", buffering=0)
+                # stdout/stderr nach ~/Library/Logs/AudioRouterNow loggen, damit Diagnose moeglich ist
+                log_dir = Path.home() / "Library" / "Logs" / "AudioRouterNow"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                log_out = open(log_dir / "helper.log", "ab", buffering=0)
+                log_err = open(log_dir / "helper.err", "ab", buffering=0)
                 self._proc = subprocess.Popen(
                     [str(binary)],
                     stdout=log_out,
