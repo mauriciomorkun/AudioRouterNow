@@ -31,7 +31,12 @@ from typing import Dict, List
 
 import rumps
 
-from audio_device_control import set_default_output_device
+from audio_device_control import (
+    set_default_output_device,
+    set_audio_router_sample_rate,
+    get_device_supported_sample_rates,
+    SUPPORTED_SAMPLE_RATES,
+)
 from config import AppConfig, load_config, save_config
 from device_manager import AudioDevice, DeviceManager
 from helper_client import HelperClient, OutputSpec
@@ -146,6 +151,32 @@ class AudioRouterApp(rumps.App):
             no_dev.set_callback(None)
             items.append(no_dev)
 
+        # Sample Rate Sektion
+        items.append(None)
+        sr_header = rumps.MenuItem("SAMPLE RATE:")
+        sr_header.set_callback(None)
+        items.append(sr_header)
+
+        auto_mark = "[x]" if self._config.auto_sample_rate else "[ ]"
+        auto_item = rumps.MenuItem(
+            f"{auto_mark}  Auto",
+            callback=self._toggle_auto_sample_rate,
+        )
+        items.append(auto_item)
+
+        current_sr = self._config.sample_rate
+        for rate in SUPPORTED_SAMPLE_RATES:
+            mark = "[x]" if (not self._config.auto_sample_rate and rate == current_sr) else "[ ]"
+            if rate % 1000 == 0:
+                label = f"{mark}  {rate // 1000} kHz"
+            else:
+                label = f"{mark}  {rate / 1000:.1f} kHz"
+            sr_item = rumps.MenuItem(
+                label,
+                callback=lambda sender, r=rate: self._set_sample_rate(r),
+            )
+            items.append(sr_item)
+
         items += [
             None,
             self._donation_btn,
@@ -229,6 +260,51 @@ class AudioRouterApp(rumps.App):
 
         self._save_and_apply()
         self._build_menu()
+
+    def _toggle_auto_sample_rate(self, sender):
+        self._config.auto_sample_rate = not self._config.auto_sample_rate
+        save_config(self._config)
+        if self._config.auto_sample_rate:
+            self._apply_best_sample_rate()
+        self._build_menu()
+
+    def _set_sample_rate(self, rate: int):
+        self._config.auto_sample_rate = False
+        self._config.sample_rate = rate
+        save_config(self._config)
+        success, msg = set_audio_router_sample_rate(rate)
+        if not success:
+            rumps.alert(
+                title="AudioRouterNow — Sample Rate",
+                message=f"Could not set sample rate:\n{msg}",
+            )
+        self._build_menu()
+
+    def _apply_best_sample_rate(self):
+        """Auto-Detection: beste gemeinsame SR aller aktiven Output-Devices."""
+        if not self._config.auto_sample_rate:
+            return
+        devices = self._device_manager.get_output_devices()
+        active = [d for d in devices if d.name in self._active_device_names]
+        if not active:
+            return
+        # Bevorzugte Reihenfolge: hoechste zuerst
+        preferred = [192000, 176400, 96000, 88200, 48000, 44100]
+        device_rates = []
+        for dev in active:
+            rates = get_device_supported_sample_rates(dev.uid)
+            device_rates.append(set(rates))
+        # Beste gemeinsame Rate ermitteln
+        best = 48000
+        for rate in preferred:
+            if all(rate in rates for rates in device_rates):
+                best = rate
+                break
+        if best != self._config.sample_rate:
+            self._config.sample_rate = best
+            save_config(self._config)
+            set_audio_router_sample_rate(best)
+            logger.info(f"Auto Sample-Rate: {best} Hz")
 
     def _switch_system_audio(self, sender):
         success, error_msg = set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
@@ -352,16 +428,29 @@ class AudioRouterApp(rumps.App):
 
         logger.info("Auto-start: lade Outputs %s", ", ".join(self._active_device_names))
         set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
+        self._apply_best_sample_rate()
         self._apply_active_outputs()
         self._update_status_ui()
 
     def _save_and_apply(self):
+        had_outputs_before = bool(self._config.output_device_names)
+
         self._config.output_device_offsets = {
             k: list(v) for k, v in self._device_offsets.items()
         }
         self._config.output_device_names = list(self._active_device_names)
         save_config(self._config)
+
+        # Auto-Switch: wenn der User das erste Output aktiviert,
+        # System-Audio automatisch auf "Audio Router" umschalten.
+        # Kein manueller Klick auf "System Audio → Audio Router" nötig.
+        if self._active_device_names and not had_outputs_before:
+            set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
+            logger.info("Auto-Switch: System-Audio auf Audio Router umgestellt")
+
         self._apply_active_outputs()
+        if self._config.auto_sample_rate:
+            self._apply_best_sample_rate()
         self._update_status_ui()
 
     def _restore_saved_outputs(self):

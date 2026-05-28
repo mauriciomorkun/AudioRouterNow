@@ -31,6 +31,7 @@ class AppConfig:
     """Alle persistenten Einstellungen der Applikation."""
     output_device_names: List[str] = field(default_factory=list)
     sample_rate: int = 48000
+    auto_sample_rate: bool = True
     buffer_size: int = 512
     # Donation-Hinweis: wird einmalig nach erstem erfolgreichen Routing gezeigt
     donation_hint_shown: bool = False
@@ -55,6 +56,7 @@ class AppConfig:
         return cls(
             output_device_names=data.get("output_device_names", []),
             sample_rate=int(data.get("sample_rate", 48000)),
+            auto_sample_rate=bool(data.get("auto_sample_rate", True)),
             buffer_size=int(data.get("buffer_size", 512)),
             donation_hint_shown=bool(data.get("donation_hint_shown", False)),
             output_device_offsets=offsets,
