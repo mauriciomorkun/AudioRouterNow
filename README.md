@@ -111,7 +111,9 @@ Click the status line to restart the helper. If it persists, quit and relaunch t
 **Latency / sync issues?**
 AudioRouterNow uses a ~170 ms ring buffer for stability. It is not suitable for live monitoring use cases.
 
-**Logs location:** `~/Library/Logs/AudioRouterNow/`
+**Logs:**
+- App log: `~/.audiorouter/logs/audiorouter.log`
+- Helper log: `~/Library/Logs/AudioRouterNow/`
 
 ---
 
