@@ -400,6 +400,25 @@ def get_device_supported_sample_rates(device_uid: str) -> list[int]:
         return [48000]
 
 
+def is_audio_router_default() -> bool:
+    """
+    Gibt True zurueck, wenn das aktuelle System-Standard-Ausgabegeraet
+    das 'Audio Router' virtuelle Device ist.
+
+    Fail-closed: Bei Fehler oder wenn das Device nicht gefunden wird → False.
+    """
+    try:
+        default_id = _get_default_output_device_id()
+        if default_id == 0:
+            return False
+        router_id = _find_audio_router_device_id()
+        if router_id is None:
+            return False
+        return int(default_id) == int(router_id)
+    except Exception:
+        return False
+
+
 def get_audio_router_sample_rate() -> int:
     """
     Gibt die aktuelle Sample-Rate des Audio Router Devices zurueck.
