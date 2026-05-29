@@ -195,9 +195,17 @@ class HelperClient:
         except Exception:
             return False
 
-    def get_status(self) -> Optional[dict]:
+    def get_status(self, timeout: Optional[float] = None) -> Optional[dict]:
+        """
+        Fragt den Helper-Status ab.
+
+        Args:
+            timeout: Optionaler Override fuer Connect- und Read-Timeout (Sekunden).
+                     Nuetzlich fuer haeufige UI-Polls, damit ein haengender Helper
+                     den Main-Thread nicht blockiert. None = Standard-Timeouts.
+        """
         try:
-            return self._send({"cmd": "get_status"})
+            return self._send({"cmd": "get_status"}, timeout=timeout)
         except Exception as e:
             logger.warning(f"get_status fehlgeschlagen: {e}")
             return None
@@ -239,17 +247,19 @@ class HelperClient:
         except OSError:
             return False
 
-    def _send(self, payload: dict) -> dict:
+    def _send(self, payload: dict, timeout: Optional[float] = None) -> dict:
         with self._lock:
-            return self._send_no_lock(payload)
+            return self._send_no_lock(payload, timeout=timeout)
 
-    def _send_no_lock(self, payload: dict) -> dict:
+    def _send_no_lock(self, payload: dict, timeout: Optional[float] = None) -> dict:
+        connect_to = timeout if timeout is not None else CONNECT_TIMEOUT
+        read_to = timeout if timeout is not None else READ_TIMEOUT
         line = (json.dumps(payload) + "\n").encode("utf-8")
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(CONNECT_TIMEOUT)
+            s.settimeout(connect_to)
             s.connect(CONFIG_SOCKET)
             s.sendall(line)
-            s.settimeout(READ_TIMEOUT)
+            s.settimeout(read_to)
             buf = b""
             while b"\n" not in buf:
                 chunk = s.recv(8192)

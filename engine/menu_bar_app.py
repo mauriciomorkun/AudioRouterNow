@@ -35,6 +35,7 @@ import rumps
 from audio_device_control import (
     set_default_output_device,
     get_device_supported_sample_rates,
+    is_audio_router_default,
     SUPPORTED_SAMPLE_RATES,
 )
 from config import AppConfig, load_config, save_config
@@ -100,6 +101,9 @@ class AudioRouterApp(rumps.App):
         self._donation_hint_at: float | None = None
         self._helper_alive: bool = False
         self._needs_reconfigure: bool = False  # set when set_outputs gets not_ready
+
+        # Status-Zeile: letzter (title, action_key)-Wert zum Flacker-Schutz
+        self._last_status_cache = (None, None)
 
         # Main-thread UI-Timer
         self._ui_timer = rumps.Timer(self._process_pending_updates, 0.5)
@@ -355,7 +359,7 @@ class AudioRouterApp(rumps.App):
         if alive_now != self._helper_alive:
             old_alive = self._helper_alive
             self._helper_alive = alive_now
-            self._update_status_ui()
+            # _update_status_ui() wird unten bei jedem Tick aufgerufen.
             # Helper went from dead → alive (e.g., slow start, or respawn succeeded)
             if alive_now and not old_alive:
                 logger.info("Helper jetzt erreichbar — Outputs neu konfigurieren")
@@ -370,6 +374,12 @@ class AudioRouterApp(rumps.App):
                     else:
                         logger.error("Helper-Neustart fehlgeschlagen")
                 threading.Thread(target=_respawn, name="helper-respawn", daemon=True).start()
+
+        # Status-Zeile bei JEDEM Tick aktualisieren — nicht nur bei Helper-
+        # Zustandswechsel. Noetig damit z.B. externes Umstellen des System-
+        # Audio-Outputs (routed_here) zeitnah erkannt wird. Caching in
+        # _update_status_ui verhindert unnoetiges Neu-Rendern.
+        self._update_status_ui()
 
         # Retry set_outputs wenn Helper noch nicht SHM-bereit war
         if self._needs_reconfigure and alive_now:
@@ -392,18 +402,98 @@ class AudioRouterApp(rumps.App):
                 ),
             )
 
-    def _update_status_ui(self):
-        # Status reflektiert: Helper läuft UND mind. ein Output ist aktiv
-        outputs_active = bool(self._active_device_names)
-        if self._helper_alive and outputs_active:
-            self.title = "ARN"
-            self._status_item.title = "Active"
-        elif self._helper_alive:
-            self.title = "arn"
-            self._status_item.title = "Helper running — no outputs"
+    def _compute_status(self) -> tuple[str, object]:
+        """
+        Berechnet den aktuellen Systemzustand und liefert (title, action_key).
+
+        action_key ist ein String, der _status_action zur Dispatch-Entscheidung
+        dient ("restart_helper" / "switch_audio"), oder None wenn die Zeile
+        nicht klickbar ist.
+
+        Eingangssignale in Prioritaet:
+          1. helper_alive
+          2. outputs_selected
+          3. routed_here  (System-Default-Output == Audio Router)
+          4. audio_flowing (get_status: ring_frames > 0)
+        """
+        helper_alive = self._helper_alive
+        outputs_selected = bool(self._active_device_names)
+
+        # 1. Helper tot → alles andere irrelevant
+        if not helper_alive:
+            return ("⚠️  Helper not responding — click to restart", "restart_helper")
+
+        # 2. Helper lebt, aber kein Output gewaehlt
+        if not outputs_selected:
+            return ("🔴  No output selected — pick a device below", None)
+
+        # 3. routed_here pruefen (System-Default == Audio Router)
+        routed_here = is_audio_router_default()
+        if not routed_here:
+            return ("🟡  System audio not routed here — click to fix", "switch_audio")
+
+        # 4. audio_flowing — get_status NUR wenn helper_alive AND outputs_selected.
+        #    Kurzer Timeout, damit ein haengender Helper den 0.5s-Timer nicht blockiert.
+        audio_flowing = False
+        status = self._helper.get_status(timeout=0.4)
+        if status is not None:
+            try:
+                audio_flowing = int(status.get("ring_frames", 0)) > 0
+            except (TypeError, ValueError):
+                audio_flowing = False
+
+        if not audio_flowing:
+            return ("🟡  Ready — play something to start routing", None)
+
+        # 5. Routing aktiv → Device-Namen anhaengen
+        names = sorted(self._active_device_names)
+        if len(names) > 2:
+            names_str = f"{len(names)} devices"
         else:
-            self.title = "off"
-            self._status_item.title = "Helper offline"
+            names_str = ", ".join(names)
+        return (f"🟢  Routing active — {names_str}", None)
+
+    def _status_action(self, sender):
+        """
+        Dispatcher fuer Klicks auf die Status-Zeile. Fuehrt die zum aktuell
+        gecachten Zustand passende Aktion aus.
+        """
+        _, action_key = self._last_status_cache
+        if action_key == "restart_helper":
+            self._restart_helper(sender)
+        elif action_key == "switch_audio":
+            self._switch_system_audio(sender)
+
+    def _restart_helper(self, sender):
+        """
+        Startet den Helper neu (analog zur _respawn-Logik in
+        _process_pending_updates) in einem Thread, damit die UI nicht blockiert.
+        """
+        def _restart():
+            ok = self._helper.ensure_running()
+            if ok:
+                logger.info("Helper erfolgreich neugestartet (manuell via Status-Zeile)")
+            else:
+                logger.error("Manueller Helper-Neustart fehlgeschlagen")
+        threading.Thread(target=_restart, name="helper-manual-restart", daemon=True).start()
+
+    def _update_status_ui(self):
+        title, action_key = self._compute_status()
+
+        # Menueleisten-Icon spiegelt den Zustand (erstes Zeichen des Titles).
+        icon = title[:1]
+        self.title = icon
+
+        # Flacker-Schutz: nur neu setzen wenn sich (title, action_key) aendert.
+        if (title, action_key) == self._last_status_cache:
+            return
+        self._last_status_cache = (title, action_key)
+
+        self._status_item.title = title
+        if action_key is None:
+            self._status_item.set_callback(None)
+        else:
+            self._status_item.set_callback(self._status_action)
 
     # ------------------------------------------------------------------
     # Helper-Integration
