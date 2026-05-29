@@ -40,6 +40,7 @@ from audio_device_control import (
 )
 from config import AppConfig, CONFIG_FILE, load_config, save_config
 from device_manager import AudioDevice, DeviceManager
+import first_launch
 from first_launch import DRIVER_INSTALL_PATH, is_driver_installed
 from helper_client import CONFIG_SOCKET, HelperClient, OutputSpec
 
@@ -101,6 +102,10 @@ class AudioRouterApp(rumps.App):
         self._help_menu[1] = rumps.separator
         self._help_menu["Open documentation"] = rumps.MenuItem(
             "Open documentation", callback=self._open_documentation
+        )
+        self._help_menu[2] = rumps.separator
+        self._help_menu["Uninstall AudioRouterNow…"] = rumps.MenuItem(
+            "Uninstall AudioRouterNow…", callback=self._uninstall
         )
 
         self._donation_btn = rumps.MenuItem(
@@ -422,6 +427,28 @@ class AudioRouterApp(rumps.App):
             subprocess.run(["open", str(local_doc)])
         else:
             webbrowser.open(DOCUMENTATION_URL)
+
+    def _uninstall(self, sender):
+        if not first_launch._show_uninstall_confirm():
+            return
+        # Helper und Routing stoppen
+        self._ui_timer.stop()
+        try:
+            self._helper.shutdown()
+        except Exception:
+            pass
+        # Uninstall ausführen
+        success, msg = first_launch.uninstall_all()
+        if success:
+            rumps.alert(
+                title="AudioRouterNow Uninstalled",
+                message="All components removed.\n\nDrag AudioRouterNow.app to Trash to complete the uninstall.",
+                ok="Done",
+            )
+            rumps.quit_application()
+        else:
+            rumps.alert(title="Uninstall incomplete", message=msg, ok="OK")
+            self._ui_timer.start()  # Timer wieder starten falls abgebrochen
 
     def _quit_app(self, sender):
         self._ui_timer.stop()
