@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 23. Mai 2026  
-**Version:** 1.0.0  
+**Stand:** 29. Mai 2026  
+**Version:** 2.0.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -21,6 +21,10 @@
 10. [Implementierte Features (Entwicklungs-Chronik)](#10-implementierte-features-entwicklungs-chronik)
 11. [Bekannte Limitierungen](#11-bekannte-limitierungen)
 12. [Dateistruktur](#12-dateistruktur)
+13. [Qualitäts-Audit & Fixes — 23. Mai 2026](#13-qualitäts-audit--fixes--23-mai-2026)
+14. [Native C Helper — Architektur v2.0](#14-native-c-helper--architektur-v20)
+15. [5-Wave Bugfix-Plan — Mai 2026](#15-5-wave-bugfix-plan--mai-2026)
+16. [Volume-Keyboard-Fix — Mai 2026](#16-volume-keyboard-fix--mai-2026)
 
 ---
 
@@ -28,7 +32,7 @@
 
 AudioRouterNow ist eine **kostenlose, Open-Source macOS Menu-Bar-App**, die System-Audio gleichzeitig auf mehrere Audio-Interfaces leitet. Der Benutzer wählt beliebig viele Ausgabegeräte und Kanal-Paare — der Ton erscheint auf allen gleichzeitig, in Echtzeit.
 
-### Kernprinzip
+### Kernprinzip (v2.0)
 
 ```
 macOS System-Audio
@@ -36,15 +40,15 @@ macOS System-Audio
        ▼
 [Audio Router] ← virtuelles Gerät (HAL-Treiber)
        │
-       │  Unix Domain Socket (/tmp/audiorouter.sock)
-       │  Float32 PCM, 48kHz, Stereo, 512 Frames/Block
+       │  POSIX Shared Memory (/audiorouter_shm)
+       │  Lock-Free Ring Buffer — Float32 PCM, 48kHz, 16384 Samples
        ▼
-[Python Engine] ← SocketReceiver
+[C Helper: AudioRouterNowHelper] ← CoreAudio IOProc pro Device
        │
-       ├──► Komplete Audio 6  Ch 1-2  (sounddevice OutputStream)
-       ├──► Komplete Audio 6  Ch 3-4  (selber Stream, 2. Kanal-Paar)
-       ├──► MacBook Lautsprecher      (sounddevice OutputStream)
-       └──► Focusrite Scarlett        (sounddevice OutputStream)
+       ├──► Komplete Audio 6  Ch 1-2  (CoreAudio IOProc, SRC, volume_q16)
+       ├──► Komplete Audio 6  Ch 3-4  (selber Helper, anderer ch_offset)
+       ├──► MacBook Lautsprecher      (CoreAudio IOProc)
+       └──► Focusrite Scarlett        (CoreAudio IOProc)
 ```
 
 ### Technische Alleinstellungsmerkmale gegenüber Alternativen (z.B. BlackHole)
@@ -64,7 +68,7 @@ macOS System-Audio
 
 ## 2. Systemarchitektur
 
-Das Projekt besteht aus drei unabhängigen Schichten:
+Das Projekt besteht ab v2.0 aus vier unabhängigen Schichten:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -72,36 +76,41 @@ Das Projekt besteht aus drei unabhängigen Schichten:
 │  PyInstaller → .app │ build.sh │ DMG-Background │ ICNS Icons │
 └─────────────────────────────────────────────────────────────┘
 ┌─────────────────────────────────────────────────────────────┐
-│  Layer 2: Python Engine                                      │
-│  menu_bar_app.py │ routing_engine.py │ socket_receiver.py   │
-│  config.py │ device_manager.py │ audio_device_control.py    │
+│  Layer 2: Python Engine (UI + Koordination)                  │
+│  menu_bar_app.py │ config.py │ device_manager.py            │
+│  audio_device_control.py │ helper_client.py                 │
 └─────────────────────────────────────────────────────────────┘
 ┌─────────────────────────────────────────────────────────────┐
-│  Layer 1: C HAL-Treiber (AudioServerPlugin)                 │
+│  Layer 1b: C Helper (AudioRouterNowHelper)                   │
+│  AudioRouterNowHelper.c │ shared_ring.h                     │
+│  Pro-Device CoreAudio IOProc │ Unix Domain Socket Config    │
+└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Layer 1a: C HAL-Treiber (AudioServerPlugin)                │
 │  AudioRouterNowDriver.c → AudioRouterNow.driver             │
 │  Installiert in /Library/Audio/Plug-Ins/HAL/                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
+Die v1-Architektur (Python Socket + `sounddevice`) wurde vollständig durch den nativen C Helper ersetzt. `socket_receiver.py` und `routing_engine.py` existieren nicht mehr.
+
 ### Datenfluss im Detail
 
 1. **User spielt Audio ab** → macOS routet Audio an "Audio Router" (Standard-Ausgabe)
 2. **HAL-Treiber `DoIOOperation`** empfängt `WriteMix`-Callback mit Float32-PCM
-3. **Volume/Mute-Scaling** im Treiber (in-place, RT-sicher)
-4. **`ipc_send_rt()`** sendet Bytes non-blocking über Unix Domain Socket
-5. **`SocketReceiver`** (Python) empfängt, wandelt in `numpy (512, 2) float32`
-6. **`RoutingEngine.on_frames()`** skaliert Volume (CoreAudio-Cache, 50ms)
-7. **`sd.OutputStream` Callbacks** schreiben Audio in physische Devices
+3. **Treiber schreibt Samples** via `arn_ring_write()` in SHM Ring-Buffer (`write_idx` atomic release)
+4. **C Helper IOProc** (pro Output-Device): liest via `src_frac_ridx` (fraktional, SRC), skaliert mit `volume_q16`, schreibt in physisches Device
+5. **`volume_poll_thread`** (alle 50ms): aktualisiert SRC-Ratio (P-Regler), setzt `ring->read_idx` = min(alle local_ridx)
 
 ### Thread-Modell
 
 | Thread | Erstellt von | Aufgabe |
 |--------|-------------|---------|
 | Main Thread (rumps RunLoop) | macOS | UI, Menu, Timer |
-| `audiorouter-socket-receiver` | SocketReceiver | Unix Socket accept() + recv() |
-| `com.audiorouter.now.connector` | HAL-Treiber | Socket connect/reconnect |
-| RT Audio Thread (pro Device) | sounddevice | OutputStream Callback |
-| coreaudiod IO Thread | macOS HAL | DoIOOperation Callback |
+| coreaudiod IO Thread | macOS HAL | DoIOOperation → Ring-Write |
+| `arn-ioproc-<device>` (pro Device) | CoreAudio | IOProc → Ring-Read + SRC |
+| `arn-volume-poll` | C Helper | SRC-Ratio, read_idx, SHM-Reconnect |
+| `arn-config-accept` | C Helper | Unix Socket Config-Listener |
 | `audiorouter-device-scanner` | DeviceManager | Hot-Plug Erkennung |
 
 ---
@@ -131,37 +140,30 @@ PlugIn (ID=1)
               └── Mute Control (ID=6)   — Bool
 ```
 
-### IPC-Architektur (Unix Socket)
+### IPC-Architektur (POSIX Shared Memory)
 
-Der RT-IO-Callback darf **niemals blockieren**. Daher:
+Der RT-IO-Callback darf **niemals blockieren**. Ab v2.0 wird kein Syscall und kein Lock im Hot-Path verwendet — der Treiber schreibt direkt in einen POSIX Shared Memory Ring Buffer:
 
-- **Connector-Thread** (`ipc_connector_main`): blockierendes `connect()`, 500ms Retry-Intervall
-- **`ipc_send_rt()`**: nicht-blockierendes `send()` mit `MSG_DONTWAIT`; bei `EAGAIN` Frame verwerfen, bei `EPIPE` FD schliessen → Connector reconnectet automatisch
-- **`atomic_int gSocketFD`**: einzige geteilte Variable zwischen RT-Thread und Connector-Thread, lock-free
+- **`arn_ring_write()`** in `shared_ring.h`: prüft verfügbaren Platz (`capacity - (write_idx - read_idx)`), schreibt Samples, atomic release store auf `write_idx`
+- **`gSHMRing`**: globaler Pointer auf `ARNSharedRing`, gemapt via `mmap()` nach `shm_open()`
+- **`arn_shm_init()`**: Reload-sicher — prüft magic+version, flusht bei gültigem Segment statt `memset`; bei ungültigem Segment: `shm_unlink` dann fresh create
 
-```c
-// Socket-Konfiguration nach connect():
-setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));  // kein SIGPIPE
-int sndbuf = kRingBufferFrames * kBytesPerFrame * 8;           // 8 Frames Buffer
-fcntl(fd, F_SETFL, flags | O_NONBLOCK);                        // Non-blocking
-```
+Der C Helper liest auf der anderen Seite des Ring Buffers — kein Python, kein Socket im Audio-Pfad.
 
 ### Volume & Mute im Treiber
 
-In `DoIOOperation` (RT-Callback, kein Lock — aligned reads sind auf arm64/x86_64 unkritisch):
+In `SetPropertyData` (non-RT, unter `gStateMutex`):
 
 ```c
-float vol  = gVolume;   // Float32, aligned read
-bool  mute = gMute;     // bool, aligned read
+_Atomic float gVolume;   // Q16-Wert wird atomar in SHM geschrieben
 
-if (mute || vol <= 0.0f) {
-    memset(ioMainBuffer, 0, byteCount);      // Stille senden (Takt halten)
-} else if (vol < 0.999f) {
-    float *samples = (float *)ioMainBuffer;
-    for (size_t i = 0; i < byteCount/4; i++) samples[i] *= vol;
-}
-ipc_send_rt(ioMainBuffer, byteCount);
+// Bei ScalarValue oder DecibelValue:
+atomic_store_explicit(&gVolume, v, memory_order_release);
+uint32_t q16 = (uint32_t)(v * 65536.0f);
+if (gSHMRing) atomic_store_explicit(&gSHMRing->volume_q16, q16, memory_order_release);
 ```
+
+Das RT-Scaling (`samples[i] *= vol`) im `DoIOOperation`-Callback wurde entfernt (Wave 2 Fix, 28. Mai 2026) — der C Helper übernimmt die einzige Volume-Skalierung via `volume_q16`.
 
 ### Volume HUD — PropertiesChanged
 
@@ -202,14 +204,15 @@ Compiler-Flags: `-arch arm64 -arch x86_64 -mmacosx-version-min=11.0 -O2 -fvisibi
 | Datei | Beschreibung |
 |-------|-------------|
 | `menu_bar_app.py` | rumps App, Menu-Logik, UI-Updates |
-| `routing_engine.py` | OutputStream-Verwaltung, Frame-Verteilung |
-| `socket_receiver.py` | Unix Socket Server, PCM-Empfang |
+| `helper_client.py` | Startet und kommuniziert mit `AudioRouterNowHelper` |
 | `audio_device_control.py` | CoreAudio ctypes: Device-Auswahl, Volume, Mute |
 | `device_manager.py` | Hot-Plug-Erkennung, Device-Liste |
 | `config.py` | JSON-Persistenz (`~/.audiorouter/config.json`) |
 | `first_launch.py` | Treiber-Prüfung beim ersten Start |
 | `cli.py` | CLI-Interface (Debug) |
 | `requirements.txt` | Python-Abhängigkeiten |
+
+> `routing_engine.py` und `socket_receiver.py` wurden in Phase 7 (Wave 5) entfernt — v1-Relikte der Python-Socket-Architektur.
 
 ### menu_bar_app.py
 
@@ -520,19 +523,27 @@ Device-**Namen** statt Indizes werden gespeichert, weil sich Indizes nach Neusta
 
 ## 7. Volume & Mute — Signalweg
 
-Die Lautstärkesteuerung läuft auf **zwei Ebenen gleichzeitig**:
+Ab v2.0 läuft die Lautstärkesteuerung auf **zwei klar getrennten Ebenen** — ohne Python-Polling und ohne doppelte Skalierung.
 
-### Ebene 1: HAL-Treiber (C, RT-Thread)
+### Ebene 1: HAL-Treiber (C, SetPropertyData)
 
 Wenn der User die Tastatur-Lautstärketasten drückt:
-1. macOS schreibt über `SetPropertyData` → `kAudioLevelControlPropertyScalarValue` in `gVolume`
-2. Treiber ruft `gPlugInHost->PropertiesChanged()` → macOS zeigt Volume-HUD
-3. In `DoIOOperation`: PCM-Samples werden in-place mit `gVolume` multipliziert (oder `memset(0)` bei Mute)
-4. Skaliertes Signal geht über Socket zur Python-Engine
+1. macOS schreibt über `SetPropertyData` → `kAudioLevelControlPropertyScalarValue` oder `kAudioLevelControlPropertyDecibelValue` in `gVolume`
+2. Treiber berechnet Q16-Wert und schreibt ihn **atomar** in SHM: `atomic_store_explicit(&gSHMRing->volume_q16, q16, memory_order_release)`
+3. Treiber ruft `gPlugInHost->PropertiesChanged()` → macOS zeigt Volume-HUD
+4. `DoIOOperation` schreibt unveränderte (unskalierte) Samples in den Ring Buffer
 
-### Ebene 2: Python Engine (50ms Cache)
+### Ebene 2: C Helper IOProc (RT-Thread, pro Device)
 
-Die Python-Engine liest zusätzlich `kAudioHardwareServiceDeviceProperty_VirtualMainVolume` des aktiven Standard-Output-Devices via CoreAudio ctypes und skaliert die Frames nochmals. Cache-Intervall 50ms — vermeidet CoreAudio-Syscall pro Audio-Frame (~93 Frames/Sek bei 48kHz/512 Buffer).
+Der IOProc des C Helpers liest `volume_q16` atomar aus dem SHM und skaliert die Samples beim Lesen:
+
+```c
+uint32_t vol_q16 = atomic_load_explicit(&ring->volume_q16, memory_order_acquire);
+float scale = (float)vol_q16 / 65536.0f;
+// … Sample-by-Sample: out[i] = in[i] * scale
+```
+
+Kein Python-Polling. Keine doppelte Skalierung. Volume-Änderung ist innerhalb eines IOProc-Zyklus (~1ms) wirksam.
 
 ### Vollständiger Signalweg
 
@@ -540,30 +551,32 @@ Die Python-Engine liest zusätzlich `kAudioHardwareServiceDeviceProperty_Virtual
 Tastatur-Lautstärketaste
         │
         ▼
-macOS → SetPropertyData → gVolume (Treiber)
+macOS → SetPropertyData → gVolume (Treiber, non-RT)
         │                      │
         │                      ▼
-        │               DoIOOperation (RT-Thread)
-        │               PCM-Samples × gVolume (in-place)
-        │               Bei Mute: memset(0)
+        │               gSHMRing->volume_q16 (atomic release)
+        │                      │
+        ▼                      │
+PropertiesChanged()            │
+Volume-HUD erscheint           │
+                               │
+DoIOOperation (RT-Thread)      │
+Samples → Ring Buffer          │
+(kein Scaling)                 │
         │                      │
         ▼                      ▼
-PropertiesChanged()        Socket Send (non-blocking)
-Volume-HUD erscheint            │
-                                ▼
-                         SocketReceiver
-                         4096 Bytes → numpy (512,2) float32
-                                │
-                                ▼
-                         RoutingEngine.on_frames()
-                         CoreAudio VirtualMainVolume-Cache (50ms)
-                         frames × cached_volume (numpy)
-                                │
-                         ┌──────┴──────┐
-                         ▼             ▼
-                    Device A       Device B
-                sd.OutputStream  sd.OutputStream
-                    (RT-CB)          (RT-CB)
+        ┌──── POSIX Shared Memory Ring Buffer ────┐
+        │                                         │
+        ▼                                         ▼
+ C Helper IOProc                           volume_poll_thread
+ liest Samples via SRC                     (alle 50ms)
+ skaliert mit volume_q16                   SRC-Ratio P-Regler
+        │                                  read_idx aktualisieren
+ ┌──────┴──────┐
+ ▼             ▼
+Device A    Device B
+CoreAudio   CoreAudio
+IOProc      IOProc
 ```
 
 ---
@@ -725,6 +738,35 @@ sudo make install && sudo make reload
 
 **Endlösung:** Finder-Labels auf `text size 10` (Minimum), weiße Labels direkt ins Hintergrundbild an die berechneten Pixel-Positionen gezeichnet.
 
+### Phase 7: Architektur-Migration — Native C Helper (Mai 2026)
+
+**Motivation:** Die v1-Architektur (Python `SocketReceiver` + `sounddevice`) hatte mehrere strukturelle Schwächen: Python-GIL-Druckschwankungen im Audio-Pfad, Socket-Latenz (~1ms + Jitter), doppeltes Volume-Scaling (Treiber + Python), sowie Abhängigkeit von `numpy`/`sounddevice` im RT-kritischen Pfad.
+
+**Migration:**
+
+Die gesamte IPC-Schicht wurde ersetzt. Der neue Datenpfad:
+
+```
+Driver → POSIX Shared Memory (Lock-Free Ring Buffer) → C Helper (AudioRouterNowHelper) → CoreAudio IOProc
+```
+
+- **`shared_ring.h`** definiert `ARNSharedRing` (Struct, version 3, cache-line aligned): Header, Producer-Hot (`write_idx`), Consumer-Hot (`read_idx`), Shared-Control (`volume_q16`, `muted`), und `samples[16384]` float32
+- **`AudioRouterNowHelper.c`**: Universal Binary (arm64 + x86_64), registriert pro Output-Device einen CoreAudio IOProc, liest Samples mit fraktionalem SRC aus dem Ring Buffer
+- **`helper_client.py`**: Python-Seite — startet den Helper-Prozess, sendet `set_outputs`-Konfiguration via Unix Domain Socket
+- **Gelöscht:** `engine/socket_receiver.py`, `engine/routing_engine.py`
+
+### Phase 8: 5-Wave Bugfix + Volume-Keyboard-Fix (Mai 2026)
+
+Nach der Architektur-Migration wurden in zwei Bugfix-Runden alle identifizierten Probleme behoben. Details in Abschnitt 15 (5-Wave Bugfix-Plan) und Abschnitt 16 (Volume-Keyboard-Fix).
+
+**Überblick:**
+- Wave 1: Atomic Memory Model (Data Races eliminiert, `_Atomic` überall)
+- Wave 2: Volume Double-Scaling Fix (Treiber-RT-Scaling entfernt, Helper übernimmt)
+- Wave 3: Security & Validation (Socket/SHM Permissions, bounds checks)
+- Wave 4: Driver Reload Safety (`arn_shm_init()` reload-sicher)
+- Wave 5: Dead Code Removal (`socket_receiver.py`, `routing_engine.py`, LaunchD-Reste)
+- Volume-Keyboard-Fix: `volume_poll_thread` überschrieb `volume_q16` alle 50ms zurück auf 100% — behoben durch Entfernen des `get_default_output_volume_c()`-Aufrufs
+
 ---
 
 ## 11. Bekannte Limitierungen
@@ -796,7 +838,7 @@ AudioRouterNow/
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 23. Mai 2026 — AudioRouterNow v1.0.0*
+*Dokumentation zuletzt aktualisiert am 29. Mai 2026 — AudioRouterNow v2.0.0*
 
 ---
 
@@ -1013,3 +1055,295 @@ Logs unter: `~/.audiorouter/logs/audiorouter.log` (max. 3 × 5 MB = 15 MB).
 | Release-Readiness | ⚠️ Notarization fehlt noch (Apple Developer Account benötigt) |
 
 **Nächster Schritt für Public Release:** Apple Developer Program beitreten → Notarization-Workflow in `build.sh` integrieren → DMG mit `xcrun notarytool submit` + `stapler staple` veröffentlichen.
+
+---
+
+## 14. Native C Helper — Architektur v2.0
+
+Der `AudioRouterNowHelper` ist das Herzstück der v2.0-Architektur. Er ersetzt den gesamten Python-Audio-Pfad durch einen nativen C-Prozess mit direktem CoreAudio-Zugriff.
+
+### Übersicht
+
+- **Datei:** `helper/AudioRouterNowHelper.c`
+- **Header:** `driver/src/shared_ring.h` (geteilt mit Treiber)
+- **Binary:** Universal Binary (arm64 + x86_64)
+- **Start:** Durch `helper_client.py` beim App-Start
+- **Logs:** `~/Library/Logs/AudioRouterNow/helper.log` und `helper.err`
+
+### POSIX Shared Memory — ARNSharedRing
+
+Der Ring Buffer (`/audiorouter_shm`) ist ein POSIX SHM-Segment mit dem Struct `ARNSharedRing` (version 3). Cache-line aligned (64 Bytes pro Gruppe) für lock-free Producer/Consumer:
+
+| Offset | Name | Typ | Beschreibung |
+|--------|------|-----|-------------|
+| 0 | Read-Only-Header | struct | magic `0x41524E52`, version 3, `_Atomic` sample_rate, channels, capacity=16384, sr_change_gen |
+| 64 | Producer-Hot | struct | `write_idx` — `_Atomic uint32_t`, vom Treiber-RT-Thread geschrieben |
+| 128 | Consumer-Hot | struct | `read_idx` — `_Atomic uint32_t`, Minimum aller `local_ridx` (gesetzt von `volume_poll_thread`) |
+| 192 | Shared-Control | struct | `volume_q16` — Q16 fixed-point (65536 = 100%); `muted` — `_Atomic uint32_t` |
+| 256 | samples[16384] | float32[] | Interleaved L,R,L,R… (~170ms @ 48kHz Stereo) |
+
+**Ring Buffer Eigenschaften:**
+- Kapazität `ARN_RING_CAPACITY = 16384` — power-of-2 für bitweise Masking (kein Modulo)
+- Producer: `arn_ring_write()` — atomic release store auf `write_idx` nach dem Schreiben
+- Consumer: liest via `src_frac_ridx` (fraktionaler Index) für Sample Rate Conversion
+- Available frames: `capacity - (write_idx - read_idx)` — wraps safely bei 32-bit overflow
+
+### Per-Device Struct — DeviceOutput
+
+Jedes Output-Device hat eine eigene Instanz:
+
+```c
+typedef struct {
+    AudioDeviceID device_id;
+    AudioDeviceIOProcID ioproc_id;
+    uint32_t      ch_offset;           // Kanal-Offset (0=Ch1-2, 2=Ch3-4, …)
+    _Atomic uint32_t local_ridx;       // Diese Device's Leseposition im Ring
+    double        src_frac_ridx;       // Fraktionaler Frame-Index für SRC
+    _Atomic uint32_t src_ratio_q20;    // Q20 SRC-Ratio (geschrieben von volume_poll_thread)
+    uint32_t      src_ring_target;     // Ziel-Füllstand für SRC P-Regler
+} DeviceOutput;
+```
+
+### IOProc — Audio-Hot-Path
+
+Der CoreAudio-IOProc wird von `coreaudiod` im RT-Kontext aufgerufen (pro Device, pro Buffer-Periode):
+
+1. Liest `write_idx` atomar (acquire) aus SHM
+2. Berechnet verfügbare Frames: `avail = write_idx - local_ridx`
+3. Liest `src_ratio_q20` atomar — bestimmt wie viele Ring-Samples pro Output-Frame konsumiert werden
+4. Fraktionale SRC via lineare Interpolation: `src_frac_ridx += ratio` pro Output-Frame
+5. Liest `volume_q16` atomar, berechnet `scale = vol_q16 / 65536.0f`
+6. Schreibt skalierte Samples in `outdata` an `ch_offset`
+7. Aktualisiert `local_ridx` atomar (release)
+
+Bei Underrun (zu wenig Daten): Stille ausgeben, `src_frac_ridx` nicht weiterbewegen.
+
+### volume_poll_thread
+
+Läuft alle 50ms (`arn-volume-poll`), nicht im RT-Kontext:
+
+1. **SHM-Reconnect-Guard:** Prüft magic + version. Falls Treiber neu geladen wurde (neues magic oder Versions-Mismatch): SHM neu mappen
+2. **SRC-Ratio per Device:** P-Regler — vergleicht aktuellen Füllstand (`write_idx - local_ridx`) mit `src_ring_target`; passt `src_ratio_q20` an (Nachziehen wenn zu leer, Verlangsamen wenn zu voll)
+3. **`update_global_read_idx()`:** Setzt `ring->read_idx` = Minimum aller aktiven `local_ridx` → der Treiber weiß damit, wie viel Platz im Ring frei ist
+
+> `get_default_output_volume_c()` und `get_default_output_muted_c()` wurden entfernt (Volume-Keyboard-Fix, 29. Mai 2026) — Volume wird ausschließlich vom Treiber's `SetPropertyData` gesteuert.
+
+### Config-Protokoll (Unix Domain Socket)
+
+Der Helper lauscht auf `/tmp/audiorouter.config.sock` (permissions 0600). Python `helper_client.py` sendet Konfigurationsänderungen als JSON:
+
+```json
+{
+  "command": "set_outputs",
+  "outputs": [
+    {"device_id": 73, "ch_offset": 0},
+    {"device_id": 73, "ch_offset": 2},
+    {"device_id": 46, "ch_offset": 0}
+  ]
+}
+```
+
+Der Helper registriert/deregistriert IOProcs dynamisch basierend auf den empfangenen `outputs`.
+
+### Build
+
+```bash
+cd helper
+clang -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 \
+      -O2 -std=c11 -framework CoreAudio -framework AudioToolbox \
+      -o AudioRouterNowHelper AudioRouterNowHelper.c
+```
+
+---
+
+## 15. 5-Wave Bugfix-Plan — Mai 2026
+
+Am 28. Mai 2026 (commit `6d8a36d`) wurden fünf aufeinander aufbauende Bugfix-Wellen implementiert.
+
+---
+
+### Wave 1 — Atomic Memory Model
+
+**Problem:** Data Races im C Helper und im Treiber — `local_ridx`, `g_running`, `gVolume` etc. wurden von mehreren Threads ohne korrekte Memory-Order gelesen/geschrieben.
+
+**Fixes im C Helper (`AudioRouterNowHelper.c`):**
+- `DeviceOutput.local_ridx` → `_Atomic uint32_t` (war `uint32_t` — Data Race mit IOProc auf `volume_poll_thread`)
+- `g_running`, `g_config_running`, `g_volume_running`, `g_shm_ready` → `static atomic_int`
+- Alle Zugriffe: `atomic_load_explicit(..., memory_order_acquire)` / `atomic_store_explicit(..., memory_order_release)`
+
+**Fix in `shared_ring.h`:**
+```c
+// Guard vor Division wenn channels == 0 (z.B. während SHM-Init):
+if (ring->channels == 0) return 0u;
+uint32_t frames = total_samples / ring->channels;
+```
+
+**Fix im Treiber (`AudioRouterNowDriver.c`):**
+- `gVolume` → `static _Atomic float`
+- `gMuted` → `static _Atomic bool`
+
+**Resultat:** Alle identifizierten Data Races eliminiert. Thread Sanitizer zeigt keine Warnungen mehr.
+
+---
+
+### Wave 2 — Volume Double-Scaling Fix
+
+**Problem:** Volume wurde zweifach angewandt:
+1. Treiber-RT skalierte Samples in `DoIOOperation` mit `gVolume` (z.B. 50%)
+2. Helper IOProc skalierte dieselben Samples nochmals mit `volume_q16` (50%)
+→ Effektive Lautstärke: 50% × 50% = **25%** — Benutzer erlebt drastisch zu leise Wiedergabe.
+
+**Fix:** RT-Scaling im Treiber-`DoIOOperation` vollständig entfernt. Der Treiber schreibt unveränderte (volle) Samples in den Ring Buffer. Ausschließlich der Helper skaliert.
+
+**Fix im `SetPropertyData`-Handler (Treiber):**
+```c
+// ScalarValue oder DecibelValue geändert:
+float v = /* neuer Wert */;
+atomic_store_explicit(&gVolume, v, memory_order_release);
+if (gSHMRing) {
+    uint32_t q16 = (uint32_t)(v * 65536.0f);
+    atomic_store_explicit(&gSHMRing->volume_q16, q16, memory_order_release);
+}
+```
+
+**Resultat:** Volume-Tastatur und Slider funktionieren linear und korrekt. 50% Slider = 50% Lautstärke.
+
+---
+
+### Wave 3 — Security & Validation
+
+**Problem:** SHM und Config-Socket waren world-accessible; fehlende Bounds-Checks bei `ch_offset` erlaubten out-of-bounds Kanal-Zugriffe.
+
+**Fixes:**
+
+```c
+// Config-Socket: nur Owner darf connecten
+chmod(CONFIG_SOCKET_PATH, 0600);
+
+// SHM: Gruppe darf lesen/schreiben, Other nicht
+shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0660);  // war 0666
+```
+
+In `output_add_locked()` — Bounds Check:
+```c
+// ch_offset darf nicht größer sein als die tatsächliche Output-Kanalzahl des Devices
+if (ch_offset + 2 > device_output_channels) {
+    os_log_error(logger, "ch_offset %u out of bounds for device %u (%u ch)",
+                 ch_offset, device_id, device_output_channels);
+    return;
+}
+```
+
+In `parse_outputs()` — Clamp:
+```c
+if ((int32_t)ch_offset < 0 || ch_offset > 32) ch_offset = 0;
+```
+
+**Resultat:** Config-Socket ist auf den App-Owner beschränkt. Ungültige `ch_offset`-Werte führen zu keinem Out-of-Bounds-Zugriff mehr.
+
+---
+
+### Wave 4 — Driver Reload Safety
+
+**Problem:** `sudo killall coreaudiod` (oder automatischer Neustart nach Absturz) reinitialisierte den Treiber. Der alte `arn_shm_init()` machte `memset(0)` auf das gesamte SHM-Segment — inkl. der `write_idx`/`read_idx` Counters. Der C Helper lief mit veralteten Counter-Werten weiter → Ring Buffer Corruption.
+
+**Fix:** `arn_shm_init()` komplett überarbeitet:
+
+```c
+int arn_shm_init(void) {
+    int fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0660);
+    // Prüfe existing segment:
+    if (ring->magic == ARN_MAGIC && ring->version == ARN_VERSION) {
+        // Gültiges Segment — flush: write_idx auf read_idx setzen
+        uint32_t ridx = atomic_load_explicit(&ring->read_idx, memory_order_acquire);
+        atomic_store_explicit(&ring->write_idx, ridx, memory_order_release);
+        // sr_change_gen inkrementieren → Helper merkt Reload
+        atomic_fetch_add_explicit(&ring->sr_change_gen, 1, memory_order_release);
+    } else {
+        // Ungültig oder falsche Version → shm_unlink + neu erstellen
+        shm_unlink(ARN_SHM_NAME);
+        // … fresh create mit memset(0) + magic/version setzen
+    }
+}
+```
+
+Der `volume_poll_thread` im Helper prüft `sr_change_gen` — bei Änderung mappt er SHM neu.
+
+**Resultat:** `sudo killall coreaudiod` korrumpiert den Ring Buffer nicht mehr. Der Helper erholt sich automatisch innerhalb von ≤50ms (nächster `volume_poll_thread`-Zyklus).
+
+---
+
+### Wave 5 — Dead Code Removal
+
+**Gelöschte Dateien:**
+- `engine/socket_receiver.py` — v1 Unix Socket Server (Python)
+- `engine/routing_engine.py` — v1 sounddevice OutputStream Manager (Python)
+
+**Entfernte Funktionen aus `engine/first_launch.py`:**
+- `install_launchd_agent()` — installierte einen LaunchD-Agent (v1-Architektur, unnötig)
+- `unload_launchd_agent()` — entlud den LaunchD-Agent
+- `_check_and_install_launchd_agent` umbenannt zu `_ensure_no_launchd_agent` (stellt sicher dass kein alter Agent mehr aktiv ist)
+
+**Entfernte Funktion aus `engine/audio_device_control.py`:**
+- `set_audio_router_sample_rate()` — setzte Sample Rate via CoreAudio; mit fixem 48kHz obsolet
+
+**Log-Dateipfad geändert:**
+- Alt: `/tmp/audiorouter.helper.log`
+- Neu: `~/Library/Logs/AudioRouterNow/helper.log` und `helper.err` (macOS-konform, mit `Console.app` einsehbar)
+
+**Resultat:** Codebase bereinigt. Keine v1-Relikte mehr. Klare Trennung zwischen Helper-Logs (Systemlogs-Verzeichnis) und App-Logs (`~/.audiorouter/logs/`).
+
+---
+
+## 16. Volume-Keyboard-Fix — Mai 2026
+
+Am 29. Mai 2026 (commit `ea18bd7`) wurde ein kritischer Bug behoben, der Tastatur-Lautstärkeregler unwirksam machte.
+
+### Root Cause
+
+**Symptom:** Tastatur-Lautstärketasten zeigten das macOS Volume-HUD korrekt an, hatten aber keinen hörbaren Effekt auf die Wiedergabe. Volume-Slider in der Menu Bar hatte ebenfalls keinen Effekt.
+
+**Ursache:** Im `volume_poll_thread` (alle 50ms) befanden sich zwei Aufrufe:
+
+```c
+float vol   = get_default_output_volume_c();    // ← Bug
+bool  muted = get_default_output_muted_c();     // ← Bug
+if (gSHMRing) {
+    atomic_store_explicit(&gSHMRing->volume_q16,
+                          (uint32_t)(vol * 65536.0f),
+                          memory_order_release);
+    atomic_store_explicit(&gSHMRing->muted, muted, memory_order_release);
+}
+```
+
+`get_default_output_volume_c()` fragte `kAudioHardwareServiceDeviceProperty_VirtualMainVolume` (`0x766D766C 'vmvl'`) vom **ARN Virtual Device** ab. Das ARN-Device exponiert diese Property nicht → Fallback `1.0f` wurde zurückgegeben. Damit überschrieb `volume_poll_thread` alle 50ms das von `SetPropertyData` korrekt gesetzte `volume_q16` zurück auf 65536 (= 100%).
+
+**Ablauf des Bugs:**
+
+```
+Tastendruck → SetPropertyData → volume_q16 = 32768 (50%)  ← korrekt
+                                     ↓ (≤50ms später)
+volume_poll_thread → get_default_output_volume_c() → 1.0f (Fallback)
+                  → volume_q16 = 65536 (100%)  ← überschreibt!
+```
+
+### Fix
+
+Entfernt aus `volume_poll_thread`:
+- `get_default_output_volume_c()` und ihre gesamte Implementierung
+- `get_default_output_muted_c()` und ihre gesamte Implementierung
+- Den aufrufenden Block (SHM-Überschreib-Logik)
+
+Der `volume_poll_thread` enthält jetzt ausschließlich:
+1. SHM-Reconnect-Guard (magic/version prüfen)
+2. SRC-Ratio-Update per Device (P-Regler)
+3. `update_global_read_idx()` (ring->read_idx = min aller local_ridx)
+
+**Volume-Kontrolle** liegt damit ausschließlich beim Treiber's `SetPropertyData`-Handler — sowohl für den ScalarValue- als auch den DecibelValue-Property-Pfad. Jede Änderung wird sofort und dauerhaft in `gSHMRing->volume_q16` geschrieben.
+
+### Resultat
+
+- Tastatur-Lautstärketasten: sofort hörbar, kein 50ms-Reset mehr
+- Volume-Slider im Menu Bar: funktioniert korrekt in beide Richtungen
+- Mute-Taste: funktioniert korrekt
+- HUD-Anzeige: unverändert korrekt (war nie betroffen, da `PropertiesChanged()` weiterhin aufgerufen wird)
