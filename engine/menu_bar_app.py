@@ -31,9 +31,11 @@ from pathlib import Path
 from typing import Dict, List
 
 import rumps
+from AppKit import NSEvent, NSSystemDefinedMask
 
 from audio_device_control import (
     set_default_output_device,
+    set_default_system_output_device,
     get_device_supported_sample_rates,
     is_audio_router_default,
     SUPPORTED_SAMPLE_RATES,
@@ -143,6 +145,14 @@ class AudioRouterApp(rumps.App):
         # Menu aufbauen + Outputs wiederherstellen
         self._restore_saved_outputs()
         self._auto_start_if_configured()
+
+        # Media Key Interceptor — fängt Volume-Tasten ab und verarbeitet
+        # sie manuell via CoreAudio. Keyboard-Volume-Keys erreichen virtuelle
+        # HAL-Devices (wie Audio Router) nicht direkt — dieser Interceptor
+        # überbrückt die Lücke ohne Accessibility-Permissions.
+        self._media_key_monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
+            NSSystemDefinedMask, self._handle_media_key
+        )
 
         # First-Run Wizard (einmalig nach Installation)
         if not self._config.onboarding_done:
@@ -341,6 +351,10 @@ class AudioRouterApp(rumps.App):
 
     def _switch_system_audio(self, sender):
         success, error_msg = set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
+        # System Output ebenfalls auf Audio Router setzen —
+        # macOS Keyboard-Volume-Tasten folgen dem System Output.
+        # Ohne diesen Schritt zeigt der HUD eine leere Lautstärke-Spur.
+        set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
         if success:
             rumps.notification(
                 title="AudioRouterNow", subtitle="",
@@ -598,6 +612,59 @@ class AudioRouterApp(rumps.App):
                 logger.error("Manueller Helper-Neustart fehlgeschlagen")
         threading.Thread(target=_restart, name="helper-manual-restart", daemon=True).start()
 
+    def _handle_media_key(self, event):
+        """
+        Interceptiert macOS Media Keys (Volume Up/Down/Mute).
+
+        Keyboard-Volume-Keys senden NSSystemDefined-Events mit subtype 8.
+        Sie erreichen virtuelle HAL-Devices nicht direkt — dieser Handler
+        verarbeitet sie manuell: liest den aktuellen Output-Volume, passt
+        ihn an und setzt ihn via osascript (was den Driver's SetPropertyData
+        korrekt triggert und volume_q16 im SHM aktualisiert).
+
+        Key-Codes (NX_KEYTYPE_*): 2=Volume Down, 3=Volume Up, 7=Mute.
+        data1-Format: bits 31-16 = key code, bits 15-8 = key state (0xA=down).
+        """
+        try:
+            if event.type() != 14:   # NSSystemDefined
+                return
+            if event.subtype() != 8:  # Media key subtype
+                return
+            data = event.data1()
+            key_code  = (data & 0xFFFF0000) >> 16
+            key_state = (data & 0x0000FF00) >> 8
+            if key_state != 0xA:      # Nur Key-Down verarbeiten
+                return
+
+            import subprocess
+            # Aktuellen Volume lesen
+            result = subprocess.run(
+                ['osascript', '-e', 'output volume of (get volume settings)'],
+                capture_output=True, text=True, timeout=1,
+            )
+            try:
+                current = int(result.stdout.strip())
+            except ValueError:
+                return
+
+            STEP = 7  # ~15 Stufen von 0 bis 100
+            if key_code == 3:    # Volume Up (NX_KEYTYPE_SOUND_UP)
+                new_vol = min(100, current + STEP)
+            elif key_code == 2:  # Volume Down (NX_KEYTYPE_SOUND_DOWN)
+                new_vol = max(0, current - STEP)
+            elif key_code == 7:  # Mute (NX_KEYTYPE_MUTE)
+                new_vol = 0 if current > 0 else 50
+            else:
+                return
+
+            subprocess.run(
+                ['osascript', '-e', f'set volume output volume {new_vol}'],
+                capture_output=True, timeout=1,
+            )
+            logger.debug(f"Media Key: volume {current}% → {new_vol}%")
+        except Exception as exc:
+            logger.debug(f"_handle_media_key Fehler: {exc}")
+
     def _update_status_ui(self):
         title, action_key = self._compute_status()
 
@@ -690,6 +757,7 @@ class AudioRouterApp(rumps.App):
         # Kein manueller Klick auf "System Audio → Audio Router" nötig.
         if self._active_device_names and not had_outputs_before:
             set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
+            set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
             logger.info("Auto-Switch: System-Audio auf Audio Router umgestellt")
 
         self._apply_active_outputs()
