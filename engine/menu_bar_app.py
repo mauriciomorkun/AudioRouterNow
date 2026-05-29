@@ -94,19 +94,15 @@ class AudioRouterApp(rumps.App):
 
         self._quit_btn = rumps.MenuItem("Quit", callback=self._quit_app)
 
-        # Help-Untermenü
+        # Help-Untermenü (None als Separator — konsistent mit _build_menu)
         self._help_menu = rumps.MenuItem("Help")
-        self._help_menu["What's running in the background…"] = rumps.MenuItem(
-            "What's running in the background…", callback=self._show_background_info
-        )
-        self._help_menu[1] = rumps.separator
-        self._help_menu["Open documentation"] = rumps.MenuItem(
-            "Open documentation", callback=self._open_documentation
-        )
-        self._help_menu[2] = rumps.separator
-        self._help_menu["Uninstall AudioRouterNow…"] = rumps.MenuItem(
-            "Uninstall AudioRouterNow…", callback=self._uninstall
-        )
+        self._help_menu.update([
+            rumps.MenuItem("What's running in the background…", callback=self._show_background_info),
+            None,
+            rumps.MenuItem("Open documentation", callback=self._open_documentation),
+            None,
+            rumps.MenuItem("Uninstall AudioRouterNow…", callback=self._uninstall),
+        ])
 
         self._donation_btn = rumps.MenuItem(
             "Support AudioRouterNow", callback=self._open_donation
