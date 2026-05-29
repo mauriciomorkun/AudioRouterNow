@@ -435,7 +435,7 @@ class AudioRouterApp(rumps.App):
         # 4. audio_flowing — get_status NUR wenn helper_alive AND outputs_selected.
         #    Kurzer Timeout, damit ein haengender Helper den 0.5s-Timer nicht blockiert.
         audio_flowing = False
-        status = self._helper.get_status(timeout=0.4)
+        status = self._helper.get_status(timeout=0.2)
         if status is not None:
             try:
                 audio_flowing = int(status.get("ring_frames", 0)) > 0
@@ -482,13 +482,13 @@ class AudioRouterApp(rumps.App):
 
         # Menueleisten-Icon spiegelt den Zustand (erstes Zeichen des Titles).
         icon = title[:1]
-        self.title = icon
 
         # Flacker-Schutz: nur neu setzen wenn sich (title, action_key) aendert.
         if (title, action_key) == self._last_status_cache:
             return
         self._last_status_cache = (title, action_key)
 
+        self.title = icon
         self._status_item.title = title
         if action_key is None:
             self._status_item.set_callback(None)
