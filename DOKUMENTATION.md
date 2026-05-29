@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
 **Stand:** 29. Mai 2026  
-**Version:** 2.1.0  
+**Version:** 2.2.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -26,6 +26,7 @@
 15. [5-Wave Bugfix-Plan — Mai 2026](#15-5-wave-bugfix-plan--mai-2026)
 16. [Volume-Keyboard-Fix — Mai 2026](#16-volume-keyboard-fix--mai-2026)
 17. [Sandbox-Compliance Fix — v2.1 (29. Mai 2026)](#17-sandbox-compliance-fix--v21-29-mai-2026)
+18. [User-Onboarding & UX-Layer (v2.2)](#18-user-onboarding--ux-layer-v22)
 
 ---
 
@@ -780,6 +781,18 @@ Nach der Architektur-Migration wurden in zwei Bugfix-Runden alle identifizierten
 
 Details in Abschnitt 17 (Sandbox-Compliance Fix).
 
+### Phase 10 — v2.2 User-Onboarding (29. Mai 2026)
+
+5 Features implementiert, die die App vom rein technisch-funktionalen Zustand zu einer für Endnutzer verständlichen, selbsterklärenden Anwendung machen. Während die Phasen 1–9 die Audio-Engine korrekt zum Laufen brachten, schließt Phase 10 die Lücke zwischen "es funktioniert" und "der User versteht was passiert".
+
+1. **Zustandsbewusste Status-Zeile** (commit `68fca0a`, Fixes `2ac8c36`) — 5-Zustands-Anzeige im Menü, klickbar bei behebbaren Problemen
+2. **README v2.1 Architektur-Drift-Fix** (commit `0cc7699`) — veraltete Python-Socket-Architektur ersetzt durch aktuelles SHM-Diagramm
+3. **First-Run Wizard** (commit `2813822`) — dreistufiger Onboarding-Dialog beim ersten Start
+4. **Vollständige Deinstallation** (commit `c7e525b`) — `uninstall_all()` entfernt alle Komponenten in 8 Schritten
+5. **Help-Menü** (commit `471089b`) — Untermenü mit Background-Info, Doku-Link und Uninstall
+
+Details in Abschnitt 18 (User-Onboarding & UX-Layer).
+
 **Überblick:**
 - Wave 1: Atomic Memory Model (Data Races eliminiert, `_Atomic` überall)
 - Wave 2: Volume Double-Scaling Fix (Treiber-RT-Scaling entfernt, Helper übernimmt)
@@ -859,7 +872,7 @@ AudioRouterNow/
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 29. Mai 2026 — AudioRouterNow v2.1.0*
+*Dokumentation zuletzt aktualisiert am 29. Mai 2026 — AudioRouterNow v2.2.0*
 
 ---
 
@@ -1493,3 +1506,171 @@ Audio-Routing aktiv ✅
 - Nach jedem Neustart sofort Audio verfügbar (sobald Helper gestartet ist)
 - Kein manuelles Eingreifen oder Treiber-Reload erforderlich
 - Startup-Race zwischen Driver-Load und Helper-Start robust abgefangen (≤500ms Latenz)
+
+---
+
+## 18. User-Onboarding & UX-Layer (v2.2)
+
+29. Mai 2026 — fünf Features, die die App von einem technisch korrekten Werkzeug zu einer für Endnutzer selbsterklärenden Anwendung machen.
+
+### 18.1 Kontext & Motivation
+
+Bis v2.1 war die gesamte Projekt-Dokumentation entwickler-orientiert: SHM-Layouts, Atomic-Memory-Order, IOProc-Hot-Path. Für die Korrektheit der Audio-Engine essenziell — aber ein Endnutzer, der die App startet, fand **keine Orientierung**: Was wurde installiert? Läuft es überhaupt? Was tue ich, wenn kein Ton kommt?
+
+Eine Opus-Reflektionsrunde identifizierte ein **3-Layer-Modell** der Nutzer-Bedürfnisse:
+
+| Layer | Frage des Users | Antwort vor v2.2 |
+|-------|----------------|------------------|
+| **Layer 0** | "Funktioniert es gerade?" | Keine — Menü zeigte nur statische Geräteliste |
+| **Layer 1** | "Es geht nicht — was tue ich?" | Keine — kein Troubleshooting, kein Uninstall |
+| **Layer 2** | "Wie ist das gebaut?" | Vollständig (DOKUMENTATION.md) |
+
+Layer 2 war übererfüllt, Layer 0 und 1 fehlten komplett. Die fünf Features schließen genau diese Lücke.
+
+**Grösster Impact:** die **zustandsbewusste Status-Zeile** (Layer 0). Sie beantwortet die häufigste Frage ("Geht es gerade?") direkt im Menü, ohne dass der User Logs öffnen oder raten muss.
+
+### 18.2 Feature 1: Zustandsbewusste Status-Zeile
+
+Die oberste Menüzeile spiegelt jetzt den realen Systemzustand wider. Fünf Zustände mit konkreten, handlungsorientierten Titeln:
+
+| Symbol | Title | action_key | Klickbar |
+|--------|-------|-----------|----------|
+| ⚠️ | `Helper not responding — click to restart` | `restart_helper` | ✅ startet Helper neu |
+| 🔴 | `No output selected — pick a device below` | `None` | — |
+| 🟡 | `System audio not routed here — click to fix` | `switch_audio` | ✅ schaltet System-Audio um |
+| 🟡 | `Ready — play something to start routing` | `None` | — |
+| 🟢 | `Routing active — <Geräte>` | `None` | — |
+
+Das Menüleisten-Icon spiegelt den Zustand: das erste Zeichen des Titles wird als Icon gesetzt (⚠️/🔴/🟡/🟢).
+
+#### Technische Umsetzung
+
+`_compute_status() -> tuple[str, object]` wertet vier Eingangssignale in fester Prioritätsreihenfolge aus:
+
+1. **`helper_alive`** — `self._helper_alive` (gepingt im Timer)
+2. **`outputs_selected`** — `bool(self._active_device_names)`
+3. **`routed_here`** — `is_audio_router_default()` (System-Default == "Audio Router")
+4. **`audio_flowing`** — `int(status.get("ring_frames", 0)) > 0`
+
+Der vierte Punkt nutzt bewusst **`ring_frames > 0`** als Signal für tatsächlich fließendes Audio — **nicht** ein "active"-Flag des Helpers. Ein registrierter Output ist nicht dasselbe wie abgespieltes Audio; nur ein gefüllter Ring Buffer beweist, dass Samples durchlaufen.
+
+```python
+audio_flowing = False
+status = self._helper.get_status(timeout=0.2)
+if status is not None:
+    try:
+        audio_flowing = int(status.get("ring_frames", 0)) > 0
+    except (TypeError, ValueError):
+        audio_flowing = False
+```
+
+#### Timer-Integration & Performance
+
+- **0.5s-Timer** (`_ui_timer`): `_process_pending_updates` ruft bei **jedem** Tick `_update_status_ui()` auf — nicht nur bei Helper-Zustandswechsel. Nötig, damit z.B. externes Umstellen des System-Audio-Outputs zeitnah erkannt wird.
+- **Cache-Mechanismus gegen Flackern:** `_update_status_ui()` vergleicht `(title, action_key)` mit `self._last_status_cache` und rendert nur bei Änderung neu. Verhindert unnötiges Neusetzen von `self.title` und Menü-Callbacks bei jedem 0.5s-Tick.
+- **0.2s Timeout für `get_status()`:** Der `get_status`-Aufruf in Schritt 4 verwendet `timeout=0.2`. Ohne diesen Timeout könnte ein hängender Helper den 0.5s-Timer für bis zu 0.4s (Default-Timeout) blockieren und damit die gesamte UI einfrieren. `get_status` wird zudem **nur** aufgerufen, wenn `helper_alive AND outputs_selected AND routed_here` — die teure Abfrage entfällt in allen Fehlerzuständen.
+
+Klick-Dispatch über `_status_action()`: liest `action_key` aus dem Cache und ruft `_restart_helper()` bzw. `_switch_system_audio()` auf. Bei `action_key is None` ist die Zeile nicht klickbar (`set_callback(None)`).
+
+### 18.3 Feature 2: README v2.1 (Architektur-Drift)
+
+Das README enthielt noch die veraltete v1-Architektur (Python `SocketReceiver` + `sounddevice` über Unix Domain Socket) — ein **Architektur-Drift** gegenüber dem realen Code, der seit Phase 7 auf POSIX Shared Memory + C Helper läuft.
+
+**Korrekturen:**
+- Veraltetes Python-Socket-Diagramm ersetzt durch das aktuelle **SHM-Diagramm** (Driver → Lock-Free Ring Buffer → C Helper → CoreAudio IOProc)
+- Neue Sektion **"What gets installed"** — listet HAL-Treiber und Helper-Daemon für den Endnutzer auf
+- Neue Sektion **Troubleshooting** — nennt **beide** Log-Pfade: `~/.audiorouter/logs/audiorouter.log` (App) und `~/Library/Logs/AudioRouterNow/` (Helper)
+- Neue Sektion **Uninstall** — verweist auf den Menüpunkt im Help-Untermenü
+
+### 18.4 Feature 3: First-Run Wizard
+
+**Datei:** `engine/onboarding.py` — `run_first_run_wizard(app, config) -> None`
+
+Dreistufiger Onboarding-Flow via blockierende `rumps.alert`-Dialoge (modal). Wird nach der rumps-App-Init aufgerufen, da `rumps.alert` einen laufenden App-Context braucht:
+
+1. **Welcome** — "Welcome to AudioRouterNow 🎛️": erklärt was installiert wurde (HAL Audio Driver + Helper Daemon), betont "no internet required, no data leaves your Mac" → Button "Next →"
+2. **Choose outputs** — "Step 1 of 2": fordert den User auf, das 🎛️-Icon zu klicken und Geräte zu wählen; weist auf Mehrfachauswahl und automatisches Speichern hin → Button "Next →"
+3. **You're set** — "Step 2 of 2": erklärt den automatischen System-Audio-Switch und die Bedeutung der Status-Indikatoren (🟢/🟡/🔴) → Button "Let's go!"
+
+#### Einmaliger Trigger via Config-Flag
+
+`AppConfig` hat ein neues Feld `onboarding_done: bool = False` (in `config.py`, inkl. `from_dict`-Migration). Der Trigger in `AudioRouterApp.__init__()`:
+
+```python
+if not self._config.onboarding_done:
+    from onboarding import run_first_run_wizard
+    run_first_run_wizard(self, self._config)
+    save_config(self._config)  # onboarding_done=True persistieren
+```
+
+`run_first_run_wizard` setzt am Ende `config.onboarding_done = True`; die App persistiert via `save_config`. Beim nächsten Start wird der Wizard übersprungen. `onboarding.py` macht **keine Annahmen über den App-State** — nur `rumps.alert` + Config-Update — und kapselt den `import rumps` in ein `try/except`, um in Test-Umgebungen ohne rumps graceful zu überspringen.
+
+#### PyInstaller-Integration
+
+`installer/AudioRouterNow.spec` wurde um `"onboarding"` in den `hiddenimports` ergänzt — da das Modul nur per lazy `from onboarding import …` innerhalb der `if`-Bedingung geladen wird, würde PyInstaller es sonst nicht erkennen und nicht ins Bundle aufnehmen.
+
+### 18.5 Feature 4: Vollständige Deinstallation
+
+**Funktion:** `first_launch.uninstall_all() -> tuple[bool, str]` — die exakte Inverse von `install_driver()`.
+
+Acht Schritte in **kritischer Reihenfolge** (Helper stoppen, bevor seine Ressourcen entfernt werden):
+
+| # | Schritt | Mechanismus |
+|---|---------|-------------|
+| 1 | Helper-Daemon stoppen | `helper_client.shutdown()` + `pkill -f AudioRouterNowHelper` (2s Grace) |
+| 2 | LaunchAgent deaktivieren | `_ensure_no_launchd_agent()` (bootout + plist entfernen) |
+| 3 | POSIX SHM entfernen | `_posixshmem.shm_unlink("/audiorouter_shm")` |
+| 4 | HAL-Treiber + `killall coreaudiod` | `osascript … with administrator privileges` |
+| 5 | Config-Verzeichnis | `shutil.rmtree(~/.audiorouter/)` |
+| 6 | Logs | `shutil.rmtree(~/Library/Logs/AudioRouterNow/)` |
+| 7 | Helper-Log | `unlink(/tmp/audiorouter.helper.log)` |
+| 8 | Control-Socket | `unlink(/tmp/audiorouter.config.sock)` |
+
+**Fehlertoleranz:** Einzelne Schritt-Fehler werden geloggt und brechen die Deinstallation **nicht** ab. Nur Schritt 4 (Admin-Dialog) erlaubt dem User einen Abbruch — AppleScript-Fehlercode `-128` (Cancel) wird erkannt und als `(False, "Cancelled by user")` zurückgegeben.
+
+**Admin-Rechte** für Schritt 4 analog zur Installation: `do shell script "rm -rf '<driver>' && killall coreaudiod || true" with administrator privileges`. macOS zeigt einmalig den Passwort-Dialog — dieselbe Mechanik wie beim Install.
+
+**macOS-spezifische `shm_unlink`-Behandlung:** Auf macOS wirft `shm_unlink()` für ein nicht existierendes Segment einen `OSError` mit errno **`EINVAL` (22)** oder **`ENOENT` (2)** — **nicht** `FileNotFoundError`. Beide werden als "bereits entfernt" behandelt, damit keine irreführende Warnung erscheint:
+
+```python
+except OSError as oexc:
+    if oexc.errno in (_errno.ENOENT, _errno.EINVAL):
+        logger.info("Uninstall step 3: SHM segment already absent.")
+    else:
+        raise
+```
+
+Ein Fallback über `multiprocessing.shared_memory` greift, falls `_posixshmem` nicht importierbar ist.
+
+**Menüpunkt:** "Uninstall AudioRouterNow…" im Help-Untermenü. `_uninstall()` zeigt zuerst einen Bestätigungsdialog (`_show_uninstall_confirm()`), stoppt den UI-Timer und den Helper, ruft `uninstall_all()` auf und beendet die App bei Erfolg. Bei Abbruch (`success == False`) wird der Timer wieder gestartet.
+
+### 18.6 Feature 5: Help-Menü
+
+Neues Untermenü **"Help"** mit drei Einträgen (jeweils durch Separator getrennt):
+
+1. **"What's running in the background…"** → `_show_background_info()`
+2. **"Open documentation"** → `_open_documentation()`
+3. **"Uninstall AudioRouterNow…"** → `_uninstall()` (siehe 18.5)
+
+#### `_show_background_info()` — dynamischer Status-Dialog
+
+Erzeugt zur Laufzeit einen Infodialog mit echten System-/Routing-Daten — nicht statischem Text:
+
+- **HAL Audio Driver:** Pfad (`DRIVER_INSTALL_PATH`) + Status ("Installed" / "Not found" via `is_driver_installed()`)
+- **Helper Daemon:** Status mit **PID** falls selbst gestartet (`Running (PID <pid>)`), sonst "Running (managed externally)" oder "Not running"
+- **Sample Rate:** formatiert aus `self._config.sample_rate` (z.B. "48 kHz")
+- **Active Outputs:** sortierte Geräteliste (>3 Geräte → gekürzt mit "…")
+- **Expected latency:** `≤ 171 ms (ring buffer)` — berechnet aus `ARN_RING_CAPACITY=16384 / 2 / 48000 × 1000`
+- **Log-Pfade:** Config (`CONFIG_FILE`), App-Log (`~/.audiorouter/logs/audiorouter.log`), Helper-Log (`~/Library/Logs/AudioRouterNow/`)
+
+#### `_open_documentation()` — Dev-Mode-Fallback
+
+Öffnet bevorzugt die **lokale** `DOKUMENTATION.md` (relativ zum Modul, `__file__.parent.parent`) — relevant im Dev-Mode. Existiert sie nicht (z.B. im gebündelten App-Bundle), fällt es auf `DOCUMENTATION_URL` (GitHub) zurück:
+
+```python
+local_doc = pathlib.Path(__file__).parent.parent / "DOKUMENTATION.md"
+if local_doc.exists():
+    subprocess.run(["open", str(local_doc)])
+else:
+    webbrowser.open(DOCUMENTATION_URL)
+```
