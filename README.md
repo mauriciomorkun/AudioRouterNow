@@ -28,15 +28,16 @@ AudioRouterNow uses a **custom HAL audio driver** (Apple AudioServerPlugin) — 
 macOS System Audio
       │
       ▼
-  AudioRouterNow.driver    ← our own virtual audio device
-  (Apple HAL Plugin)       ← no kext, no restart, no approval
-      │  Unix Socket
+  AudioRouterNow.driver        ← virtual HAL device (no kext, no restart needed)
+      │  shared-memory ring buffer (lock-free, ~170 ms max latency)
       ▼
-  Python Routing Engine
-      │
-      ├──► Komplete Audio 6 — Out 1/2 + Out 3/4
-      ├──► AirPods Pro
-      └──► MacBook Pro Speakers
+  AudioRouterNowHelper (C)      ← native daemon, reads ring, fans out audio
+      │  control: JSON socket /tmp/audiorouter.config.sock
+      ├──► USB Interface (Komplete Audio 6, Focusrite, ...)
+      ├──► HDMI/DisplayPort Monitor (BenQ, LG, ...)
+      └──► Built-in Speakers / AirPods
+
+  Menu bar app (Python/rumps) ──── controls ────► Helper socket
 ```
 
 ---
@@ -72,13 +73,53 @@ No Terminal. No restart. No security approval.
 
 ---
 
+## What gets installed
+
+AudioRouterNow installs the following components (requires admin password once):
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| HAL Audio Driver | `/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver` | Virtual audio device |
+| Native Helper | Inside driver bundle | Reads audio ring buffer, routes to outputs |
+| Configuration | `~/.audiorouter/config.json` | Your saved settings |
+| Logs | `~/Library/Logs/AudioRouterNow/` | Troubleshooting |
+
+No LaunchAgent is installed — the menu bar app manages the helper directly.
+
+---
+
 ## Usage
 
 1. Click `🎛️` in the menu bar
-2. Check the output devices you want to route to
-3. Click **"System Audio → Audio Router"** to switch macOS system audio
-4. Click **"Start Routing"**
-5. Audio now plays through all selected outputs simultaneously
+2. Click **"System Audio → Audio Router"** to make Audio Router the macOS system output
+3. Check the output devices you want to route to — routing starts automatically the moment a device is selected
+4. Audio now plays through all selected outputs simultaneously
+5. Uncheck a device to stop routing to it; check another to add it on the fly
+
+---
+
+## Troubleshooting
+
+**No sound?**
+1. Check that "Audio Router" is selected as System Output (System Settings → Sound)
+2. Make sure at least one output device is checked in the menu
+3. Look for the status indicator at the top of the menu — it shows exactly what's missing
+
+**"Helper not responding" in menu?**
+Click the status line to restart the helper. If it persists, quit and relaunch the app.
+
+**Latency / sync issues?**
+AudioRouterNow uses a ~170 ms ring buffer for stability. It is not suitable for live monitoring use cases.
+
+**Logs location:** `~/Library/Logs/AudioRouterNow/`
+
+---
+
+## Uninstall
+
+Use the **Uninstall AudioRouterNow** option in the Help menu for a complete removal.
+
+This removes: HAL driver, helper binary, config files, and logs. You'll need to enter your admin password once.
 
 ---
 
@@ -111,8 +152,13 @@ cd driver
 make
 sudo make install && sudo make reload
 
-# 2. Run the Python engine directly
-cd engine
+# 2. Build the native helper (C daemon)
+cd ../helper
+make
+# Produces ./AudioRouterNowHelper — the menu bar app launches this directly
+
+# 3. Run the Python menu bar app
+cd ../engine
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python menu_bar_app.py
@@ -135,10 +181,15 @@ cd installer && ./build.sh
 AudioRouterNow/
 ├── driver/                     ← HAL audio driver (C, Universal Binary)
 │   └── src/AudioRouterNowDriver.c
-├── engine/                     ← Python app
+├── helper/                     ← Native audio routing daemon (C)
+│   ├── AudioRouterNowHelper.c  ← Reads SHM ring, fans out to outputs
+│   ├── shared_ring.h           ← Lock-free shared-memory ring buffer
+│   ├── Makefile                ← Helper build
+│   └── com.audiorouter.now.helper.plist
+├── engine/                     ← Python menu bar app
 │   ├── menu_bar_app.py         ← Menu bar widget (rumps)
-│   ├── routing_engine.py       ← Multi-output audio routing
-│   ├── socket_receiver.py      ← Unix socket → PCM receiver
+│   ├── helper_client.py        ← Talks to the C helper over JSON socket
+│   ├── audio_device_control.py ← CoreAudio device control + system output switch
 │   ├── device_manager.py       ← Device discovery + hot-plug
 │   ├── config.py               ← Persistent config
 │   ├── first_launch.py         ← Auto-installer (no Terminal)
