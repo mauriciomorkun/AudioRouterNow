@@ -149,12 +149,23 @@ static inline Float64 _u64_to_f64(UInt64  u) { Float64 v; memcpy(&v, &u, 8); ret
  *   - shm_open/mmap/shm_unlink: NUR in Initialize/Release (nicht-RT)
  */
 
-static ARNSharedRing *gSHMRing   = NULL;   /* mmap-Pointer, NULL = nicht bereit */
+/*
+ * gSHMRing wird vom RT-Pfad (ARN_DoIOOperation) gelesen und von nicht-RT-Pfaden
+ * (Initialize, Watch-Thread) geschrieben. Als atomic_uintptr_t deklariert, damit
+ * der Watch-Thread den Pointer atomar austauschen kann, ohne dass der IOProc
+ * einen halb geschriebenen Zeiger sieht. Der IOProc laedt den Pointer EINMAL pro
+ * Aufruf in eine lokale Variable und arbeitet konsistent darauf.
+ */
+static _Atomic(ARNSharedRing *) gSHMRing = NULL;  /* mmap-Pointer, NULL = nicht bereit */
 static int            gSHMFD     = -1;     /* shm_open file descriptor           */
 
 /* Hintergrund-Thread: wartet bis Helper das SHM anlegt */
 static pthread_t      gSHMRetryThread  = 0;
 static atomic_int     gSHMRetryRunning = 0;
+
+/* Hintergrund-Thread: erkennt Helper-Neustart (neues SHM-Segment) */
+static pthread_t      gSHMWatchThread  = 0;
+static atomic_int     gSHMWatchRunning = 0;
 
 /*
  * arn_shm_init — oeffnet/erstellt das SHM-Segment und initialisiert den Ring.
@@ -213,7 +224,7 @@ static void arn_shm_init(void)
     }
 
     gSHMFD   = fd;
-    gSHMRing = ring;
+    atomic_store_explicit(&gSHMRing, ring, memory_order_release);
 }
 
 /*
@@ -225,12 +236,119 @@ static void *arn_shm_retry_thread(void *arg)
     (void)arg;
     while (atomic_load_explicit(&gSHMRetryRunning, memory_order_acquire)) {
         usleep(500000); /* 500 ms */
-        if (gSHMRing != NULL) break;
+        if (atomic_load_explicit(&gSHMRing, memory_order_acquire) != NULL) break;
         arn_shm_init();
-        if (gSHMRing != NULL) {
+        if (atomic_load_explicit(&gSHMRing, memory_order_acquire) != NULL) {
             os_log(gLog, "SHM: Retry erfolgreich — Driver mit Helper-Ring verbunden");
             break;
         }
+    }
+    return NULL;
+}
+
+/*
+ * arn_shm_watch_thread — erkennt einen Helper-Neustart.
+ *
+ * Problem: Wenn der Helper neu startet, ruft er shm_unlink() + shm_open(O_CREAT)
+ * auf und erzeugt ein NEUES Segment unter demselben Namen. Der Driver hat aber
+ * noch das ALTE (aus dem Namespace entfernte) Segment gemappt. Da gSHMRing != NULL
+ * laeuft der Retry-Thread nicht mehr — der Driver schreibt fuer immer ins alte
+ * Segment, der Helper liest vom neuen → Stille.
+ *
+ * Erkennung: Alle 2 s shm_open(ARN_SHM_NAME). Liefert das einen FD, der auf eine
+ * ANDERE Inode zeigt als unser aktuelles gSHMFD, existiert ein neues Segment.
+ * (Ein per shm_unlink entferntes Segment behaelt zwar seinen FD/seine Inode, der
+ *  Name im Namespace zeigt nach Helper-Neustart aber auf eine frische Inode.)
+ *
+ * Bei Erkennung: neues Segment mappen, gSHMRing atomar darauf umbiegen, write_idx
+ * auf read_idx setzen (Ring leer) und sr_change_gen inkrementieren, damit der
+ * Helper neu synchronisiert.
+ *
+ * RT-Sicherheit: Der IOProc laedt gSHMRing atomar in eine lokale Variable und
+ * arbeitet darauf. Das alte Segment wird NICHT sofort unmappt, sondern erst im
+ * naechsten Watch-Zyklus (2 s spaeter) — bis dahin sind alle in-flight IOProc-
+ * Aufrufe (Dauer << 1 ms) auf dem alten Pointer garantiert beendet. So kann der
+ * RT-Thread nie auf ein gerade unmapptes Segment zugreifen (kein SIGBUS).
+ */
+static void *arn_shm_watch_thread(void *arg)
+{
+    (void)arg;
+    /* Verzoegerte Bereinigung: das beim letzten Swap ersetzte Segment. */
+    ARNSharedRing *pending_old_ring = NULL;
+    int            pending_old_fd   = -1;
+
+    while (atomic_load_explicit(&gSHMWatchRunning, memory_order_acquire)) {
+        usleep(2000000); /* 2 Sekunden */
+        if (!atomic_load_explicit(&gSHMWatchRunning, memory_order_acquire)) break;
+
+        /* Alten Swap-Rest jetzt sicher freigeben (in-flight IOProcs sind durch). */
+        if (pending_old_ring != NULL) {
+            munmap(pending_old_ring, ARN_SHM_SIZE);
+            pending_old_ring = NULL;
+        }
+        if (pending_old_fd >= 0) {
+            close(pending_old_fd);
+            pending_old_fd = -1;
+        }
+
+        if (atomic_load_explicit(&gSHMRing, memory_order_acquire) == NULL) continue;
+
+        /* Aktuell sichtbares Segment unter ARN_SHM_NAME oeffnen. */
+        int check_fd = shm_open(ARN_SHM_NAME, O_RDWR, 0);
+        if (check_fd < 0) continue; /* gerade nicht vorhanden */
+
+        /* Inode-Vergleich: zeigt der Name auf ein anderes Segment als unseres? */
+        struct stat cur_st, chk_st;
+        bool is_new_segment = false;
+        if (gSHMFD >= 0 &&
+            fstat(gSHMFD, &cur_st) == 0 &&
+            fstat(check_fd, &chk_st) == 0) {
+            is_new_segment = (cur_st.st_ino != chk_st.st_ino);
+        }
+
+        if (!is_new_segment) {
+            close(check_fd);
+            continue;
+        }
+
+        /* Neues Segment mappen und validieren. */
+        void *new_ptr = mmap(NULL, ARN_SHM_SIZE, PROT_READ | PROT_WRITE,
+                             MAP_SHARED, check_fd, 0);
+        if (new_ptr == MAP_FAILED) {
+            close(check_fd);
+            continue;
+        }
+
+        ARNSharedRing *new_ring = (ARNSharedRing *)new_ptr;
+        if (new_ring->magic != ARN_RING_MAGIC || new_ring->version != ARN_RING_VERSION) {
+            /* Helper noch mitten in der Initialisierung — naechster Zyklus erneut. */
+            munmap(new_ptr, ARN_SHM_SIZE);
+            close(check_fd);
+            continue;
+        }
+
+        /* Ring leeren (write_idx = read_idx) und Helper zur Resync triggern. */
+        uint32_t ridx = atomic_load_explicit(&new_ring->read_idx, memory_order_acquire);
+        atomic_store_explicit(&new_ring->write_idx, ridx, memory_order_release);
+        atomic_fetch_add_explicit(&new_ring->sr_change_gen, 1u, memory_order_release);
+
+        /* Altes Segment fuer verzoegerte Bereinigung merken (erst naechster Zyklus). */
+        pending_old_ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
+        pending_old_fd   = gSHMFD;
+
+        /* Atomarer Swap: ab jetzt sieht der IOProc das neue Segment. */
+        gSHMFD = check_fd;
+        atomic_store_explicit(&gSHMRing, new_ring, memory_order_release);
+
+        os_log(gLog, "SHM: Watch-Thread — Reconnect nach Helper-Neustart");
+    }
+
+    /* Beim Thread-Ende: ausstehenden Swap-Rest noch freigeben. */
+    if (pending_old_ring != NULL) {
+        munmap(pending_old_ring, ARN_SHM_SIZE);
+    }
+    if (pending_old_fd >= 0) {
+        close(pending_old_fd);
     }
     return NULL;
 }
@@ -249,9 +367,18 @@ static void arn_shm_cleanup(void)
             gSHMRetryThread = 0;
         }
     }
-    if (gSHMRing != NULL && gSHMRing != MAP_FAILED) {
-        munmap(gSHMRing, ARN_SHM_SIZE);
-        gSHMRing = NULL;
+    /* Watch-Thread stoppen falls aktiv */
+    if (atomic_load_explicit(&gSHMWatchRunning, memory_order_acquire)) {
+        atomic_store_explicit(&gSHMWatchRunning, 0, memory_order_release);
+        if (gSHMWatchThread) {
+            pthread_join(gSHMWatchThread, NULL);
+            gSHMWatchThread = 0;
+        }
+    }
+    ARNSharedRing *ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
+    if (ring != NULL && ring != MAP_FAILED) {
+        munmap(ring, ARN_SHM_SIZE);
+        atomic_store_explicit(&gSHMRing, NULL, memory_order_release);
     }
     if (gSHMFD >= 0) {
         close(gSHMFD);
@@ -446,12 +573,17 @@ static OSStatus ARN_Initialize(AudioServerPlugInDriverRef inDriver,
 
     /* Shared Memory Ring verbinden — Helper legt SHM an, Driver verbindet sich. */
     arn_shm_init();
-    if (gSHMRing == NULL) {
+    if (atomic_load_explicit(&gSHMRing, memory_order_acquire) == NULL) {
         /* Helper noch nicht bereit — Hintergrund-Thread startet Retry alle 500ms */
         atomic_store_explicit(&gSHMRetryRunning, 1, memory_order_release);
         pthread_create(&gSHMRetryThread, NULL, arn_shm_retry_thread, NULL);
         os_log(gLog, "SHM: Helper noch nicht bereit, Retry-Thread gestartet");
     }
+
+    /* Watch-Thread starten: erkennt spaetere Helper-Neustarts (neues SHM-Segment)
+     * und biegt gSHMRing atomar auf das neue Segment um. */
+    atomic_store_explicit(&gSHMWatchRunning, 1, memory_order_release);
+    pthread_create(&gSHMWatchThread, NULL, arn_shm_watch_thread, NULL);
 
     os_log(gLog, "AudioRouterNow: Initialize OK (SR=%.0f, Buffer=%u)",
            gSampleRate, gBufferFrameSize);
@@ -537,8 +669,9 @@ static OSStatus ARN_PerformDeviceConfigurationChange(AudioServerPlugInDriverRef 
         atomic_store(&gHostTicksPerFrameBits,
                      _f64_to_u64((1.0e9 / gSampleRate) / nanosPerTick));
         /* SHM-Ring mit neuer SR neu initialisieren */
-        if (gSHMRing != NULL) {
-            arn_ring_set_sample_rate(gSHMRing, (uint32_t)newRate);
+        ARNSharedRing *ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
+        if (ring != NULL) {
+            arn_ring_set_sample_rate(ring, (uint32_t)newRate);
         }
         pthread_mutex_unlock(&gStateMutex);
         os_log(gLog, "AudioRouterNow: SampleRate -> %.0f", newRate);
@@ -1343,8 +1476,9 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             /* Guard: Wenn der Ring aktiv ist und eine andere SR hat als angefordert,
              * handelt es sich um eine externe Anfrage (Spotify, Music.app, etc.).
              * Diese ignorieren wir — SR wird ausschliesslich vom Helper gesteuert. */
-            if (gSHMRing != NULL) {
-                uint32_t ring_sr = atomic_load_explicit(&gSHMRing->sample_rate, memory_order_acquire);
+            ARNSharedRing *ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
+            if (ring != NULL) {
+                uint32_t ring_sr = atomic_load_explicit(&ring->sample_rate, memory_order_acquire);
                 if (ring_sr != 0 && ring_sr != (uint32_t)requestedRate) {
                     os_log(gLog, "AudioRouterNow: Externe SR %.0f Hz ignoriert (Ring: %u Hz)",
                            requestedRate, ring_sr);
@@ -1383,8 +1517,9 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             }
             /* Gleicher Guard wie bei kAudioDevicePropertyNominalSampleRate:
              * externe SR-Aenderungen via Stream-Format ignorieren. */
-            if (gSHMRing != NULL) {
-                uint32_t ring_sr = atomic_load_explicit(&gSHMRing->sample_rate, memory_order_acquire);
+            ARNSharedRing *ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
+            if (ring != NULL) {
+                uint32_t ring_sr = atomic_load_explicit(&ring->sample_rate, memory_order_acquire);
                 if (ring_sr != 0 && ring_sr != (uint32_t)fmt->mSampleRate) {
                     os_log(gLog, "AudioRouterNow: Externe Stream-SR %.0f Hz ignoriert (Ring: %u Hz)",
                            fmt->mSampleRate, ring_sr);
@@ -1422,9 +1557,12 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             if (v > 1.0f) v = 1.0f;
             atomic_store_explicit(&gVolume, v, memory_order_release);
             /* SHM volume sync — Fix M3: Driver schreibt volume_q16, Helper skaliert. */
-            if (gSHMRing != NULL) {
-                uint32_t q16_val = (uint32_t)(v * 65536.0f);
-                atomic_store_explicit(&gSHMRing->volume_q16, q16_val, memory_order_release);
+            {
+                ARNSharedRing *ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
+                if (ring != NULL) {
+                    uint32_t q16_val = (uint32_t)(v * 65536.0f);
+                    atomic_store_explicit(&ring->volume_q16, q16_val, memory_order_release);
+                }
             }
             /* CoreAudio (HUD) ueber Wertaenderung benachrichtigen */
             if (gPlugInHost != NULL) {
@@ -1447,9 +1585,12 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             Float32 v = (db / 96.0f) + 1.0f;
             atomic_store_explicit(&gVolume, v, memory_order_release);
             /* SHM volume sync — Fix M3: Driver schreibt volume_q16, Helper skaliert. */
-            if (gSHMRing != NULL) {
-                uint32_t q16_val = (uint32_t)(v * 65536.0f);
-                atomic_store_explicit(&gSHMRing->volume_q16, q16_val, memory_order_release);
+            {
+                ARNSharedRing *ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
+                if (ring != NULL) {
+                    uint32_t q16_val = (uint32_t)(v * 65536.0f);
+                    atomic_store_explicit(&ring->volume_q16, q16_val, memory_order_release);
+                }
             }
             /* CoreAudio (HUD) ueber Wertaenderung benachrichtigen */
             if (gPlugInHost != NULL) {
@@ -1658,10 +1799,15 @@ static OSStatus ARN_DoIOOperation(AudioServerPlugInDriverRef inDriver,
             //     }
             // }
             /* Samples unveraendert an Helper weitergeben — dieser skaliert via volume_q16. */
-            /* v2.0: SHM-Ring statt Unix Socket — kein Syscall, RT-safe */
-            if (gSHMRing != NULL) {
+            /* v2.0: SHM-Ring statt Unix Socket — kein Syscall, RT-safe.
+             * gSHMRing EINMAL atomar laden; der Watch-Thread kann den Pointer
+             * jederzeit austauschen, das alte Segment bleibt aber bis zum
+             * naechsten Watch-Zyklus gemappt (kein use-after-munmap). */
+            ARNSharedRing *ring =
+                atomic_load_explicit(&gSHMRing, memory_order_acquire);
+            if (ring != NULL) {
                 uint32_t nSamples = (uint32_t)(byteCount / sizeof(float));
-                arn_ring_write(gSHMRing,
+                arn_ring_write(ring,
                                (const float *)ioMainBuffer,
                                nSamples);
             }
