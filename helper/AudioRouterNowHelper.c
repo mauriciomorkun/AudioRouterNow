@@ -899,64 +899,6 @@ static void hotplug_unregister(void)
 
 /* ── Volume-Polling Thread (Phase 4) ────────────────────────────────────── */
 
-static Float32 get_default_output_volume_c(void)
-{
-    AudioObjectPropertyAddress addr = {
-        kAudioHardwarePropertyDefaultOutputDevice,
-        kAudioObjectPropertyScopeGlobal,
-        kAudioObjectPropertyElementMain
-    };
-    AudioDeviceID dev = kAudioDeviceUnknown;
-    UInt32 sz = sizeof(dev);
-    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &sz, &dev) != noErr
-        || dev == kAudioDeviceUnknown) {
-        return 1.0f;
-    }
-
-    /* VirtualMainVolume == 'vmvl' (modern), Fallback auf 'vmvl' (deprecated symbol).
-     * Wir nutzen den Selector direkt um Macro-Inkompatibilitaeten zu vermeiden. */
-    AudioObjectPropertyAddress vaddr = {
-        .mSelector = 0x766D766Cu, /* 'vmvl' = kAudioHardwareServiceDeviceProperty_VirtualMainVolume */
-        .mScope    = kAudioDevicePropertyScopeOutput,
-        .mElement  = kAudioObjectPropertyElementMain
-    };
-    Float32 vol = 1.0f;
-    sz = sizeof(vol);
-    if (AudioObjectGetPropertyData(dev, &vaddr, 0, NULL, &sz, &vol) != noErr) {
-        return 1.0f;
-    }
-    if (vol < 0.0f) vol = 0.0f;
-    if (vol > 1.0f) vol = 1.0f;
-    return vol;
-}
-
-static uint32_t get_default_output_muted_c(void)
-{
-    AudioObjectPropertyAddress addr = {
-        kAudioHardwarePropertyDefaultOutputDevice,
-        kAudioObjectPropertyScopeGlobal,
-        kAudioObjectPropertyElementMain
-    };
-    AudioDeviceID dev = kAudioDeviceUnknown;
-    UInt32 sz = sizeof(dev);
-    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &sz, &dev) != noErr
-        || dev == kAudioDeviceUnknown) {
-        return 0u;
-    }
-
-    AudioObjectPropertyAddress maddr = {
-        .mSelector = kAudioDevicePropertyMute,
-        .mScope    = kAudioDevicePropertyScopeOutput,
-        .mElement  = kAudioObjectPropertyElementMain
-    };
-    UInt32 muted = 0;
-    sz = sizeof(muted);
-    if (AudioObjectGetPropertyData(dev, &maddr, 0, NULL, &sz, &muted) != noErr) {
-        return 0u;
-    }
-    return muted ? 1u : 0u;
-}
-
 static void *volume_poll_thread(void *arg)
 {
     (void)arg;
@@ -987,15 +929,6 @@ static void *volume_poll_thread(void *arg)
                 }
                 continue;
             }
-
-            Float32  vol   = get_default_output_volume_c();
-            uint32_t muted = get_default_output_muted_c();
-
-            uint32_t vol_q16 = (uint32_t)(vol * 65536.0f);
-            if (vol_q16 > 65536u) vol_q16 = 65536u;
-
-            atomic_store_explicit(&g_ring->volume_q16, vol_q16, memory_order_release);
-            atomic_store_explicit(&g_ring->muted,      muted,   memory_order_release);
 
             /* ── Phase 6: Adaptive SRC-Ratio pro Output-Device aktualisieren ── */
             #define SRC_P_GAIN       0.01f    /* P-Verstaerkung — stabil bei +/-500ppm Headroom */
