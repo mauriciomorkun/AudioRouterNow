@@ -38,9 +38,10 @@ from audio_device_control import (
     is_audio_router_default,
     SUPPORTED_SAMPLE_RATES,
 )
-from config import AppConfig, load_config, save_config
+from config import AppConfig, CONFIG_FILE, load_config, save_config
 from device_manager import AudioDevice, DeviceManager
-from helper_client import HelperClient, OutputSpec
+from first_launch import DRIVER_INSTALL_PATH, is_driver_installed
+from helper_client import CONFIG_SOCKET, HelperClient, OutputSpec
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,9 @@ AUDIO_ROUTER_DEVICE_NAME = "Audio Router"
 # Donation
 DONATION_URL = "https://www.buymeacoffee.com/mauriciomorkun"
 DONATION_HINT_DELAY = 15
+
+# Documentation
+DOCUMENTATION_URL = "https://github.com/mauriciomorkun/AudioRouterNow#readme"
 
 # Single-instance lock
 _LOCK_DIR = Path.home() / ".audiorouter"
@@ -88,6 +92,17 @@ class AudioRouterApp(rumps.App):
         self._output_header.set_callback(None)
 
         self._quit_btn = rumps.MenuItem("Quit", callback=self._quit_app)
+
+        # Help-Untermenü
+        self._help_menu = rumps.MenuItem("Help")
+        self._help_menu["What's running in the background…"] = rumps.MenuItem(
+            "What's running in the background…", callback=self._show_background_info
+        )
+        self._help_menu[1] = rumps.separator
+        self._help_menu["Open documentation"] = rumps.MenuItem(
+            "Open documentation", callback=self._open_documentation
+        )
+
         self._donation_btn = rumps.MenuItem(
             "Support AudioRouterNow", callback=self._open_donation
         )
@@ -183,6 +198,8 @@ class AudioRouterApp(rumps.App):
             items.append(sr_item)
 
         items += [
+            None,
+            self._help_menu,
             None,
             self._donation_btn,
             self._donation_footer,
@@ -330,6 +347,81 @@ class AudioRouterApp(rumps.App):
 
     def _open_donation(self, sender):
         webbrowser.open(DONATION_URL)
+
+    def _show_background_info(self, sender):
+        """Zeigt einen Infodialog mit dynamischen System-/Routing-Daten."""
+        # --- HAL Audio Driver ---
+        try:
+            driver_installed = is_driver_installed()
+        except Exception:
+            driver_installed = os.path.exists(str(DRIVER_INSTALL_PATH))
+        driver_status = "Installed" if driver_installed else "Not found"
+
+        # --- Helper Daemon ---
+        proc = getattr(self._helper, "_proc", None)
+        if proc is not None:
+            helper_status = f"Running (PID {proc.pid})"
+        elif self._helper_alive:
+            helper_status = "Running (managed externally)"
+        else:
+            helper_status = "Not running"
+
+        # --- Audio Routing ---
+        sr_hz = self._config.sample_rate
+        if sr_hz % 1000 == 0:
+            sr_str = f"{sr_hz // 1000} kHz"
+        else:
+            sr_str = f"{sr_hz / 1000:.1f} kHz"
+
+        names = sorted(self._active_device_names)
+        if not names:
+            outputs_str = "none"
+        elif len(names) > 3:
+            outputs_str = ", ".join(names[:3]) + ", …"
+        else:
+            outputs_str = ", ".join(names)
+
+        # Latenz: ARN_RING_CAPACITY=16384 / 2 / 48000 * 1000 ≈ 171 ms
+        latency_str = "≤ 171 ms (ring buffer)"
+
+        message = (
+            "HAL Audio Driver\n"
+            f"  Location: {DRIVER_INSTALL_PATH}\n"
+            f"  Status: {driver_status}\n"
+            "\n"
+            "Helper Daemon\n"
+            f"  Status: {helper_status}\n"
+            f"  Socket: {CONFIG_SOCKET}\n"
+            "\n"
+            "Audio Routing\n"
+            f"  Sample Rate: {sr_str}\n"
+            f"  Active Outputs: {outputs_str}\n"
+            f"  Expected latency: {latency_str}\n"
+            "\n"
+            f"Configuration: {CONFIG_FILE}\n"
+            "App log: ~/.audiorouter/logs/audiorouter.log\n"
+            "Helper log: ~/Library/Logs/AudioRouterNow/\n"
+            "\n"
+            "For full technical details open the documentation\n"
+            "(Help → Open documentation)."
+        )
+
+        rumps.alert(
+            title="AudioRouterNow — What's running",
+            message=message,
+            ok="Close",
+        )
+
+    def _open_documentation(self, sender):
+        import pathlib
+
+        # Lokale DOKUMENTATION.md im Dev-Mode bevorzugen
+        local_doc = pathlib.Path(__file__).parent.parent / "DOKUMENTATION.md"
+        if local_doc.exists():
+            import subprocess
+            subprocess.run(["open", str(local_doc)])
+        else:
+            webbrowser.open(DOCUMENTATION_URL)
 
     def _quit_app(self, sender):
         self._ui_timer.stop()
