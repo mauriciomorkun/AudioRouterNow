@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 _kAudioObjectSystemObject               = 1
 _kAudioHardwarePropertyDevices          = 0x64657623  # 'dev#'
 _kAudioObjectPropertyName               = 0x6C6E616D  # 'lnam'
-_kAudioHardwarePropertyDefaultOutputDevice = 0x644F7574  # 'dOut'
+_kAudioHardwarePropertyDefaultOutputDevice       = 0x644F7574  # 'dOut'
+_kAudioHardwarePropertyDefaultSystemOutputDevice = 0x734F7574  # 'sOut'
 _kAudioObjectPropertyScopeGlobal        = 0x676C6F62  # 'glob'
 _kAudioObjectPropertyScopeOutput        = 0x6F757470  # 'outp'
 _kAudioObjectPropertyElementMain        = 0
@@ -235,6 +236,82 @@ def set_default_output_device(device_name: str) -> tuple[bool, str]:
 
     except Exception as e:
         logger.error(f"set_default_output_device Fehler: {e}")
+        return False, str(e)
+
+
+def set_default_system_output_device(device_name: str) -> tuple[bool, str]:
+    """
+    Setzt das macOS Default System Output (kAudioHardwarePropertyDefaultSystemOutputDevice).
+    Keyboard-Volume-Tasten folgen dem System Output — damit diese auf
+    'Audio Router' wirken (und nicht auf das physische Interface), muss
+    Audio Router auch als System Output gesetzt sein.
+    """
+    try:
+        CA, CF = _load_frameworks()
+
+        addr = _AudioObjectPropertyAddress(
+            _kAudioHardwarePropertyDevices,
+            _kAudioObjectPropertyScopeGlobal,
+            _kAudioObjectPropertyElementMain,
+        )
+        sz = ctypes.c_uint32(0)
+        CA.AudioObjectGetPropertyDataSize(
+            ctypes.c_uint32(_kAudioObjectSystemObject),
+            ctypes.byref(addr), ctypes.c_uint32(0), None, ctypes.byref(sz),
+        )
+        count = sz.value // 4
+        if count == 0:
+            return False, "Keine Audio-Devices gefunden."
+
+        ids = (ctypes.c_uint32 * count)()
+        CA.AudioObjectGetPropertyData(
+            ctypes.c_uint32(_kAudioObjectSystemObject),
+            ctypes.byref(addr), ctypes.c_uint32(0), None,
+            ctypes.byref(sz), ids,
+        )
+
+        name_addr = _AudioObjectPropertyAddress(
+            _kAudioObjectPropertyName,
+            _kAudioObjectPropertyScopeGlobal,
+            _kAudioObjectPropertyElementMain,
+        )
+        target_id = None
+        for dev_id in ids:
+            name_sz = ctypes.c_uint32(ctypes.sizeof(ctypes.c_void_p))
+            cf_str  = ctypes.c_void_p(0)
+            if CA.AudioObjectGetPropertyData(
+                ctypes.c_uint32(dev_id), ctypes.byref(name_addr),
+                ctypes.c_uint32(0), None, ctypes.byref(name_sz), ctypes.byref(cf_str),
+            ) != 0 or not cf_str.value:
+                continue
+            buf = ctypes.create_string_buffer(512)
+            CF.CFStringGetCString(cf_str, buf, 512, _kCFStringEncodingUTF8)
+            CF.CFRelease(cf_str)
+            if buf.value.decode("utf-8", errors="replace") == device_name:
+                target_id = int(dev_id)
+                break
+
+        if target_id is None:
+            return False, f"'{device_name}' nicht gefunden."
+
+        set_addr = _AudioObjectPropertyAddress(
+            _kAudioHardwarePropertyDefaultSystemOutputDevice,
+            _kAudioObjectPropertyScopeGlobal,
+            _kAudioObjectPropertyElementMain,
+        )
+        out_id = ctypes.c_uint32(target_id)
+        status = CA.AudioObjectSetPropertyData(
+            ctypes.c_uint32(_kAudioObjectSystemObject),
+            ctypes.byref(set_addr), ctypes.c_uint32(0), None,
+            ctypes.c_uint32(4), ctypes.byref(out_id),
+        )
+        if status == 0:
+            logger.info(f"System Output auf '{device_name}' (ID {target_id}) gesetzt")
+            return True, ""
+        return False, f"CoreAudio OSStatus {status}"
+
+    except Exception as e:
+        logger.error(f"set_default_system_output_device Fehler: {e}")
         return False, str(e)
 
 
