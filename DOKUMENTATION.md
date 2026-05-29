@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
 **Stand:** 29. Mai 2026  
-**Version:** 2.0.0  
+**Version:** 2.1.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -25,6 +25,7 @@
 14. [Native C Helper — Architektur v2.0](#14-native-c-helper--architektur-v20)
 15. [5-Wave Bugfix-Plan — Mai 2026](#15-5-wave-bugfix-plan--mai-2026)
 16. [Volume-Keyboard-Fix — Mai 2026](#16-volume-keyboard-fix--mai-2026)
+17. [Sandbox-Compliance Fix — v2.1 (29. Mai 2026)](#17-sandbox-compliance-fix--v21-29-mai-2026)
 
 ---
 
@@ -111,6 +112,7 @@ Die v1-Architektur (Python Socket + `sounddevice`) wurde vollständig durch den 
 | `arn-ioproc-<device>` (pro Device) | CoreAudio | IOProc → Ring-Read + SRC |
 | `arn-volume-poll` | C Helper | SRC-Ratio, read_idx, SHM-Reconnect |
 | `arn-config-accept` | C Helper | Unix Socket Config-Listener |
+| `arn_shm_retry_thread` | HAL-Treiber | Hintergrund-Retry alle 500ms bis Helper SHM anlegt (v2.1) |
 | `audiorouter-device-scanner` | DeviceManager | Hot-Plug Erkennung |
 
 ---
@@ -146,7 +148,16 @@ Der RT-IO-Callback darf **niemals blockieren**. Ab v2.0 wird kein Syscall und ke
 
 - **`arn_ring_write()`** in `shared_ring.h`: prüft verfügbaren Platz (`capacity - (write_idx - read_idx)`), schreibt Samples, atomic release store auf `write_idx`
 - **`gSHMRing`**: globaler Pointer auf `ARNSharedRing`, gemapt via `mmap()` nach `shm_open()`
-- **`arn_shm_init()`**: Reload-sicher — prüft magic+version, flusht bei gültigem Segment statt `memset`; bei ungültigem Segment: `shm_unlink` dann fresh create
+
+**Ab v2.1 — SHM-Ownership-Umkehr (Sandbox-Compliance):**
+
+Der `_coreaudiod`-Prozess, der AudioServerPlugins lädt, läuft in einer Apple-Sandbox. Diese Sandbox blockiert `shm_open(O_CREAT)` — der Treiber kann das SHM-Segment nicht selbst anlegen. Außerdem scheitert `fchmod()` still und `umask(0)` hat keine Wirkung im Sandbox-Kontext.
+
+**Lösung:** Architektur-Umkehr:
+- **Helper erstellt das SHM** beim Start — er läuft als normaler User ohne Sandbox-Einschränkungen. `fchmod(fd, 0666)` setzt die Permissions für Cross-User-Zugriff.
+- **Driver verbindet sich nur** — `shm_open(O_RDWR, 0)` ohne `O_CREAT`. Kein Schreibzugriff auf Segment-Erstellung.
+- **Hintergrund-Retry-Thread (`arn_shm_retry_thread`)**: Falls der Helper beim Driver-Load noch nicht gestartet ist, startet der Treiber einen Retry-Thread der alle 500ms `arn_shm_init()` aufruft bis `gSHMRing` gesetzt ist.
+- **`arn_shm_cleanup()`** unlinkt das SHM nicht mehr — der Helper ist Eigentümer und verwaltet den Lifecycle.
 
 Der C Helper liest auf der anderen Seite des Ring Buffers — kein Python, kein Socket im Audio-Pfad.
 
@@ -759,6 +770,16 @@ Driver → POSIX Shared Memory (Lock-Free Ring Buffer) → C Helper (AudioRouter
 
 Nach der Architektur-Migration wurden in zwei Bugfix-Runden alle identifizierten Probleme behoben. Details in Abschnitt 15 (5-Wave Bugfix-Plan) und Abschnitt 16 (Volume-Keyboard-Fix).
 
+### Phase 9: v2.1 Sandbox-Compliance (29. Mai 2026)
+
+**Problem:** Nach jedem Neustart kein Audio — SHM-Segment wurde beim Driver-Load nie erfolgreich erstellt.
+
+**Root Cause:** Der `_coreaudiod`-Prozess läuft in einer Apple-Sandbox, die `shm_open(O_CREAT)` blockiert. Außerdem scheitert `fchmod()` still und `umask(0)` hat keine Wirkung im Sandbox-Kontext — das SHM-Segment konnte weder angelegt noch für den User-Prozess (Helper) zugänglich gemacht werden.
+
+**Fix (Commit 7c11697):** Architektur-Umkehr — Helper erstellt SHM, Driver verbindet sich nur. Neuer Retry-Thread im Driver für den Startup-Race. Makefile: `sudo make install` kopiert Helper automatisch in beide Pfade (HAL-Plugin-Dir + App-Bundle).
+
+Details in Abschnitt 17 (Sandbox-Compliance Fix).
+
 **Überblick:**
 - Wave 1: Atomic Memory Model (Data Races eliminiert, `_Atomic` überall)
 - Wave 2: Volume Double-Scaling Fix (Treiber-RT-Scaling entfernt, Helper übernimmt)
@@ -838,7 +859,7 @@ AudioRouterNow/
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 29. Mai 2026 — AudioRouterNow v2.0.0*
+*Dokumentation zuletzt aktualisiert am 29. Mai 2026 — AudioRouterNow v2.1.0*
 
 ---
 
@@ -1347,3 +1368,128 @@ Der `volume_poll_thread` enthält jetzt ausschließlich:
 - Volume-Slider im Menu Bar: funktioniert korrekt in beide Richtungen
 - Mute-Taste: funktioniert korrekt
 - HUD-Anzeige: unverändert korrekt (war nie betroffen, da `PropertiesChanged()` weiterhin aufgerufen wird)
+
+---
+
+## 17. Sandbox-Compliance Fix — v2.1 (29. Mai 2026)
+
+Commit `7c11697` — 29. Mai 2026.
+
+### Symptom
+
+Nach jedem Neustart des Systems (oder nach `sudo killall coreaudiod`) kein Audio über "Audio Router". Das SHM-Segment `/audiorouter_shm` wurde beim Treiber-Load nie erfolgreich erstellt, obwohl `arn_shm_init()` aufgerufen wurde.
+
+### Root Cause — Apple AudioServerPlugin Sandbox
+
+Der `_coreaudiod`-Prozess, der HAL-Plugins lädt, läuft in einer Apple-Sandbox. Diese Sandbox blockiert folgende Syscalls:
+
+| Syscall | Ergebnis im Sandbox-Kontext |
+|---------|----------------------------|
+| `shm_open(O_CREAT)` | `EPERM` — Segment kann nicht erstellt werden |
+| `fchmod(fd, 0666)` | Scheitert still — Permissions werden nicht gesetzt |
+| `umask(0)` vor `shm_open` | Keine Wirkung — Sandbox ignoriert `umask`-Änderungen |
+
+Da der Driver das Segment nicht anlegen konnte, blieb `gSHMRing = NULL`. Der Helper startete, versuchte sich mit `shm_open(O_RDWR)` zu verbinden, fand das Segment aber ebenfalls nicht — kein Audio.
+
+Das Problem trat nach jedem Neustart auf, weil beim ersten App-Start (User-Prozess, keine Sandbox) das SHM zufällig noch existieren konnte (Relikt aus einer vorherigen Session). Nach Neustart war das POSIX SHM aus dem Kernel entfernt.
+
+### Fix — Architektur-Umkehr
+
+**Vorher (v2.0):** Driver erstellt SHM → Helper verbindet sich  
+**Nachher (v2.1):** Helper erstellt SHM → Driver verbindet sich
+
+#### Helper (`AudioRouterNowHelper.c`)
+
+Der Helper (läuft als normaler User `mauriciomorkun`, keine Sandbox) erstellt das Segment proaktiv beim Start:
+
+```c
+int fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0600);
+ftruncate(fd, ARN_SHM_SIZE);
+fchmod(fd, 0666);   // Cross-User-Zugriff für _coreaudiod
+arn_ring_init(ring);
+```
+
+`fchmod(fd, 0666)` setzt die Permissions nach `ftruncate` — notwendig damit `_coreaudiod` (anderer Unix-User) später lesend und schreibend zugreifen kann. Die initiale `O_CREAT`-Permission `0600` genügt nicht.
+
+#### Driver (`AudioRouterNowDriver.c`)
+
+`arn_shm_init()` verwendet nur noch `O_RDWR` ohne `O_CREAT`:
+
+```c
+int fd = shm_open(ARN_SHM_NAME, O_RDWR, 0);
+if (fd < 0) {
+    os_log(gLog, "SHM: Noch nicht vorhanden (errno=%d) — warte auf Helper", errno);
+    return;   // Retry-Thread übernimmt
+}
+```
+
+Falls `shm_open` `ENOENT` zurückgibt (Helper noch nicht gestartet), kehrt die Funktion sofort zurück — kein Fehler, nur abwarten.
+
+`arn_shm_cleanup()` ruft **kein** `shm_unlink()` mehr auf — der Helper ist Eigentümer des Segments und verwaltet dessen Lifecycle.
+
+#### Hintergrund-Retry-Thread
+
+Da der Treiber beim `ARN_Initialize`-Callback geladen wird (vor dem Helper-Start), wird ein Retry-Thread gestartet:
+
+```c
+static pthread_t  gSHMRetryThread  = 0;
+static atomic_int gSHMRetryRunning = 0;
+
+static void *arn_shm_retry_thread(void *arg) {
+    while (atomic_load_explicit(&gSHMRetryRunning, memory_order_acquire)) {
+        usleep(500000);   /* 500 ms */
+        if (gSHMRing != NULL) break;
+        arn_shm_init();
+        if (gSHMRing != NULL) {
+            os_log(gLog, "SHM: Retry erfolgreich — Driver mit Helper-Ring verbunden");
+            break;
+        }
+    }
+    return NULL;
+}
+```
+
+Der Thread läuft bis `gSHMRing` gesetzt ist. `arn_shm_cleanup()` setzt `gSHMRetryRunning = 0` und joined den Thread beim Entladen des Treibers.
+
+#### Makefile-Fix
+
+`sudo make install` kopiert den Helper-Binary jetzt automatisch in beide relevanten Pfade:
+
+1. `/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver/Contents/MacOS/AudioRouterNowHelper` — für den LaunchAgent der beim Login startet
+2. Den App-Bundle-Pfad — für `helper_client.py` beim direkten App-Start
+
+Damit ist sichergestellt, dass nach einem `sudo make install` der Helper sofort verfügbar ist, ohne dass er separat kopiert werden muss.
+
+### Ablauf nach dem Fix (Normalfall)
+
+```
+System-Neustart
+       │
+       ▼
+coreaudiod startet → AudioRouterNow.driver laden → ARN_Initialize()
+       │
+       ├── arn_shm_init() → ENOENT (Helper noch nicht da) → return
+       └── arn_shm_retry_thread starten (500ms-Intervall)
+
+       │ (kurz danach)
+       ▼
+LaunchAgent / App startet AudioRouterNowHelper
+       │
+       ├── shm_open(O_CREAT) → Segment anlegen
+       ├── fchmod(fd, 0666)  → Permissions setzen
+       └── arn_ring_init()   → Ring initialisieren
+
+       │ (≤500ms später)
+       ▼
+arn_shm_retry_thread: arn_shm_init() → shm_open(O_RDWR) → Erfolg
+gSHMRing gesetzt → Retry-Thread beendet sich
+       │
+       ▼
+Audio-Routing aktiv ✅
+```
+
+### Resultat
+
+- Nach jedem Neustart sofort Audio verfügbar (sobald Helper gestartet ist)
+- Kein manuelles Eingreifen oder Treiber-Reload erforderlich
+- Startup-Race zwischen Driver-Load und Helper-Start robust abgefangen (≤500ms Latenz)
