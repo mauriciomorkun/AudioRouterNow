@@ -36,6 +36,7 @@ a = Analysis(
         "helper_client",
         "first_launch",
         "audio_device_control",
+        "onboarding",
     ],
     hookspath=[],
     hooksconfig={},

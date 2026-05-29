@@ -148,6 +148,12 @@ class AudioRouterApp(rumps.App):
         self._restore_saved_outputs()
         self._auto_start_if_configured()
 
+        # First-Run Wizard (einmalig nach Installation)
+        if not self._config.onboarding_done:
+            from onboarding import run_first_run_wizard
+            run_first_run_wizard(self, self._config)
+            save_config(self._config)  # onboarding_done=True persistieren
+
     # ------------------------------------------------------------------
     # Menu building
     # ------------------------------------------------------------------
