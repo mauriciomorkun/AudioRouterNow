@@ -28,6 +28,7 @@
 
 #include <fcntl.h>
 #include <sys/mman.h>   /* shm_open, mmap, munmap, shm_unlink */
+#include <sys/stat.h>   /* fchmod */
 
 #include "../../helper/shared_ring.h"
 
@@ -151,6 +152,10 @@ static inline Float64 _u64_to_f64(UInt64  u) { Float64 v; memcpy(&v, &u, 8); ret
 static ARNSharedRing *gSHMRing   = NULL;   /* mmap-Pointer, NULL = nicht bereit */
 static int            gSHMFD     = -1;     /* shm_open file descriptor           */
 
+/* Hintergrund-Thread: wartet bis Helper das SHM anlegt */
+static pthread_t      gSHMRetryThread  = 0;
+static atomic_int     gSHMRetryRunning = 0;
+
 /*
  * arn_shm_init — oeffnet/erstellt das SHM-Segment und initialisiert den Ring.
  * Wird in ARN_Initialize aufgerufen (nicht-RT, einmalig).
@@ -166,89 +171,68 @@ static int            gSHMFD     = -1;     /* shm_open file descriptor          
  *   Helper neu synchronisiert. Falls nein (Crash-Relikt oder falsche
  *   Version), Segment entfernen und frisch erstellen.
  */
+/*
+ * arn_shm_init — verbindet sich mit dem vom Helper angelegten SHM-Segment.
+ *
+ * ARCHITEKTUR v2.1: Der _coreaudiod-Sandbox-Prozess darf shm_open(O_CREAT)
+ * NICHT ausfuehren (Sandbox-Restriction). Deshalb erstellt der Helper
+ * (nicht-sandboxd, laeuft als mauriciomorkun) das Segment.
+ * Der Driver verbindet sich NUR — kein O_CREAT hier.
+ *
+ * Falls der Helper noch nicht gestartet ist (ENOENT), kehrt diese Funktion
+ * sofort zurueck und ein Hintergrund-Thread (arn_shm_retry_thread) versucht
+ * es alle 500 ms erneut bis gSHMRing gesetzt ist.
+ */
 static void arn_shm_init(void)
 {
-    int fd = -1;
-
-    /* --- Schritt 1: Pruefen ob ein vorhandenes Segment weiterverwendet werden kann --- */
-    fd = shm_open(ARN_SHM_NAME, O_RDWR, 0);  /* Kein O_CREAT — nur oeffnen falls vorhanden */
-    if (fd >= 0) {
-        ARNSharedRing *existing = (ARNSharedRing *)mmap(NULL, ARN_SHM_SIZE,
-                                                         PROT_READ | PROT_WRITE,
-                                                         MAP_SHARED, fd, 0);
-        if (existing != MAP_FAILED) {
-            if (existing->magic == ARN_RING_MAGIC &&
-                existing->version == ARN_RING_VERSION) {
-                /*
-                 * Gueltiges Segment gefunden — sanft leeren:
-                 * write_idx auf read_idx setzen (Buffer leer, kein memset).
-                 * sr_change_gen inkrementieren damit der Helper einen
-                 * Konfigurations-Wechsel erkennt und neu synchronisiert.
-                 */
-                uint32_t ridx = atomic_load_explicit(&existing->read_idx,
-                                                     memory_order_acquire);
-                atomic_store_explicit(&existing->write_idx, ridx,
-                                      memory_order_release);
-                atomic_fetch_add_explicit(&existing->sr_change_gen, 1u,
-                                          memory_order_release);
-                munmap(existing, ARN_SHM_SIZE);
-
-                gSHMFD   = fd;
-                gSHMRing = (ARNSharedRing *)mmap(NULL, ARN_SHM_SIZE,
-                                                  PROT_READ | PROT_WRITE,
-                                                  MAP_SHARED, fd, 0);
-                if (gSHMRing == MAP_FAILED) {
-                    os_log_error(gLog, "SHM: Zweites mmap fehlgeschlagen (errno=%d)", errno);
-                    close(fd);
-                    gSHMFD   = -1;
-                    gSHMRing = NULL;
-                    return;
-                }
-                os_log(gLog, "SHM: Bestehendes Segment wiederverwendet — %s (magic OK, v%u)",
-                       ARN_SHM_NAME, ARN_RING_VERSION);
-                return;
-            }
-            /* Ungueltige magic/version — Segment verwerfen */
-            munmap(existing, ARN_SHM_SIZE);
-        }
-        close(fd);
-        fd = -1;
-        shm_unlink(ARN_SHM_NAME);  /* Altes/ungueltiges Segment entfernen */
-        os_log(gLog, "SHM: Ungueltige magic/version — Segment neu erstellt");
-    }
-
-    /* --- Schritt 2: Neues Segment erstellen (kein vorhandenes oder ungueltiges verworfen) --- */
-    fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0660);
+    int fd = shm_open(ARN_SHM_NAME, O_RDWR, 0);
     if (fd < 0) {
-        os_log_error(gLog, "SHM: shm_open fehlgeschlagen (errno=%d)", errno);
+        os_log(gLog, "SHM: Noch nicht vorhanden (errno=%d) — warte auf Helper", errno);
         return;
     }
 
-    if (ftruncate(fd, (off_t)ARN_SHM_SIZE) != 0) {
-        os_log_error(gLog, "SHM: ftruncate fehlgeschlagen (errno=%d)", errno);
-        close(fd);
-        shm_unlink(ARN_SHM_NAME);
-        return;
-    }
-
-    void *ptr = mmap(NULL, ARN_SHM_SIZE,
-                     PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    void *ptr = mmap(NULL, ARN_SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (ptr == MAP_FAILED) {
         os_log_error(gLog, "SHM: mmap fehlgeschlagen (errno=%d)", errno);
         close(fd);
-        shm_unlink(ARN_SHM_NAME);
         return;
     }
 
+    ARNSharedRing *ring = (ARNSharedRing *)ptr;
+    if (ring->magic == ARN_RING_MAGIC && ring->version == ARN_RING_VERSION) {
+        /* Gueltiger Ring vom Helper — write_idx zuruecksetzen und
+         * sr_change_gen inkrementieren damit Helper neu synchronisiert. */
+        uint32_t ridx = atomic_load_explicit(&ring->read_idx, memory_order_acquire);
+        atomic_store_explicit(&ring->write_idx, ridx, memory_order_release);
+        atomic_fetch_add_explicit(&ring->sr_change_gen, 1u, memory_order_release);
+        os_log(gLog, "SHM: Verbunden (Helper-Ring) — %s (%zu Bytes)", ARN_SHM_NAME, ARN_SHM_SIZE);
+    } else {
+        /* Ring noch nicht initialisiert (Helper in Vorbereitung) — selbst init. */
+        arn_ring_init(ring);
+        os_log(gLog, "SHM: Verbunden + Ring initialisiert — %s", ARN_SHM_NAME);
+    }
+
     gSHMFD   = fd;
-    gSHMRing = (ARNSharedRing *)ptr;
+    gSHMRing = ring;
+}
 
-    /* Ring-Header initialisieren und version als letztes schreiben
-     * (Consumer prueft version als "bereit"-Signal). */
-    arn_ring_init(gSHMRing);
-
-    os_log(gLog, "SHM: Neuer Ring erstellt — %s (%zu Bytes, %u Frames Kapazitaet, mode=0660)",
-           ARN_SHM_NAME, ARN_SHM_SIZE, ARN_RING_CAPACITY / 2u);
+/*
+ * arn_shm_retry_thread — Hintergrund-Thread der alle 500 ms arn_shm_init()
+ * aufruft bis gSHMRing gesetzt ist (Helper hat SHM angelegt).
+ */
+static void *arn_shm_retry_thread(void *arg)
+{
+    (void)arg;
+    while (atomic_load_explicit(&gSHMRetryRunning, memory_order_acquire)) {
+        usleep(500000); /* 500 ms */
+        if (gSHMRing != NULL) break;
+        arn_shm_init();
+        if (gSHMRing != NULL) {
+            os_log(gLog, "SHM: Retry erfolgreich — Driver mit Helper-Ring verbunden");
+            break;
+        }
+    }
+    return NULL;
 }
 
 /*
@@ -257,6 +241,14 @@ static void arn_shm_init(void)
  */
 static void arn_shm_cleanup(void)
 {
+    /* Retry-Thread stoppen falls aktiv */
+    if (atomic_load_explicit(&gSHMRetryRunning, memory_order_acquire)) {
+        atomic_store_explicit(&gSHMRetryRunning, 0, memory_order_release);
+        if (gSHMRetryThread) {
+            pthread_join(gSHMRetryThread, NULL);
+            gSHMRetryThread = 0;
+        }
+    }
     if (gSHMRing != NULL && gSHMRing != MAP_FAILED) {
         munmap(gSHMRing, ARN_SHM_SIZE);
         gSHMRing = NULL;
@@ -265,8 +257,8 @@ static void arn_shm_cleanup(void)
         close(gSHMFD);
         gSHMFD = -1;
     }
-    shm_unlink(ARN_SHM_NAME);
-    os_log(gLog, "SHM: Segment freigegeben");
+    /* SHM NICHT unlinken — Helper hat es erstellt und besitzt es */
+    os_log(gLog, "SHM: Driver-Verbindung getrennt");
 }
 
 #pragma mark - Format-Helfer
@@ -452,8 +444,14 @@ static OSStatus ARN_Initialize(AudioServerPlugInDriverRef inDriver,
     atomic_store(&gHostTicksPerFrameBits,
                  _f64_to_u64((1.0e9 / gSampleRate) / nanosPerTick));
 
-    /* Shared Memory Ring initialisieren — Helper liest daraus. */
+    /* Shared Memory Ring verbinden — Helper legt SHM an, Driver verbindet sich. */
     arn_shm_init();
+    if (gSHMRing == NULL) {
+        /* Helper noch nicht bereit — Hintergrund-Thread startet Retry alle 500ms */
+        atomic_store_explicit(&gSHMRetryRunning, 1, memory_order_release);
+        pthread_create(&gSHMRetryThread, NULL, arn_shm_retry_thread, NULL);
+        os_log(gLog, "SHM: Helper noch nicht bereit, Retry-Thread gestartet");
+    }
 
     os_log(gLog, "AudioRouterNow: Initialize OK (SR=%.0f, Buffer=%u)",
            gSampleRate, gBufferFrameSize);
