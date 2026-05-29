@@ -133,6 +133,14 @@ install: build
 	codesign --force --deep --sign - "$(INSTALL_DIR)/$(BUNDLE)" || true
 	chown -R root:wheel "$(INSTALL_DIR)/$(BUNDLE)"
 	chmod -R 755 "$(INSTALL_DIR)/$(BUNDLE)"
+	@# Helper auch ins App-Bundle kopieren (LaunchAgent startet von dort)
+	@APP_HELPER="/Applications/AudioRouterNow.app/Contents/Frameworks/AudioRouterNow.driver/Contents/MacOS/AudioRouterNowHelper"; \
+	if [ -d "$$(dirname $$APP_HELPER)" ]; then \
+		cp "$(INSTALL_DIR)/$(BUNDLE)/Contents/MacOS/AudioRouterNowHelper" "$$APP_HELPER" && \
+		echo "==> Helper auch nach App-Bundle kopiert"; \
+	else \
+		echo "==> Hinweis: App-Bundle nicht gefunden, nur HAL-Pfad aktualisiert"; \
+	fi
 	@echo "==> Installiert. Jetzt: sudo make reload"
 
 uninstall:

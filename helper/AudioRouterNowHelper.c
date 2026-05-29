@@ -1472,7 +1472,36 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* 2. SHM-Ring verbinden (Retry bis Plugin bereit ist) */
+    /* 2. SHM proaktiv erstellen — der Driver-Sandbox-Prozess (_coreaudiod) kann
+     *    shm_open(O_CREAT) nicht ausfuehren. Der Helper laeuft als normaler User
+     *    (mauriciomorkun) ohne Sandbox-Restriktion und erstellt das Segment mit
+     *    korrekten Permissions (0666), sodass beide Seiten darauf zugreifen koennen. */
+    {
+        shm_unlink(ARN_SHM_NAME); /* Stales Segment entfernen (Fehler ignorieren) */
+        int shm_fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0666);
+        if (shm_fd >= 0) {
+            fchmod(shm_fd, 0666); /* umask umgehen */
+            if (ftruncate(shm_fd, (off_t)ARN_SHM_SIZE) == 0) {
+                void *ptr = mmap(NULL, ARN_SHM_SIZE, PROT_READ | PROT_WRITE,
+                                 MAP_SHARED, shm_fd, 0);
+                if (ptr != MAP_FAILED) {
+                    arn_ring_init((ARNSharedRing *)ptr);
+                    munmap(ptr, ARN_SHM_SIZE);
+                    fprintf(stdout, "Helper: SHM erstellt (%s, 0666, %zu Bytes)\n",
+                            ARN_SHM_NAME, ARN_SHM_SIZE);
+                } else {
+                    fprintf(stderr, "Helper: SHM mmap fehlgeschlagen (errno=%d)\n", errno);
+                }
+            } else {
+                fprintf(stderr, "Helper: SHM ftruncate fehlgeschlagen (errno=%d)\n", errno);
+            }
+            close(shm_fd);
+        } else {
+            fprintf(stderr, "Helper: SHM-Erstellung fehlgeschlagen (errno=%d)\n", errno);
+        }
+    }
+
+    /* 3. SHM-Ring verbinden (direkt — wir haben es gerade selbst angelegt) */
     fprintf(stdout, "Warte auf SHM-Ring vom Plugin...\n");
     while (atomic_load_explicit(&g_running, memory_order_acquire) && g_ring == NULL) {
         g_ring = shm_connect();
