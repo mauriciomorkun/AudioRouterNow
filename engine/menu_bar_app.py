@@ -340,14 +340,21 @@ class AudioRouterApp(rumps.App):
             if all(rate in rates for rates in device_rates):
                 best = rate
                 break
-        if best != self._config.sample_rate:
-            self._config.sample_rate = best
-            save_config(self._config)
-            resp = self._helper.set_sample_rate(best)
-            if resp and resp.get("ok"):
-                logger.info(f"Auto Sample-Rate: {best} Hz")
-            else:
-                logger.warning(f"Auto Sample-Rate {best} Hz fehlgeschlagen: {resp}")
+        # Fix 3c: Nur wenn sich die optimale SR wirklich von der aktuellen
+        # Config-SR unterscheidet wird der Helper benachrichtigt. Sonst loest
+        # set_sample_rate() unnoetig einen disruptiven SR-Reinit aller Outputs
+        # aus (z.B. wenn nur die MacBook-Speaker entfernt werden, die optimale
+        # gemeinsame SR sich dadurch aber nicht aendert).
+        if best == self._config.sample_rate:
+            logger.debug("Auto Sample-Rate: %d Hz unveraendert — kein Reinit", best)
+            return
+        self._config.sample_rate = best
+        save_config(self._config)
+        resp = self._helper.set_sample_rate(best)
+        if resp and resp.get("ok"):
+            logger.info(f"Auto Sample-Rate: {best} Hz")
+        else:
+            logger.warning(f"Auto Sample-Rate {best} Hz fehlgeschlagen: {resp}")
 
     def _switch_system_audio(self, sender):
         success, error_msg = set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
