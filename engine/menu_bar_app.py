@@ -801,27 +801,41 @@ class AudioRouterApp(rumps.App):
             # Helper-Reconnect allein reicht nicht — StartIO kommt von coreaudiod,
             # nicht vom Helper.
             def _trigger_start_io():
-                import time, subprocess
+                import time, subprocess, os
                 time.sleep(1.0)
                 status = self._helper.get_status(timeout=1.0)
                 if status and status.get("ring_frames", 0) == 0:
-                    logger.info("StartIO-Trigger: Ring leer — togglee Default-Output")
-                    # Zu MacBook wechseln und sofort zurück → coreaudiod baut
-                    # IO-Stack neu auf → StartIO getriggert
+                    logger.info("StartIO-Trigger: Ring leer — spiele stilles Audio")
+                    # Einen stummen Sound über Audio Router abspielen.
+                    # Das öffnet einen CoreAudio-Client auf dem virtuellen Device
+                    # → coreaudiod ruft StartIO auf → Driver beginnt zu schreiben.
+                    # afplay nutzt den Default Output (Audio Router).
+                    silent = "/System/Library/Sounds/Funk.aiff"
+                    if not os.path.exists(silent):
+                        silent = "/System/Library/Sounds/Pop.aiff"
                     subprocess.run(
-                        ["SwitchAudioSource", "-s", "MacBook Pro-Lautsprecher", "-t", "output"],
-                        capture_output=True, timeout=2,
+                        ["afplay", "-v", "0", silent],
+                        capture_output=True, timeout=5,
                     )
-                    time.sleep(0.8)
-                    subprocess.run(
-                        ["SwitchAudioSource", "-s", AUDIO_ROUTER_DEVICE_NAME, "-t", "output"],
-                        capture_output=True, timeout=2,
-                    )
-                    subprocess.run(
-                        ["SwitchAudioSource", "-s", AUDIO_ROUTER_DEVICE_NAME, "-t", "system"],
-                        capture_output=True, timeout=2,
-                    )
-                    logger.info("StartIO-Trigger: Output-Toggle abgeschlossen")
+                    time.sleep(0.3)
+                    # Falls Ring immer noch leer: Output-Toggle als Fallback
+                    status2 = self._helper.get_status(timeout=1.0)
+                    if status2 and status2.get("ring_frames", 0) == 0:
+                        logger.info("StartIO-Trigger: afplay reichte nicht — togglee Output")
+                        subprocess.run(
+                            ["SwitchAudioSource", "-s", "MacBook Pro-Lautsprecher", "-t", "output"],
+                            capture_output=True, timeout=2,
+                        )
+                        time.sleep(0.8)
+                        subprocess.run(
+                            ["SwitchAudioSource", "-s", AUDIO_ROUTER_DEVICE_NAME, "-t", "output"],
+                            capture_output=True, timeout=2,
+                        )
+                        subprocess.run(
+                            ["SwitchAudioSource", "-s", AUDIO_ROUTER_DEVICE_NAME, "-t", "system"],
+                            capture_output=True, timeout=2,
+                        )
+                    logger.info("StartIO-Trigger: abgeschlossen")
             threading.Thread(target=_trigger_start_io, daemon=True, name="start-io-trigger").start()
 
         self._apply_active_outputs()
