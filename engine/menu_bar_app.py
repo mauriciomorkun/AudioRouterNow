@@ -36,7 +36,8 @@ from AppKit import NSEvent, NSSystemDefinedMask
 from audio_device_control import (
     set_default_output_device,
     set_default_system_output_device,
-    start_audio_router_device,
+    ensure_router_keepalive,
+    stop_router_keepalive,
     get_device_supported_sample_rates,
     is_audio_router_default,
     SUPPORTED_SAMPLE_RATES,
@@ -120,6 +121,7 @@ class AudioRouterApp(rumps.App):
         self._donation_hint_at: float | None = None
         self._helper_alive: bool = False
         self._needs_reconfigure: bool = False  # set when set_outputs gets not_ready
+        self._reconfigure_attempts: int = 0  # Fix-3: Retry-Zähler mit Backoff
 
         # Status-Zeile: letzter (title, action_key)-Wert zum Flacker-Schutz
         self._last_status_cache = (None, None)
@@ -481,6 +483,7 @@ class AudioRouterApp(rumps.App):
         # Bei launchd-Verwaltung: Helper läuft weiter und wird neu gestartet.
         # → shutdown() ist sicher, wir machen es nicht (Helper laeuft als Daemon weiter).
         # Optionaler Aufruf hier könnte launchd zu Re-spawn triggern.
+        stop_router_keepalive()
         save_config(self._config)
         rumps.quit_application()
 
@@ -524,12 +527,27 @@ class AudioRouterApp(rumps.App):
         # _update_status_ui verhindert unnoetiges Neu-Rendern.
         self._update_status_ui()
 
-        # Retry set_outputs wenn Helper noch nicht SHM-bereit war
+        # Fix-3: Leichtgewichtiger Retry — nur _apply_active_outputs(),
+        # KEIN disruptives _auto_start_if_configured() (das würde Default-Output
+        # wiederholt neu setzen und laufende Streams unterbrechen).
         if self._needs_reconfigure and alive_now:
-            status = self._helper.get_status()
-            if status is not None and status.get('ready') is not False:
-                logger.info("Helper SHM bereit — Outputs neu konfigurieren (retry)")
-                self._auto_start_if_configured()
+            if self._reconfigure_attempts < 5:
+                status = self._helper.get_status()
+                if status is not None and status.get('ready') is not False:
+                    self._reconfigure_attempts += 1
+                    logger.info(
+                        "Helper SHM bereit — Outputs neu konfigurieren (Retry %d/5)",
+                        self._reconfigure_attempts,
+                    )
+                    if self._apply_active_outputs():
+                        self._needs_reconfigure = False
+                        self._reconfigure_attempts = 0
+            else:
+                logger.warning(
+                    "Outputs-Retry erschöpft (5/5) — Helper antwortet nicht mit ready"
+                )
+                self._needs_reconfigure = False
+                self._reconfigure_attempts = 0
 
         # Donation-Hint einmalig nach Verzögerung
         hint_at = self._donation_hint_at
@@ -720,9 +738,10 @@ class AudioRouterApp(rumps.App):
     # Helper-Integration
     # ------------------------------------------------------------------
 
-    def _apply_active_outputs(self):
+    def _apply_active_outputs(self) -> bool:
         """
         Sendet die aktuelle Output-Konfiguration an den Helper.
+        Gibt True bei Erfolg zurück, False wenn Helper noch nicht bereit (not_ready).
         """
         devices = self._device_manager.get_output_devices()
         # Name → UID Lookup
@@ -751,7 +770,7 @@ class AudioRouterApp(rumps.App):
             # Helper socket is up but SHM not yet ready — schedule retry via timer
             logger.info("Helper SHM noch nicht bereit — warte auf Bereitschaft (auto-retry)")
             self._needs_reconfigure = True
-            return
+            return False
         self._needs_reconfigure = False
         if resp is None:
             logger.warning("Helper antwortet nicht — bitte prüfen")
@@ -764,22 +783,42 @@ class AudioRouterApp(rumps.App):
             save_config(self._config)
             self._donation_hint_at = time.monotonic() + DONATION_HINT_DELAY
 
+        return True
+
     def _auto_start_if_configured(self):
+        """
+        Stellt beim App-Start sicher dass Audio Router aktiv läuft.
+
+        Reihenfolge (Fix-4):
+          1. Keep-Alive IOProc starten → gDeviceIsRunning=1 BEVOR Default-Switch
+          2. Default-Output idempotent auf Audio Router setzen (nur wenn nötig)
+          3. Beste Sample-Rate anwenden
+          4. Helper-Outputs konfigurieren
+
+        Durch Schritt 1 findet Apple Music/Spotify beim Default-Switch (Schritt 2)
+        ein bereits laufendes Device vor und öffnet seinen Stream sofort.
+        """
         if not self._active_device_names:
             logger.info("Auto-start: keine gespeicherten Devices")
             self._update_status_ui()
             return
 
         logger.info("Auto-start: lade Outputs %s", ", ".join(self._active_device_names))
-        set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
-        set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
-        # StartIO direkt triggern — auf macOS 26 reicht Default-Output-Setzen
-        # allein nicht aus. AudioDeviceStart() triggert ARN_StartIO im Driver.
-        threading.Thread(
-            target=lambda: (__import__('time').sleep(0.5),
-                            start_audio_router_device()),
-            daemon=True, name="auto-start-io"
-        ).start()
+
+        # Schritt 1: Keep-Alive IOProc sicherstellen (Fix-1)
+        # Macht gDeviceIsRunning=1 — muss VOR dem Default-Switch passieren.
+        keepalive_ok = ensure_router_keepalive()
+        if not keepalive_ok:
+            logger.warning("Auto-start: Keep-Alive fehlgeschlagen — fahre trotzdem fort")
+
+        # Schritt 2: Default-Output idempotent setzen (Fix-4)
+        if not is_audio_router_default():
+            set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
+            set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
+        else:
+            logger.debug("Auto-start: Audio Router bereits Default-Output — kein Switch nötig")
+
+        # Schritt 3 + 4: Sample-Rate + Helper-Outputs
         self._apply_best_sample_rate()
         self._apply_active_outputs()
         self._update_status_ui()
@@ -801,27 +840,8 @@ class AudioRouterApp(rumps.App):
             set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
             logger.info("Auto-Switch: System-Audio auf Audio Router umgestellt")
 
-            # StartIO-Trigger: Default-Output kurz togglen zwingt coreaudiod,
-            # den IO-Stack für "Audio Router" frisch aufzubauen → StartIO wird
-            # aufgerufen → Driver schreibt Frames in den Ring.
-            # Helper-Reconnect allein reicht nicht — StartIO kommt von coreaudiod,
-            # nicht vom Helper.
-            def _trigger_start_io():
-                import time
-                time.sleep(0.5)  # kurz warten damit Driver SHM verbunden hat
-                status = self._helper.get_status(timeout=1.0)
-                if status and status.get("ring_frames", 0) == 0:
-                    logger.info("StartIO-Trigger: AudioDeviceStart direkt aufrufen")
-                    # AudioDeviceStart() direkt via CoreAudio ctypes.
-                    # Das triggert ARN_StartIO im HAL-Driver ohne auf
-                    # eine externe Musik-App angewiesen zu sein.
-                    ok = start_audio_router_device()
-                    if ok:
-                        logger.info("StartIO-Trigger: AudioDeviceStart OK")
-                    else:
-                        logger.warning("StartIO-Trigger: AudioDeviceStart fehlgeschlagen")
-                    logger.info("StartIO-Trigger: abgeschlossen")
-            threading.Thread(target=_trigger_start_io, daemon=True, name="start-io-trigger").start()
+            # Fix-1: Keep-Alive IOProc starten statt fragilen NULL-IOProc-Hack
+            ensure_router_keepalive()
 
         self._apply_active_outputs()
         if self._config.auto_sample_rate:
