@@ -477,6 +477,46 @@ def get_device_supported_sample_rates(device_uid: str) -> list[int]:
         return [48000]
 
 
+def start_audio_router_device() -> bool:
+    """
+    Ruft AudioDeviceStart() direkt auf dem 'Audio Router' Device auf.
+
+    Das triggert ARN_StartIO im HAL-Driver → gDeviceIsRunning=1 →
+    Driver beginnt Frames in den Ring zu schreiben.
+
+    Dies ist nötig auf macOS 26+ wo coreaudiod StartIO nicht mehr
+    automatisch aufruft wenn das virtuelle Device als Default gesetzt wird.
+    Musik-Apps öffnen ihren Audio-Stream erst wenn StartIO bereits aktiv ist.
+
+    Gibt True bei Erfolg zurück.
+    """
+    try:
+        CA, _ = _load_frameworks()
+
+        device_id = _find_audio_router_device_id()
+        if device_id is None:
+            logger.warning("start_audio_router_device: Audio Router Device nicht gefunden")
+            return False
+
+        # AudioDeviceStart(inDevice, inProcID=NULL)
+        # NULL als IOProc-ID startet das Device ohne eigenen IOProc —
+        # triggert aber trotzdem ARN_StartIO im HAL-Plugin.
+        CA.AudioDeviceStart.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+        CA.AudioDeviceStart.restype  = ctypes.c_int32
+
+        status = CA.AudioDeviceStart(ctypes.c_uint32(device_id), None)
+        if status == 0:
+            logger.info(f"AudioDeviceStart OK — Audio Router (ID {device_id}) gestartet")
+            return True
+        else:
+            logger.warning(f"AudioDeviceStart fehlgeschlagen (OSStatus {status})")
+            return False
+
+    except Exception as exc:
+        logger.error(f"start_audio_router_device Fehler: {exc}")
+        return False
+
+
 def is_audio_router_default() -> bool:
     """
     Gibt True zurueck, wenn das aktuelle System-Standard-Ausgabegeraet

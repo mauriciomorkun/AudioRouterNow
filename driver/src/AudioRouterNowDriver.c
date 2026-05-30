@@ -1684,6 +1684,15 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
     UInt64 now      = mach_absolute_time();
     UInt64 anchor   = gAnchorHostTime;
 
+    /* Fix macOS 26: Vor dem ersten StartIO ist gAnchorHostTime = 0.
+     * Das ergibt elapsed = (now - 0) = riesige Zahl → coreaudiod denkt
+     * das Device ist weit in der Zukunft → ruft StartIO nie auf.
+     * Lösung: vor StartIO den aktuellen Zeitpunkt als Anker nutzen
+     * damit elapsed ≈ 0 und der Timestamp sinnvoll ist. */
+    if (anchor == 0) {
+        anchor = now;
+    }
+
     /* Kein Mutex im RT-Pfad — atomic_load verhindert Priority-Inversion. */
     Float64 ticksPerFrame = _u64_to_f64(
         atomic_load_explicit(&gHostTicksPerFrameBits, memory_order_relaxed)
