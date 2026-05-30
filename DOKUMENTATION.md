@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
 **Stand:** 30. Mai 2026  
-**Version:** 2.4.0  
+**Version:** 2.5.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -29,6 +29,7 @@
 18. [User-Onboarding & UX-Layer (v2.2)](#18-user-onboarding--ux-layer-v22)
 19. [Bugfix-Welle v2.3 — Initialisierungsreihenfolge & Stabilität (30. Mai 2026)](#19-bugfix-welle-v23--initialisierungsreihenfolge--stabilität-30-mai-2026)
 20. [macOS-26-Kompatibilitäts-Fix — StartIO + GetZeroTimeStamp (30. Mai 2026)](#20-macos-26-kompatibilitäts-fix--startio--getzerotimestamp-30-mai-2026)
+21. [Persistenter Keep-Alive IOProc + Leichtgewichtiger Retry (v2.5.0)](#21-persistenter-keep-alive-ioproc--leichtgewichtiger-retry-v250)
 
 ---
 
@@ -386,10 +387,17 @@ Direkte CoreAudio-Aufrufe via `ctypes` (kein AppleScript, kein externes Tool). F
 | Funktion | Beschreibung |
 |----------|-------------|
 | `set_default_output_device(name)` | Setzt macOS Standard-Ausgabe auf benanntes Device |
-| `get_all_coreaudio_output_devices()` | Listet alle CoreAudio Output-Devices |
+| `set_default_system_output_device(name)` | Setzt `kAudioHardwarePropertyDefaultSystemOutputDevice` (Volume-Keys) |
 | `get_default_output_volume()` | Liest `kAudioHardwareServiceDeviceProperty_VirtualMainVolume` (0.0–1.0) |
 | `get_default_output_muted()` | Liest `kAudioDevicePropertyMute` |
+| `is_audio_router_default()` | True wenn aktueller Default-Output == "Audio Router" |
+| `get_audio_router_sample_rate()` | Aktuelle Sample-Rate des virtuellen Devices (Fallback: 48000) |
+| `get_device_supported_sample_rates(uid)` | Unterstützte Sample-Raten eines Devices anhand UID |
+| `ensure_router_keepalive()` | **v2.5** Persistenter No-Op-IOProc via `AudioDeviceCreateIOProcID` — hält `gDeviceIsRunning=1` dauerhaft; idempotent |
+| `stop_router_keepalive()` | **v2.5** Stoppt Keep-Alive IOProc sauber (bei App-Quit); idempotent |
+| `start_audio_router_device()` | **(veraltet seit v2.5)** Ruft `AudioDeviceStart(id, NULL)` auf — ersetzte durch `ensure_router_keepalive()` |
 | `_get_default_output_device_id()` | Interne Hilfsfunktion: Device-ID des Standard-Outputs |
+| `_find_audio_router_device_id()` | Interne Hilfsfunktion: Device-ID des "Audio Router" virtuellen Devices |
 
 **CoreAudio-Konstanten:**
 
@@ -824,6 +832,18 @@ Unter macOS 26.5 (Tahoe) trat ein neues Symptom auf: trotz grünem Status floss 
 
 Vollständige Details in Abschnitt 20 (macOS-26-Kompatibilitäts-Fix).
 
+### Phase 13 — v2.5 Persistenter Keep-Alive IOProc (30. Mai 2026)
+
+Nach einem weiteren Testlauf (Neuinstallation → Deinstallation → Neuinstallation) trat das Startup-Problem erneut auf. Der `AudioDeviceStart(NULL)`-Ansatz aus v2.4.0 erwies sich als architektonisch unzuverlässig: ohne registrierten IOProc kann coreaudiod den IO-Stack sofort wieder abbauen, `gDeviceIsRunning` flackert 1→0, und Musik-Apps routen nicht stabil über "Audio Router".
+
+Drei koordinierte Fixes in v2.5.0:
+
+- **Persistenter Keep-Alive IOProc (Fix-1):** Echter `AudioDeviceCreateIOProcID` + `AudioDeviceStart(device, procID)` — ein No-Op-Callback hält `gDeviceIsRunning=1` dauerhaft. Neue Funktionen `ensure_router_keepalive()` / `stop_router_keepalive()` in `audio_device_control.py`.
+- **Reihenfolge-Fix (Fix-4):** Keep-Alive wird **vor** dem Default-Output-Switch gestartet. Apple Music findet beim Wechsel ein bereits laufendes Device vor und öffnet seinen Stream sofort.
+- **Leichtgewichtiger Retry (Fix-3):** `_process_pending_updates()` retried nur `_apply_active_outputs()` (max. 5 Versuche), nicht mehr das disruptive `_auto_start_if_configured()`, das den Default-Output im 0.5s-Takt neu setzte.
+
+Vollständige Details in Abschnitt 21 (Persistenter Keep-Alive IOProc).
+
 ---
 
 ## 11. Bekannte Limitierungen
@@ -895,7 +915,7 @@ AudioRouterNow/
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.4.0*
+*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.5.0*
 
 ---
 
@@ -2060,37 +2080,183 @@ if (anchor == 0) {
 
 ---
 
-### 20.4 Fix 2: AudioDeviceStart() direkt via Python ctypes
+### 20.4 Fix 2: AudioDeviceStart() direkt via Python ctypes (v2.4 — ersetzt in v2.5)
+
+> **Hinweis:** Dieser Ansatz wurde in v2.5.0 durch den persistenten Keep-Alive IOProc (Abschnitt 21) ersetzt. Der `NULL`-IOProc-Hack ist architektonisch unzuverlässig und bleibt nur für historische Vollständigkeit dokumentiert.
 
 **Problem:** Selbst mit korrektem `GetZeroTimeStamp` ruft `coreaudiod` `StartIO` nur dann auf, wenn ein Audio-Client `AudioDeviceStart()` auf dem Device aufruft. Musik-Apps tun das erst, wenn die App neu gestartet wird — **nicht** bei bereits laufender App nach einem Device-Wechsel.
 
-**Lösung:** Die Python-App ruft `AudioDeviceStart()` selbst auf.
-
-**Neue Funktion** `start_audio_router_device()` in `audio_device_control.py`:
+**Lösung (v2.4):** Die Python-App ruft `AudioDeviceStart()` mit `NULL` als IOProc-ID auf:
 
 ```python
-CA.AudioDeviceStart.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-CA.AudioDeviceStart.restype  = ctypes.c_int32
 status = CA.AudioDeviceStart(ctypes.c_uint32(device_id), None)
 ```
 
-`None` als IOProc-ID: startet das Device **ohne eigenen Callback** — triggert aber `ARN_StartIO` im HAL-Plugin → `gDeviceIsRunning = 1`.
+`None` als IOProc-ID: startet das Device **ohne eigenen Callback** — triggert `ARN_StartIO` im HAL-Plugin → `gDeviceIsRunning = 1`.
 
-**Aufruf-Stellen in `menu_bar_app.py`:**
-
-1. `_trigger_start_io()` — 0.5s nach erster Output-Aktivierung (Neuinstallation).
-2. `_auto_start_if_configured()` — 0.5s nach App-Start mit gespeicherter Konfiguration.
-
-In beiden Fällen läuft der Aufruf in einem kurz verzögerten Daemon-Thread, damit der Driver Zeit hat, sich mit dem SHM zu verbinden, bevor `StartIO` ausgelöst wird.
+**Schwachstelle:** Ohne registrierten IOProc kann coreaudiod den IO-Stack sofort wieder abbauen, sobald kein realer Konsument aktiv ist. `gDeviceIsRunning` kann von 1 zurück auf 0 fallen. Zudem: wenn eine Musik-App beim Default-Switch noch läuft und das Device bereits als "nicht running" evaluiert hatte, bleibt sie auf dem alten Device. Behoben durch persistenten Keep-Alive IOProc in v2.5 (Abschnitt 21).
 
 ---
 
-### 20.5 Resultat und Verifikation
+### 20.5 Resultat und Verifikation (v2.4)
 
-Nach dem Fix: App-Start → `AudioDeviceStart()` → `ARN_StartIO` → `gDeviceIsRunning = 1` → `write_idx` steigt → Audio fließt **sofort ohne manuellen Eingriff**.
+Nach v2.4: App-Start → `AudioDeviceStart()` → `ARN_StartIO` → `gDeviceIsRunning = 1` → `write_idx` steigt → Audio fließt. Jedoch: nicht deterministisch bei Neuinstallation nach deinstallierter Version. Vollständig gelöst in v2.5 (Abschnitt 21).
 
 Getestet auf: macOS 26.5 (25F71), MacBook Pro M-Series.
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.4.0*
+*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.5.0*
+
+---
+
+## 21. Persistenter Keep-Alive IOProc + Leichtgewichtiger Retry (v2.5.0)
+
+Am 30. Mai 2026 wurde nach einem weiteren Test-Zyklus (Deinstallation + Neuinstallation) das Startup-Problem erneut reproduziert. Die tiefere Root-Cause-Analyse (nach Session-Unterbrechung) ergab drei koordinierte Fixes, die zusammen als v2.5.0 released wurden.
+
+---
+
+### 21.1 Tatsächliche Hauptursache: Kein persistenter IOProc auf dem virtuellen Device
+
+Der `AudioDeviceStart(deviceID, NULL)`-Ansatz aus v2.4 hatte eine fundamentale Schwäche: **ohne registrierten IOProc hält coreaudiod den IO-Stack nicht dauerhaft offen**. Das bedeutet:
+
+1. `AudioDeviceStart(id, NULL)` triggert `ARN_StartIO` → `gDeviceIsRunning = 1` ✓
+2. Da kein IOProc vorhanden ist, der den Takt hält, baut coreaudiod den Stack ab → `ARN_StopIO` → `gDeviceIsRunning = 0` ✗
+3. Musik-Apps, die beim Default-Switch ein "nicht laufendes" Device vorfanden, wechseln nicht selbstständig
+
+**Warum funktionierte der Toggle-Trick (zweites Mal)?**
+Beim wiederholten Togglen in der UI stabilisierte sich der Helper-IOProc auf dem physischen Device (Komplete Audio 6) und Apple Music öffnete seinen Stream neu — aber nur zufällig durch Timing, nicht durch deterministisches Design.
+
+---
+
+### 21.2 Fix-1: Persistenter Keep-Alive IOProc
+
+**Dateien:** `engine/audio_device_control.py`
+
+**Kernkonzept:** Statt `AudioDeviceStart(id, NULL)` wird ein echter, registrierter No-Op-IOProc erstellt, der dauerhaft `gDeviceIsRunning = 1` erzwingt.
+
+**Neue CoreAudio-API-Aufrufe:**
+
+```python
+# 1. IOProc registrieren
+AudioDeviceCreateIOProcID(device_id, _NOOP_CB, None, &proc_id)
+
+# 2. Device starten — mit echtem ProcID (nicht NULL!)
+AudioDeviceStart(device_id, proc_id)
+```
+
+**No-Op-Callback:**
+
+```python
+_AudioDeviceIOProc_TYPE = ctypes.CFUNCTYPE(
+    ctypes.c_int32,   # OSStatus return
+    ctypes.c_uint32,  # AudioDeviceID
+    ctypes.c_void_p,  # AudioTimeStamp *inNow
+    ctypes.c_void_p,  # AudioBufferList *inInputData
+    ctypes.c_void_p,  # AudioTimeStamp *inInputTime
+    ctypes.c_void_p,  # AudioBufferList *outOutputData
+    ctypes.c_void_p,  # AudioTimeStamp *inOutputTime
+    ctypes.c_void_p,  # void *inClientData
+)
+
+def _noop_ioproc(dev_id, now, in_data, in_time, out_data, out_time, client):
+    return 0  # kAudioHardwareNoError — No-Op
+
+# KRITISCH: Modulglobal halten — GC würde ctypes-Callback freigeben
+# → Crash im RT-Thread von coreaudiod
+_NOOP_CB = _AudioDeviceIOProc_TYPE(_noop_ioproc)
+```
+
+**Lifecycle:**
+
+| Funktion | Wann | Was |
+|----------|------|-----|
+| `ensure_router_keepalive()` | App-Start, erster Output aktiviert | Erstellt IOProcID + startet Device; idempotent |
+| `stop_router_keepalive()` | App-Quit (`_quit_app`) | Stoppt IOProc + zerstört ProcID; idempotent |
+
+**Thread-Sicherheit:** `_keepalive_lock` (threading.Lock) schützt den globalen Zustand. `_NOOP_CB` lebt modulglobal (Python-Referenz bleibt immer gültig — kein GC-Risiko).
+
+---
+
+### 21.3 Fix-4: Reihenfolge — Keep-Alive vor Default-Switch
+
+**Datei:** `engine/menu_bar_app.py` — `_auto_start_if_configured()`
+
+**Neue Reihenfolge:**
+
+```
+1. ensure_router_keepalive()    → gDeviceIsRunning=1 (Device bereits laufend)
+2. is_audio_router_default()    → Check: ist Audio Router bereits Default?
+3. set_default_output_device()  → Nur wenn nötig (idempotent)
+4. _apply_best_sample_rate()    → Sample-Rate konfigurieren
+5. _apply_active_outputs()      → Helper-Outputs konfigurieren
+```
+
+**Warum die Reihenfolge entscheidend ist:**
+
+Wenn `set_default_output_device("Audio Router")` (Schritt 3) ausgeführt wird, senden alle laufenden Musik-Apps eine CoreAudio-Property-Changed-Notification. Sie evaluieren das neue Default-Device. Wenn das Device zu diesem Zeitpunkt bereits `DeviceIsRunning = 1` meldet (durch Schritt 1), öffnen sie ihren Stream sofort. **Ohne Schritt 1 zuerst** sehen sie `DeviceIsRunning = 0` und halten an ihrem alten Device fest.
+
+**Idempotenz-Check:** `is_audio_router_default()` verhindert unnötigen Default-Switch wenn Audio Router bereits Default ist — das wäre disruptiv für laufende Streams.
+
+---
+
+### 21.4 Fix-3: Leichtgewichtiger Helper-Retry
+
+**Datei:** `engine/menu_bar_app.py` — `_process_pending_updates()`
+
+**Problem (v2.4):** Bei `not_ready` vom Helper rief der Retry das volle `_auto_start_if_configured()` auf — das setzte den Default-Output im 0.5s-Takt **wiederholt** neu, startete mehrere `auto-start-io`-Threads und konnte laufende Streams unterbrechen.
+
+**Neue Retry-Logik:**
+
+```python
+# Nur _apply_active_outputs() — kein Default-Output-Switch, kein Keep-Alive-Restart
+if self._needs_reconfigure and alive_now:
+    if self._reconfigure_attempts < 5:
+        status = self._helper.get_status()
+        if status and status.get('ready') is not False:
+            self._reconfigure_attempts += 1
+            if self._apply_active_outputs():  # gibt True/False zurück
+                self._needs_reconfigure = False
+                self._reconfigure_attempts = 0
+    else:
+        # Aufgeben nach 5 Versuchen — User-Info via Status-Zeile
+        self._needs_reconfigure = False
+        self._reconfigure_attempts = 0
+```
+
+**Invarianten:**
+- `_apply_active_outputs()` gibt nun `bool` zurück: `True` = Erfolg, `False` = `not_ready`
+- `_reconfigure_attempts` wird bei Erfolg **und** bei Erschöpfung zurückgesetzt
+- Kein Default-Output-Switch im Retry-Pfad — ausschließlich Helper-Konfiguration
+
+---
+
+### 21.5 Entfernte Artefakte aus v2.4
+
+| Was entfernt | Wo | Warum |
+|---|---|---|
+| `auto-start-io`-Thread (0.5s sleep) | `_auto_start_if_configured` | Durch `ensure_router_keepalive()` ersetzt |
+| `_trigger_start_io`-Thread | `_save_and_apply` | Durch `ensure_router_keepalive()` ersetzt |
+| `start_audio_router_device` Import | `menu_bar_app.py` | Nicht mehr benötigt |
+| Voller `_auto_start_if_configured()`-Aufruf im Retry | `_process_pending_updates` | Durch leichtgewichtigen Retry ersetzt |
+
+---
+
+### 21.6 Resultat
+
+**Erwartetes Verhalten nach v2.5:**
+
+1. App-Start → `ensure_router_keepalive()` → `ARN_StartIO` → `gDeviceIsRunning = 1` (dauerhaft)
+2. `set_default_output_device("Audio Router")` — Apple Music findet laufendes Device vor
+3. Apple Music öffnet Stream auf "Audio Router" → `DoIOOperation` läuft → `write_idx` steigt
+4. Helper konsumiert Ring → Komplete Audio 6 gibt Ton aus
+
+**Kein manuelles Togglen mehr nötig.** Verifizierbar im Driver-Log:
+```
+log stream --predicate 'subsystem contains "AudioRouterNow"' --level debug
+# Erwartete Sequenz: "StartIO — Device laeuft" direkt beim App-Start
+```
+
+---
+
+*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.5.0*
