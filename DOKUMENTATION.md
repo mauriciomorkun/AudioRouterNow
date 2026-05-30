@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
 **Stand:** 30. Mai 2026  
-**Version:** 2.3.0  
+**Version:** 2.4.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -28,6 +28,7 @@
 17. [Sandbox-Compliance Fix — v2.1 (29. Mai 2026)](#17-sandbox-compliance-fix--v21-29-mai-2026)
 18. [User-Onboarding & UX-Layer (v2.2)](#18-user-onboarding--ux-layer-v22)
 19. [Bugfix-Welle v2.3 — Initialisierungsreihenfolge & Stabilität (30. Mai 2026)](#19-bugfix-welle-v23--initialisierungsreihenfolge--stabilität-30-mai-2026)
+20. [macOS-26-Kompatibilitäts-Fix — StartIO + GetZeroTimeStamp (30. Mai 2026)](#20-macos-26-kompatibilitäts-fix--startio--getzerotimestamp-30-mai-2026)
 
 ---
 
@@ -814,6 +815,15 @@ Vollständige Details in Abschnitt 19 (Bugfix-Welle v2.3).
 - Wave 5: Dead Code Removal (`socket_receiver.py`, `routing_engine.py`, LaunchD-Reste)
 - Volume-Keyboard-Fix: `volume_poll_thread` überschrieb `volume_q16` alle 50ms zurück auf 100% — behoben durch Entfernen des `get_default_output_volume_c()`-Aufrufs
 
+### Phase 12 — v2.4 macOS 26 Kompatibilität (30. Mai 2026)
+
+Unter macOS 26.5 (Tahoe) trat ein neues Symptom auf: trotz grünem Status floss kein Audio (`write_idx = 0`), und nur ein manueller Device-Toggle in den Systemeinstellungen half. Ursache war ein geändertes coreaudiod-Verhalten beim Evaluieren der Zeitbasis virtueller HAL-Devices. Behoben durch zwei zusammenwirkende Fixes:
+
+- **GetZeroTimeStamp-Fix:** Pre-StartIO-Fallback (`anchor = now` wenn `gAnchorHostTime == 0`) — verhindert, dass coreaudiod das Device als "in der Zukunft" und damit "nicht bereit" einstuft.
+- **Direkter AudioDeviceStart-Call:** Die Python-App ruft via ctypes selbst `AudioDeviceStart()` auf dem "Audio Router"-Device auf und triggert damit `ARN_StartIO` — ohne auf eine Musik-App angewiesen zu sein.
+
+Vollständige Details in Abschnitt 20 (macOS-26-Kompatibilitäts-Fix).
+
 ---
 
 ## 11. Bekannte Limitierungen
@@ -885,7 +895,7 @@ AudioRouterNow/
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.3.0*
+*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.4.0*
 
 ---
 
@@ -1991,4 +2001,96 @@ In der Engine ergänzen `_poll_volume_sync()` (im 0.5s-UI-Timer) und der `NSEven
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.3.0*
+## 20. macOS-26-Kompatibilitäts-Fix — StartIO + GetZeroTimeStamp (30. Mai 2026)
+
+Am 30. Mai 2026 wurde ein macOS-26-spezifischer Fehler behoben, durch den trotz korrekt installiertem Treiber und grünem Status kein Audio floss. Anders als die vorangegangenen Wellen handelt es sich hier um eine Anpassung an ein **geändertes Betriebssystem-Verhalten** unter macOS 26.5 (Tahoe), nicht um einen Eigenfehler des Projekts.
+
+---
+
+### 20.1 Symptom und Kontext
+
+Unter **macOS 26.5 (Tahoe)** zeigte sich ein neues Verhalten: `coreaudiod` ruft `StartIO` auf dem virtuellen HAL-Device **nicht mehr automatisch** auf, wenn das Device als Default Output gesetzt wird.
+
+**Symptom:**
+- Helper-Status meldet grün, aber `write_idx = 0` (`ring_frames = 0`) — der Treiber schreibt keine Samples in den Ring.
+- Kein Audio, obwohl alles korrekt installiert und konfiguriert ist.
+- Bekannte Workarounds halfen **nicht**: `afplay` einer Datei, `SwitchAudioSource`-Toggle u.ä.
+
+**Einziger funktionierender Workaround vor dem Fix:** manueller Device-Toggle in den Systemeinstellungen (Ausgabe kurz umstellen und zurück).
+
+---
+
+### 20.2 Root Cause: GetZeroTimeStamp liefert ungültige Timestamps
+
+**Das eigentliche Problem:**
+
+`ARN_GetZeroTimeStamp` benutzt `gAnchorHostTime` als Zeitanker. `gAnchorHostTime` wird jedoch erst in `ARN_StartIO` auf `mach_absolute_time()` gesetzt.
+
+Vor dem ersten `StartIO` gilt daher: `gAnchorHostTime = 0`.
+
+Berechnung in `GetZeroTimeStamp`:
+
+```c
+elapsed = (mach_absolute_time() - 0) / ticksPerFrame
+// = aktueller Mach-Timestamp / Ticks-pro-Frame
+// = mehrere hunderttausend Frames "in der Zukunft"
+```
+
+**macOS 26 Verhalten:** `coreaudiod` fragt `GetZeroTimeStamp` ab, um die Zeitbasis des Devices zu evaluieren. Auf macOS ≤ 15 wurde ein unrealistischer Anfangswert toleriert. Auf macOS 26 gilt: liegt der zurückgegebene Timestamp weit in der Zukunft → das Device wird als **"nicht bereit"** eingestuft → `StartIO` wird nie aufgerufen → `gDeviceIsRunning = 0` → `DoIOOperation` schreibt nie → `write_idx = 0`.
+
+---
+
+### 20.3 Fix 1: GetZeroTimeStamp — Pre-StartIO Fallback
+
+**Datei:** `driver/src/AudioRouterNowDriver.c` — `ARN_GetZeroTimeStamp`
+
+```c
+UInt64 anchor = gAnchorHostTime;
+
+/* Fix macOS 26: Vor StartIO ist gAnchorHostTime = 0.
+ * elapsed = (now - 0) = riesige Zahl → coreaudiod stuft Device als
+ * "in der Zukunft" ein → ruft StartIO nie auf.
+ * Lösung: aktuellen Zeitpunkt als Anker nutzen → elapsed ≈ 0 */
+if (anchor == 0) {
+    anchor = now;
+}
+```
+
+**Ergebnis:** Vor `StartIO` gibt `GetZeroTimeStamp` `outSampleTime = 0, outHostTime = now` zurück — einen sinnvollen Nullpunkt. `coreaudiod` akzeptiert das Device als "bereit" und ruft `StartIO` auf.
+
+---
+
+### 20.4 Fix 2: AudioDeviceStart() direkt via Python ctypes
+
+**Problem:** Selbst mit korrektem `GetZeroTimeStamp` ruft `coreaudiod` `StartIO` nur dann auf, wenn ein Audio-Client `AudioDeviceStart()` auf dem Device aufruft. Musik-Apps tun das erst, wenn die App neu gestartet wird — **nicht** bei bereits laufender App nach einem Device-Wechsel.
+
+**Lösung:** Die Python-App ruft `AudioDeviceStart()` selbst auf.
+
+**Neue Funktion** `start_audio_router_device()` in `audio_device_control.py`:
+
+```python
+CA.AudioDeviceStart.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+CA.AudioDeviceStart.restype  = ctypes.c_int32
+status = CA.AudioDeviceStart(ctypes.c_uint32(device_id), None)
+```
+
+`None` als IOProc-ID: startet das Device **ohne eigenen Callback** — triggert aber `ARN_StartIO` im HAL-Plugin → `gDeviceIsRunning = 1`.
+
+**Aufruf-Stellen in `menu_bar_app.py`:**
+
+1. `_trigger_start_io()` — 0.5s nach erster Output-Aktivierung (Neuinstallation).
+2. `_auto_start_if_configured()` — 0.5s nach App-Start mit gespeicherter Konfiguration.
+
+In beiden Fällen läuft der Aufruf in einem kurz verzögerten Daemon-Thread, damit der Driver Zeit hat, sich mit dem SHM zu verbinden, bevor `StartIO` ausgelöst wird.
+
+---
+
+### 20.5 Resultat und Verifikation
+
+Nach dem Fix: App-Start → `AudioDeviceStart()` → `ARN_StartIO` → `gDeviceIsRunning = 1` → `write_idx` steigt → Audio fließt **sofort ohne manuellen Eingriff**.
+
+Getestet auf: macOS 26.5 (25F71), MacBook Pro M-Series.
+
+---
+
+*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.4.0*
