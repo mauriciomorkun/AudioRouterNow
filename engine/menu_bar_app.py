@@ -36,6 +36,7 @@ from AppKit import NSEvent, NSSystemDefinedMask
 from audio_device_control import (
     set_default_output_device,
     set_default_system_output_device,
+    start_audio_router_device,
     get_device_supported_sample_rates,
     is_audio_router_default,
     SUPPORTED_SAMPLE_RATES,
@@ -771,9 +772,14 @@ class AudioRouterApp(rumps.App):
 
         logger.info("Auto-start: lade Outputs %s", ", ".join(self._active_device_names))
         set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
-        # System Output ebenfalls auf Audio Router setzen — Keyboard-Volume-
-        # Tasten folgen dem System Output ('sOut'). Symmetrisch zu dOut.
         set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
+        # StartIO direkt triggern — auf macOS 26 reicht Default-Output-Setzen
+        # allein nicht aus. AudioDeviceStart() triggert ARN_StartIO im Driver.
+        threading.Thread(
+            target=lambda: (__import__('time').sleep(0.5),
+                            start_audio_router_device()),
+            daemon=True, name="auto-start-io"
+        ).start()
         self._apply_best_sample_rate()
         self._apply_active_outputs()
         self._update_status_ui()
@@ -801,40 +807,19 @@ class AudioRouterApp(rumps.App):
             # Helper-Reconnect allein reicht nicht — StartIO kommt von coreaudiod,
             # nicht vom Helper.
             def _trigger_start_io():
-                import time, subprocess, os
-                time.sleep(1.0)
+                import time
+                time.sleep(0.5)  # kurz warten damit Driver SHM verbunden hat
                 status = self._helper.get_status(timeout=1.0)
                 if status and status.get("ring_frames", 0) == 0:
-                    logger.info("StartIO-Trigger: Ring leer — spiele stilles Audio")
-                    # Einen stummen Sound über Audio Router abspielen.
-                    # Das öffnet einen CoreAudio-Client auf dem virtuellen Device
-                    # → coreaudiod ruft StartIO auf → Driver beginnt zu schreiben.
-                    # afplay nutzt den Default Output (Audio Router).
-                    silent = "/System/Library/Sounds/Funk.aiff"
-                    if not os.path.exists(silent):
-                        silent = "/System/Library/Sounds/Pop.aiff"
-                    subprocess.run(
-                        ["afplay", "-v", "0", silent],
-                        capture_output=True, timeout=5,
-                    )
-                    time.sleep(0.3)
-                    # Falls Ring immer noch leer: Output-Toggle als Fallback
-                    status2 = self._helper.get_status(timeout=1.0)
-                    if status2 and status2.get("ring_frames", 0) == 0:
-                        logger.info("StartIO-Trigger: afplay reichte nicht — togglee Output")
-                        subprocess.run(
-                            ["SwitchAudioSource", "-s", "MacBook Pro-Lautsprecher", "-t", "output"],
-                            capture_output=True, timeout=2,
-                        )
-                        time.sleep(0.8)
-                        subprocess.run(
-                            ["SwitchAudioSource", "-s", AUDIO_ROUTER_DEVICE_NAME, "-t", "output"],
-                            capture_output=True, timeout=2,
-                        )
-                        subprocess.run(
-                            ["SwitchAudioSource", "-s", AUDIO_ROUTER_DEVICE_NAME, "-t", "system"],
-                            capture_output=True, timeout=2,
-                        )
+                    logger.info("StartIO-Trigger: AudioDeviceStart direkt aufrufen")
+                    # AudioDeviceStart() direkt via CoreAudio ctypes.
+                    # Das triggert ARN_StartIO im HAL-Driver ohne auf
+                    # eine externe Musik-App angewiesen zu sein.
+                    ok = start_audio_router_device()
+                    if ok:
+                        logger.info("StartIO-Trigger: AudioDeviceStart OK")
+                    else:
+                        logger.warning("StartIO-Trigger: AudioDeviceStart fehlgeschlagen")
                     logger.info("StartIO-Trigger: abgeschlossen")
             threading.Thread(target=_trigger_start_io, daemon=True, name="start-io-trigger").start()
 
