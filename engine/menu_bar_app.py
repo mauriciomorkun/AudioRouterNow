@@ -795,18 +795,33 @@ class AudioRouterApp(rumps.App):
             set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
             logger.info("Auto-Switch: System-Audio auf Audio Router umgestellt")
 
-            # StartIO-Trigger: kurze Verzögerung damit coreaudiod IO-Stack aufbaut,
-            # dann Status prüfen und ggf. Helper neu verbinden
+            # StartIO-Trigger: Default-Output kurz togglen zwingt coreaudiod,
+            # den IO-Stack für "Audio Router" frisch aufzubauen → StartIO wird
+            # aufgerufen → Driver schreibt Frames in den Ring.
+            # Helper-Reconnect allein reicht nicht — StartIO kommt von coreaudiod,
+            # nicht vom Helper.
             def _trigger_start_io():
-                import time
-                time.sleep(1.5)  # coreaudiod braucht ~1s um StartIO auszulösen
+                import time, subprocess
+                time.sleep(1.0)
                 status = self._helper.get_status(timeout=1.0)
                 if status and status.get("ring_frames", 0) == 0:
-                    # Ring noch leer — Helper neu verbinden triggert coreaudiod
-                    logger.info("StartIO-Trigger: Ring leer nach Device-Aktivierung, reconnect...")
-                    self._helper.shutdown()
-                    import time as _t; _t.sleep(0.5)
-                    self._helper.ensure_running()
+                    logger.info("StartIO-Trigger: Ring leer — togglee Default-Output")
+                    # Zu MacBook wechseln und sofort zurück → coreaudiod baut
+                    # IO-Stack neu auf → StartIO getriggert
+                    subprocess.run(
+                        ["SwitchAudioSource", "-s", "MacBook Pro-Lautsprecher", "-t", "output"],
+                        capture_output=True, timeout=2,
+                    )
+                    time.sleep(0.8)
+                    subprocess.run(
+                        ["SwitchAudioSource", "-s", AUDIO_ROUTER_DEVICE_NAME, "-t", "output"],
+                        capture_output=True, timeout=2,
+                    )
+                    subprocess.run(
+                        ["SwitchAudioSource", "-s", AUDIO_ROUTER_DEVICE_NAME, "-t", "system"],
+                        capture_output=True, timeout=2,
+                    )
+                    logger.info("StartIO-Trigger: Output-Toggle abgeschlossen")
             threading.Thread(target=_trigger_start_io, daemon=True, name="start-io-trigger").start()
 
         self._apply_active_outputs()
