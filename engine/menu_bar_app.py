@@ -537,6 +537,31 @@ class AudioRouterApp(rumps.App):
                 ),
             )
 
+        # Volume-Sync-Fallback: Keyboard-Volume-Keys erreichen virtuelle HAL-
+        # Devices nicht immer direkt. Dieser Poll erkennt System-Volume-
+        # Änderungen und re-applied sie via osascript, was den Driver's
+        # SetPropertyData triggert und volume_q16 im SHM synchron hält.
+        self._poll_volume_sync()
+
+    def _poll_volume_sync(self):
+        """Fallback: Wenn Keyboard-Volume-Keys den Driver nicht direkt erreichen,
+        erkennt dieser Poll die Änderung und triggert volume_q16 via osascript."""
+        try:
+            import subprocess
+            r = subprocess.run(['osascript', '-e',
+                'output volume of (get volume settings)'],
+                capture_output=True, text=True, timeout=0.3)
+            new_vol = int(r.stdout.strip())
+            old_vol = getattr(self, '_last_polled_vol', new_vol)
+            self._last_polled_vol = new_vol
+            if new_vol != old_vol:
+                # Volume hat sich geändert — via osascript setzen triggert Driver
+                subprocess.run(['osascript', '-e',
+                    f'set volume output volume {new_vol}'],
+                    capture_output=True, timeout=0.3)
+        except Exception:
+            pass
+
     def _compute_status(self) -> tuple[str, object]:
         """
         Berechnet den aktuellen Systemzustand und liefert (title, action_key).
@@ -739,6 +764,9 @@ class AudioRouterApp(rumps.App):
 
         logger.info("Auto-start: lade Outputs %s", ", ".join(self._active_device_names))
         set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
+        # System Output ebenfalls auf Audio Router setzen — Keyboard-Volume-
+        # Tasten folgen dem System Output ('sOut'). Symmetrisch zu dOut.
+        set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
         self._apply_best_sample_rate()
         self._apply_active_outputs()
         self._update_status_ui()
@@ -759,6 +787,20 @@ class AudioRouterApp(rumps.App):
             set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
             set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
             logger.info("Auto-Switch: System-Audio auf Audio Router umgestellt")
+
+            # StartIO-Trigger: kurze Verzögerung damit coreaudiod IO-Stack aufbaut,
+            # dann Status prüfen und ggf. Helper neu verbinden
+            def _trigger_start_io():
+                import time
+                time.sleep(1.5)  # coreaudiod braucht ~1s um StartIO auszulösen
+                status = self._helper.get_status(timeout=1.0)
+                if status and status.get("ring_frames", 0) == 0:
+                    # Ring noch leer — Helper neu verbinden triggert coreaudiod
+                    logger.info("StartIO-Trigger: Ring leer nach Device-Aktivierung, reconnect...")
+                    self._helper.shutdown()
+                    import time as _t; _t.sleep(0.5)
+                    self._helper.ensure_running()
+            threading.Thread(target=_trigger_start_io, daemon=True, name="start-io-trigger").start()
 
         self._apply_active_outputs()
         if self._config.auto_sample_rate:
