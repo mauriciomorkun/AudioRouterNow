@@ -744,63 +744,95 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
  */
 static void sr_reinit_all_outputs(void) {
     uint32_t new_sr = atomic_load_explicit(&g_ring->sample_rate, memory_order_acquire);
-    fprintf(stdout, "Helper: Sample-Rate geaendert auf %u Hz — reinit alle Outputs\n", new_sr);
+    fprintf(stdout, "Helper: Sample-Rate geaendert auf %u Hz — pruefe Outputs\n", new_sr);
 
-    /* Schritt 1: Alle IOProcs stoppen */
-    for (int i = 0; i < g_n_outputs; i++) {
-        DeviceOutput *dev = &g_outputs[i];
-        if (!dev->active || !dev->proc_id) continue;
-        AudioDeviceStop(dev->dev_id, dev->proc_id);
-        AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
-        dev->proc_id = NULL;
-        dev->active  = false;
-    }
-
-    /* Schritt 2: Leseposition auf aktuellen write_idx setzen */
     uint32_t w = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
-    for (int i = 0; i < g_n_outputs; i++) {
-        DeviceOutput *dev = &g_outputs[i];
-        atomic_store_explicit(&dev->local_ridx, w, memory_order_release);
-        dev->src_frac_ridx = (double)w / 2.0;
-    }
 
-    /* Schritt 3: base_ratio neu berechnen + IOProcs neu starten */
+    AudioObjectPropertyAddress sr_prop = {
+        kAudioDevicePropertyNominalSampleRate,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+
+    /* Fix 3b: Pro Output einzeln pruefen ob ein Reinit (Stop/Start) ueberhaupt
+     * noetig ist. Stimmt die aktuelle Device-SR bereits mit der Ring-SR ueberein,
+     * wird der Output NICHT gestoppt — nur die Leseposition wird neu gesetzt.
+     * Das verhindert, dass z.B. KA6 stoppt, wenn nur die MacBook-Speaker entfernt
+     * werden und die optimale Ring-SR sich faktisch nicht aendert. */
     for (int i = 0; i < g_n_outputs; i++) {
         DeviceOutput *dev = &g_outputs[i];
         if (!dev->uid[0]) continue;
 
         /* Aktuelle Device-SR lesen */
         Float64 device_sr = (Float64)new_sr;
-        AudioObjectPropertyAddress sr_prop = {
-            kAudioDevicePropertyNominalSampleRate,
-            kAudioObjectPropertyScopeGlobal,
-            kAudioObjectPropertyElementMain
-        };
-        UInt32 sz = sizeof(Float64);
+        UInt32  sz = sizeof(Float64);
         AudioObjectGetPropertyData(dev->dev_id, &sr_prop, 0, NULL, &sz, &device_sr);
 
-        /* Versuche Device auf neue Ring-SR zu setzen */
+        /* Fix 3b: SR stimmt bereits ueberein — kein disruptiver Stop/Start. */
+        if ((uint32_t)device_sr == new_sr) {
+            dev->base_ratio = 1.0;
+            uint32_t q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
+            atomic_store_explicit(&dev->src_ratio_q20, q20, memory_order_relaxed);
+            atomic_store_explicit(&dev->local_ridx, w, memory_order_release);
+            dev->src_frac_ridx = (double)w / 2.0;
+            /* active/proc_id bleiben unveraendert — Output laeuft weiter. */
+            continue;
+        }
+
+        /* SR weicht ab — Output muss neu initialisiert werden. */
+
+        /* Schritt 1: IOProc stoppen */
+        if (dev->active && dev->proc_id) {
+            AudioDeviceStop(dev->dev_id, dev->proc_id);
+            AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
+            dev->proc_id = NULL;
+            dev->active  = false;
+        }
+
+        /* Schritt 2: Leseposition auf aktuellen write_idx setzen */
+        atomic_store_explicit(&dev->local_ridx, w, memory_order_release);
+        dev->src_frac_ridx = (double)w / 2.0;
+
+        /* Schritt 3: Versuche Device auf neue Ring-SR zu setzen */
         Float64 ring_sr_f = (Float64)new_sr;
-        if ((uint32_t)device_sr != new_sr) {
-            if (AudioObjectSetPropertyData(dev->dev_id, &sr_prop, 0, NULL,
-                                           sizeof(Float64), &ring_sr_f) == noErr) {
-                device_sr = ring_sr_f;
-            }
+        if (AudioObjectSetPropertyData(dev->dev_id, &sr_prop, 0, NULL,
+                                       sizeof(Float64), &ring_sr_f) == noErr) {
+            device_sr = ring_sr_f;
         }
         dev->base_ratio = (double)new_sr / (double)device_sr;
         uint32_t init_q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
         atomic_store_explicit(&dev->src_ratio_q20, init_q20, memory_order_relaxed);
         atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
 
-        /* IOProc neu starten */
+        /* Schritt 4: IOProc neu erzeugen */
         OSStatus err = AudioDeviceCreateIOProcID(dev->dev_id, device_ioproc, dev, &dev->proc_id);
-        if (err == noErr) {
+        if (err != noErr) {
+            fprintf(stderr, "Helper: AudioDeviceCreateIOProcID fehlgeschlagen "
+                            "(OSStatus %d) fuer %s — Output bleibt inaktiv\n",
+                    (int)err, dev->name);
+            dev->active = false;
+            continue;
+        }
+
+        /* Fix 3a: AudioDeviceStart mit Retry — bis zu 3 Versuche, 100ms Pause.
+         * Verhindert dass ein einmaliger transienter Fehler den Output dauerhaft
+         * im stillen active=false-Zustand stehen laesst. */
+        for (int retry = 0; retry < 3; retry++) {
             err = AudioDeviceStart(dev->dev_id, dev->proc_id);
-            if (err == noErr) {
-                dev->active = true;
-                fprintf(stdout, "Helper: Output neu gestartet nach SR-Wechsel: %s [Ch %u-%u]\n",
-                        dev->name, dev->ch_offset + 1, dev->ch_offset + 2);
-            }
+            if (err == noErr) break;
+            if (retry < 2) usleep(100000);  /* 100ms */
+        }
+        if (err != noErr) {
+            fprintf(stderr, "Helper: AudioDeviceStart fehlgeschlagen nach 3 Versuchen "
+                            "(OSStatus %d) fuer %s — Output bleibt inaktiv\n",
+                    (int)err, dev->name);
+            AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
+            dev->proc_id = NULL;
+            dev->active  = false;
+        } else {
+            dev->active = true;
+            fprintf(stdout, "Helper: Output neu gestartet nach SR-Wechsel: %s [Ch %u-%u]\n",
+                    dev->name, dev->ch_offset + 1, dev->ch_offset + 2);
         }
     }
 }
