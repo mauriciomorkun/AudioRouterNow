@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 29. Mai 2026  
-**Version:** 2.2.0  
+**Stand:** 30. Mai 2026  
+**Version:** 2.3.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -27,6 +27,7 @@
 16. [Volume-Keyboard-Fix — Mai 2026](#16-volume-keyboard-fix--mai-2026)
 17. [Sandbox-Compliance Fix — v2.1 (29. Mai 2026)](#17-sandbox-compliance-fix--v21-29-mai-2026)
 18. [User-Onboarding & UX-Layer (v2.2)](#18-user-onboarding--ux-layer-v22)
+19. [Bugfix-Welle v2.3 — Initialisierungsreihenfolge & Stabilität (30. Mai 2026)](#19-bugfix-welle-v23--initialisierungsreihenfolge--stabilität-30-mai-2026)
 
 ---
 
@@ -793,6 +794,18 @@ Details in Abschnitt 17 (Sandbox-Compliance Fix).
 
 Details in Abschnitt 18 (User-Onboarding & UX-Layer).
 
+### Phase 11 — v2.3 Stabilitäts-Bugfixes (30. Mai 2026)
+
+Nach den UX-Erweiterungen der v2.2 traten unter realen Nutzungsbedingungen drei neue Bugkategorien auf — alle Folgen der v2.2-Architekturänderung (Helper erstellt SHM, Driver verbindet sich), die neue Initialisierungs-Reihenfolge-Probleme einführte. In dieser Session wurden behoben:
+
+- **Initialisierungsreihenfolge-Fixes:** `_auto_start_if_configured()` setzt jetzt sowohl Default Output ('dOut') als auch System Output ('sOut') — Keyboard-Volume-Tasten folgen 'sOut' und waren zuvor inaktiv.
+- **SR-Reinit-Entkopplung:** `_apply_best_sample_rate()` und `sr_reinit_all_outputs()` lösen keinen disruptiven Stop/Start aller Outputs mehr aus, wenn sich die effektive Sample-Rate nicht ändert; `AudioDeviceStart` erhält Retry-Logik.
+- **Volume-Synchronisation:** Neuer Media-Key-Interceptor (`_handle_media_key`) und Fallback-Poller (`_poll_volume_sync`) halten `volume_q16` zuverlässig synchron, auch wenn Volume-Tasten das virtuelle HAL-Device nicht direkt erreichen.
+- **StartIO Lazy-Init:** `_trigger_start_io` erzwingt nach Neuinstallation den IO-Stack-Aufbau (kein Audio mehr bei `write_idx == 0`).
+- **Stale-SHM-Erkennung:** `arn_shm_watch_thread` im Driver erkennt Helper-Neustarts (neue Inode) und biegt `gSHMRing` atomar auf das neue Segment um.
+
+Vollständige Details in Abschnitt 19 (Bugfix-Welle v2.3).
+
 **Überblick:**
 - Wave 1: Atomic Memory Model (Data Races eliminiert, `_Atomic` überall)
 - Wave 2: Volume Double-Scaling Fix (Treiber-RT-Scaling entfernt, Helper übernimmt)
@@ -872,7 +885,7 @@ AudioRouterNow/
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 29. Mai 2026 — AudioRouterNow v2.2.0*
+*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.3.0*
 
 ---
 
@@ -1674,3 +1687,308 @@ if local_doc.exists():
 else:
     webbrowser.open(DOCUMENTATION_URL)
 ```
+
+---
+
+## 19. Bugfix-Welle v2.3 — Initialisierungsreihenfolge & Stabilität (30. Mai 2026)
+
+Am 30. Mai 2026 wurde eine Reihe von Stabilitäts-Bugs behoben, die unter realen Nutzungsbedingungen auftraten. Anders als die Audit-Welle (Abschnitt 13) und der 5-Wave-Plan (Abschnitt 15) handelt es sich hier nicht um proaktiv gesuchte Code-Smells, sondern um vom Nutzer beobachtete Symptome, deren gemeinsame Wurzel die v2.2-Architekturänderung war.
+
+**Beteiligte Commits:**
+
+| Commit | Beschreibung |
+|--------|-------------|
+| `f82de17` | `fix(driver): add SHM watch thread to detect Helper restart` |
+| `2426b67` | `fix(volume): intercept media keys + set system output for volume HUD` |
+| `1bc5579` | `fix: auto-start symmetry, StartIO trigger, volume poll fallback` |
+| `41ea1b7` | `fix(routing): SR-reinit decoupled from output changes, retry on failure` |
+
+---
+
+### 19.1 Root-Cause-Analyse (Kontext)
+
+Die v2.2-Architekturänderung kehrte die SHM-Ownership um: **der Helper erstellt das SHM-Segment, der Driver verbindet sich nur** (Sandbox-Compliance, siehe Abschnitt 17). Diese Umkehr ist korrekt und notwendig — sie führte aber als Nebeneffekt eine ganze Klasse neuer **Initialisierungs-Reihenfolge-Probleme** ein, weil nun zwei unabhängig gestartete Prozesse (Driver via `_coreaudiod`, Helper via App/LaunchAgent) sich über ein gemeinsames Segment finden müssen, dessen Lifecycle nicht mehr beim Driver liegt.
+
+Drei Bugkategorien wurden identifiziert:
+
+1. **Property-Asymmetrie** — beim Auto-Start wurde nur ein Teil der CoreAudio-Default-Properties gesetzt (Bug A).
+2. **Über-aggressiver Reinit** — jede Output-Änderung löste einen vollständigen SR-Reinit aller Outputs aus (Bug B).
+3. **Fehlende IO-Aktivierung & SHM-Drift** — kein Audio-Client → kein `StartIO` (Bug C); Helper-Neustart → Driver schreibt in veraltetes Segment (Bug D).
+
+---
+
+### 19.2 Bug A: Volume-Tasten inaktiv nach App-Start
+
+**Symptom:** Nach dem App-Start zeigen die Keyboard-Volume-Tasten eine leere HUD-Bahn (kein gefüllter Lautstärke-Balken) und reagieren nicht auf Tastendruck. Erst manuelles Umschalten des Ausgabegeräts in den Systemeinstellungen "reparierte" das Verhalten.
+
+**Root Cause:**
+
+- `_auto_start_if_configured()` setzte nur `kAudioHardwarePropertyDefaultOutputDevice` (`'dOut'`, `0x644F7574`), **nicht** `kAudioHardwarePropertyDefaultSystemOutputDevice` (`'sOut'`, `0x734F7574`).
+- macOS-Keyboard-Volume-Tasten folgen dem **System Output** (`'sOut'`), nicht dem Default Output (`'dOut'`).
+- `'sOut'` blieb dadurch beim physischen Interface (z.B. Komplete Audio 6), das keine Software-Lautstärke unterstützt → die HUD-Bahn bleibt leer und Tastendrücke verpuffen.
+
+**Warum der Workaround funktionierte:** Manuelles Umschalten in den Systemeinstellungen lässt macOS selbst **beide** Properties setzen (`'dOut'` + `'sOut'`). Danach zeigte `'sOut'` auf "Audio Router", und die Volume-Tasten wirkten.
+
+**Fixes (4 Ebenen):**
+
+**1. `_auto_start_if_configured()` — Symmetrie `dOut` + `sOut`** (`menu_bar_app.py`):
+
+```python
+set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
+# System Output ebenfalls auf Audio Router setzen — Keyboard-Volume-
+# Tasten folgen dem System Output ('sOut'). Symmetrisch zu dOut.
+set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
+```
+
+Dieselbe Symmetrie wurde in `_switch_system_audio()` (manueller Klick auf die Status-Zeile) und in `_save_and_apply()` (Auto-Switch beim ersten aktivierten Output) eingezogen — überall, wo zuvor nur `'dOut'` gesetzt wurde, wird jetzt auch `'sOut'` gesetzt.
+
+**2. `set_default_system_output_device()` — neue Funktion** (`audio_device_control.py`):
+
+Strukturell analog zu `set_default_output_device()`, aber sie schreibt in `kAudioHardwarePropertyDefaultSystemOutputDevice`:
+
+```python
+_kAudioHardwarePropertyDefaultSystemOutputDevice = 0x734F7574  # 'sOut'
+
+def set_default_system_output_device(device_name: str) -> tuple[bool, str]:
+    """
+    Setzt das macOS Default System Output (kAudioHardwarePropertyDefaultSystemOutputDevice).
+    Keyboard-Volume-Tasten folgen dem System Output — damit diese auf
+    'Audio Router' wirken (und nicht auf das physische Interface), muss
+    Audio Router auch als System Output gesetzt sein.
+    """
+    # Device-Liste durchsuchen → target_id ermitteln → SetPropertyData auf 'sOut'
+```
+
+**3. `_poll_volume_sync()` — Fallback-Poller im 0.5s-Timer** (`menu_bar_app.py`):
+
+Ein im UI-Timer (alle 0.5s) aufgerufener Poller, der **externe** Volume-Änderungen erkennt (z.B. durch andere Apps oder Tasten, die den Driver nicht direkt erreichen) und sie via `osascript` re-applied. Das erneute Setzen triggert den `SetPropertyData`-Pfad des Drivers, der `volume_q16` im SHM aktualisiert — so bleibt `volume_q16` immer synchron mit dem System-Volume.
+
+```python
+def _poll_volume_sync(self):
+    """Fallback: Wenn Keyboard-Volume-Keys den Driver nicht direkt erreichen,
+    erkennt dieser Poll die Änderung und triggert volume_q16 via osascript."""
+    try:
+        r = subprocess.run(['osascript', '-e',
+            'output volume of (get volume settings)'],
+            capture_output=True, text=True, timeout=0.3)
+        new_vol = int(r.stdout.strip())
+        old_vol = getattr(self, '_last_polled_vol', new_vol)
+        self._last_polled_vol = new_vol
+        if new_vol != old_vol:
+            subprocess.run(['osascript', '-e',
+                f'set volume output volume {new_vol}'],
+                capture_output=True, timeout=0.3)
+    except Exception:
+        pass
+```
+
+**Loop-Sicherheit:** Der Poller reagiert ausschließlich bei einem **Delta** (`new_vol != old_vol`). Der zuletzt gesehene Wert wird in `self._last_polled_vol` gecacht. Setzt der Poller selbst das Volume, ist `new_vol` beim nächsten Tick gleich `old_vol` → keine erneute Aktion, keine Endlosschleife.
+
+**4. `_handle_media_key()` — NSEvent GlobalMonitor** (`menu_bar_app.py`):
+
+Da Volume-Tasten virtuelle HAL-Devices nicht zuverlässig direkt erreichen, fängt ein globaler `NSEvent`-Monitor (`NSSystemDefinedMask`) die Media-Keys ab und verarbeitet sie manuell — ohne Accessibility-Permissions:
+
+```python
+self._media_key_monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
+    NSSystemDefinedMask, self._handle_media_key
+)
+```
+
+Der Handler dekodiert das `data1`-Feld der `NSSystemDefined`-Events (Typ 14, Subtype 8): Bits 31–16 = Key-Code, Bits 15–8 = Key-State (`0xA` = Key-Down). Verarbeitete Key-Codes (`NX_KEYTYPE_*`):
+
+| Key-Code | Konstante | Aktion |
+|----------|-----------|--------|
+| `3` | `NX_KEYTYPE_SOUND_UP` | Volume +7 (`min(100, …)`) |
+| `2` | `NX_KEYTYPE_SOUND_DOWN` | Volume −7 (`max(0, …)`) |
+| `7` | `NX_KEYTYPE_MUTE` | Toggle: `0` wenn > 0, sonst `50` |
+
+Der neue Wert wird via `set volume output volume X` (osascript) gesetzt — was wiederum den `SetPropertyData`-Pfad des Drivers korrekt triggert und `volume_q16` aktualisiert. `STEP = 7` ergibt ~15 Stufen über den Bereich 0–100.
+
+---
+
+### 19.3 Bug B: Output stoppt bei Multi-Device-Änderung
+
+**Symptom:** Komplete Audio 6 + MacBook-Lautsprecher sind beide aktiv. Wird der MacBook-Lautsprecher abgewählt, stoppt **auch** die KA6 — obwohl an ihr nichts geändert wurde.
+
+**Root Cause:**
+
+- `_save_and_apply()` rief `_apply_best_sample_rate()` bei **jeder** Output-Änderung auf.
+- Dieser Aufruf führte (über `set_sample_rate`) zu `sr_change_gen++` im SHM. Der `volume_poll_thread` des Helpers erkannte die Änderung und rief `sr_reinit_all_outputs()` auf.
+- Die alte `sr_reinit_all_outputs()` stoppte **alle** Outputs atomisch (Stop/Destroy/Create/Start) — unabhängig davon, ob sich die Sample-Rate des jeweiligen Geräts überhaupt geändert hatte.
+- Ein einzelner fehlschlagender `AudioDeviceStart` ohne Retry → der betroffene Output blieb dauerhaft `active = false` und stumm.
+
+Effektiv: Das Entfernen der MacBook-Speaker veränderte die optimale gemeinsame Sample-Rate faktisch nicht — trotzdem wurden alle Outputs durch den Reinit gerissen, und die KA6 erholte sich nicht.
+
+**Fixes:**
+
+**1. `_apply_best_sample_rate()` — Early-Return bei unveränderter SR** (`menu_bar_app.py`):
+
+```python
+# Fix 3c: Nur wenn sich die optimale SR wirklich von der aktuellen
+# Config-SR unterscheidet wird der Helper benachrichtigt. Sonst loest
+# set_sample_rate() unnoetig einen disruptiven SR-Reinit aller Outputs aus.
+if best == self._config.sample_rate:
+    logger.debug("Auto Sample-Rate: %d Hz unveraendert — kein Reinit", best)
+    return
+```
+
+Damit unterbleibt der `set_sample_rate`-Call (und das nachfolgende `sr_change_gen++`) vollständig, wenn die berechnete optimale Rate der aktuellen Config-Rate entspricht.
+
+**2. `sr_reinit_all_outputs()` — Selektiver Reinit pro Output** (`helper/AudioRouterNowHelper.c`):
+
+Statt blind alle Outputs zu stoppen, wird pro Output `kAudioDevicePropertyNominalSampleRate` des Geräts gegen die Ring-SR verglichen. Stimmen sie überein, wird **nur** die Leseposition neu gesetzt — der Output läuft ununterbrochen weiter:
+
+```c
+/* Aktuelle Device-SR lesen */
+Float64 device_sr = (Float64)new_sr;
+UInt32  sz = sizeof(Float64);
+AudioObjectGetPropertyData(dev->dev_id, &sr_prop, 0, NULL, &sz, &device_sr);
+
+/* Fix 3b: SR stimmt bereits ueberein — kein disruptiver Stop/Start. */
+if ((uint32_t)device_sr == new_sr) {
+    dev->base_ratio = 1.0;
+    uint32_t q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
+    atomic_store_explicit(&dev->src_ratio_q20, q20, memory_order_relaxed);
+    atomic_store_explicit(&dev->local_ridx, w, memory_order_release);
+    dev->src_frac_ridx = (double)w / 2.0;
+    /* active/proc_id bleiben unveraendert — Output laeuft weiter. */
+    continue;
+}
+```
+
+Nur Outputs mit tatsächlich abweichender Geräte-SR durchlaufen den vollen Stop → Destroy → Create → Start-Zyklus.
+
+**3. `sr_reinit_all_outputs()` — Retry-Logik für `AudioDeviceStart`** (`helper/AudioRouterNowHelper.c`):
+
+Für Outputs, die neu gestartet werden müssen, wird `AudioDeviceStart` bis zu 3× mit 100ms Pause versucht. Erst nach dem dritten Fehlschlag wird der Output explizit auf `active = false` gesetzt und das Scheitern protokolliert — statt eines stillen Fails:
+
+```c
+/* Fix 3a: AudioDeviceStart mit Retry — bis zu 3 Versuche, 100ms Pause.
+ * Verhindert dass ein einmaliger transienter Fehler den Output dauerhaft
+ * im stillen active=false-Zustand stehen laesst. */
+for (int retry = 0; retry < 3; retry++) {
+    err = AudioDeviceStart(dev->dev_id, dev->proc_id);
+    if (err == noErr) break;
+    if (retry < 2) usleep(100000);  /* 100ms */
+}
+if (err != noErr) {
+    fprintf(stderr, "Helper: AudioDeviceStart fehlgeschlagen nach 3 Versuchen "
+                    "(OSStatus %d) fuer %s — Output bleibt inaktiv\n",
+            (int)err, dev->name);
+    AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
+    dev->proc_id = NULL;
+    dev->active  = false;
+} else {
+    dev->active = true;
+}
+```
+
+**Resultat:** Das Ab-/Anwählen einzelner Geräte beeinflusst die übrigen Outputs nicht mehr, solange sich deren effektive Sample-Rate nicht ändert. Transiente `AudioDeviceStart`-Fehler werden überbrückt statt zu dauerhafter Stille zu führen.
+
+---
+
+### 19.4 Bug C: Kein Audio nach Neuinstallation
+
+**Symptom:** Nach einer frischen DMG-Installation fließt kein Audio. Im Helper-Status bleibt `write_idx` (bzw. `ring_frames`) bei `0`.
+
+**Root Cause:**
+
+- Der HAL-Driver schreibt nur dann Samples in den Ring, wenn `gDeviceIsRunning > 0` — dieses Flag wird durch den `StartIO`-Callback gesetzt.
+- `StartIO` wird von `coreaudiod` erst dann ausgelöst, wenn ein Audio-Client das Device aktiv öffnet.
+- Nach einer Neuinstallation sind **keine Outputs** in der Config gespeichert → `_auto_start_if_configured()` kehrt sofort zurück (kein gespeichertes Device) → kein Client öffnet "Audio Router" → kein `StartIO` → `write_idx` bleibt `0`.
+
+Der IO-Stack wird also nie "scharf geschaltet", weil zwischen erster Geräteauswahl und tatsächlichem Audio-Client eine Lazy-Init-Lücke klafft.
+
+**Fix: `_trigger_start_io` — verzögerter IO-Stack-Aufbau** (`menu_bar_app.py`):
+
+Beim ersten Output-Setup (`_save_and_apply()`, Zweig "erster aktivierter Output") wird ein Background-Thread gestartet, der 1.5s wartet (genug Zeit für coreaudiod, `StartIO` regulär auszulösen), dann den Helper-Status prüft. Ist der Ring danach immer noch leer, wird der Helper kurz heruntergefahren und neu verbunden — dieser Reconnect zwingt `coreaudiod`, den IO-Stack neu aufzubauen und `StartIO` auszulösen:
+
+```python
+def _trigger_start_io():
+    import time
+    time.sleep(1.5)  # coreaudiod braucht ~1s um StartIO auszulösen
+    status = self._helper.get_status(timeout=1.0)
+    if status and status.get("ring_frames", 0) == 0:
+        # Ring noch leer — Helper neu verbinden triggert coreaudiod
+        logger.info("StartIO-Trigger: Ring leer nach Device-Aktivierung, reconnect...")
+        self._helper.shutdown()
+        import time as _t; _t.sleep(0.5)
+        self._helper.ensure_running()
+threading.Thread(target=_trigger_start_io, daemon=True, name="start-io-trigger").start()
+```
+
+**Resultat:** Auch beim allerersten Geräte-Setup direkt nach der Installation wird der IO-Stack zuverlässig aktiviert — Audio fließt ohne manuellen Eingriff.
+
+---
+
+### 19.5 Bug D: Driver schreibt in veraltetes SHM nach Helper-Neustart
+
+**Symptom:** Nach einem Helper-Neustart (z.B. App-Neustart oder manueller Helper-Restart über die Status-Zeile) herrscht Stille: Der Driver schreibt weiterhin in das **alte**, bereits unlinkte SHM-Segment, während der frisch gestartete Helper vom **neuen** Segment liest.
+
+**Root Cause:**
+
+Beim Helper-Startup ruft dieser `shm_unlink()` + `shm_open(O_CREAT)` auf — das entfernt das alte Segment aus dem Namespace und erstellt ein **neues** unter demselben Namen. Der Driver hatte aber noch das alte Segment gemappt (`gSHMRing != NULL`). Da der Retry-Thread (`arn_shm_retry_thread`) nur läuft, **solange** `gSHMRing == NULL` ist, lief er hier nicht — der Driver schrieb für immer in das veraltete Segment.
+
+Die alte v2.1-Logik konnte einen Helper-**Neustart** also nicht erkennen, nur einen Helper-**Erststart**.
+
+**Fix: `arn_shm_watch_thread`** (`driver/src/AudioRouterNowDriver.c`):
+
+Ein neuer permanenter Watch-Thread (gestartet in `ARN_Initialize`, parallel zum Retry-Thread) erkennt das neue Segment über einen **Inode-Vergleich**:
+
+- Alle 2s `shm_open(ARN_SHM_NAME)` + `fstat()`. Zeigt der Name auf eine **andere Inode** als unser aktuelles `gSHMFD`, existiert ein neues Segment (der Helper hat neu erstellt).
+- Bei Erkennung: neues Segment mappen + validieren (`magic` / `version`), dann **atomarer Swap** von `gSHMRing` auf das neue Segment, `write_idx = read_idx` (Ring leeren) und `sr_change_gen++` zur Helper-Resync.
+
+```c
+/* Inode-Vergleich: zeigt der Name auf ein anderes Segment als unseres? */
+struct stat cur_st, chk_st;
+bool is_new_segment = false;
+if (gSHMFD >= 0 &&
+    fstat(gSHMFD, &cur_st) == 0 &&
+    fstat(check_fd, &chk_st) == 0) {
+    is_new_segment = (cur_st.st_ino != chk_st.st_ino);
+}
+...
+/* Ring leeren (write_idx = read_idx) und Helper zur Resync triggern. */
+uint32_t ridx = atomic_load_explicit(&new_ring->read_idx, memory_order_acquire);
+atomic_store_explicit(&new_ring->write_idx, ridx, memory_order_release);
+atomic_fetch_add_explicit(&new_ring->sr_change_gen, 1u, memory_order_release);
+
+/* Atomarer Swap: ab jetzt sieht der IOProc das neue Segment. */
+gSHMFD = check_fd;
+atomic_store_explicit(&gSHMRing, new_ring, memory_order_release);
+```
+
+**RT-Sicherheit (verzögerte Bereinigung):** `gSHMRing` ist jetzt als `_Atomic(ARNSharedRing *)` deklariert; der IOProc lädt den Pointer **einmal** pro Aufruf atomar in eine lokale Variable. Das alte Mapping wird **nicht sofort** unmappt, sondern erst im **nächsten** Watch-Zyklus (2s später) freigegeben (`pending_old_ring` / `pending_old_fd`). Bis dahin sind alle in-flight IOProc-Aufrufe (Dauer ≪ 1ms) auf dem alten Pointer garantiert beendet — der RT-Thread kann nie auf ein gerade unmapptes Segment zugreifen (kein SIGBUS).
+
+```c
+/* Alten Swap-Rest jetzt sicher freigeben (in-flight IOProcs sind durch). */
+if (pending_old_ring != NULL) {
+    munmap(pending_old_ring, ARN_SHM_SIZE);
+    pending_old_ring = NULL;
+}
+if (pending_old_fd >= 0) {
+    close(pending_old_fd);
+    pending_old_fd = -1;
+}
+```
+
+`arn_shm_cleanup()` setzt `gSHMWatchRunning = 0` und joined den Watch-Thread beim Entladen des Treibers — analog zum Retry-Thread.
+
+**Resultat:** Ein Helper-Neustart wird innerhalb von ≤2s erkannt; der Driver biegt automatisch auf das neue Segment um. Driver und Helper arbeiten danach wieder auf demselben Ring — kein dauerhaftes Verstummen mehr nach Helper-Neustart.
+
+---
+
+### Thread-Modell-Ergänzung (v2.3)
+
+Der Driver besitzt jetzt zwei SHM-bezogene Hintergrund-Threads:
+
+| Thread | Erstellt von | Aufgabe |
+|--------|-------------|---------|
+| `arn_shm_retry_thread` | HAL-Treiber | Wartet (alle 500ms) bis Helper SHM **erstmals** anlegt (v2.1) |
+| `arn_shm_watch_thread` | HAL-Treiber | Erkennt Helper-**Neustart** (alle 2s, Inode-Vergleich) und swappt `gSHMRing` (v2.3) |
+
+In der Engine ergänzen `_poll_volume_sync()` (im 0.5s-UI-Timer) und der `NSEvent`-Media-Key-Monitor (`_handle_media_key`) die Volume-Synchronisation; der `start-io-trigger`-Thread aktiviert einmalig den IO-Stack beim ersten Output-Setup.
+
+---
+
+*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.3.0*
