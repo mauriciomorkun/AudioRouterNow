@@ -135,7 +135,10 @@ typedef struct DeviceOutput {
 /* ── Globaler Zustand ───────────────────────────────────────────────────── */
 
 static atomic_int              g_running        = 1;
-static ARNSharedRing          *g_ring           = NULL;
+/* H2: g_ring als atomarer Pointer — IOProc lädt ihn einmal per acquire
+ * am Call-Anfang; Reconnect-Code kann ihn sicher per release-Store tauschen
+ * ohne SIGBUS-Risiko für laufende IOProcs. */
+static _Atomic(ARNSharedRing *) g_ring           = NULL;
 static int                     g_shm_fd         = -1;
 
 static DeviceOutput            g_outputs[MAX_OUTPUTS];
@@ -281,11 +284,45 @@ static ARNSharedRing *shm_connect(void)
     return ring;
 }
 
+/* H2: Deferred-Unmap — beim Live-Reconnect das alte Segment nicht sofort
+ * unmappen, sondern erst im naechsten Volume-Zyklus (50ms spaeter).
+ * Bis dahin sind alle in-flight IOProc-Calls (<1ms) garantiert durch. */
+static ARNSharedRing *g_pending_unmap_ring = NULL;
+static int            g_pending_unmap_fd   = -1;
+
+/* Gibt ggf. ausstehenden alten Ring aus dem letzten Reconnect frei. */
+static void shm_flush_pending_unmap(void)
+{
+    if (g_pending_unmap_ring != NULL) {
+        munmap(g_pending_unmap_ring, ARN_SHM_SIZE);
+        g_pending_unmap_ring = NULL;
+    }
+    if (g_pending_unmap_fd >= 0) {
+        close(g_pending_unmap_fd);
+        g_pending_unmap_fd = -1;
+    }
+}
+
+/* Deferred-Disconnect fuer Live-Reconnect: altes Segment merken, nicht sofort
+ * unmappen. Naechster shm_flush_pending_unmap()-Call (naechster Volume-Zyklus)
+ * raeumt es auf. Caller muss sicherstellen dass IOProcs vorher atomic-NULL sehen. */
+static void shm_disconnect_deferred(void)
+{
+    /* Erst vorherigen Pending-Rest freigeben (der ist jetzt alt genug). */
+    shm_flush_pending_unmap();
+
+    ARNSharedRing *old = atomic_exchange_explicit(&g_ring, NULL, memory_order_acq_rel);
+    g_pending_unmap_ring = old;
+    g_pending_unmap_fd   = g_shm_fd;
+    g_shm_fd = -1;
+}
+
 static void shm_disconnect(void)
 {
-    if (g_ring != NULL) {
-        munmap(g_ring, ARN_SHM_SIZE);
-        g_ring = NULL;
+    ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
+    if (ring != NULL) {
+        munmap(ring, ARN_SHM_SIZE);
+        atomic_store_explicit(&g_ring, NULL, memory_order_release);
     }
     if (g_shm_fd >= 0) {
         close(g_shm_fd);
@@ -514,7 +551,10 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
     atomic_fetch_add_explicit(&g_ioproc_calls, 1u, memory_order_relaxed);
 
     DeviceOutput  *dev  = (DeviceOutput *)inClientData;
-    ARNSharedRing *ring = g_ring;
+    /* H2: g_ring atomar mit acquire laden — sieht immer entweder das alte
+     * oder das neue (nie ein Halb-Pointer) und verhindert SIGBUS nach
+     * deferred-munmap im Reconnect-Pfad. */
+    ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
 
     if (!dev || !ring || !outOutputData) return noErr;
 
@@ -686,19 +726,20 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
  */
 static void update_global_read_idx(void)
 {
-    if (!g_ring) return;
+    ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
+    if (!ring) return;
 
     pthread_mutex_lock(&g_outputs_lock);
 
     if (g_n_outputs == 0) {
-        uint32_t w = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
-        atomic_store_explicit(&g_ring->read_idx, w, memory_order_release);
+        uint32_t w = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
+        atomic_store_explicit(&ring->read_idx, w, memory_order_release);
         pthread_mutex_unlock(&g_outputs_lock);
         return;
     }
 
     /* Finde Minimum aller local_ridx (mit unsigned Distanz zum write_idx) */
-    uint32_t w   = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
+    uint32_t w   = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
     uint32_t max_dist = 0;
     uint32_t min_ridx = w;
     bool     have_active = false;
@@ -718,9 +759,9 @@ static void update_global_read_idx(void)
     }
 
     if (have_active) {
-        atomic_store_explicit(&g_ring->read_idx, min_ridx, memory_order_release);
+        atomic_store_explicit(&ring->read_idx, min_ridx, memory_order_release);
     } else {
-        atomic_store_explicit(&g_ring->read_idx, w, memory_order_release);
+        atomic_store_explicit(&ring->read_idx, w, memory_order_release);
     }
 
     pthread_mutex_unlock(&g_outputs_lock);
@@ -770,8 +811,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
         pthread_mutex_unlock(&g_outputs_lock);
         return -1;
     }
-    uint32_t start_widx = g_ring
-        ? atomic_load_explicit(&g_ring->write_idx, memory_order_acquire) : 0u;
+    ARNSharedRing *ring_snap = atomic_load_explicit(&g_ring, memory_order_acquire);
+    uint32_t start_widx = ring_snap
+        ? atomic_load_explicit(&ring_snap->write_idx, memory_order_acquire) : 0u;
     pthread_mutex_unlock(&g_outputs_lock);
 
     /* ── Phase 2: Schwere Arbeit auf Stack-Kopie, KEIN Lock ── */
@@ -806,7 +848,8 @@ static int output_add(const char *uid, uint32_t ch_offset)
     atomic_store_explicit(&tmp.stalled, 0u, memory_order_relaxed);
 
     /* Sample-Rate-Abgleich und SRC-Initialisierung (wie in output_add_locked) */
-    Float64 ring_sr   = (Float64)(g_ring ? atomic_load_explicit(&g_ring->sample_rate, memory_order_acquire) : 48000u);
+    ARNSharedRing *ring_now = atomic_load_explicit(&g_ring, memory_order_acquire);
+    Float64 ring_sr   = (Float64)(ring_now ? atomic_load_explicit(&ring_now->sample_rate, memory_order_acquire) : 48000u);
     Float64 device_sr = ring_sr;
     AudioObjectPropertyAddress sr_prop = {
         kAudioDevicePropertyNominalSampleRate,
@@ -957,9 +1000,12 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
     }
 
     /* Start-Position: aktueller write_idx — neue Outputs hoeren ab JETZT */
-    if (g_ring) {
-        uint32_t widx = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
-        atomic_store_explicit(&dev->local_ridx, widx, memory_order_relaxed);
+    {
+        ARNSharedRing *rl = atomic_load_explicit(&g_ring, memory_order_acquire);
+        if (rl) {
+            uint32_t widx = atomic_load_explicit(&rl->write_idx, memory_order_acquire);
+            atomic_store_explicit(&dev->local_ridx, widx, memory_order_relaxed);
+        }
     }
     atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
     dev->last_ridx_sample = atomic_load_explicit(&dev->local_ridx, memory_order_relaxed);
@@ -989,7 +1035,8 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
      *      Der IOProc liest pro Output-Frame proportional mehr Ring-Frames →
      *      korrekte Zeitstreckung / Tonhoehe. P-Regler korrigiert um base_ratio.
      * ──────────────────────────────────────────────────────────────────────── */
-    Float64 ring_sr   = (Float64)(g_ring ? g_ring->sample_rate : 48000u);
+    ARNSharedRing *rl2 = atomic_load_explicit(&g_ring, memory_order_acquire);
+    Float64 ring_sr   = (Float64)(rl2 ? atomic_load_explicit(&rl2->sample_rate, memory_order_acquire) : 48000u);
     Float64 device_sr = ring_sr;
     AudioObjectPropertyAddress sr_prop = {
         kAudioDevicePropertyNominalSampleRate,
@@ -1097,10 +1144,12 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
  * Stoppt alle IOProcs, berechnet base_ratio neu, startet IOProcs neu.
  */
 static void sr_reinit_all_outputs(void) {
-    uint32_t new_sr = atomic_load_explicit(&g_ring->sample_rate, memory_order_acquire);
+    ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
+    if (!ring) return;
+    uint32_t new_sr = atomic_load_explicit(&ring->sample_rate, memory_order_acquire);
     fprintf(stdout, "Helper: Sample-Rate geaendert auf %u Hz — pruefe Outputs\n", new_sr);
 
-    uint32_t w = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
+    uint32_t w = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
 
     AudioObjectPropertyAddress sr_prop = {
         kAudioDevicePropertyNominalSampleRate,
@@ -1329,33 +1378,46 @@ static void *volume_poll_thread(void *arg)
     (void)arg;
     while (atomic_load_explicit(&g_volume_running, memory_order_acquire) &&
            atomic_load_explicit(&g_running, memory_order_acquire)) {
-        if (g_ring) {
+        /* H2: Ausstehenden deferred-Unmap aus dem letzten Reconnect abräumen. */
+        shm_flush_pending_unmap();
+
+        ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
+        if (ring) {
             /* Robustheit: Driver wurde evtl. neu geladen — magic/version pruefen.
              * Bei Mismatch (z.B. coreaudiod restart): SHM neu verbinden. */
-            if (g_ring->magic != ARN_RING_MAGIC || g_ring->version != ARN_RING_VERSION) {
+            if (ring->magic != ARN_RING_MAGIC || ring->version != ARN_RING_VERSION) {
                 fprintf(stderr, "Helper: SHM-Header invalid — Driver wurde neu geladen, reconnect...\n");
-                shm_disconnect();
-                /* Reconnect — bis es klappt oder shutdown */
+                /* H2: Deferred-Disconnect — IOProcs sehen sofort NULL (acquire),
+                 * altes Segment wird erst im naechsten Zyklus wirklich unmappt. */
+                shm_disconnect_deferred();
+
+                /* Reconnect-Loop */
                 while (atomic_load_explicit(&g_running, memory_order_acquire) &&
                        atomic_load_explicit(&g_volume_running, memory_order_acquire)) {
-                    g_ring = shm_connect();
-                    if (g_ring) break;
+                    ARNSharedRing *new_ring = shm_connect();
+                    if (new_ring) {
+                        atomic_store_explicit(&g_ring, new_ring, memory_order_release);
+                        break;
+                    }
                     usleep(SHM_RETRY_INTERVAL_US);
                 }
                 /* Local-Read-Indices der Outputs auf aktuelles write_idx setzen */
-                if (g_ring) {
-                    uint32_t w = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
-                    pthread_mutex_lock(&g_outputs_lock);
-                    for (int i = 0; i < g_n_outputs; i++) {
-                        atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
-                        /* K6: Pending-Reset — IOProc koennte weiter laufen waehrend
-                         * wir reconnecten. Direktschreiben in src_frac_ridx = Data Race. */
-                        atomic_store_explicit(&g_outputs[i].frac_ridx_reset_widx, w,
-                                              memory_order_relaxed);
-                        atomic_store_explicit(&g_outputs[i].frac_ridx_reset_pending, 1u,
-                                              memory_order_release);
+                {
+                    ARNSharedRing *reconnected = atomic_load_explicit(&g_ring, memory_order_acquire);
+                    if (reconnected) {
+                        uint32_t w = atomic_load_explicit(&reconnected->write_idx, memory_order_acquire);
+                        pthread_mutex_lock(&g_outputs_lock);
+                        for (int i = 0; i < g_n_outputs; i++) {
+                            atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
+                            /* K6: Pending-Reset — IOProc koennte weiter laufen waehrend
+                             * wir reconnecten. Direktschreiben in src_frac_ridx = Data Race. */
+                            atomic_store_explicit(&g_outputs[i].frac_ridx_reset_widx, w,
+                                                  memory_order_relaxed);
+                            atomic_store_explicit(&g_outputs[i].frac_ridx_reset_pending, 1u,
+                                                  memory_order_release);
+                        }
+                        pthread_mutex_unlock(&g_outputs_lock);
                     }
-                    pthread_mutex_unlock(&g_outputs_lock);
                 }
                 continue;
             }
@@ -1366,7 +1428,7 @@ static void *volume_poll_thread(void *arg)
             #define SRC_RATIO_CLAMP  (SRC_MAX_PPM / 1000000.0f)
 
             pthread_mutex_lock(&g_outputs_lock);
-            uint32_t w_now = atomic_load_explicit(&g_ring->write_idx, memory_order_acquire);
+            uint32_t w_now = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
 
             for (int i = 0; i < g_n_outputs; i++) {
                 DeviceOutput *dev = &g_outputs[i];
@@ -1429,8 +1491,9 @@ static void *volume_poll_thread(void *arg)
         /* SR-Aenderung erkennen (sr_change_gen wird vom Driver inkrementiert) */
         {
             static uint32_t last_sr_gen = UINT32_MAX; /* UINT32_MAX = noch nicht initialisiert */
-            if (g_ring) {
-                uint32_t cur_gen = atomic_load_explicit(&g_ring->sr_change_gen, memory_order_acquire);
+            ARNSharedRing *rsr2 = atomic_load_explicit(&g_ring, memory_order_acquire);
+            if (rsr2) {
+                uint32_t cur_gen = atomic_load_explicit(&rsr2->sr_change_gen, memory_order_acquire);
                 if (last_sr_gen == UINT32_MAX) {
                     last_sr_gen = cur_gen; /* Initialisierung: aktuellen Wert merken */
                 } else if (cur_gen != last_sr_gen) {
@@ -1639,7 +1702,8 @@ static int parse_and_execute(int fd, const char *line)
         }
         char active_buf[4096];
         format_active_outputs(active_buf, sizeof(active_buf));
-        uint32_t frames = g_ring ? arn_ring_frames_available(g_ring) : 0u;
+        ARNSharedRing *rstat = atomic_load_explicit(&g_ring, memory_order_acquire);
+        uint32_t frames = rstat ? arn_ring_frames_available(rstat) : 0u;
         uint32_t calls  = atomic_load_explicit(&g_ioproc_calls, memory_order_relaxed);
         snprintf(resp, sizeof(resp),
                  "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u,\"ready\":true}",
@@ -1730,14 +1794,15 @@ static int parse_and_execute(int fd, const char *line)
             return 0;
         }
 
-        if (!g_ring) {
+        ARNSharedRing *rsr = atomic_load_explicit(&g_ring, memory_order_acquire);
+        if (!rsr) {
             snprintf(resp, sizeof(resp), "{\"ok\":false,\"error\":\"ring not ready\"}");
             send_line(fd, resp);
             return 0;
         }
 
         /* Schritt 1: Ring-SR direkt setzen (loest sr_change_gen aus) */
-        arn_ring_set_sample_rate(g_ring, new_sr);
+        arn_ring_set_sample_rate(rsr, new_sr);
         fprintf(stdout, "Helper: set_sample_rate %u Hz (via Config-Socket)\n", new_sr);
 
         /* Schritt 2: Treiber ueber die neue SR informieren (damit gSampleRate + Timing stimmen).
@@ -2004,9 +2069,12 @@ int main(int argc, char *argv[])
 
     /* 3. SHM-Ring verbinden (direkt — wir haben es gerade selbst angelegt) */
     fprintf(stdout, "Warte auf SHM-Ring vom Plugin...\n");
-    while (atomic_load_explicit(&g_running, memory_order_acquire) && g_ring == NULL) {
-        g_ring = shm_connect();
-        if (g_ring == NULL) {
+    while (atomic_load_explicit(&g_running, memory_order_acquire) &&
+           atomic_load_explicit(&g_ring, memory_order_acquire) == NULL) {
+        ARNSharedRing *connected = shm_connect();
+        if (connected != NULL) {
+            atomic_store_explicit(&g_ring, connected, memory_order_release);
+        } else {
             usleep(SHM_RETRY_INTERVAL_US);
         }
     }
@@ -2077,7 +2145,8 @@ int main(int argc, char *argv[])
         usleep(200000); /* 200ms */
         tick++;
         if (tick % 10 == 0) {
-            uint32_t frames = g_ring ? arn_ring_frames_available(g_ring) : 0u;
+            ARNSharedRing *rmain = atomic_load_explicit(&g_ring, memory_order_acquire);
+            uint32_t frames = rmain ? arn_ring_frames_available(rmain) : 0u;
             uint32_t calls  = atomic_load_explicit(&g_ioproc_calls, memory_order_relaxed);
             uint32_t delta  = calls - prev_calls;
             prev_calls = calls;
@@ -2117,6 +2186,8 @@ int main(int argc, char *argv[])
         close(g_lock_fd);
         g_lock_fd = -1;
     }
+
+    shm_flush_pending_unmap();  /* H2: letzten Reconnect-Rest freigeben */
 
     fprintf(stdout, "Helper: beendet.\n");
     return 0;
