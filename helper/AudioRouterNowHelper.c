@@ -480,8 +480,14 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
         nFrames = outOutputData->mBuffers[0].mDataByteSize / sizeof(float) / nCh;
     }
 
+    /* K7: BSS-Overflow-Guard — nFrames darf temp_buf[ARN_RING_CAPACITY] nie
+     * ueberlaufen (max Index = (nFrames-1)*2+1 <= ARN_RING_CAPACITY-1).
+     * CoreAudio liefert normalerweise <= 4096, aber ohne Clamp waere ein
+     * nFrames > 8192 ein stiller BSS-Overflow. */
+    if (nFrames > ARN_RING_CAPACITY / 2u) {
+        nFrames = ARN_RING_CAPACITY / 2u;
+    }
     uint32_t nSamplesStereo = nFrames * 2u;
-    if (nSamplesStereo > ARN_RING_CAPACITY) nSamplesStereo = ARN_RING_CAPACITY;
 
     /* ── Fraktionaler Ring-Read mit linearer Interpolation (Phase 6 SRC) ──
      *
