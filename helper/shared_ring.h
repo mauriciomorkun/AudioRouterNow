@@ -146,6 +146,9 @@ arn_ring_write(ARNSharedRing *ring, const float *samples, uint32_t count)
         widx++;
     }
 
+    /* M10: Kein expliziter Fence noetig — der release-Store auf write_idx
+     * publiziert alle vorausgehenden plain Sample-Stores atomar gegenueber
+     * einem Consumer der write_idx mit acquire laedt (Release-Acquire-Paar). */
     atomic_store_explicit(&ring->write_idx, widx, memory_order_release);
     return count;
 }
@@ -186,7 +189,9 @@ static inline uint32_t
 arn_ring_frames_available(const ARNSharedRing *ring)
 {
     if (ring->channels == 0) return 0u;
+    /* M1: read_idx zuerst mit acquire laden (verhindert stale Low-Water-Mark),
+     * dann write_idx — konsistente Speicherordnung fuer Diagnose-Reports. */
+    uint32_t r = atomic_load_explicit(&ring->read_idx,  memory_order_acquire);
     uint32_t w = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
-    uint32_t r = atomic_load_explicit(&ring->read_idx,  memory_order_relaxed);
     return (w - r) / ring->channels;
 }
