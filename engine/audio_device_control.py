@@ -7,7 +7,6 @@ einschliesslich macOS 26+, wo 'sound preferences' nicht mehr unterstuetzt wird).
 
 import ctypes
 import logging
-import threading
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -33,40 +32,6 @@ class _AudioObjectPropertyAddress(ctypes.Structure):
         ("mScope",    ctypes.c_uint32),
         ("mElement",  ctypes.c_uint32),
     ]
-
-
-# --------------------------------------------------------------------------
-# Keep-Alive IOProc — hält das virtuelle Device dauerhaft im Running-Zustand
-# --------------------------------------------------------------------------
-
-# IOProc-Callback-Typ (AudioDeviceIOProc)
-# OSStatus callback(AudioDeviceID, AudioTimeStamp*, AudioBufferList*,
-#                   AudioTimeStamp*, AudioBufferList*, AudioTimeStamp*, void*)
-_AudioDeviceIOProc_TYPE = ctypes.CFUNCTYPE(
-    ctypes.c_int32,   # OSStatus return
-    ctypes.c_uint32,  # AudioDeviceID inDevice
-    ctypes.c_void_p,  # const AudioTimeStamp *inNow
-    ctypes.c_void_p,  # const AudioBufferList *inInputData
-    ctypes.c_void_p,  # const AudioTimeStamp *inInputTime
-    ctypes.c_void_p,  # AudioBufferList *outOutputData
-    ctypes.c_void_p,  # const AudioTimeStamp *inOutputTime
-    ctypes.c_void_p,  # void *inClientData
-)
-
-
-def _noop_ioproc(dev_id, now, in_data, in_time, out_data, out_time, client):
-    """No-Op IOProc — hält das virtuelle Device im Running-Zustand."""
-    return 0  # kAudioHardwareNoError
-
-
-# WICHTIG: Modulglobal halten — ctypes-Callbacks werden vom GC gesammelt,
-# wenn keine Python-Referenz mehr existiert → Crash im RT-Thread des Drivers.
-_NOOP_CB = _AudioDeviceIOProc_TYPE(_noop_ioproc)
-
-# Zustand des Keep-Alive IOProc (modulglobal für GC-Schutz und Idempotenz)
-_keepalive_lock    = threading.Lock()
-_keepalive_proc_id = ctypes.c_void_p(0)
-_keepalive_dev_id: Optional[int] = None
 
 
 def _load_frameworks():
@@ -602,116 +567,16 @@ def get_audio_router_sample_rate() -> int:
         return 48000
 
 
+# Keep-Alive wird ab v2.6 vom C-Helper verwaltet (keepalive_ioproc in AudioRouterNowHelper.c).
+# Python-ctypes-Callbacks verursachen Stale-Pointer in coreaudiod nach Prozess-Exit.
+# Diese Stubs bleiben für API-Kompatibilität.
+
 def ensure_router_keepalive() -> bool:
-    """
-    Erstellt einen persistenten No-Op-IOProc auf dem 'Audio Router' Device
-    und startet ihn via AudioDeviceStart(device, procID).
-
-    Dadurch bleibt gDeviceIsRunning=1 dauerhaft — unabhängig davon ob
-    Apple Music, Spotify o.ä. gerade einen eigenen IOProc hält.
-
-    Idempotent: Mehrfachaufrufe sind sicher (prüft ob bereits aktiv).
-    Gibt True zurück wenn Keep-Alive aktiv oder erfolgreich gestartet.
-
-    WICHTIG: _NOOP_CB muss modulglobal leben (kein GC im RT-Thread).
-    """
-    global _keepalive_proc_id, _keepalive_dev_id
-
-    with _keepalive_lock:
-        # Bereits aktiv und gleiches Device?
-        if _keepalive_proc_id.value and _keepalive_proc_id.value != 0:
-            return True
-
-        try:
-            CA, _ = _load_frameworks()
-
-            device_id = _find_audio_router_device_id()
-            if device_id is None:
-                logger.warning("ensure_router_keepalive: Audio Router Device nicht gefunden")
-                return False
-
-            # AudioDeviceCreateIOProcID(inDevice, inProc, inClientData, outIOProcID)
-            CA.AudioDeviceCreateIOProcID.argtypes = [
-                ctypes.c_uint32,               # AudioDeviceID
-                ctypes.c_void_p,               # AudioDeviceIOProc (Funktionszeiger)
-                ctypes.c_void_p,               # void *inClientData
-                ctypes.POINTER(ctypes.c_void_p),  # AudioDeviceIOProcID *outIOProcID
-            ]
-            CA.AudioDeviceCreateIOProcID.restype = ctypes.c_int32
-
-            proc_id = ctypes.c_void_p(0)
-            status = CA.AudioDeviceCreateIOProcID(
-                ctypes.c_uint32(device_id),
-                _NOOP_CB,
-                None,
-                ctypes.byref(proc_id),
-            )
-            if status != 0:
-                logger.warning(
-                    "ensure_router_keepalive: AudioDeviceCreateIOProcID OSStatus %d", status
-                )
-                return False
-
-            # AudioDeviceStart(inDevice, inProcID) — mit echtem ProcID (nicht NULL)
-            CA.AudioDeviceStart.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-            CA.AudioDeviceStart.restype  = ctypes.c_int32
-
-            status = CA.AudioDeviceStart(ctypes.c_uint32(device_id), proc_id)
-            if status != 0:
-                logger.warning(
-                    "ensure_router_keepalive: AudioDeviceStart OSStatus %d", status
-                )
-                # Proc-ID aufräumen
-                CA.AudioDeviceDestroyIOProcID.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-                CA.AudioDeviceDestroyIOProcID.restype  = ctypes.c_int32
-                CA.AudioDeviceDestroyIOProcID(ctypes.c_uint32(device_id), proc_id)
-                return False
-
-            _keepalive_proc_id = proc_id
-            _keepalive_dev_id  = device_id
-            logger.info(
-                "ensure_router_keepalive: Keep-Alive IOProc gestartet (Device ID %d)",
-                device_id,
-            )
-            return True
-
-        except Exception as exc:
-            logger.error("ensure_router_keepalive Fehler: %s", exc)
-            return False
+    """Stub — Keep-Alive wird vom C-Helper (keepalive_ioproc) verwaltet."""
+    logger.debug("ensure_router_keepalive: Stub — Keep-Alive in C-Helper")
+    return True
 
 
 def stop_router_keepalive() -> None:
-    """
-    Stoppt und entfernt den Keep-Alive-IOProc.
-
-    Sollte bei App-Quit aufgerufen werden, damit kein verwaister IOProc
-    in coreaudiod übrig bleibt.
-    Idempotent: sicher bei Mehrfachaufruf.
-    """
-    global _keepalive_proc_id, _keepalive_dev_id
-
-    with _keepalive_lock:
-        if not _keepalive_proc_id.value or _keepalive_proc_id.value == 0:
-            return
-        if _keepalive_dev_id is None:
-            return
-
-        try:
-            CA, _ = _load_frameworks()
-            dev  = ctypes.c_uint32(_keepalive_dev_id)
-            proc = _keepalive_proc_id
-
-            CA.AudioDeviceStop.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-            CA.AudioDeviceStop.restype  = ctypes.c_int32
-            CA.AudioDeviceDestroyIOProcID.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
-            CA.AudioDeviceDestroyIOProcID.restype  = ctypes.c_int32
-
-            CA.AudioDeviceStop(dev, proc)
-            CA.AudioDeviceDestroyIOProcID(dev, proc)
-
-            _keepalive_proc_id = ctypes.c_void_p(0)
-            _keepalive_dev_id  = None
-            logger.info("stop_router_keepalive: Keep-Alive IOProc gestoppt")
-
-        except Exception as exc:
-            logger.error("stop_router_keepalive Fehler: %s", exc)
+    """Stub — Keep-Alive wird vom C-Helper beim Shutdown gestoppt."""
+    logger.debug("stop_router_keepalive: Stub — Keep-Alive in C-Helper")
