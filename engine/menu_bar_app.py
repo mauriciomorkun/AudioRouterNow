@@ -805,22 +805,30 @@ class AudioRouterApp(rumps.App):
 
         logger.info("Auto-start: lade Outputs %s", ", ".join(self._active_device_names))
 
-        # Schritt 1: Keep-Alive IOProc sicherstellen (Fix-1)
-        # Macht gDeviceIsRunning=1 — muss VOR dem Default-Switch passieren.
-        keepalive_ok = ensure_router_keepalive()
-        if not keepalive_ok:
-            logger.warning("Auto-start: Keep-Alive fehlgeschlagen — fahre trotzdem fort")
+        # Fix-1 + Fix-4 + Threading-Fix:
+        # ensure_router_keepalive() ruft AudioDeviceCreateIOProcID + AudioDeviceStart auf.
+        # Diese CoreAudio-Calls können den aufrufenden Thread für mehrere Sekunden blockieren
+        # (coreaudiod muss RT-Thread aufbauen). Deshalb: gesamte Start-Sequenz im
+        # Background-Thread, damit der rumps Main-Thread nicht einfriert.
+        # Reihenfolge bleibt gewahrt: Keep-Alive → Default-Switch → SR → Outputs.
+        def _do_start():
+            # Schritt 1: Keep-Alive IOProc (Fix-1) — BEVOR Default-Switch (Fix-4)
+            keepalive_ok = ensure_router_keepalive()
+            if not keepalive_ok:
+                logger.warning("Auto-start: Keep-Alive fehlgeschlagen — fahre trotzdem fort")
 
-        # Schritt 2: Default-Output idempotent setzen (Fix-4)
-        if not is_audio_router_default():
-            set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
-            set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
-        else:
-            logger.debug("Auto-start: Audio Router bereits Default-Output — kein Switch nötig")
+            # Schritt 2: Default-Output idempotent setzen (Fix-4)
+            if not is_audio_router_default():
+                set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
+                set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
+            else:
+                logger.debug("Auto-start: Audio Router bereits Default — kein Switch nötig")
 
-        # Schritt 3 + 4: Sample-Rate + Helper-Outputs
-        self._apply_best_sample_rate()
-        self._apply_active_outputs()
+            # Schritt 3 + 4: Sample-Rate + Helper-Outputs
+            self._apply_best_sample_rate()
+            self._apply_active_outputs()
+
+        threading.Thread(target=_do_start, daemon=True, name="auto-start-io").start()
         self._update_status_ui()
 
     def _save_and_apply(self):
@@ -840,8 +848,13 @@ class AudioRouterApp(rumps.App):
             set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
             logger.info("Auto-Switch: System-Audio auf Audio Router umgestellt")
 
-            # Fix-1: Keep-Alive IOProc starten statt fragilen NULL-IOProc-Hack
-            ensure_router_keepalive()
+            # Fix-1: Keep-Alive IOProc im Background-Thread starten.
+            # AudioDeviceStart blockiert den aufrufenden Thread — niemals synchron
+            # vom Main-Thread aufrufen, sonst friert die App für ~10s ein.
+            threading.Thread(
+                target=ensure_router_keepalive,
+                daemon=True, name="keepalive-trigger"
+            ).start()
 
         self._apply_active_outputs()
         if self._config.auto_sample_rate:
