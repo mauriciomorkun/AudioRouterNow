@@ -1615,10 +1615,16 @@ int main(int argc, char *argv[])
                 void *ptr = mmap(NULL, ARN_SHM_SIZE, PROT_READ | PROT_WRITE,
                                  MAP_SHARED, shm_fd, 0);
                 if (ptr != MAP_FAILED) {
-                    arn_ring_init((ARNSharedRing *)ptr);
+                    ARNSharedRing *init_ring = (ARNSharedRing *)ptr;
+                    arn_ring_init(init_ring);
+                    /* K3: instance_id setzen — eindeutiger Wert pro SHM-Erstellung.
+                     * Driver-Watch-Thread vergleicht dieses Feld statt Inodes. */
+                    uint64_t iid = mach_absolute_time() ^ (uint64_t)getpid();
+                    if (iid == 0) iid = 1; /* Niemals 0 (= nicht initialisiert) */
+                    atomic_store_explicit(&init_ring->instance_id, iid, memory_order_release);
                     munmap(ptr, ARN_SHM_SIZE);
-                    fprintf(stdout, "Helper: SHM erstellt (%s, 0666, %zu Bytes)\n",
-                            ARN_SHM_NAME, ARN_SHM_SIZE);
+                    fprintf(stdout, "Helper: SHM erstellt (%s, 0666, %zu Bytes, iid=0x%llx)\n",
+                            ARN_SHM_NAME, ARN_SHM_SIZE, (unsigned long long)iid);
                 } else {
                     fprintf(stderr, "Helper: SHM mmap fehlgeschlagen (errno=%d)\n", errno);
                 }

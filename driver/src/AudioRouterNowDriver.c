@@ -299,14 +299,28 @@ static void *arn_shm_watch_thread(void *arg)
         int check_fd = shm_open(ARN_SHM_NAME, O_RDWR, 0);
         if (check_fd < 0) continue; /* gerade nicht vorhanden */
 
-        /* Inode-Vergleich: zeigt der Name auf ein anderes Segment als unseres? */
-        struct stat cur_st, chk_st;
+        /* K3: instance_id-Vergleich statt Inode-Vergleich.
+         * macOS recycelt Inodes (insbesondere fuer POSIX-SHM), was zu
+         * False-Negatives fuehrt (neues Segment wird als altes erkannt).
+         * Die instance_id wird vom Helper bei jeder SHM-Erstellung auf einen
+         * eindeutigen Wert gesetzt (mach_absolute_time XOR pid). */
         bool is_new_segment = false;
-        if (gSHMFD >= 0 &&
-            fstat(gSHMFD, &cur_st) == 0 &&
-            fstat(check_fd, &chk_st) == 0) {
-            is_new_segment = (cur_st.st_ino != chk_st.st_ino);
+        void *chk_ptr = mmap(NULL, ARN_SHM_SIZE, PROT_READ | PROT_WRITE,
+                              MAP_SHARED, check_fd, 0);
+        if (chk_ptr != MAP_FAILED) {
+            ARNSharedRing *chk_ring = (ARNSharedRing *)chk_ptr;
+            ARNSharedRing *cur_ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
+            if (cur_ring != NULL) {
+                uint64_t cur_iid = (uint64_t)atomic_load_explicit(&cur_ring->instance_id,
+                                                                   memory_order_acquire);
+                uint64_t chk_iid = (uint64_t)atomic_load_explicit(&chk_ring->instance_id,
+                                                                   memory_order_acquire);
+                /* Neues Segment: instance_id unterscheidet sich und ist nicht 0 */
+                is_new_segment = (chk_iid != 0 && cur_iid != chk_iid);
+            }
+            munmap(chk_ptr, ARN_SHM_SIZE);
         }
+        /* check_fd bleibt offen falls is_new_segment — wird dann als neues gSHMFD gesetzt. */
 
         if (!is_new_segment) {
             close(check_fd);
