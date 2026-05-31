@@ -178,7 +178,7 @@ static AudioDeviceIOProcID     g_keepalive_proc_id = NULL;
 
 static inline uint64_t get_time_ns(void);  /* K2: Stall-Detection Zeitstempel */
 static int   output_add(const char *uid, uint32_t ch_offset);
-static int   output_add_locked(const char *uid, uint32_t ch_offset);
+/* output_add_locked: entfernt in v2.8 (H1) — ersetzt durch output_add() */
 static void  output_remove_locked(const char *uid, uint32_t ch_offset);
 static void  outputs_stop_all(void);
 static char *device_get_uid(AudioDeviceID dev_id);
@@ -951,11 +951,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
     return 0;
 }
 
-/*
- * Fuegt Output-Device hinzu (idempotent).
- * Rueckgabe: 0=OK, -1=Fehler.
- * MUSS unter g_outputs_lock aufgerufen werden.
- */
+/* output_add_locked() in v2.8 entfernt — ersetzt durch output_add() (H1-Fix).
+ * Die folgende Funktion war toter Code nach dem H1-Umbau. */
+#if 0
 static int output_add_locked(const char *uid, uint32_t ch_offset)
 {
     /* Idempotent: schon vorhanden? */
@@ -1108,6 +1106,7 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
             dev->name, ch_offset + 1, ch_offset + 2, uid);
     return 0;
 }
+#endif /* output_add_locked — DEAD CODE, entfernt in v2.8 */
 
 /*
  * Entfernt Output-Device (uid + ch_offset).
