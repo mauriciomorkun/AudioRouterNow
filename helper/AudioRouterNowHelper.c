@@ -248,7 +248,7 @@ static char *device_get_uid(AudioDeviceID dev_id)
         .mElement  = kAudioObjectPropertyElementMain
     };
     CFStringRef uid_ref = NULL;
-    UInt32 size = sizeof(uid_ref);
+    UInt32 size = sizeof(CFStringRef);
     OSStatus err = AudioObjectGetPropertyData(dev_id, &addr, 0, NULL, &size, &uid_ref);
     if (err != noErr || uid_ref == NULL) return NULL;
 
@@ -270,7 +270,7 @@ static char *device_get_name(AudioDeviceID dev_id)
         .mElement  = kAudioObjectPropertyElementMain
     };
     CFStringRef name_ref = NULL;
-    UInt32 size = sizeof(name_ref);
+    UInt32 size = sizeof(CFStringRef);
     OSStatus err = AudioObjectGetPropertyData(dev_id, &addr, 0, NULL, &size, &name_ref);
     if (err != noErr || name_ref == NULL) return strdup("(unbekannt)");
 
@@ -736,11 +736,13 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
     if (AudioObjectGetPropertyData(dev_id, &sr_prop, 0, NULL, &sr_size, &device_sr) != noErr) {
         device_sr = ring_sr; /* Fallback: gleiche Rate annehmen */
     }
+    bool sr_was_changed = false;
     if ((uint32_t)device_sr != (uint32_t)ring_sr) {
         /* Versuche Device-Rate auf Ring-Rate zu setzen */
         if (AudioObjectSetPropertyData(dev_id, &sr_prop, 0, NULL, sizeof(Float64), &ring_sr) == noErr) {
             fprintf(stdout, "Helper: '%s' Sample-Rate auf %.0f Hz gesetzt\n", uid, ring_sr);
             device_sr = ring_sr;
+            sr_was_changed = true;
         } else {
             fprintf(stderr, "Helper: Warnung — '%s' laeuft auf %.0f Hz (Ring: %.0f Hz) "
                     "— SRC-Basisverhaeltnis %.6f\n",
@@ -749,9 +751,24 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
     }
     dev->base_ratio = ring_sr / device_sr; /* 1.0 bei gleicher Rate */
 
-    OSStatus err = AudioDeviceCreateIOProcID(dev_id, device_ioproc, dev, &dev->proc_id);
+    /* USB-Devices brauchen Zeit zum Rekonfigurieren nach SR-Wechsel.
+     * Retry mit Pause verhindert 'nope'-Fehler von AudioDeviceCreateIOProcID. */
+    OSStatus err = kAudioHardwareNotRunningError;
+    int max_attempts = sr_was_changed ? 5 : 1;
+    for (int attempt = 0; attempt < max_attempts; attempt++) {
+        if (attempt > 0) {
+            usleep(200000); /* 200ms — USB-Device Rekonfigurierungszeit */
+        }
+        err = AudioDeviceCreateIOProcID(dev_id, device_ioproc, dev, &dev->proc_id);
+        if (err == noErr) break;
+        if (attempt > 0 || max_attempts > 1) {
+            fprintf(stderr, "Helper: AudioDeviceCreateIOProcID Versuch %d/%d fehlgeschlagen "
+                    "(OSStatus %d) fuer '%s'\n", attempt + 1, max_attempts, (int)err, uid);
+        }
+        dev->proc_id = NULL;
+    }
     if (err != noErr) {
-        fprintf(stderr, "Helper: AudioDeviceCreateIOProcID fuer '%s' fehlgeschlagen (err=%d)\n",
+        fprintf(stderr, "Helper: AudioDeviceCreateIOProcID fuer '%s' endgueltig fehlgeschlagen (err=%d)\n",
                 uid, (int)err);
         return -1;
     }
@@ -868,12 +885,23 @@ static void sr_reinit_all_outputs(void) {
         atomic_store_explicit(&dev->src_ratio_q20, init_q20, memory_order_relaxed);
         atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
 
-        /* Schritt 4: IOProc neu erzeugen */
-        OSStatus err = AudioDeviceCreateIOProcID(dev->dev_id, device_ioproc, dev, &dev->proc_id);
+        /* Schritt 4: IOProc neu erzeugen — mit Retry nach SR-Wechsel.
+         * USB-Devices brauchen 100-500ms zum Rekonfigurieren nach SR-Wechsel.
+         * Sofortiger AudioDeviceCreateIOProcID-Aufruf schlaegt mit 'nope' fehl. */
+        OSStatus err = kAudioHardwareNotRunningError;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            if (attempt > 0) {
+                usleep(200000); /* 200ms — USB-Device Rekonfigurierungszeit */
+            }
+            err = AudioDeviceCreateIOProcID(dev->dev_id, device_ioproc, dev, &dev->proc_id);
+            if (err == noErr) break;
+            fprintf(stderr, "Helper: AudioDeviceCreateIOProcID Versuch %d/5 fehlgeschlagen "
+                            "(OSStatus %d) fuer %s\n", attempt + 1, (int)err, dev->name);
+            dev->proc_id = NULL;
+        }
         if (err != noErr) {
-            fprintf(stderr, "Helper: AudioDeviceCreateIOProcID fehlgeschlagen "
-                            "(OSStatus %d) fuer %s — Output bleibt inaktiv\n",
-                    (int)err, dev->name);
+            fprintf(stderr, "Helper: AudioDeviceCreateIOProcID endgueltig fehlgeschlagen "
+                            "fuer %s — Output bleibt inaktiv\n", dev->name);
             dev->active = false;
             continue;
         }
@@ -1044,7 +1072,7 @@ static void *volume_poll_thread(void *arg)
 
                 /* P-Regler: positiver Fehler = Ring laeuft voll -> schneller abspielen */
                 float error_norm = (float)((int32_t)fill_frames - (int32_t)target_frames)
-                                   / (float)(ARN_RING_CAPACITY / 2u);
+                                   / ((float)ARN_RING_CAPACITY * 0.5f);
                 float correction = error_norm * SRC_P_GAIN;
 
                 /* Clamp auf +/-500ppm */
