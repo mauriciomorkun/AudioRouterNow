@@ -15,6 +15,7 @@ nach einem Neustart oder beim An-/Abstecken von Devices aendern koennen.
 import json
 import logging
 import os
+import tempfile
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Dict, List
@@ -94,10 +95,18 @@ def save_config(config: AppConfig):
 
     Erstellt das Verzeichnis falls es nicht existiert.
     """
+    # M9: Atomares Schreiben via Temp-Datei + rename().
+    # rename() ist auf macOS/POSIX atomar (gleiche Partition) — ein Absturz
+    # während des Schreibens hinterlässt entweder die alte oder die neue
+    # vollständige Datei, nie ein korrumpiertes Halb-JSON.
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        tmp_path = CONFIG_FILE.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(config.to_dict(), f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp_path.replace(CONFIG_FILE)  # atomares rename (POSIX garantiert)
         logger.debug(f"Konfiguration gespeichert: {CONFIG_FILE}")
     except OSError as e:
         logger.error(f"Konfiguration konnte nicht gespeichert werden: {e}")

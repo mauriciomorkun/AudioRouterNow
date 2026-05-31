@@ -756,6 +756,15 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
         }
     }
     dev->base_ratio = ring_sr / device_sr; /* 1.0 bei gleicher Rate */
+    /* M5: base_ratio > 0 und plausibel (< 10) pruefen — bei device_sr = 0
+     * (fehlgeschlagener AudioObjectGetPropertyData) wuerde sonst NaN oder Inf
+     * entstehen, was den P-Regler zum Explodieren bringt. */
+    if (dev->base_ratio <= 0.0 || dev->base_ratio > 10.0) {
+        fprintf(stderr, "Helper: Warnung — unplausibler base_ratio %.6f fuer '%s' "
+                "(ring_sr=%.0f, device_sr=%.0f) — setze 1.0\n",
+                dev->base_ratio, uid, ring_sr, device_sr);
+        dev->base_ratio = 1.0;
+    }
 
     /* USB-Devices brauchen Zeit zum Rekonfigurieren nach SR-Wechsel.
      * Retry mit Pause verhindert 'nope'-Fehler von AudioDeviceCreateIOProcID. */
@@ -887,6 +896,12 @@ static void sr_reinit_all_outputs(void) {
             device_sr = ring_sr_f;
         }
         dev->base_ratio = (double)new_sr / (double)device_sr;
+        /* M5: base_ratio Plausibilitaetscheck auch im SR-Reinit-Pfad. */
+        if (dev->base_ratio <= 0.0 || dev->base_ratio > 10.0) {
+            fprintf(stderr, "Helper: Warnung — unplausibler base_ratio %.6f nach SR-Reinit "
+                    "fuer '%s' — setze 1.0\n", dev->base_ratio, dev->name);
+            dev->base_ratio = 1.0;
+        }
         uint32_t init_q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
         atomic_store_explicit(&dev->src_ratio_q20, init_q20, memory_order_relaxed);
         atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
