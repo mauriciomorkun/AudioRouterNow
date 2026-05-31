@@ -22,7 +22,7 @@ from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-CONFIG_SOCKET = "/tmp/audiorouter.config.sock"
+CONFIG_SOCKET = str(Path.home() / ".audiorouter" / "audiorouter.config.sock")
 CONNECT_TIMEOUT = 2.0
 READ_TIMEOUT = 10.0
 
