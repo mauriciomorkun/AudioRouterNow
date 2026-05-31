@@ -63,6 +63,7 @@
  * Pfad wird zur Laufzeit aus $HOME gebildet — kein TOCTOU-Risiko. */
 static char g_config_socket_path[512] = {0};
 #define VOLUME_POLL_INTERVAL_US 50000                          /* 50ms Volume-Polling */
+#define STALL_TIMEOUT_NS  (300ULL * 1000ULL * 1000ULL)  /* K2: 300ms ohne Fortschritt = Stall */
 
 #define MAX_OUTPUTS            8
 
@@ -111,6 +112,11 @@ typedef struct DeviceOutput {
     char                 name[256];
     bool                 active;
     _Atomic uint32_t     underruns;      /* Diagnostic: Underrun-Zaehler         */
+    /* K2: Stall-Detection — nur vom Volume-Thread gelesen/geschrieben (kein Lock nötig
+     * da nur ein Thread diese Felder modifiziert). stalled ist atomic für Diagnose. */
+    uint32_t         last_ridx_sample;   /* zuletzt gesehener local_ridx-Wert    */
+    uint64_t         last_progress_ns;   /* mach_absolute_time() der letzten Bewegung */
+    _Atomic uint32_t stalled;            /* 1 = als gestallt markiert (Diagnose)  */
     /* Phase 6 — Adaptive SRC fuer Clock-Drift-Kompensation */
     double               src_frac_ridx;    /* fraktionaler Leseindex — NUR vom IOProc-Thread gelesen/geschrieben */
     _Atomic uint32_t     src_ratio_q20;    /* Q20-Ratio: base_ratio = 1<<20. Volume-Thread schreibt, IOProc liest */
@@ -167,6 +173,7 @@ static AudioDeviceIOProcID     g_keepalive_proc_id = NULL;
 
 /* ── Forward Declarations ───────────────────────────────────────────────── */
 
+static inline uint64_t get_time_ns(void);  /* K2: Stall-Detection Zeitstempel */
 static int   output_add(const char *uid, uint32_t ch_offset);
 static int   output_add_locked(const char *uid, uint32_t ch_offset);
 static void  output_remove_locked(const char *uid, uint32_t ch_offset);
@@ -697,6 +704,10 @@ static void update_global_read_idx(void)
     bool     have_active = false;
     for (int i = 0; i < g_n_outputs; i++) {
         if (!g_outputs[i].active) continue;
+        /* K2: Gestallte Outputs aus dem Aggregat ausschließen — ein eingefrorener
+         * local_ridx darf nicht den globalen read_idx einfrieren und damit alle
+         * anderen Outputs in den Underrun treiben. */
+        if (atomic_load_explicit(&g_outputs[i].stalled, memory_order_acquire)) continue;
         uint32_t ridx_i = atomic_load_explicit(&g_outputs[i].local_ridx, memory_order_acquire);
         uint32_t dist = w - ridx_i;
         if (!have_active || dist > max_dist) {
@@ -790,6 +801,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
     atomic_store_explicit(&tmp.underruns,  0u,          memory_order_relaxed);
     atomic_store_explicit(&tmp.frac_ridx_reset_pending, 0u, memory_order_relaxed);
     atomic_store_explicit(&tmp.frac_ridx_reset_widx,    0u, memory_order_relaxed);
+    tmp.last_ridx_sample = start_widx;
+    tmp.last_progress_ns = get_time_ns();
+    atomic_store_explicit(&tmp.stalled, 0u, memory_order_relaxed);
 
     /* Sample-Rate-Abgleich und SRC-Initialisierung (wie in output_add_locked) */
     Float64 ring_sr   = (Float64)(g_ring ? atomic_load_explicit(&g_ring->sample_rate, memory_order_acquire) : 48000u);
@@ -885,6 +899,10 @@ static int output_add(const char *uid, uint32_t ch_offset)
     slot->active = true;
     pthread_mutex_unlock(&g_outputs_lock);
 
+    /* K1: read_idx sofort aktualisieren — neuer Consumer wird nicht erst nach
+     * bis zu 50ms vom nächsten Volume-Poll-Takt berücksichtigt. */
+    update_global_read_idx();
+
     fprintf(stdout, "Helper: Output hinzugefuegt: %s [Ch %u-%u] (UID: %s)\n",
             slot->name, ch_offset + 1, ch_offset + 2, uid);
     return 0;
@@ -944,6 +962,9 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
         atomic_store_explicit(&dev->local_ridx, widx, memory_order_relaxed);
     }
     atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
+    dev->last_ridx_sample = atomic_load_explicit(&dev->local_ridx, memory_order_relaxed);
+    dev->last_progress_ns = get_time_ns();
+    atomic_store_explicit(&dev->stalled, 0u, memory_order_relaxed);
 
     /* Phase 6: Adaptive SRC initialisieren.
      * src_frac_ridx ist ein FRAME-Index (nicht Sample-Index):
@@ -1292,6 +1313,15 @@ static void hotplug_unregister(void)
     atomic_store_explicit(&g_hotplug_registered, 0, memory_order_release);
 }
 
+/* K2: Mach-Timebase-Faktor (numer/denom) — einmalig initialisiert in main(). */
+static double g_mach_ns_per_tick = 1.0;
+
+/* Gibt aktuelle Zeit in Nanosekunden (monoton). */
+static inline uint64_t get_time_ns(void)
+{
+    return (uint64_t)((double)mach_absolute_time() * g_mach_ns_per_tick);
+}
+
 /* ── Volume-Polling Thread (Phase 4) ────────────────────────────────────── */
 
 static void *volume_poll_thread(void *arg)
@@ -1341,6 +1371,34 @@ static void *volume_poll_thread(void *arg)
             for (int i = 0; i < g_n_outputs; i++) {
                 DeviceOutput *dev = &g_outputs[i];
                 if (!dev->active) continue;
+
+                /* K2: Stall-Detection — prüfe ob local_ridx Fortschritt macht. */
+                uint32_t cur_ridx = atomic_load_explicit(&dev->local_ridx, memory_order_acquire);
+                uint64_t now_ns   = get_time_ns();
+
+                if (cur_ridx != dev->last_ridx_sample) {
+                    /* Fortschritt — Stall zurücksetzen */
+                    dev->last_ridx_sample  = cur_ridx;
+                    dev->last_progress_ns  = now_ns;
+                    if (atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
+                        atomic_store_explicit(&dev->stalled, 0u, memory_order_release);
+                        fprintf(stdout, "Helper: Output '%s' hat sich von Stall erholt\n",
+                                dev->name);
+                    }
+                } else {
+                    /* Kein Fortschritt — nur als Stall werten wenn auch Daten vorhanden
+                     * (bei Underrun ist kein Fortschritt normal, kein echter Stall). */
+                    uint32_t fill = w_now - cur_ridx;
+                    if (fill >= 4u /* mindestens 2 Stereo-Frames verfügbar */
+                        && (now_ns - dev->last_progress_ns) > STALL_TIMEOUT_NS) {
+                        if (!atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
+                            atomic_store_explicit(&dev->stalled, 1u, memory_order_release);
+                            fprintf(stderr, "Helper: Output '%s' gestallt — "
+                                    "kein Fortschritt seit >300ms trotz Daten im Ring. "
+                                    "Aus read_idx-Aggregat ausgeschlossen.\n", dev->name);
+                        }
+                    }
+                }
 
                 uint32_t fill_samples  = w_now - atomic_load_explicit(&dev->local_ridx, memory_order_acquire);
                 uint32_t fill_frames   = fill_samples / 2u;   /* Stereo -> /2 */
@@ -1530,11 +1588,12 @@ static void format_active_outputs(char *buf, size_t bufsz)
         uint32_t underruns = atomic_load_explicit(&g_outputs[i].underruns,
                                                   memory_order_relaxed);
 
+        uint32_t stalled = atomic_load_explicit(&g_outputs[i].stalled, memory_order_relaxed);
         written = snprintf(buf + pos, bufsz - pos,
                            "%s{\"uid\":\"%s\",\"name\":\"%s\",\"ch_offset\":%u,"
-                           "\"src_ratio\":%.6f,\"underruns\":%u}",
+                           "\"src_ratio\":%.6f,\"underruns\":%u,\"stalled\":%u}",
                            sep, safe_uid, safe_name, g_outputs[i].ch_offset,
-                           src_ratio, underruns);
+                           src_ratio, underruns, stalled);
         if (written < 0) break;
         pos += (size_t)written;
     }
@@ -1872,6 +1931,13 @@ int main(int argc, char *argv[])
     signal(SIGINT,  handle_signal);
     signal(SIGTERM, handle_signal);
     signal(SIGPIPE, SIG_IGN);
+
+    /* K2: Mach-Timebase für Stall-Detection initialisieren. */
+    {
+        struct mach_timebase_info tb;
+        mach_timebase_info(&tb);
+        g_mach_ns_per_tick = (double)tb.numer / (double)tb.denom;
+    }
 
     /* M8: Single-Instance-Guard — sofort nach Signal-Setup, vor allem anderen. */
     if (helper_acquire_instance_lock() != 0) {
