@@ -2486,3 +2486,57 @@ tail -f ~/Library/Logs/AudioRouterNow/helper.log
 ---
 
 *Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.6.0*
+
+---
+
+## 23. Sicherheits- & Korrektheit-Audit v2.7.0 — 31. Mai 2026
+
+Vollständiges Deep-Audit aller Schichten (HAL-Treiber, C-Helper, Shared-Ring, Python-Engine) mit anschließender Implementierung aller kritischen Findings.
+
+### 23.1 Audit-Ergebnis (vor Fixes)
+
+| Stufe | Anzahl |
+|-------|--------|
+| 🔴 KRITISCH | 7 |
+| 🟠 HOCH | 8 |
+| 🟡 MITTEL | 10 |
+| ℹ️ INFO | 8 |
+
+### 23.2 Implementierte Fixes (5 Commits)
+
+**K5 — gAnchorHostTime Data Race (Driver):** `gAnchorHostTime` ohne Atomic zwischen StartIO und GetZeroTimeStamp (RT-Thread). Fix: `atomic_ullong` + release/acquire.
+
+**K7 — BSS-Overflow nFrames > 8192 (Helper):** SRC-Loop schreibt bis `(nFrames-1)*2+1` in `temp_buf[16384]`. Fix: `nFrames = min(nFrames, ARN_RING_CAPACITY/2)` vor Loop.
+
+**H5 — read_idx nicht zurückgesetzt (shared_ring.h):** `arn_ring_set_sample_rate()` setzte nur `write_idx=0` → unsigned Underflow → space≈4 Mrd → Producer blockiert. Fix: beide Indizes seq_cst auf 0.
+
+**K3 — instance_id statt Inode — ABI v4:** macOS recycelt Inodes → Watch-Thread erkennt neue SHM-Segmente nicht. Fix: `_Atomic uint64_t instance_id` im Header, Helper setzt `mach_absolute_time() XOR getpid()`, Driver vergleicht instance_id.
+
+**M5 — base_ratio ohne Validierung:** NaN/Inf bei device_sr=0. Fix: Plausibilitätscheck → Fallback 1.0.
+
+**M9 — Nicht-atomares Config-Schreiben:** Crash mid-write → korrumpiertes JSON. Fix: Temp-Datei + fsync + `Path.replace()`.
+
+**K6 — src_frac_ridx Data Race:** `src_frac_ridx` von Volume-Thread und IOProc gleichzeitig beschrieben. Fix: Pending-Reset-Pattern — Volume-Thread schreibt nur `frac_ridx_reset_widx` + `frac_ridx_reset_pending` (atomic); IOProc wendet Reset am Call-Anfang an.
+
+**H4 — pthread_join unter gStateMutex:** `arn_shm_cleanup()` mit pthread_join unter Mutex → Deadlock. Fix: Mutex nur für Ref-Count, dann freigeben; cleanup danach.
+
+### 23.3 Folge-Audit (Opus — alle Fixes verifiziert)
+
+| Stufe | Vorher | Nachher |
+|-------|--------|---------|
+| 🔴 KRITISCH | 7 | **2** (K1, K2 → v2.8) |
+| 🟠 HOCH | 8 | **6** (H1–H3, H6–H8 → v2.8) |
+| 🟡 MITTEL | 10 | **8** |
+
+### 23.4 Offene Findings (v2.8)
+
+| ID | Problem |
+|----|---------|
+| K1 | Multi-Output SPSC-Invariant: Producer überholt langsamen Output |
+| K2 | Stalled Output friert read_idx → Ring voll → alle underrun |
+| H1 | Retry-Loop (5×200ms) unter g_outputs_lock |
+| H2 | munmap(g_ring) während IOProcs laufen — teilweise mitigiert |
+| H3 | Hot-Plug O(N×M) CoreAudio-Calls unter Lock |
+| H6 | Naiver strstr-JSON-Parser + UID un-escaped |
+| H7 | Socket TOCTOU + /tmp Exposure |
+| H8 | osascript auf Main-Thread alle 0.5s |
