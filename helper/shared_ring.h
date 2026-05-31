@@ -28,7 +28,7 @@
 
 /* ── Identitaet ─────────────────────────────────────────────────────────── */
 #define ARN_RING_MAGIC    0x41524E52u   /* 'A','R','N','R' */
-#define ARN_RING_VERSION  3u            /* erhoehen bei ABI-Aenderung       */
+#define ARN_RING_VERSION  4u            /* v4: instance_id Feld in Header   */
 #define ARN_SHM_NAME      "/audiorouter_shm"
 
 /* ── Kapazitaet ─────────────────────────────────────────────────────────── */
@@ -58,7 +58,12 @@ typedef struct {
     uint32_t         channels;        /* 2 (Stereo)                             */
     uint32_t         capacity;        /* ARN_RING_CAPACITY                      */
     _Atomic uint32_t sr_change_gen;   /* Generationszaehler — inkrementiert bei SR-Wechsel */
-    uint8_t          _pad0[40];       /* auf 64 Bytes auffuellen                */
+    /* K3: Eindeutige Instanz-ID — gesetzt vom Helper bei jeder SHM-Erstellung.
+     * Wert: mach_absolute_time() XOR (uint64_t)getpid(). Nie 0.
+     * Driver-Watch-Thread vergleicht dieses Feld statt Inodes (Inodes werden
+     * von macOS recycelt und sind kein zuverlaessiges Erkennungsmerkmal). */
+    _Atomic uint64_t instance_id;     /* 0 = noch nicht initialisiert           */
+    uint8_t          _pad0[32];       /* auf 64 Bytes auffuellen                */
 
     /* --- 64..127: Producer-Hot (nur vom RT-Write-Thread gelesen/geschrieben) --- */
     _Atomic uint32_t write_idx;   /* monoton steigend, uint32 Overflow OK */
@@ -91,6 +96,7 @@ arn_ring_init(ARNSharedRing *ring)
     atomic_store_explicit(&ring->volume_q16,  65536u,  memory_order_relaxed);
     atomic_store_explicit(&ring->muted,        0u,     memory_order_relaxed);
     atomic_store_explicit(&ring->sr_change_gen, 0u,    memory_order_relaxed);
+    atomic_store_explicit(&ring->instance_id,   0u,    memory_order_relaxed); /* Helper setzt echten Wert nach init */
     ring->magic    = ARN_RING_MAGIC;
     ring->channels = 2u;
     ring->capacity = ARN_RING_CAPACITY;
@@ -106,8 +112,12 @@ arn_ring_set_sample_rate(ARNSharedRing *ring, uint32_t new_sr) {
     /* GUARD: NO-OP wenn SR bereits uebereinstimmt — verhindert spurious sr_change_gen-Inkremente */
     uint32_t old_sr = atomic_load_explicit(&ring->sample_rate, memory_order_acquire);
     if (old_sr == new_sr) return;
-    atomic_store_explicit(&ring->write_idx,    0u,     memory_order_seq_cst);
-    atomic_store_explicit(&ring->sample_rate,  new_sr, memory_order_release);
+    atomic_store_explicit(&ring->write_idx, 0u, memory_order_seq_cst);
+    /* H5: read_idx muss ebenfalls auf 0 gesetzt werden — sonst ist
+     * write_idx = 0 < read_idx (alter Wert) → unsigned underflow →
+     * space = riesige Zahl → Producer kann nicht schreiben (Ring scheinbar voll). */
+    atomic_store_explicit(&ring->read_idx,  0u, memory_order_seq_cst);
+    atomic_store_explicit(&ring->sample_rate, new_sr, memory_order_release);
     atomic_fetch_add_explicit(&ring->sr_change_gen, 1u, memory_order_release);
 }
 
