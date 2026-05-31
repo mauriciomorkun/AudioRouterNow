@@ -167,6 +167,7 @@ static AudioDeviceIOProcID     g_keepalive_proc_id = NULL;
 
 /* ── Forward Declarations ───────────────────────────────────────────────── */
 
+static int   output_add(const char *uid, uint32_t ch_offset);
 static int   output_add_locked(const char *uid, uint32_t ch_offset);
 static void  output_remove_locked(const char *uid, uint32_t ch_offset);
 static void  outputs_stop_all(void);
@@ -730,6 +731,163 @@ static int find_output_slot_locked(const char *uid, uint32_t ch_offset)
         }
     }
     return -1;
+}
+
+/*
+ * output_add — Fügt Output-Device hinzu ohne langfristige Lock-Hold.
+ *
+ * H1: Drei-Phasen-Ansatz:
+ *   Phase 1 (Lock): Duplikat/Kapazitäts-Check, start_widx lesen.
+ *   Phase 2 (kein Lock): SR-Set + USB-Settle-Wartezeit auf Stack-Kopie.
+ *   Phase 3 (Lock): Slot committen, DANN AudioDeviceCreateIOProcID/Start
+ *                   mit stabiler g_outputs[]-Adresse als clientData.
+ *
+ * Caller darf g_outputs_lock NICHT halten.
+ * Rückgabe: 0=OK, -1=Fehler.
+ */
+static int output_add(const char *uid, uint32_t ch_offset)
+{
+    /* ── Phase 1: Prepare unter Lock (schnell) ── */
+    pthread_mutex_lock(&g_outputs_lock);
+    if (find_output_slot_locked(uid, ch_offset) >= 0) {
+        pthread_mutex_unlock(&g_outputs_lock);
+        return 0;  /* idempotent */
+    }
+    if (g_n_outputs >= MAX_OUTPUTS) {
+        fprintf(stderr, "Helper: MAX_OUTPUTS (%d) erreicht, kann '%s' nicht hinzufuegen\n",
+                MAX_OUTPUTS, uid);
+        pthread_mutex_unlock(&g_outputs_lock);
+        return -1;
+    }
+    uint32_t start_widx = g_ring
+        ? atomic_load_explicit(&g_ring->write_idx, memory_order_acquire) : 0u;
+    pthread_mutex_unlock(&g_outputs_lock);
+
+    /* ── Phase 2: Schwere Arbeit auf Stack-Kopie, KEIN Lock ── */
+    AudioDeviceID dev_id = find_device_by_uid(uid);
+    if (dev_id == kAudioDeviceUnknown) {
+        fprintf(stderr, "Helper: Device '%s' nicht gefunden\n", uid);
+        return -1;
+    }
+
+    /* M6-Validierung (vollstaendig) */
+    UInt32 max_ch = device_output_channels(dev_id);
+    if (max_ch < 2u || ch_offset + 2u > max_ch || (ch_offset & 1u) != 0u) {
+        fprintf(stderr, "Helper: ch_offset %u ungueltig fuer '%s' (%u Channels)\n",
+                ch_offset, uid, max_ch);
+        return -1;
+    }
+
+    /* Stack-Kopie fuer SR-Set + SRC-Init */
+    DeviceOutput tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    tmp.dev_id    = dev_id;
+    tmp.ch_offset = ch_offset;
+    strncpy(tmp.uid, uid, sizeof(tmp.uid) - 1);
+    char *nm = device_get_name(dev_id);
+    if (nm) { strncpy(tmp.name, nm, sizeof(tmp.name) - 1); free(nm); }
+    atomic_store_explicit(&tmp.local_ridx, start_widx, memory_order_relaxed);
+    atomic_store_explicit(&tmp.underruns,  0u,          memory_order_relaxed);
+    atomic_store_explicit(&tmp.frac_ridx_reset_pending, 0u, memory_order_relaxed);
+    atomic_store_explicit(&tmp.frac_ridx_reset_widx,    0u, memory_order_relaxed);
+
+    /* Sample-Rate-Abgleich und SRC-Initialisierung (wie in output_add_locked) */
+    Float64 ring_sr   = (Float64)(g_ring ? atomic_load_explicit(&g_ring->sample_rate, memory_order_acquire) : 48000u);
+    Float64 device_sr = ring_sr;
+    AudioObjectPropertyAddress sr_prop = {
+        kAudioDevicePropertyNominalSampleRate,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    UInt32 sr_size = sizeof(Float64);
+    AudioObjectGetPropertyData(dev_id, &sr_prop, 0, NULL, &sr_size, &device_sr);
+
+    bool sr_was_changed = false;
+    if ((uint32_t)device_sr != (uint32_t)ring_sr) {
+        if (AudioObjectSetPropertyData(dev_id, &sr_prop, 0, NULL, sizeof(Float64), &ring_sr) == noErr) {
+            fprintf(stdout, "Helper: '%s' Sample-Rate auf %.0f Hz gesetzt\n", uid, ring_sr);
+            device_sr      = ring_sr;
+            sr_was_changed = true;
+        } else {
+            fprintf(stderr, "Helper: Warnung — '%s' laeuft auf %.0f Hz (Ring: %.0f Hz)\n",
+                    uid, device_sr, ring_sr);
+        }
+    }
+    tmp.base_ratio = ring_sr / device_sr;
+    if (tmp.base_ratio <= 0.0 || tmp.base_ratio > 10.0) {
+        fprintf(stderr, "Helper: Warnung — unplausibler base_ratio %.6f fuer '%s' — setze 1.0\n",
+                tmp.base_ratio, uid);
+        tmp.base_ratio = 1.0;
+    }
+    tmp.src_frac_ridx   = (double)start_widx / 2.0;
+    tmp.src_ring_target = ARN_RING_CAPACITY / 2;
+    uint32_t init_ratio_q20 = (uint32_t)(tmp.base_ratio * (double)(1u << 20));
+    atomic_store_explicit(&tmp.src_ratio_q20, init_ratio_q20, memory_order_relaxed);
+
+    /* H1: USB-Settle-Wartezeit OHNE Lock — der teure Teil */
+    if (sr_was_changed) {
+        fprintf(stdout, "Helper: Warte auf USB-Settle nach SR-Wechsel fuer '%s'...\n", uid);
+        usleep(400000);  /* 400ms — USB-Devices benoetigen Zeit zum Rekonfigurieren */
+    }
+
+    /* ── Phase 3: Commit unter Lock, dann IOProc-Create mit stabiler Adresse ── */
+    pthread_mutex_lock(&g_outputs_lock);
+
+    /* Race-Re-Check: kam in Phase 2 ein Duplikat rein oder ist Kapazitaet voll? */
+    if (find_output_slot_locked(uid, ch_offset) >= 0) {
+        pthread_mutex_unlock(&g_outputs_lock);
+        fprintf(stdout, "Helper: '%s' wurde in Phase 2 bereits hinzugefuegt\n", uid);
+        return 0;
+    }
+    if (g_n_outputs >= MAX_OUTPUTS) {
+        pthread_mutex_unlock(&g_outputs_lock);
+        fprintf(stderr, "Helper: MAX_OUTPUTS voll nach Race in Phase 2\n");
+        return -1;
+    }
+
+    /* Slot committen (stabile Heap-Adresse) */
+    DeviceOutput *slot = &g_outputs[g_n_outputs];
+    *slot = tmp;
+    slot->active  = false;  /* noch nicht aktiv bis IOProc gestartet */
+    g_n_outputs++;
+
+    /* AudioDeviceCreateIOProcID + Start MIT stabiler slot-Adresse, unter Lock.
+     * Lock-Hold hier kurz (<20ms wenn Device bereit nach Settle in Phase 2). */
+    OSStatus err = kAudioHardwareNotRunningError;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) usleep(100000);  /* 100ms Retry-Pause (kuerzer als vorher) */
+        err = AudioDeviceCreateIOProcID(dev_id, device_ioproc, slot, &slot->proc_id);
+        if (err == noErr) break;
+        fprintf(stderr, "Helper: AudioDeviceCreateIOProcID Versuch %d/3 (OSStatus %d) fuer '%s'\n",
+                attempt + 1, (int)err, uid);
+        slot->proc_id = NULL;
+    }
+    if (err != noErr) {
+        fprintf(stderr, "Helper: AudioDeviceCreateIOProcID endgueltig fehlgeschlagen fuer '%s'\n", uid);
+        /* Slot zurückrollen */
+        g_n_outputs--;
+        memset(slot, 0, sizeof(DeviceOutput));
+        pthread_mutex_unlock(&g_outputs_lock);
+        return -1;
+    }
+
+    err = AudioDeviceStart(dev_id, slot->proc_id);
+    if (err != noErr) {
+        fprintf(stderr, "Helper: AudioDeviceStart fehlgeschlagen (OSStatus %d) fuer '%s'\n",
+                (int)err, uid);
+        AudioDeviceDestroyIOProcID(dev_id, slot->proc_id);
+        g_n_outputs--;
+        memset(slot, 0, sizeof(DeviceOutput));
+        pthread_mutex_unlock(&g_outputs_lock);
+        return -1;
+    }
+
+    slot->active = true;
+    pthread_mutex_unlock(&g_outputs_lock);
+
+    fprintf(stdout, "Helper: Output hinzugefuegt: %s [Ch %u-%u] (UID: %s)\n",
+            slot->name, ch_offset + 1, ch_offset + 2, uid);
+    return 0;
 }
 
 /*
@@ -1438,25 +1596,24 @@ static int parse_and_execute(int fd, const char *line)
         memset(new_offs, 0, sizeof(new_offs));
         int n_new = parse_outputs(line, new_uids, new_offs);
 
-        pthread_mutex_lock(&g_outputs_lock);
-
-        /* 1) Fuege neue Outputs hinzu die noch nicht aktiv sind (idempotent) */
+        /* H1: output_add() verwaltet Lock selbst — hier OHNE Lock aufrufen */
         int failures = 0;
         for (int k = 0; k < n_new; k++) {
-            /* Bereits vorhanden? Nichts tun. */
-            if (find_output_slot_locked(new_uids[k], new_offs[k]) >= 0) continue;
-            if (output_add_locked(new_uids[k], new_offs[k]) != 0) {
+            pthread_mutex_lock(&g_outputs_lock);
+            bool already = (find_output_slot_locked(new_uids[k], new_offs[k]) >= 0);
+            pthread_mutex_unlock(&g_outputs_lock);
+            if (already) continue;
+            if (output_add(new_uids[k], new_offs[k]) != 0) {
                 failures++;
             }
         }
 
-        /* 2) Entferne alte Outputs NUR wenn mindestens ein neues erfolgreich war
-         *    ODER wenn n_new == 0 (explizites "alles loeschen") */
+        /* Remove-Phase: unter Lock */
+        pthread_mutex_lock(&g_outputs_lock);
         int n_added_successfully = 0;
         for (int k = 0; k < n_new; k++) {
             if (find_output_slot_locked(new_uids[k], new_offs[k]) >= 0) n_added_successfully++;
         }
-
         if (n_new == 0 || n_added_successfully > 0) {
             int i = 0;
             while (i < g_n_outputs) {
@@ -1464,18 +1621,14 @@ static int parse_and_execute(int fd, const char *line)
                 for (int k = 0; k < n_new; k++) {
                     if (strcmp(g_outputs[i].uid, new_uids[k]) == 0 &&
                         g_outputs[i].ch_offset == new_offs[k]) {
-                        keep = true;
-                        break;
+                        keep = true; break;
                     }
                 }
                 if (!keep) {
                     output_remove_locked(g_outputs[i].uid, g_outputs[i].ch_offset);
-                } else {
-                    i++;
-                }
+                } else { i++; }
             }
         }
-
         char active_buf[4096];
         pthread_mutex_unlock(&g_outputs_lock);
         format_active_outputs(active_buf, sizeof(active_buf));
@@ -1815,21 +1968,22 @@ int main(int argc, char *argv[])
     hotplug_register();
 
     /* 4. Outputs hinzufuegen — entweder aus CLI-Args oder Auto-Default */
-    pthread_mutex_lock(&g_outputs_lock);
+    /* H1: output_add() verwaltet Lock selbst */
     if (argc >= 2) {
         for (int a = 1; a < argc && g_n_outputs < MAX_OUTPUTS; a++) {
-            output_add_locked(argv[a], 0);
+            output_add(argv[a], 0);
         }
     } else {
         AudioDeviceID auto_dev = find_default_output_device();
         if (auto_dev != kAudioDeviceUnknown) {
             char *uid = device_get_uid(auto_dev);
             if (uid) {
-                output_add_locked(uid, 0);
+                output_add(uid, 0);
                 free(uid);
             }
         }
     }
+    pthread_mutex_lock(&g_outputs_lock);
     int n_initial = g_n_outputs;
     pthread_mutex_unlock(&g_outputs_lock);
 
