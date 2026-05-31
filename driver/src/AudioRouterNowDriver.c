@@ -556,16 +556,21 @@ static ULONG ARN_Release(void *inDriver)
     if (inDriver != gAudioServerPlugInDriverRef) {
         return 0;
     }
+    /* H4: gStateMutex wird NUR fuer den Ref-Count-Decrement gehalten.
+     * arn_shm_cleanup() ruft pthread_join() auf — pthread_join unter Mutex
+     * ist ein latentes Deadlock wenn der Join-Thread ebenfalls versucht den
+     * Mutex zu akquirieren. Cleanup laeuft deshalb nach Mutex-Release. */
     pthread_mutex_lock(&gStateMutex);
     if (gPlugInRefCount > 0) {
         gPlugInRefCount -= 1;
     }
     ULONG result = gPlugInRefCount;
+    pthread_mutex_unlock(&gStateMutex);
+
     if (result == 0) {
-        /* Letzter Release — SHM freigeben. */
+        /* Letzter Release — SHM freigeben (pthread_join ausserhalb von Mutex). */
         arn_shm_cleanup();
     }
-    pthread_mutex_unlock(&gStateMutex);
     return result;
 }
 
