@@ -154,6 +154,10 @@ static atomic_int              g_hotplug_registered = 0;
 /* SHM-Bereitschafts-Flag: 0 = noch nicht verbunden, 1 = Ring bereit */
 static atomic_int              g_shm_ready          = 0;
 
+/* H3: Hot-Plug-Flag — Callback setzt nur dieses Flag, Volume-Thread reagiert.
+ * Kein CoreAudio-Call im Property-Callback-Kontext (Re-Entry-Deadlock-Risiko). */
+static atomic_int              g_hotplug_pending    = 0;
+
 /* Keep-Alive IOProc — hält das virtuelle "Audio Router" Device dauerhaft running.
  * Registriert in C (nicht Python) damit der Funktionszeiger für die gesamte
  * Lebensdauer des Helper-Prozesses stabil bleibt — kein Stale-Pointer-Problem
@@ -1063,14 +1067,22 @@ static OSStatus devices_changed_listener(AudioObjectID inObjectID,
                                          void *inClientData)
 {
     (void)inObjectID; (void)inNumberAddresses; (void)inAddresses; (void)inClientData;
+    /* H3: Kein Lock, kein CoreAudio-Call im Property-Callback — nur Flag setzen.
+     * Der Volume-Thread fuehrt die eigentliche Reaktion ausserhalb des
+     * CoreAudio-Property-Callback-Kontexts aus (kein Re-Entry-Deadlock). */
+    atomic_store_explicit(&g_hotplug_pending, 1, memory_order_release);
+    return noErr;
+}
 
+/* H3: Eigentliche Hot-Plug-Reaktion — läuft im Volume-Thread (nicht im Callback).
+ * Findet und entfernt verschwundene Output-Devices ohne Re-Entry-Deadlock-Risiko. */
+static void process_hotplug_removals(void)
+{
     pthread_mutex_lock(&g_outputs_lock);
-
     int i = 0;
     while (i < g_n_outputs) {
         AudioDeviceID found = find_device_by_uid(g_outputs[i].uid);
         if (found == kAudioDeviceUnknown) {
-            /* Device verschwunden — stoppen und entfernen */
             fprintf(stdout, "Helper: Device verschwunden — entferne %s\n", g_outputs[i].name);
             DeviceOutput *dev = &g_outputs[i];
             if (dev->proc_id) {
@@ -1087,9 +1099,7 @@ static OSStatus devices_changed_listener(AudioObjectID inObjectID,
             i++;
         }
     }
-
     pthread_mutex_unlock(&g_outputs_lock);
-    return noErr;
 }
 
 static void hotplug_register(void)
@@ -1214,6 +1224,11 @@ static void *volume_poll_thread(void *arg)
                     pthread_mutex_unlock(&g_outputs_lock);
                 }
             }
+        }
+
+        /* H3: Hot-Plug-Reaktion ausserhalb des CoreAudio-Callbacks verarbeiten. */
+        if (atomic_exchange_explicit(&g_hotplug_pending, 0, memory_order_acq_rel)) {
+            process_hotplug_removals();
         }
 
         usleep(VOLUME_POLL_INTERVAL_US);
