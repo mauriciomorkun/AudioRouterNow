@@ -123,7 +123,9 @@ static _Atomic float                    gVolume             = 1.0f;  /* 0..1, at
 static _Atomic bool                     gMute               = false; /* atomar fuer RT-Pfad */
 
 /* Zeitbasis fuer GetZeroTimeStamp --------------------------------------- */
-static UInt64                           gAnchorHostTime     = 0;
+/* K5: Als atomic_ullong deklariert — wird von StartIO (non-RT, unter gStateMutex)
+ * geschrieben und von GetZeroTimeStamp (RT-Thread) gelesen. Verhindert Data Race. */
+static atomic_ullong                    gAnchorHostTime     = 0;
 static atomic_ullong                    gNumberTimeStamps   = 0;
 /*
  * gHostTicksPerFrame: wird nur von nicht-RT-Pfaden geschrieben (Initialize,
@@ -1634,8 +1636,8 @@ static OSStatus ARN_StartIO(AudioServerPlugInDriverRef inDriver,
 
     pthread_mutex_lock(&gStateMutex);
     if (gIORunningCount == 0) {
-        /* Erster Client startet die Uhr. */
-        gAnchorHostTime = mach_absolute_time();
+        /* Erster Client startet die Uhr. K5: atomic store (RT-Thread liest in GetZeroTimeStamp). */
+        atomic_store_explicit(&gAnchorHostTime, mach_absolute_time(), memory_order_release);
         atomic_store(&gNumberTimeStamps, 0);
         atomic_store(&gDeviceIsRunning, 1);
         os_log(gLog, "AudioRouterNow: StartIO — Device laeuft");
@@ -1682,7 +1684,8 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
      * verstrichene Zeit aus der Host-Clock ab.
      */
     UInt64 now      = mach_absolute_time();
-    UInt64 anchor   = gAnchorHostTime;
+    /* K5: atomic load — verhindert Data Race mit StartIO (schreibt unter gStateMutex). */
+    UInt64 anchor   = (UInt64)atomic_load_explicit(&gAnchorHostTime, memory_order_acquire);
 
     /* Fix macOS 26: Vor dem ersten StartIO ist gAnchorHostTime = 0.
      * Das ergibt elapsed = (now - 0) = riesige Zahl → coreaudiod denkt
