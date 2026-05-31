@@ -2985,3 +2985,181 @@ Alle KRITISCH-, HOCH- und MITTEL-Findings aus dem ursprünglichen Audit sind imp
 | I8 | Keine automatische Wiederverbindung bei Bluetooth-Audio-Unterbruch |
 
 *Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.8.0*
+
+---
+
+## 25. Release v2.8.0 — Vollständige Audit-Implementierung & Aktueller Stand (31. Mai 2026)
+
+Diese Sektion dokumentiert den **Gesamtabschluss** der Audit-Implementierung über v2.7 und v2.8, fasst alle Fixes mit technischer Begründung zusammen und hält den aktuellen Architektur- und Qualitätsstand fest.
+
+---
+
+### 25.1 Warum dieser Audit-Zyklus
+
+Nach der Fertigstellung des funktionalen v2.6-Kerns (Keep-Alive IOProc in C, Orphan-Fix, stabiles SHM-Routing) wurde ein vollständiges Deep-Audit aller Schichten durchgeführt. Ziel: bevor eine breitere Nutzerbasis bedient wird, sollen Memory-Safety, RT-Korrektheit und Thread-Safety auf dem Niveau professioneller Audio-Middleware liegen.
+
+Das Audit umfasste **33 Findings** in 4 Stufen. Über zwei Versionen wurden **alle KRITISCH-, HOCH- und MITTEL-Findings** implementiert.
+
+---
+
+### 25.2 Gesamtübersicht aller 20 Fixes (v2.7 + v2.8)
+
+#### v2.7 — Kritische RT- und Thread-Safety-Fixes (8 Fixes, 5 Commits)
+
+| Fix | Datei | Problem | Warum kritisch |
+|-----|-------|---------|----------------|
+| **K5** | Driver.c | `gAnchorHostTime` ohne Atomic — Data Race zwischen `StartIO` und RT-Thread `GetZeroTimeStamp` | Clock-Sprünge, Timing-Glitches im Zeitmodell |
+| **K7** | Helper.c | `temp_buf[nFrames*2]` ohne Clamp — BSS-Overflow bei nFrames > 8192 | Stille Memory-Korruption |
+| **H5** | shared_ring.h | `arn_ring_set_sample_rate` setzt `read_idx` nicht auf 0 — unsigned Underflow → `space ≈ 4 Mrd` | Producer kann nicht schreiben → Stille |
+| **K3** | Driver.c + shared_ring.h | Watch-Thread nutzt Inode-Vergleich — macOS recycelt Inodes → neues SHM nach Helper-Neustart nicht erkannt | Stille nach Helper-Neustart (Bug #2) |
+| **M5** | Helper.c | `base_ratio = ring_sr / device_sr` ohne Guard — NaN/Inf bei device_sr=0 | P-Regler explodiert |
+| **M9** | config.py | Nicht-atomares Schreiben in config.json — Crash mid-write → korrumpiertes JSON | Alle User-Settings gelöscht |
+| **K6** | Helper.c | `src_frac_ridx` (double) — Data Race zwischen IOProc und Volume-Thread | Artefakte/Knacken bei SR-Wechsel |
+| **H4** | Driver.c | `pthread_join` unter `gStateMutex` in `ARN_Release` | Latentes Deadlock beim Driver-Unload |
+
+#### v2.8 — Robustheit, Sicherheit und Architekturfixes (12 Fixes, 7 Commits)
+
+| Fix | Datei | Problem | Warum wichtig |
+|-----|-------|---------|---------------|
+| **M1** | shared_ring.h | `arn_ring_frames_available`: relaxed statt acquire für read_idx | Überhöhte Frame-Counts im Status |
+| **M2** | Helper.c | `g_hotplug_registered`: volatile → atomic_int | C11-Konformität |
+| **M3** | Helper.c | Socket-Backlog = 4 → 16 | ECONNREFUSED bei schnellen Reconnects |
+| **M10** | shared_ring.h | Fehlender Kommentar zu release-Store in `arn_ring_write` | False-Positives in künftigen Audits |
+| **M4** | Helper.c | `find_device_by_uid`: NULL-uid ohne Short-Circuit → unnötiger CoreAudio-Call | Potential NULL-Deref |
+| **M6** | Helper.c | `ch_offset`-Validierung unvollständig — kein Gerade-Check, kein min-Channels-Check | Falsches Stereo-Mapping |
+| **M7** | Helper.c | SRC ohne Anti-Aliasing bei Downsampling (ratio > 1.0) | Aliasing-Spitzen bei 96k→48k |
+| **M8** | Helper.c | Kein Single-Instance-Lock → zwei Helper-Prozesse parallel möglich | SHM- und Socket-Konflikte |
+| **H6** | Helper.c | Device-UID un-escaped in JSON-Antwort | Kaputtes JSON bei Sonderzeichen in UID |
+| **H7** | Helper.c + helper_client.py | Socket in `/tmp` mit TOCTOU-Race (bind → chmod) | Lokale Socket-Hijack-Möglichkeit |
+| **H8** | menu_bar_app.py | osascript auf Main-Thread alle 0.5s | UI-Jank, hängendes Menü |
+| **H3** | Helper.c | Hot-Plug-Listener macht CoreAudio-Calls im Property-Callback | Re-Entry-Deadlock-Risiko |
+| **H1** | Helper.c | USB-SR-Settle (5×200ms) unter `g_outputs_lock` | Alle Outputs blockiert für ~1.3s |
+| **K1+K2** | Helper.c | Stalled Output friert `read_idx` ein → alle anderen Outputs underrunen | Globaler Audio-Ausfall |
+| **H2** | Helper.c | `munmap(g_ring)` bei laufenden IOProcs | SIGBUS-Crash beim Live-Reconnect |
+
+---
+
+### 25.3 Technische Kernentscheidungen und deren Begründung
+
+#### Pending-Reset-Pattern für src_frac_ridx (K6)
+**Problem:** `src_frac_ridx` (double) wurde gleichzeitig vom IOProc (RT-Thread, kein Lock erlaubt) und vom Volume-Thread (non-RT) beschrieben.  
+**Warum dieses Pattern:** Im RT-IOProc darf kein Lock erworben werden — Priority-Inversion würde die CoreAudio-Deadline verletzen. Ein `_Atomic double` ist in C11 nicht garantiert lock-free (double ist kein Integer-Typ). Die Lösung: Nur der IOProc schreibt `src_frac_ridx` direkt. Der Volume-Thread setzt zwei atomare Felder (`frac_ridx_reset_widx` + `frac_ridx_reset_pending`). Der IOProc prüft das Flag am Call-Beginn (acquire-load) und setzt den Reset durch. Kein Lock, kein undefined behavior.
+
+#### instance_id statt Inode-Vergleich (K3)
+**Problem:** macOS recycelt POSIX-SHM-Inodes. `fstat().st_ino` ist kein zuverlässiges Erkennungsmerkmal für ein neues Segment.  
+**Warum:** Ein eindeutiger `uint64_t`-Wert (`mach_absolute_time() XOR getpid()`) wird vom Helper bei jeder SHM-Erstellung gesetzt. Dieser ändert sich deterministisch bei jedem Neustart — kein Recycling-Problem. ABI-Version 3 → 4 (in `_pad0`, keine Größenänderung, keine Kompatibilitätsprobleme).
+
+#### Drei-Phasen output_add() (H1)
+**Problem:** `output_add_locked` hielt `g_outputs_lock` für bis zu 1.3 Sekunden (USB-SR-Settle: 5×200ms). In dieser Zeit konnte kein anderer Output stoppen/starten, kein Config-Command ausgeführt werden, `update_global_read_idx()` war geblockt.  
+**Warum drei Phasen:** `AudioDeviceCreateIOProcID` braucht einen **stabilen Heap-Pointer** als `inClientData`. Dieser ist erst nach dem Commit (`g_outputs[g_n_outputs]`) stabil. Deshalb: USB-Settle lock-frei, aber Create/Start nach Commit unter Lock (aber dann <20ms, weil USB schon settled). Lock-Hold sinkt von ~1.3s auf <20ms.
+
+#### Stall-Detection (K1+K2)
+**Problem:** Ein Output mit `active=true` aber hängendem IOProc hält `local_ridx` eingefroren. Die MAX-Distanz-Logik in `update_global_read_idx` wählt immer diesen Wert → `ring->read_idx` friert ein → Ring läuft voll → alle anderen Outputs underrunen.  
+**Warum im Volume-Thread:** Der IOProc darf kein Stall-Management machen (RT-Kontext, kein malloc/printf/Lock). Der 50ms-Volume-Thread ist der einzige sichere Ort. Stall-Erkennung: `local_ridx` bewegt sich >300ms nicht, obwohl `fill >= 4` Samples im Ring liegen (Underrun ≠ Stall — diese Unterscheidung ist kritisch). RT-Safety: `stalled` ist `_Atomic uint32_t` → IOProc sieht Änderung ohne Lock.
+
+#### Deferred munmap (H2)
+**Problem:** `shm_disconnect()` beim Live-Reconnect unmappt `g_ring` sofort. Laufende IOProcs lesen in dieser Moment `g_ring->samples[]` → SIGBUS.  
+**Warum deferred:** IOProc-Calls dauern <1ms. Der Volume-Thread läuft alle 50ms. Ein Puffer von einer Iteration (50ms) ist um Größenordnungen ausreichend. `g_ring` wird per `atomic_exchange_explicit(acq_rel)` auf NULL gesetzt — neue IOProc-Calls sehen NULL und kehren mit `return noErr` zurück. Das alte Segment wird erst im nächsten Zyklus via `shm_flush_pending_unmap()` freigegeben.
+
+#### Socket-Verlagerung (H7)
+**Problem:** `/tmp` ist world-writable. Ein Angreifer kann vor dem `bind()` eine Symlink oder eigenen Socket unter `CONFIG_SOCKET_PATH` platzieren. Zusätzlich: `bind()` + danach `chmod(0600)` = TOCTOU-Fenster.  
+**Warum `~/.audiorouter/` mit `umask(0177)`:** Das Verzeichnis wird mit `mkdir(0700)` erstellt (nur Owner). `umask(0177)` wird direkt vor `bind()` gesetzt — der Socket entsteht sofort mit 0600, kein Race-Window zwischen bind und chmod. `helper_client.py` wurde auf denselben Pfad aktualisiert.
+
+---
+
+### 25.4 Aktueller Architekturstand (v2.8.0)
+
+```
+macOS System-Audio
+      │
+      ▼
+[Audio Router HAL-Device]
+  ↑ AudioRouterNowDriver.c (coreaudiod)
+  • gAnchorHostTime: atomic_ullong (K5)
+  • gSHMRing: _Atomic(ARNSharedRing*) — atomic swap bei Reconnect
+  • Watch-Thread: instance_id-Vergleich statt Inode (K3, v4)
+  • ARN_Release: pthread_join außerhalb gStateMutex (H4)
+      │
+      │  POSIX Shared Memory (/audiorouter_shm)
+      │  ARNSharedRing v4 — Lock-free SPSC + Multi-Consumer
+      │  • instance_id: Eindeutige Erstellungs-ID (K3)
+      │  • sr_change_gen: Atomarer SR-Generations-Zähler
+      │  • read_idx/write_idx: Release-Acquire-Paar (M10)
+      ▼
+[AudioRouterNowHelper — C-Daemon]
+  • g_ring: _Atomic(ARNSharedRing*) — RT-sicherer Pointer (H2)
+  • output_add(): 3-Phasen, USB-Settle lock-frei (H1)
+  • devices_changed_listener: nur Flag, kein CoreAudio-Call (H3)
+  • volume_poll_thread (50ms):
+      - Stall-Detection: local_ridx-Fortschritts-Tracking (K1+K2)
+      - P-Regler SRC-Ratio-Update
+      - Hot-Plug-Reaktion via g_hotplug_pending
+      - shm_flush_pending_unmap() am Zyklus-Beginn (H2)
+  • device_ioproc (RT, pro Device):
+      - Pending-Reset-Check für src_frac_ridx (K6)
+      - nFrames-Clamp → BSS-Overflow-Guard (K7)
+      - Box-Pre-Average bei Downsampling (M7)
+  • Config-Socket: ~/.audiorouter/ + umask(0177) (H7)
+  • Single-Instance-Lock: flock(/tmp/audiorouter.helper.lock) (M8)
+  • JSON-Escaping: json_escape_into() für UID+Name (H6)
+      │
+      ├──► Output 1: IOProc + SRC + stalled-Flag
+      ├──► Output 2: IOProc + SRC + stalled-Flag
+      └──► Output N: IOProc + SRC + stalled-Flag (max. 8)
+
+[AudioRouterNow.app — Python/rumps]
+  • Volume-Polling: Daemon-Thread volume-poll (H8)
+  • Media-Keys: osascript in kurzlebigen Daemon-Threads (H8)
+  • Config: atomares Schreiben via Temp+fsync+rename (M9)
+  • Socket: Path.home()/.audiorouter/audiorouter.config.sock (H7)
+```
+
+---
+
+### 25.5 Qualitätsmetriken v2.8.0
+
+| Metrik | v2.6 | v2.7 | v2.8 |
+|--------|------|------|------|
+| 🔴 KRITISCHE Findings | 7 | 2 | **0** |
+| 🟠 HOHE Findings | 8 | 6 | **0** |
+| 🟡 MITTLERE Findings | 10 | 8 | **0** |
+| Lock-Hold im Output-Add | ~1.3s | ~1.3s | **<20ms** |
+| RT-Locks im IOProc | 0 | 0 | **0** |
+| Data Races (bestätigt) | 3 | 0 | **0** |
+| Atomare Config-Writes | Nein | Ja | **Ja** |
+| Socket-Sicherheit | /tmp | /tmp | **~/.audiorouter/** |
+| Stall-Recovery | Nein | Nein | **Ja (300ms)** |
+| SIGBUS-Risiko (Reconnect) | Ja | Ja | **Nein** |
+
+---
+
+### 25.6 Commit-Chronologie v2.8
+
+| Commit | Phase | Inhalt |
+|--------|-------|--------|
+| `9dbf25d` | 1 | M1 acquire-Reihenfolge, M2 atomic, M3 Backlog 16, M10 Kommentar |
+| `5c82268` | 3 | H8 Volume-Polling + Media-Keys in Daemon-Threads |
+| `236be96` | 2 | M4 NULL-Check, M6 ch_offset, M7 Box-Average, M8 Instance-Lock, H6 JSON-Escape, H7 Socket-Sicherheit |
+| `6df74f7` | 4a | H3 Hot-Plug-Listener → nur Flag |
+| `9992e79` | 4b | H1 output_add 3-Phasen (USB-Settle lock-frei) |
+| `95c6029` | 5 | K1+K2 Stall-Detection + read_idx-Aggregat-Fix |
+| `88013fd` | 6 | H2 g_ring _Atomic + deferred munmap |
+| `9570a66` | — | Dokumentation Kapitel 24 |
+| `c8e9c88` | — | output_add_locked toter Code deaktiviert |
+
+---
+
+### 25.7 Folge-Audit-Ergebnis (Opus 4.8)
+
+**Gesamt-Bewertung: BESTANDEN**
+
+Alle 18 v2.8-Fixes korrekt implementiert. Drei kosmetische Anmerkungen (alle nicht release-blockierend):
+1. `output_add_locked` war toter Code → deaktiviert via `#if 0`
+2. M7 Box-Average liest `idx0+2` — durch Ring-Maskierung memory-safe, klanglich irrelevant
+3. Deferred-munmap-Fenster (50ms) ausreichend groß für IOProc-Laufzeiten (<1ms)
+
+Keine RT-Safety-Verletzung im IOProc-Pfad: kein malloc, kein Lock, kein printf, kein Syscall.
+
+---
+
+*Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.8.0 (Release)*
