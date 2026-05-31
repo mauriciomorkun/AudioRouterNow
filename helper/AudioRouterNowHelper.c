@@ -43,6 +43,7 @@
 #include <sys/un.h>
 #include <sys/select.h>
 #include <sys/stat.h>
+#include <sys/file.h>   /* M8: flock() fuer Single-Instance-Lock */
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -58,10 +59,46 @@
 
 #define OUR_DEVICE_UID         "com.audiorouter.now.device"   /* virtuelles Device ausschliessen */
 #define SHM_RETRY_INTERVAL_US  500000                          /* 500ms zwischen shm_open-Versuchen */
-#define CONFIG_SOCKET_PATH     "/tmp/audiorouter.config.sock"
+/* H7: Socket in user-privatem Verzeichnis statt world-writable /tmp.
+ * Pfad wird zur Laufzeit aus $HOME gebildet — kein TOCTOU-Risiko. */
+static char g_config_socket_path[512] = {0};
 #define VOLUME_POLL_INTERVAL_US 50000                          /* 50ms Volume-Polling */
 
 #define MAX_OUTPUTS            8
+
+#define HELPER_LOCK_PATH   "/tmp/audiorouter.helper.lock"
+static int g_lock_fd = -1;
+
+/* M8: Single-Instance-Lock — verhindert zwei parallele Helper-Instanzen die
+ * sich gegenseitig SHM und Config-Socket ueberschreiben wuerden. */
+static int helper_acquire_instance_lock(void)
+{
+    g_lock_fd = open(HELPER_LOCK_PATH, O_CREAT | O_RDWR, 0600);
+    if (g_lock_fd < 0) {
+        fprintf(stderr, "Helper: Lock-Datei konnte nicht geoeffnet werden (errno=%d)\n", errno);
+        return -1;
+    }
+    if (flock(g_lock_fd, LOCK_EX | LOCK_NB) != 0) {
+        fprintf(stderr, "Helper: Eine andere Helper-Instanz laeuft bereits — Abbruch\n");
+        close(g_lock_fd);
+        g_lock_fd = -1;
+        return -1;
+    }
+    return 0;
+}
+
+/* H7: Initialisiert g_config_socket_path aus $HOME. Erstellt ~/.audiorouter/ mit 0700. */
+static void config_socket_path_init(void)
+{
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) home = "/tmp";
+    /* Sicherstellen dass ~/.audiorouter/ mit 0700 existiert */
+    char dir[480];
+    snprintf(dir, sizeof(dir), "%s/.audiorouter", home);
+    mkdir(dir, 0700);  /* Fehler (existiert schon) ignorieren */
+    snprintf(g_config_socket_path, sizeof(g_config_socket_path),
+             "%s/.audiorouter/audiorouter.config.sock", home);
+}
 
 /* ── Datenstrukturen ────────────────────────────────────────────────────── */
 
@@ -339,8 +376,8 @@ static AudioDeviceID find_device_by_uid(const char *uid)
     AudioDeviceID result = kAudioDeviceUnknown;
     for (UInt32 i = 0; i < count; i++) {
         char *dev_uid = device_get_uid(devices[i]);
-        UInt32 out_ch = device_output_channels(devices[i]);
-        if (dev_uid && strcmp(dev_uid, uid) == 0 && out_ch >= 2) {
+        if (!dev_uid) continue;  /* M4: malloc-Fehler — Slot überspringen */
+        if (strcmp(dev_uid, uid) == 0 && device_output_channels(devices[i]) >= 2) {
             result = devices[i];
             free(dev_uid);
             break;
@@ -552,8 +589,23 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
             uint32_t si2 = ((idx0 + 1u) * 2u    ) & ARN_RING_MASK; /* L bei idx0+1 */
             uint32_t si3 = ((idx0 + 1u) * 2u + 1) & ARN_RING_MASK; /* R bei idx0+1 */
 
-            dev->temp_buf[f * 2    ] = ring->samples[si0] * inv + ring->samples[si2] * frac;
-            dev->temp_buf[f * 2 + 1] = ring->samples[si1] * inv + ring->samples[si3] * frac;
+            float l = ring->samples[si0] * inv + ring->samples[si2] * frac;
+            float r = ring->samples[si1] * inv + ring->samples[si3] * frac;
+
+            /* M7: Bei Downsampling (Ring-SR > Device-SR, ratio > 1.0) ein
+             * 3-Tap-Box-Average zur Aliasing-Daempfung. Upsampling (ratio <= 1.0)
+             * bleibt reine Linear-Interpolation — kein Aliasing-Problem dort.
+             * Kein vollstaendiger FIR-Filter (RT-Budget), aber deutlich besser
+             * als reine Linear-Interpolation bei z.B. 96kHz → 48kHz (ratio ≈ 2.0). */
+            if (ratio > 1.005) {  /* threshold > 1.0 mit kleinem Epsilon fuer FP-Rauschen */
+                uint32_t sn0 = ((idx0 + 2u) * 2u    ) & ARN_RING_MASK;
+                uint32_t sn1 = ((idx0 + 2u) * 2u + 1) & ARN_RING_MASK;
+                l = 0.5f * l + 0.25f * (ring->samples[si0] + ring->samples[sn0]);
+                r = 0.5f * r + 0.25f * (ring->samples[si1] + ring->samples[sn1]);
+            }
+
+            dev->temp_buf[f * 2    ] = l;
+            dev->temp_buf[f * 2 + 1] = r;
 
             dev->src_frac_ridx += ratio;
         }
@@ -700,11 +752,15 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
         return -1;
     }
 
-    /* Security Fix 3c: ch_offset Bounds-Check */
+    /* M6: Vollstaendige ch_offset-Validierung:
+     * - Device muss >= 2 Output-Channels haben
+     * - ch_offset muss gerade sein (Stereo-Paare: Ch 0/1, 2/3, 4/5, ...)
+     * - ch_offset + 2 darf max_ch nicht ueberschreiten */
     UInt32 max_ch = device_output_channels(dev_id);
-    if (ch_offset + 2 > max_ch) {
-        fprintf(stderr, "Helper: ch_offset %u ungueltig fuer '%s' (%u Channels)\n",
-                ch_offset, uid, max_ch);
+    if (max_ch < 2u || ch_offset + 2u > max_ch || (ch_offset & 1u) != 0u) {
+        fprintf(stderr, "Helper: ch_offset %u ungueltig fuer '%s' "
+                "(%u Channels, muss gerade sein und <= %u)\n",
+                ch_offset, uid, max_ch, max_ch >= 2u ? max_ch - 2u : 0u);
         return -1;
     }
 
@@ -1257,6 +1313,25 @@ static void send_line(int fd, const char *s)
     }
 }
 
+/* H6: JSON-String-Escaping — escaped ", \, \n, \r, \t und Control-Chars.
+ * Schreibt immer NUL-terminiert in dst (max dstsz-1 nutzbaren Chars).
+ * Verhindert kaputtes JSON wenn Device-UIDs Sonderzeichen enthalten. */
+static void json_escape_into(char *dst, size_t dstsz, const char *src)
+{
+    size_t j = 0;
+    for (size_t k = 0; src[k] && j + 7 < dstsz; k++) {
+        unsigned char c = (unsigned char)src[k];
+        if      (c == '"')  { dst[j++] = '\\'; dst[j++] = '"';  }
+        else if (c == '\\') { dst[j++] = '\\'; dst[j++] = '\\'; }
+        else if (c == '\n') { dst[j++] = '\\'; dst[j++] = 'n';  }
+        else if (c == '\r') { dst[j++] = '\\'; dst[j++] = 'r';  }
+        else if (c == '\t') { dst[j++] = '\\'; dst[j++] = 't';  }
+        else if (c < 0x20)  { j += (size_t)snprintf(dst + j, dstsz - j, "\\u%04x", c); }
+        else                { dst[j++] = (char)c; }
+    }
+    dst[j] = '\0';
+}
+
 /* Baut "active":[{...},{...}] JSON-Fragment in buf. */
 static void format_active_outputs(char *buf, size_t bufsz)
 {
@@ -1268,16 +1343,12 @@ static void format_active_outputs(char *buf, size_t bufsz)
 
     for (int i = 0; i < g_n_outputs && pos < bufsz; i++) {
         const char *sep = (i == 0) ? "" : ",";
-        /* Name muss JSON-escapt sein — wir ersetzen " durch ' und steuern nichts weiteres. */
-        char safe_name[256];
-        size_t j = 0;
-        for (size_t k = 0; g_outputs[i].name[k] && j < sizeof(safe_name) - 1; k++) {
-            char c = g_outputs[i].name[k];
-            if (c == '"' || c == '\\') c = '\'';
-            if ((unsigned char)c < 0x20) c = ' ';
-            safe_name[j++] = c;
-        }
-        safe_name[j] = '\0';
+        /* H6: UID und Name JSON-korrekt escapen — verhindert kaputtes JSON
+         * bei Device-UIDs/Namen mit Anführungszeichen oder Backslashes. */
+        char safe_name[512];
+        char safe_uid[1024];
+        json_escape_into(safe_name, sizeof(safe_name), g_outputs[i].name);
+        json_escape_into(safe_uid,  sizeof(safe_uid),  g_outputs[i].uid);
 
         /* Phase 6: src_ratio (Q20 -> float) und underruns mit ausgeben */
         uint32_t ratio_q20 = atomic_load_explicit(&g_outputs[i].src_ratio_q20,
@@ -1289,7 +1360,7 @@ static void format_active_outputs(char *buf, size_t bufsz)
         written = snprintf(buf + pos, bufsz - pos,
                            "%s{\"uid\":\"%s\",\"name\":\"%s\",\"ch_offset\":%u,"
                            "\"src_ratio\":%.6f,\"underruns\":%u}",
-                           sep, g_outputs[i].uid, safe_name, g_outputs[i].ch_offset,
+                           sep, safe_uid, safe_name, g_outputs[i].ch_offset,
                            src_ratio, underruns);
         if (written < 0) break;
         pos += (size_t)written;
@@ -1537,18 +1608,23 @@ static int config_socket_create(void)
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, CONFIG_SOCKET_PATH, sizeof(addr.sun_path) - 1);
+    strncpy(addr.sun_path, g_config_socket_path, sizeof(addr.sun_path) - 1);
 
-    unlink(CONFIG_SOCKET_PATH);
+    unlink(g_config_socket_path);
 
-    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    /* H7: umask VOR bind setzen — Socket entsteht direkt mit 0600,
+     * kein TOCTOU-Fenster zwischen bind und chmod. */
+    mode_t old_umask = umask(0177);
+    int bind_rc = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+    umask(old_umask);
+    if (bind_rc < 0) {
         fprintf(stderr, "Helper: bind('%s') fehlgeschlagen (errno=%d)\n",
-                CONFIG_SOCKET_PATH, errno);
+                g_config_socket_path, errno);
         close(fd);
         return -1;
     }
 
-    if (chmod(CONFIG_SOCKET_PATH, 0600) != 0) {  /* Nur Owner — Security Fix 3a */
+    if (chmod(g_config_socket_path, 0600) != 0) {  /* Nur Owner — Security Fix 3a */
         /* nicht fatal */
     }
 
@@ -1556,7 +1632,7 @@ static int config_socket_create(void)
     if (listen(fd, 16) < 0) {
         fprintf(stderr, "Helper: listen() fehlgeschlagen (errno=%d)\n", errno);
         close(fd);
-        unlink(CONFIG_SOCKET_PATH);
+        unlink(g_config_socket_path);
         return -1;
     }
 
@@ -1564,7 +1640,7 @@ static int config_socket_create(void)
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 
-    fprintf(stdout, "Helper: Config-Socket lauscht auf %s\n", CONFIG_SOCKET_PATH);
+    fprintf(stdout, "Helper: Config-Socket lauscht auf %s\n", g_config_socket_path);
     return fd;
 }
 
@@ -1629,6 +1705,14 @@ int main(int argc, char *argv[])
     signal(SIGTERM, handle_signal);
     signal(SIGPIPE, SIG_IGN);
 
+    /* M8: Single-Instance-Guard — sofort nach Signal-Setup, vor allem anderen. */
+    if (helper_acquire_instance_lock() != 0) {
+        return 1;
+    }
+
+    /* H7: Socket-Pfad initialisieren (~/.audiorouter/audiorouter.config.sock) */
+    config_socket_path_init();
+
     fprintf(stdout, "AudioRouterNow Helper v2.0 (Phase 5)\n");
     fprintf(stdout, "SHM: %s  Ring: %u Frames ~ %.0f ms @48kHz\n",
             ARN_SHM_NAME,
@@ -1644,7 +1728,7 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Helper: Config-Thread konnte nicht gestartet werden\n");
             atomic_store_explicit(&g_config_running, 0, memory_order_release);
             close(g_config_listen_fd);
-            unlink(CONFIG_SOCKET_PATH);
+            unlink(g_config_socket_path);
             g_config_listen_fd = -1;
         }
     }
@@ -1698,7 +1782,7 @@ int main(int argc, char *argv[])
             close(g_config_listen_fd);
             g_config_listen_fd = -1;
             pthread_join(g_config_thread, NULL);
-            unlink(CONFIG_SOCKET_PATH);
+            unlink(g_config_socket_path);
         }
         return 0;
     }
@@ -1784,13 +1868,20 @@ int main(int argc, char *argv[])
         close(g_config_listen_fd);
         g_config_listen_fd = -1;
         pthread_join(g_config_thread, NULL);
-        unlink(CONFIG_SOCKET_PATH);
+        unlink(g_config_socket_path);
     }
 
     hotplug_unregister();
     keepalive_stop();
     outputs_stop_all();
     shm_disconnect();
+
+    /* M8: Instance-Lock freigeben. */
+    if (g_lock_fd >= 0) {
+        flock(g_lock_fd, LOCK_UN);
+        close(g_lock_fd);
+        g_lock_fd = -1;
+    }
 
     fprintf(stdout, "Helper: beendet.\n");
     return 0;
