@@ -111,6 +111,13 @@ static volatile int            g_hotplug_registered = 0;
 /* SHM-Bereitschafts-Flag: 0 = noch nicht verbunden, 1 = Ring bereit */
 static atomic_int              g_shm_ready          = 0;
 
+/* Keep-Alive IOProc — hält das virtuelle "Audio Router" Device dauerhaft running.
+ * Registriert in C (nicht Python) damit der Funktionszeiger für die gesamte
+ * Lebensdauer des Helper-Prozesses stabil bleibt — kein Stale-Pointer-Problem
+ * wie bei Python-ctypes-Callbacks nach Prozess-Exit. */
+static AudioDeviceID           g_keepalive_dev_id  = kAudioDeviceUnknown;
+static AudioDeviceIOProcID     g_keepalive_proc_id = NULL;
+
 /* ── Forward Declarations ───────────────────────────────────────────────── */
 
 static int   output_add_locked(const char *uid, uint32_t ch_offset);
@@ -127,6 +134,63 @@ static void handle_signal(int sig)
 {
     (void)sig;
     atomic_store_explicit(&g_running, 0, memory_order_release);
+}
+
+/* ── Keep-Alive IOProc ──────────────────────────────────────────────────── */
+
+/*
+ * keepalive_ioproc — No-Op-Callback auf dem virtuellen "Audio Router" Device.
+ *
+ * Hält gDeviceIsRunning=1 im HAL-Driver dauerhaft aufrecht, unabhängig davon
+ * ob externe Apps (Apple Music, Spotify) gerade einen IOProc hören.
+ *
+ * Läuft auf einem CoreAudio-RT-Thread. Darf keine Locks, malloc oder blocking
+ * Calls enthalten. Diese Implementierung tut genau nichts — korrekt so.
+ */
+static OSStatus keepalive_ioproc(AudioDeviceID           inDevice,
+                                  const AudioTimeStamp   *inNow,
+                                  const AudioBufferList  *inInputData,
+                                  const AudioTimeStamp   *inInputTime,
+                                  AudioBufferList        *outOutputData,
+                                  const AudioTimeStamp   *inOutputTime,
+                                  void                   *inClientData)
+{
+    (void)inDevice; (void)inNow; (void)inInputData; (void)inInputTime;
+    (void)outOutputData; (void)inOutputTime; (void)inClientData;
+    return noErr;
+}
+
+static void keepalive_start(AudioDeviceID dev)
+{
+    if (dev == kAudioDeviceUnknown) {
+        fprintf(stderr, "Helper: Keep-Alive — virtuelles Device nicht gefunden\n");
+        return;
+    }
+    OSStatus err = AudioDeviceCreateIOProcID(dev, keepalive_ioproc, NULL,
+                                              &g_keepalive_proc_id);
+    if (err != noErr) {
+        fprintf(stderr, "Helper: Keep-Alive AudioDeviceCreateIOProcID err=%d\n", err);
+        return;
+    }
+    err = AudioDeviceStart(dev, g_keepalive_proc_id);
+    if (err != noErr) {
+        fprintf(stderr, "Helper: Keep-Alive AudioDeviceStart err=%d\n", err);
+        AudioDeviceDestroyIOProcID(dev, g_keepalive_proc_id);
+        g_keepalive_proc_id = NULL;
+        return;
+    }
+    g_keepalive_dev_id = dev;
+    fprintf(stdout, "Helper: Keep-Alive IOProc gestartet (Device ID %u)\n", dev);
+}
+
+static void keepalive_stop(void)
+{
+    if (g_keepalive_proc_id == NULL) return;
+    AudioDeviceStop(g_keepalive_dev_id, g_keepalive_proc_id);
+    AudioDeviceDestroyIOProcID(g_keepalive_dev_id, g_keepalive_proc_id);
+    g_keepalive_proc_id = NULL;
+    g_keepalive_dev_id  = kAudioDeviceUnknown;
+    fprintf(stdout, "Helper: Keep-Alive IOProc gestoppt\n");
 }
 
 /* ── SHM-Verbindung ─────────────────────────────────────────────────────── */
@@ -1556,6 +1620,11 @@ int main(int argc, char *argv[])
     atomic_store_explicit(&g_shm_ready, 1, memory_order_release);
     fprintf(stdout, "Helper: SHM bereit — Routing kann starten\n");
 
+    /* Keep-Alive IOProc auf dem virtuellen Device starten.
+     * Hält gDeviceIsRunning=1 im HAL-Driver — Musik-Apps finden beim
+     * Default-Output-Switch ein bereits laufendes Device vor. */
+    keepalive_start(find_device_by_uid(OUR_DEVICE_UID));
+
     /* 3. Hot-Plug-Listener registrieren */
     hotplug_register();
 
@@ -1632,6 +1701,7 @@ int main(int argc, char *argv[])
     }
 
     hotplug_unregister();
+    keepalive_stop();
     outputs_stop_all();
     shm_disconnect();
 
