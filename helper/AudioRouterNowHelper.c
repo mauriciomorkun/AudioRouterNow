@@ -112,7 +112,7 @@ static pthread_t               g_volume_thread;
 static atomic_int              g_volume_running   = 0;
 
 /* Hot-Plug-Listener flag */
-static volatile int            g_hotplug_registered = 0;
+static atomic_int              g_hotplug_registered = 0;
 
 /* SHM-Bereitschafts-Flag: 0 = noch nicht verbunden, 1 = Ring bereit */
 static atomic_int              g_shm_ready          = 0;
@@ -1038,7 +1038,7 @@ static OSStatus devices_changed_listener(AudioObjectID inObjectID,
 
 static void hotplug_register(void)
 {
-    if (g_hotplug_registered) return;
+    if (atomic_load_explicit(&g_hotplug_registered, memory_order_acquire)) return;
     AudioObjectPropertyAddress addr = {
         .mSelector = kAudioHardwarePropertyDevices,
         .mScope    = kAudioObjectPropertyScopeGlobal,
@@ -1047,7 +1047,7 @@ static void hotplug_register(void)
     OSStatus err = AudioObjectAddPropertyListener(kAudioObjectSystemObject, &addr,
                                                    devices_changed_listener, NULL);
     if (err == noErr) {
-        g_hotplug_registered = 1;
+        atomic_store_explicit(&g_hotplug_registered, 1, memory_order_release);
         fprintf(stdout, "Helper: Hot-Plug-Listener aktiv\n");
     } else {
         fprintf(stderr, "Helper: Hot-Plug-Listener konnte nicht registriert werden (err=%d)\n",
@@ -1057,7 +1057,7 @@ static void hotplug_register(void)
 
 static void hotplug_unregister(void)
 {
-    if (!g_hotplug_registered) return;
+    if (!atomic_load_explicit(&g_hotplug_registered, memory_order_acquire)) return;
     AudioObjectPropertyAddress addr = {
         .mSelector = kAudioHardwarePropertyDevices,
         .mScope    = kAudioObjectPropertyScopeGlobal,
@@ -1065,7 +1065,7 @@ static void hotplug_unregister(void)
     };
     AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &addr,
                                        devices_changed_listener, NULL);
-    g_hotplug_registered = 0;
+    atomic_store_explicit(&g_hotplug_registered, 0, memory_order_release);
 }
 
 /* ── Volume-Polling Thread (Phase 4) ────────────────────────────────────── */
@@ -1552,7 +1552,8 @@ static int config_socket_create(void)
         /* nicht fatal */
     }
 
-    if (listen(fd, 4) < 0) {
+    /* M3: Backlog auf 16 erhöht — verhindert ECONNREFUSED bei schnellen Reconnects */
+    if (listen(fd, 16) < 0) {
         fprintf(stderr, "Helper: listen() fehlgeschlagen (errno=%d)\n", errno);
         close(fd);
         unlink(CONFIG_SOCKET_PATH);
