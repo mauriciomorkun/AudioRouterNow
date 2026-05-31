@@ -128,6 +128,13 @@ class AudioRouterApp(rumps.App):
         self._ui_timer = rumps.Timer(self._process_pending_updates, 0.5)
         self._ui_timer.start()
 
+        # H8: Volume-Polling in eigenem Daemon-Thread — NICHT auf dem rumps
+        # Main-Thread, da osascript-Subprozesse den Event-Loop blockieren.
+        self._volume_poll_stop = threading.Event()
+        self._volume_poll_thread = threading.Thread(
+            target=self._volume_poll_loop, name="volume-poll", daemon=True)
+        self._volume_poll_thread.start()
+
         # Komponenten starten
         self._device_manager.start()
 
@@ -457,6 +464,9 @@ class AudioRouterApp(rumps.App):
             return
         # Helper und Routing stoppen
         self._ui_timer.stop()
+        # H8: Volume-Poll-Thread sauber beenden
+        if hasattr(self, '_volume_poll_stop'):
+            self._volume_poll_stop.set()
         try:
             self._helper.shutdown()
         except Exception:
@@ -476,6 +486,9 @@ class AudioRouterApp(rumps.App):
 
     def _quit_app(self, sender):
         self._ui_timer.stop()
+        # H8: Volume-Poll-Thread sauber beenden
+        if hasattr(self, '_volume_poll_stop'):
+            self._volume_poll_stop.set()
         self._device_manager.stop()
         # Helper sauber beenden — verhindert Orphan-Prozesse.
         # Der Helper stoppt seinen Keep-Alive IOProc im Cleanup selbst.
@@ -559,30 +572,39 @@ class AudioRouterApp(rumps.App):
                 ),
             )
 
-        # Volume-Sync-Fallback: Keyboard-Volume-Keys erreichen virtuelle HAL-
-        # Devices nicht immer direkt. Dieser Poll erkennt System-Volume-
-        # Änderungen und re-applied sie via osascript, was den Driver's
-        # SetPropertyData triggert und volume_q16 im SHM synchron hält.
-        self._poll_volume_sync()
+        # H8: Volume-Sync-Fallback läuft jetzt in _volume_poll_loop (Daemon-Thread).
+        # Kein synchroner osascript-Aufruf mehr auf dem rumps Main-Thread.
 
     def _poll_volume_sync(self):
         """Fallback: Wenn Keyboard-Volume-Keys den Driver nicht direkt erreichen,
-        erkennt dieser Poll die Änderung und triggert volume_q16 via osascript."""
-        try:
-            import subprocess
-            r = subprocess.run(['osascript', '-e',
-                'output volume of (get volume settings)'],
-                capture_output=True, text=True, timeout=0.3)
-            new_vol = int(r.stdout.strip())
-            old_vol = getattr(self, '_last_polled_vol', new_vol)
-            self._last_polled_vol = new_vol
+        erkennt dieser Poll die Änderung und triggert volume_q16 via osascript.
+
+        DEPRECATED (H8): Dieser synchrone Call wird nicht mehr vom rumps
+        Main-Thread aufgerufen. Verbleibt für eventuelle externe Nutzung.
+        Die eigentliche Logik läuft in _volume_poll_loop (Daemon-Thread)."""
+        pass
+
+    def _volume_poll_loop(self):
+        """H8: Daemon-Thread für Volume-Polling via osascript.
+        Läuft vollständig im Hintergrund — blockiert NIE den rumps Main-Thread."""
+        import subprocess
+        while not self._volume_poll_stop.wait(0.5):
+            try:
+                r = subprocess.run(
+                    ['osascript', '-e', 'output volume of (get volume settings)'],
+                    capture_output=True, text=True, timeout=1.0)
+                new_vol = int(r.stdout.strip())
+            except Exception:
+                continue
+            old_vol = getattr(self, '_last_polled_volume', new_vol)
+            self._last_polled_volume = new_vol  # int-Zuweisung ist GIL-atomar
             if new_vol != old_vol:
-                # Volume hat sich geändert — via osascript setzen triggert Driver
-                subprocess.run(['osascript', '-e',
-                    f'set volume output volume {new_vol}'],
-                    capture_output=True, timeout=0.3)
-        except Exception:
-            pass
+                try:
+                    subprocess.run(
+                        ['osascript', '-e', f'set volume output volume {new_vol}'],
+                        capture_output=True, timeout=1.0)
+                except Exception:
+                    pass
 
     def _compute_status(self) -> tuple[str, object]:
         """
@@ -683,32 +705,36 @@ class AudioRouterApp(rumps.App):
             if key_state != 0xA:      # Nur Key-Down verarbeiten
                 return
 
-            import subprocess
-            # Aktuellen Volume lesen
-            result = subprocess.run(
-                ['osascript', '-e', 'output volume of (get volume settings)'],
-                capture_output=True, text=True, timeout=1,
-            )
-            try:
-                current = int(result.stdout.strip())
-            except ValueError:
-                return
+            # H8: osascript-Calls in Thread — Event-Handler muss sofort zurückgeben
+            def _apply_volume(kc=key_code):
+                import subprocess
+                try:
+                    r = subprocess.run(
+                        ['osascript', '-e', 'output volume of (get volume settings)'],
+                        capture_output=True, text=True, timeout=1.0)
+                    current = int(r.stdout.strip())
+                except Exception:
+                    return
 
-            STEP = 7  # ~15 Stufen von 0 bis 100
-            if key_code == 3:    # Volume Up (NX_KEYTYPE_SOUND_UP)
-                new_vol = min(100, current + STEP)
-            elif key_code == 2:  # Volume Down (NX_KEYTYPE_SOUND_DOWN)
-                new_vol = max(0, current - STEP)
-            elif key_code == 7:  # Mute (NX_KEYTYPE_MUTE)
-                new_vol = 0 if current > 0 else 50
-            else:
-                return
+                STEP = 7  # ~15 Stufen von 0 bis 100
+                if kc == 3:    # Volume Up (NX_KEYTYPE_SOUND_UP)
+                    new_vol = min(100, current + STEP)
+                elif kc == 2:  # Volume Down (NX_KEYTYPE_SOUND_DOWN)
+                    new_vol = max(0, current - STEP)
+                elif kc == 7:  # Mute (NX_KEYTYPE_MUTE)
+                    new_vol = 0 if current > 0 else 50
+                else:
+                    return
 
-            subprocess.run(
-                ['osascript', '-e', f'set volume output volume {new_vol}'],
-                capture_output=True, timeout=1,
-            )
-            logger.debug(f"Media Key: volume {current}% → {new_vol}%")
+                try:
+                    subprocess.run(
+                        ['osascript', '-e', f'set volume output volume {new_vol}'],
+                        capture_output=True, timeout=1.0)
+                except Exception:
+                    pass
+                logger.debug(f"Media Key: volume {current}% → {new_vol}%")
+
+            threading.Thread(target=_apply_volume, name="media-key-vol", daemon=True).start()
         except Exception as exc:
             logger.debug(f"_handle_media_key Fehler: {exc}")
 
