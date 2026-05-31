@@ -36,8 +36,6 @@ from AppKit import NSEvent, NSSystemDefinedMask
 from audio_device_control import (
     set_default_output_device,
     set_default_system_output_device,
-    ensure_router_keepalive,
-    stop_router_keepalive,
     get_device_supported_sample_rates,
     is_audio_router_default,
     SUPPORTED_SAMPLE_RATES,
@@ -479,11 +477,9 @@ class AudioRouterApp(rumps.App):
     def _quit_app(self, sender):
         self._ui_timer.stop()
         self._device_manager.stop()
-        # Helper NUR herunterfahren wenn wir ihn selbst gestartet haben.
-        # Bei launchd-Verwaltung: Helper läuft weiter und wird neu gestartet.
-        # → shutdown() ist sicher, wir machen es nicht (Helper laeuft als Daemon weiter).
-        # Optionaler Aufruf hier könnte launchd zu Re-spawn triggern.
-        stop_router_keepalive()
+        # Helper sauber beenden — verhindert Orphan-Prozesse.
+        # Der Helper stoppt seinen Keep-Alive IOProc im Cleanup selbst.
+        self._helper.shutdown()
         save_config(self._config)
         rumps.quit_application()
 
@@ -805,30 +801,16 @@ class AudioRouterApp(rumps.App):
 
         logger.info("Auto-start: lade Outputs %s", ", ".join(self._active_device_names))
 
-        # Fix-1 + Fix-4 + Threading-Fix:
-        # ensure_router_keepalive() ruft AudioDeviceCreateIOProcID + AudioDeviceStart auf.
-        # Diese CoreAudio-Calls können den aufrufenden Thread für mehrere Sekunden blockieren
-        # (coreaudiod muss RT-Thread aufbauen). Deshalb: gesamte Start-Sequenz im
-        # Background-Thread, damit der rumps Main-Thread nicht einfriert.
-        # Reihenfolge bleibt gewahrt: Keep-Alive → Default-Switch → SR → Outputs.
-        def _do_start():
-            # Schritt 1: Keep-Alive IOProc (Fix-1) — BEVOR Default-Switch (Fix-4)
-            keepalive_ok = ensure_router_keepalive()
-            if not keepalive_ok:
-                logger.warning("Auto-start: Keep-Alive fehlgeschlagen — fahre trotzdem fort")
+        # Keep-Alive wird vom C-Helper verwaltet (ab v2.6) — kein Python-ctypes-Callback.
+        # Default-Output idempotent setzen (nur wenn nötig).
+        if not is_audio_router_default():
+            set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
+            set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
+        else:
+            logger.debug("Auto-start: Audio Router bereits Default — kein Switch nötig")
 
-            # Schritt 2: Default-Output idempotent setzen (Fix-4)
-            if not is_audio_router_default():
-                set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
-                set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
-            else:
-                logger.debug("Auto-start: Audio Router bereits Default — kein Switch nötig")
-
-            # Schritt 3 + 4: Sample-Rate + Helper-Outputs
-            self._apply_best_sample_rate()
-            self._apply_active_outputs()
-
-        threading.Thread(target=_do_start, daemon=True, name="auto-start-io").start()
+        self._apply_best_sample_rate()
+        self._apply_active_outputs()
         self._update_status_ui()
 
     def _save_and_apply(self):
@@ -848,13 +830,7 @@ class AudioRouterApp(rumps.App):
             set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
             logger.info("Auto-Switch: System-Audio auf Audio Router umgestellt")
 
-            # Fix-1: Keep-Alive IOProc im Background-Thread starten.
-            # AudioDeviceStart blockiert den aufrufenden Thread — niemals synchron
-            # vom Main-Thread aufrufen, sonst friert die App für ~10s ein.
-            threading.Thread(
-                target=ensure_router_keepalive,
-                daemon=True, name="keepalive-trigger"
-            ).start()
+            # Keep-Alive wird vom C-Helper verwaltet — kein Python-ctypes-Thread nötig.
 
         self._apply_active_outputs()
         if self._config.auto_sample_rate:
