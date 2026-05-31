@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 30. Mai 2026  
-**Version:** 2.5.0  
+**Stand:** 31. Mai 2026  
+**Version:** 2.6.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -30,6 +30,7 @@
 19. [Bugfix-Welle v2.3 — Initialisierungsreihenfolge & Stabilität (30. Mai 2026)](#19-bugfix-welle-v23--initialisierungsreihenfolge--stabilität-30-mai-2026)
 20. [macOS-26-Kompatibilitäts-Fix — StartIO + GetZeroTimeStamp (30. Mai 2026)](#20-macos-26-kompatibilitäts-fix--startio--getzerotimestamp-30-mai-2026)
 21. [Persistenter Keep-Alive IOProc + Leichtgewichtiger Retry (v2.5.0)](#21-persistenter-keep-alive-ioproc--leichtgewichtiger-retry-v250)
+22. [Keep-Alive Migration Python → C-Helper + Orphan-Fix (v2.6.0)](#22-keep-alive-migration-python--c-helper--orphan-fix-v260)
 
 ---
 
@@ -117,6 +118,8 @@ Die v1-Architektur (Python Socket + `sounddevice`) wurde vollständig durch den 
 | `arn-volume-poll` | C Helper | SRC-Ratio, read_idx, SHM-Reconnect |
 | `arn-config-accept` | C Helper | Unix Socket Config-Listener |
 | `arn_shm_retry_thread` | HAL-Treiber | Hintergrund-Retry alle 500ms bis Helper SHM anlegt (v2.1) |
+| `arn_shm_watch_thread` | HAL-Treiber | Inode-Vergleich alle 2s — erkennt Helper-Neustart, swappt `gSHMRing` atomar (v2.3) |
+| `arn-keepalive-ioproc` | C Helper | No-Op RT-Callback auf dem virtuellen Device — hält `gDeviceIsRunning=1` (v2.6) |
 | `audiorouter-device-scanner` | DeviceManager | Hot-Plug Erkennung |
 
 ---
@@ -393,9 +396,9 @@ Direkte CoreAudio-Aufrufe via `ctypes` (kein AppleScript, kein externes Tool). F
 | `is_audio_router_default()` | True wenn aktueller Default-Output == "Audio Router" |
 | `get_audio_router_sample_rate()` | Aktuelle Sample-Rate des virtuellen Devices (Fallback: 48000) |
 | `get_device_supported_sample_rates(uid)` | Unterstützte Sample-Raten eines Devices anhand UID |
-| `ensure_router_keepalive()` | **v2.5** Persistenter No-Op-IOProc via `AudioDeviceCreateIOProcID` — hält `gDeviceIsRunning=1` dauerhaft; idempotent |
-| `stop_router_keepalive()` | **v2.5** Stoppt Keep-Alive IOProc sauber (bei App-Quit); idempotent |
-| `start_audio_router_device()` | **(veraltet seit v2.5)** Ruft `AudioDeviceStart(id, NULL)` auf — ersetzte durch `ensure_router_keepalive()` |
+| `ensure_router_keepalive()` | **v2.5** Persistenter No-Op-IOProc — **Stub ab v2.6**, Keep-Alive läuft jetzt im C-Helper (`keepalive_ioproc`); API-Kompatibilität bleibt erhalten |
+| `stop_router_keepalive()` | **v2.5** Stoppt Keep-Alive IOProc — **Stub ab v2.6**, Lifecycle wird durch `helper.shutdown()` gesteuert |
+| `start_audio_router_device()` | **(veraltet seit v2.5)** Ruft `AudioDeviceStart(id, NULL)` auf — ersetzt durch `ensure_router_keepalive()` |
 | `_get_default_output_device_id()` | Interne Hilfsfunktion: Device-ID des Standard-Outputs |
 | `_find_audio_router_device_id()` | Interne Hilfsfunktion: Device-ID des "Audio Router" virtuellen Devices |
 
@@ -832,6 +835,20 @@ Unter macOS 26.5 (Tahoe) trat ein neues Symptom auf: trotz grünem Status floss 
 
 Vollständige Details in Abschnitt 20 (macOS-26-Kompatibilitäts-Fix).
 
+### Phase 14 — v2.6 Keep-Alive Migration + Orphan-Helper-Fix (31. Mai 2026)
+
+Nach dem Testlauf von v2.5 wurden zwei kritische Stabilitätsprobleme identifiziert:
+
+- **Stale Python ctypes-Pointer:** Die `ensure_router_keepalive()`-Implementierung registrierte einen Python ctypes-Callback (`_NOOP_CB`) als CoreAudio IOProc. Beim App-Exit wurde der Python-Prozess beendet, aber der Funktionszeiger blieb als "Stale Pointer" in `coreaudiod` registriert. Beim nächsten App-Start blockierte der erste CoreAudio-Call in `HALSystem::InitializeDevices()` → `ConnectToServer()` → `mach_msg2_trap` für mehrere Minuten (Deadlock).
+- **Orphan-Helper-Prozesse:** `_quit_app()` rief `self._helper.shutdown()` nicht auf — der Helper lief nach dem App-Quit weiter. Beim nächsten App-Start wurde ein zweiter Helper gestartet → Konflikte, doppelter CPU-Verbrauch, Lüfterlärm.
+
+**Drei koordinierte Fixes in v2.6.0 (Commit `b84b491`):**
+1. Keep-Alive IOProc vollständig in den C-Helper migriert (stabiler Funktionszeiger für gesamte Helper-Lifetime)
+2. Python-Stubs erhalten API-Kompatibilität (keine Call-Site-Änderungen nötig)
+3. `_quit_app()` ruft `self._helper.shutdown()` auf — sauberer Helper-Exit
+
+Vollständige Details in Abschnitt 22.
+
 ### Phase 13 — v2.5 Persistenter Keep-Alive IOProc (30. Mai 2026)
 
 Nach einem weiteren Testlauf (Neuinstallation → Deinstallation → Neuinstallation) trat das Startup-Problem erneut auf. Der `AudioDeviceStart(NULL)`-Ansatz aus v2.4.0 erwies sich als architektonisch unzuverlässig: ohne registrierten IOProc kann coreaudiod den IO-Stack sofort wieder abbauen, `gDeviceIsRunning` flackert 1→0, und Musik-Apps routen nicht stabil über "Audio Router".
@@ -915,7 +932,7 @@ AudioRouterNow/
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.5.0*
+*Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.6.0*
 
 ---
 
@@ -2106,7 +2123,7 @@ Getestet auf: macOS 26.5 (25F71), MacBook Pro M-Series.
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.5.0*
+*Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.6.0*
 
 ---
 
@@ -2259,4 +2276,213 @@ log stream --predicate 'subsystem contains "AudioRouterNow"' --level debug
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 30. Mai 2026 — AudioRouterNow v2.5.0*
+*Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.6.0*
+
+---
+
+## 22. Keep-Alive Migration Python → C-Helper + Orphan-Fix (v2.6.0)
+
+Commit `b84b491` — 31. Mai 2026.
+
+---
+
+### 22.1 Symptome und Root Causes
+
+Nach ausgiebigen Tests von v2.5 wurden zwei voneinander unabhängige, aber zusammen besonders störende Probleme identifiziert:
+
+#### Problem A: Deadlock beim App-Neustart (mehrere Minuten Wartezeit)
+
+**Symptom:** Nach einem normalen App-Quit + Neustart blieb die App eingefroren. Die Menüleiste reagierte nicht. Nach 3–5 Minuten kam sie scheinbar von selbst wieder — oder musste per Force-Quit beendet werden.
+
+**Root Cause:** Python ctypes-Callbacks (`_NOOP_CB`) sind `CFUNCTYPE`-Objekte, die intern einen **stabilen Funktionszeiger** haben — solange die Python-Variable lebt. Beim App-Exit wird der Python-Prozess beendet, das Modul wird entladen. Der Funktionszeiger, den `coreaudiod` unter der ProcID gespeichert hat, zeigt nun in freigegebenen Speicher (**Stale Function Pointer**).
+
+Beim nächsten App-Start ruft `coreaudiod` intern `HALSystem::InitializeDevices()` → `ConnectToServer()` auf. Dieser Vorgang kommuniziert mit dem `coreaudiod`-Daemon via Mach IPC (`mach_msg2_trap`). Intern versucht `coreaudiod`, den registrierten IOProc ordentlich zu beenden — trifft dabei auf den Stale Pointer — und läuft in einen internen Deadlock. Das Resultat: Der erste CoreAudio-Aufruf der neuen App-Session blockiert für **mehrere Minuten**.
+
+```
+Python-App Exit → ctypes _NOOP_CB → Stale Function Pointer in coreaudiod
+                                          ↓ (beim nächsten App-Start)
+coreaudiod: HALSystem::InitializeDevices() → ConnectToServer() → mach_msg2_trap
+                                          → DEADLOCK (mehrere Minuten)
+```
+
+#### Problem B: Orphan-Helper-Prozesse (CPU-Last + Lüfterlärm)
+
+**Symptom:** Nach jedem App-Quit liefen ein oder mehrere `AudioRouterNowHelper`-Prozesse weiterhin im Hintergrund. Beim nächsten App-Start wurde ein zweiter Helper gestartet — zwei Helper versuchten, dasselbe SHM-Segment und denselben Config-Socket zu verwalten.
+
+**Root Cause:** `_quit_app()` stoppte `_ui_timer` und `_device_manager`, rief aber **nie** `self._helper.shutdown()` auf. Der Helper lief damit als "verwaister Prozess" (Orphan) weiter — unkontrolliert, ohne weiteren Sinn, aber mit aktivem Keep-Alive IOProc und Volume-Poll-Thread.
+
+---
+
+### 22.2 Fix A: Keep-Alive IOProc in den C-Helper migriert
+
+**Problem mit Python ctypes:** Ein C-Funktionszeiger, der von Python `ctypes.CFUNCTYPE(...)` erzeugt wird, ist nur gültig, solange das Python-Objekt existiert. In `coreaudiod` (einem separaten Prozess) lebt dieser Zeiger weiter — wird aber ungültig, sobald der Python-Prozess endet.
+
+**Lösung:** Den Keep-Alive IOProc vollständig in den C-Helper verschieben. Ein normaler C-Funktionszeiger (`&keepalive_ioproc`) ist für die gesamte Laufzeit des Helper-Prozesses stabil — kein Python, kein GC, kein Stale Pointer.
+
+**Neue Implementierung in `helper/AudioRouterNowHelper.c`:**
+
+```c
+/* Globale Keep-Alive-Zustandsvariablen */
+static AudioDeviceID       g_keepalive_dev_id  = kAudioDeviceUnknown;
+static AudioDeviceIOProcID g_keepalive_proc_id = NULL;
+
+/* No-Op RT-Callback — hält gDeviceIsRunning=1 für die gesamte Helper-Lifetime */
+static OSStatus keepalive_ioproc(
+    AudioDeviceID           inDevice,
+    const AudioTimeStamp   *inNow,
+    const AudioBufferList  *inInputData,
+    const AudioTimeStamp   *inInputTime,
+    AudioBufferList        *outOutputData,
+    const AudioTimeStamp   *inOutputTime,
+    void                   *inClientData)
+{
+    (void)inDevice; (void)inNow; (void)inInputData; (void)inInputTime;
+    (void)outOutputData; (void)inOutputTime; (void)inClientData;
+    return kAudioHardwareNoError;  /* No-Op */
+}
+
+static void keepalive_start(AudioDeviceID dev)
+{
+    OSStatus err = AudioDeviceCreateIOProcID(dev, keepalive_ioproc, NULL,
+                                             &g_keepalive_proc_id);
+    if (err != noErr) { /* log error, return */ }
+    err = AudioDeviceStart(dev, g_keepalive_proc_id);
+    if (err != noErr) {
+        AudioDeviceDestroyIOProcID(dev, g_keepalive_proc_id);
+        g_keepalive_proc_id = NULL;
+    }
+    g_keepalive_dev_id = dev;
+}
+
+static void keepalive_stop(void)
+{
+    if (g_keepalive_proc_id == NULL) return;
+    AudioDeviceStop(g_keepalive_dev_id, g_keepalive_proc_id);
+    AudioDeviceDestroyIOProcID(g_keepalive_dev_id, g_keepalive_proc_id);
+    g_keepalive_proc_id = NULL;
+    g_keepalive_dev_id  = kAudioDeviceUnknown;
+}
+```
+
+**Integration in den Helper-Lifecycle:**
+
+| Ereignis | Aktion |
+|----------|--------|
+| Helper startet, SHM bereit | `keepalive_start(find_device_by_uid(OUR_DEVICE_UID))` |
+| Helper beendet sich (SIGINT/SIGTERM oder shutdown-Befehl) | `keepalive_stop()` — saubere Deregistrierung |
+
+Der Funktionszeiger `&keepalive_ioproc` ist eine normale C-Funktionsadresse im `.text`-Segment des Helper-Binaries — für die gesamte Prozesslaufzeit stabil. `coreaudiod` kann ihn auch nach einem Python-App-Quit problemlos aufrufen (solange der C-Helper-Prozess läuft).
+
+**Entfernte Python-Implementierung in `engine/audio_device_control.py`:**
+
+| Entfernt | Warum |
+|----------|-------|
+| `_AudioDeviceIOProc_TYPE` (ctypes.CFUNCTYPE) | Typ-Definition für Callback |
+| `_noop_ioproc()` | Python No-Op-Callback |
+| `_NOOP_CB` (modulglobales ctypes-Objekt) | GC-Schutz-Hack nicht mehr nötig |
+| `_keepalive_lock`, `_keepalive_proc_id`, `_keepalive_dev_id` | Zustandsvariablen |
+| `import threading` | Nicht mehr benötigt |
+| Komplette `ensure_router_keepalive()`-Implementierung | ~60 Zeilen entfernt |
+| Komplette `stop_router_keepalive()`-Implementierung | ~30 Zeilen entfernt |
+
+**Stubs für API-Kompatibilität** (keine Call-Site-Änderungen erforderlich):
+
+```python
+# Keep-Alive wird ab v2.6 vom C-Helper verwaltet (keepalive_ioproc in AudioRouterNowHelper.c).
+# Python-ctypes-Callbacks verursachen Stale-Pointer in coreaudiod nach Prozess-Exit.
+# Diese Stubs bleiben für API-Kompatibilität.
+
+def ensure_router_keepalive() -> bool:
+    """Stub — Keep-Alive wird vom C-Helper (keepalive_ioproc) verwaltet."""
+    logger.debug("ensure_router_keepalive: Stub — Keep-Alive in C-Helper")
+    return True
+
+def stop_router_keepalive() -> None:
+    logger.debug("stop_router_keepalive: Stub — Keep-Alive in C-Helper")
+```
+
+---
+
+### 22.3 Fix B: Helper-Shutdown bei App-Quit
+
+**Datei:** `engine/menu_bar_app.py` — `_quit_app()`
+
+**Vorher (v2.5):**
+```python
+def _quit_app(self, sender):
+    self._ui_timer.stop()
+    self._device_manager.stop()
+    save_config(self._config)
+    rumps.quit_application()
+    # Helper läuft als Orphan weiter!
+```
+
+**Nachher (v2.6):**
+```python
+def _quit_app(self, sender):
+    self._ui_timer.stop()
+    self._device_manager.stop()
+    # Helper sauber beenden — verhindert Orphan-Prozesse.
+    # Der Helper stoppt seinen Keep-Alive IOProc im Cleanup selbst.
+    self._helper.shutdown()
+    save_config(self._config)
+    rumps.quit_application()
+```
+
+`helper_client.shutdown()` sendet dem Helper ein Shutdown-Signal (SIGTERM oder Socket-Befehl) und wartet auf das Prozess-Ende. Der Helper empfängt den Befehl, ruft `keepalive_stop()` auf (deregistriert den IOProc sauber) und beendet sich dann geordnet.
+
+**Nebeneffekt:** Das saubere `keepalive_stop()` im Helper-Cleanup eliminiert auch den letzten verbliebenen Stale-Pointer-Risikopfad — das `mach_msg2_trap`-Deadlock-Problem tritt nicht mehr auf, weil beim nächsten App-Start kein verwaister ctypes-IOProc mehr in `coreaudiod` registriert ist.
+
+---
+
+### 22.4 Weiteres: Auto-Start vereinfacht
+
+**Datei:** `engine/menu_bar_app.py` — `_auto_start_if_configured()`
+
+In v2.5 wurde `ensure_router_keepalive()` explizit als erster Schritt im Auto-Start aufgerufen. Da ab v2.6 der Keep-Alive im C-Helper läuft (und dieser automatisch nach SHM-Init startet), ist dieser explizite Aufruf überflüssig geworden:
+
+- `_do_start`-Hintergrund-Thread entfernt (der in v2.5 `ensure_router_keepalive()` im Hintergrund aufgerufen hatte)
+- Auto-Start direkt und synchron — kein Threading mehr nötig für die Keep-Alive-Phase
+- `ensure_router_keepalive()` bleibt als Stub in `_save_and_apply()` (No-Op, keine Nebenwirkungen)
+
+---
+
+### 22.5 Vergleich: v2.5 vs. v2.6
+
+| Aspekt | v2.5 (Python ctypes) | v2.6 (C Helper) |
+|--------|---------------------|-----------------|
+| **IOProc-Stabilität** | Stale Pointer nach App-Exit möglich | C-Funktionszeiger stabil für Helper-Lifetime |
+| **Deadlock-Risiko** | Ja — `mach_msg2_trap`, mehrere Minuten | Nein |
+| **GC-Schutz** | Manuell (`_NOOP_CB` modulglobal) | Nicht nötig (C hat kein GC) |
+| **Orphan-Helper** | Ja — kein Shutdown bei App-Quit | Nein — `_quit_app()` ruft `helper.shutdown()` |
+| **Doppelte Helper-Prozesse** | Möglich nach jedem App-Quit | Ausgeschlossen |
+| **Code-Komplexität** | ~100 Zeilen Python (Lock, Callback, Lifecycle) | ~50 Zeilen C + 10 Zeilen Stubs |
+
+---
+
+### 22.6 Resultat
+
+**Erwartetes Verhalten nach v2.6:**
+
+1. App-Start → Helper startet → SHM bereit → `keepalive_start()` → `gDeviceIsRunning=1`
+2. App arbeitet normal — Keep-Alive im C-Helper, kein Python-ctypes-Overhead
+3. App-Quit → `_quit_app()` → `helper.shutdown()` → Helper ruft `keepalive_stop()` → sauber beendet
+4. Nächster App-Start → **kein Deadlock**, kein verwaister IOProc, kein Orphan-Prozess
+
+**Verifikation:**
+
+```bash
+# Keine doppelten Helper-Prozesse nach App-Quit:
+pgrep -la AudioRouterNowHelper   # → kein Output nach App-Quit
+
+# Keep-Alive läuft im Helper-Log:
+tail -f ~/Library/Logs/AudioRouterNow/helper.log
+# → "Keep-Alive IOProc gestartet" kurz nach Helper-Start
+
+# Kein Deadlock beim Neustart:
+# App öffnet sich sofort (< 3 Sekunden), kein Einfrieren der Menüleiste
+```
+
+---
+
+*Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.6.0*
