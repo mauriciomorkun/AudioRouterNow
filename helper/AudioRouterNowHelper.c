@@ -75,10 +75,16 @@ typedef struct DeviceOutput {
     bool                 active;
     _Atomic uint32_t     underruns;      /* Diagnostic: Underrun-Zaehler         */
     /* Phase 6 — Adaptive SRC fuer Clock-Drift-Kompensation */
-    double               src_frac_ridx;    /* fraktionaler Leseindex (ersetzt local_ridx im IOProc) */
+    double               src_frac_ridx;    /* fraktionaler Leseindex — NUR vom IOProc-Thread gelesen/geschrieben */
     _Atomic uint32_t     src_ratio_q20;    /* Q20-Ratio: base_ratio = 1<<20. Volume-Thread schreibt, IOProc liest */
     uint32_t             src_ring_target;  /* Ziel-Fuellstand in Samples (= ARN_RING_CAPACITY/2) */
     double               base_ratio;       /* ring_sr / device_sr: 1.0 bei gleicher Rate, z.B. 1.0884 bei 44100->48000 */
+    /* K6: RT-sicherer Pending-Reset fuer src_frac_ridx.
+     * Volume-Thread/sr_reinit darf src_frac_ridx NICHT direkt schreiben
+     * (Data Race mit IOProc). Stattdessen: Pending-Flag + Zielwert setzen.
+     * IOProc prueft das Flag am Anfang jedes Aufrufs (kein Lock noetig). */
+    _Atomic uint32_t     frac_ridx_reset_pending; /* 1 = IOProc soll reset ausfuehren */
+    _Atomic uint32_t     frac_ridx_reset_widx;    /* Ziel sample-index fuer reset      */
     /* Pre-allokierter Temp-Buffer fuer De-Interleaving im IOProc (RT-safe). */
     float                temp_buf[ARN_RING_CAPACITY];
 } DeviceOutput;
@@ -463,6 +469,16 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
 
     if (!dev || !ring || !outOutputData) return noErr;
 
+    /* K6: Pending-Reset fuer src_frac_ridx — RT-safe, kein Lock.
+     * Volume-Thread/sr_reinit setzt das Flag + Zielwert atomar.
+     * IOProc wendet den Reset hier an (einziger Schreiber von src_frac_ridx). */
+    if (atomic_load_explicit(&dev->frac_ridx_reset_pending, memory_order_acquire)) {
+        uint32_t target_widx = atomic_load_explicit(&dev->frac_ridx_reset_widx,
+                                                    memory_order_relaxed);
+        dev->src_frac_ridx = (double)target_widx / 2.0;
+        atomic_store_explicit(&dev->frac_ridx_reset_pending, 0u, memory_order_release);
+    }
+
     /* Volume + Mute aus Shared-Control lesen (atomic, low-cost) */
     uint32_t vol_q16 = atomic_load_explicit(&ring->volume_q16, memory_order_relaxed);
     uint32_t muted   = atomic_load_explicit(&ring->muted,      memory_order_relaxed);
@@ -715,7 +731,10 @@ static int output_add_locked(const char *uid, uint32_t ch_offset)
      * src_frac_ridx ist ein FRAME-Index (nicht Sample-Index):
      *   frame i → ring samples [i*2] (L) und [i*2+1] (R)
      * local_ridx ist ein Sample-Index → /2 fuer Konvertierung. */
+    /* IOProc noch nicht gestartet — direktes Schreiben hier sicher. */
     dev->src_frac_ridx   = (double)atomic_load_explicit(&dev->local_ridx, memory_order_relaxed) / 2.0;
+    atomic_store_explicit(&dev->frac_ridx_reset_pending, 0u, memory_order_relaxed); /* kein pending Reset */
+    atomic_store_explicit(&dev->frac_ridx_reset_widx,    0u, memory_order_relaxed);
     /* Initialer Ratio: base_ratio (nicht 1.0!) damit SRC ab dem ersten IOProc-Call */
     /* korrekt rechnet — auch bei Rate-Mismatch (z.B. 44100 Hz HDMI). */
     uint32_t init_ratio_q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
@@ -870,7 +889,10 @@ static void sr_reinit_all_outputs(void) {
             uint32_t q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
             atomic_store_explicit(&dev->src_ratio_q20, q20, memory_order_relaxed);
             atomic_store_explicit(&dev->local_ridx, w, memory_order_release);
-            dev->src_frac_ridx = (double)w / 2.0;
+            /* K6: Pending-Reset statt Direktschreiben in src_frac_ridx.
+             * IOProc laeuft weiter — direkter Schreibzugriff ist ein Data Race. */
+            atomic_store_explicit(&dev->frac_ridx_reset_widx, w, memory_order_relaxed);
+            atomic_store_explicit(&dev->frac_ridx_reset_pending, 1u, memory_order_release);
             /* active/proc_id bleiben unveraendert — Output laeuft weiter. */
             continue;
         }
@@ -885,9 +907,13 @@ static void sr_reinit_all_outputs(void) {
             dev->active  = false;
         }
 
-        /* Schritt 2: Leseposition auf aktuellen write_idx setzen */
+        /* Schritt 2: Leseposition auf aktuellen write_idx setzen.
+         * IOProc wurde in Schritt 1 gestoppt — direktes Schreiben hier sicher.
+         * Pending-Flag zuruecksetzen damit der (bald wieder startende) IOProc
+         * nicht einen veralteten Pending-Reset ausfuehrt. */
         atomic_store_explicit(&dev->local_ridx, w, memory_order_release);
         dev->src_frac_ridx = (double)w / 2.0;
+        atomic_store_explicit(&dev->frac_ridx_reset_pending, 0u, memory_order_release);
 
         /* Schritt 3: Versuche Device auf neue Ring-SR zu setzen */
         Float64 ring_sr_f = (Float64)new_sr;
@@ -1068,7 +1094,12 @@ static void *volume_poll_thread(void *arg)
                     pthread_mutex_lock(&g_outputs_lock);
                     for (int i = 0; i < g_n_outputs; i++) {
                         atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
-                        g_outputs[i].src_frac_ridx = (double)w / 2.0; /* Frame-Index! */
+                        /* K6: Pending-Reset — IOProc koennte weiter laufen waehrend
+                         * wir reconnecten. Direktschreiben in src_frac_ridx = Data Race. */
+                        atomic_store_explicit(&g_outputs[i].frac_ridx_reset_widx, w,
+                                              memory_order_relaxed);
+                        atomic_store_explicit(&g_outputs[i].frac_ridx_reset_pending, 1u,
+                                              memory_order_release);
                     }
                     pthread_mutex_unlock(&g_outputs_lock);
                 }
