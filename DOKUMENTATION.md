@@ -1,9 +1,11 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 31. Mai 2026  
+**Stand:** 1. Juni 2026  
 **Version:** 2.8.1  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
+
+> **Schnelle Versions-Übersicht:** Siehe [`RELEASE_NOTES.md`](RELEASE_NOTES.md) — zweigeteilt in "For Everyone" (Klartext) und "For Power Users" (technische Details). Diese Datei enthält die vollständige Architektur- und Implementierungsdokumentation.
 
 ---
 
