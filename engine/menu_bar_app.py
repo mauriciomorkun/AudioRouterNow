@@ -42,6 +42,7 @@ from audio_device_control import (
 )
 from config import AppConfig, CONFIG_FILE, load_config, save_config
 from device_manager import AudioDevice, DeviceManager
+from health import HealthMonitor
 import first_launch
 from first_launch import DRIVER_INSTALL_PATH, is_driver_installed
 from helper_client import CONFIG_SOCKET, HelperClient, OutputSpec
@@ -134,6 +135,14 @@ class AudioRouterApp(rumps.App):
         self._volume_poll_thread = threading.Thread(
             target=self._volume_poll_loop, name="volume-poll", daemon=True)
         self._volume_poll_thread.start()
+
+        # Tranche A: Health-Monitor
+        self._health_monitor = HealthMonitor()
+        self._health_level: str = "healthy"   # GIL-atomare Zuweisung reicht
+        self._health_poll_stop = threading.Event()
+        self._health_poll_thread = threading.Thread(
+            target=self._health_poll_loop, name="health-poll", daemon=True)
+        self._health_poll_thread.start()
 
         # Komponenten starten
         self._device_manager.start()
@@ -467,6 +476,9 @@ class AudioRouterApp(rumps.App):
         # H8: Volume-Poll-Thread sauber beenden
         if hasattr(self, '_volume_poll_stop'):
             self._volume_poll_stop.set()
+        # Tranche A: Health-Poll-Thread sauber beenden
+        if hasattr(self, '_health_poll_stop'):
+            self._health_poll_stop.set()
         try:
             self._helper.shutdown()
         except Exception:
@@ -489,6 +501,9 @@ class AudioRouterApp(rumps.App):
         # H8: Volume-Poll-Thread sauber beenden
         if hasattr(self, '_volume_poll_stop'):
             self._volume_poll_stop.set()
+        # Tranche A: Health-Poll-Thread sauber beenden
+        if hasattr(self, '_health_poll_stop'):
+            self._health_poll_stop.set()
         self._device_manager.stop()
         # Helper sauber beenden — verhindert Orphan-Prozesse.
         # Der Helper stoppt seinen Keep-Alive IOProc im Cleanup selbst.
@@ -606,6 +621,23 @@ class AudioRouterApp(rumps.App):
                 except Exception:
                     pass
 
+    def _health_poll_loop(self):
+        """Tranche A: Daemon-Thread für Health-Telemetrie (200ms Intervall).
+        Rein observierend — kein Eingriff in den Audio-Pfad."""
+        while not self._health_poll_stop.wait(0.2):
+            if not self._helper_alive:
+                self._health_level = "critical"
+                continue
+            try:
+                status = self._helper.get_status(timeout=0.15)
+                if status is None:
+                    continue
+                audio_flowing = int(status.get("ring_frames", 0)) > 0
+                sh = self._health_monitor.update(status, audio_flowing)
+                self._health_level = sh.level   # GIL-atomare Zuweisung
+            except Exception as e:
+                logger.debug("health_poll_loop Fehler: %s", e)
+
     def _compute_status(self) -> tuple[str, object]:
         """
         Berechnet den aktuellen Systemzustand und liefert (title, action_key).
@@ -655,7 +687,23 @@ class AudioRouterApp(rumps.App):
             names_str = f"{len(names)} devices"
         else:
             names_str = ", ".join(names)
-        return (f"🟢  Routing active — {names_str}", None)
+
+        # Tranche A: Health-Ampel in den Routing-Status integrieren
+        health_level = getattr(self, '_health_level', 'healthy')
+        if health_level == "critical":
+            icon_override = "🔴"
+        elif health_level == "degraded":
+            icon_override = "🟡"
+        else:
+            icon_override = "🟢"
+
+        # Tooltip mit Health-Reason (falls vorhanden)
+        sh = getattr(self._health_monitor, 'health', None) if hasattr(self, '_health_monitor') else None
+        reason_suffix = ""
+        if sh and sh.reasons and health_level != "healthy":
+            reason_suffix = f" — {sh.reasons[0]}"
+
+        return (f"{icon_override}  Routing active — {names_str}{reason_suffix}", None)
 
     def _status_action(self, sender):
         """
