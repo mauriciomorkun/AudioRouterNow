@@ -38,6 +38,8 @@ class AppConfig:
     donation_hint_shown: bool = False
     # First-Run-Wizard: wird einmalig nach der ersten Installation gezeigt
     onboarding_done: bool = False
+    # Tranche B: Safe-Take-Modus — deaktiviert alle Heilungseingriffe
+    safe_take_mode: bool = False
     # Channel-Offsets pro Device: device_name -> Liste aktiver Offsets
     # (0 = Ch 1-2, 2 = Ch 3-4, 4 = Ch 5-6, ...)
     # Mehrere Offsets = mehrere Kanal-Paare gleichzeitig aktiv
@@ -63,6 +65,7 @@ class AppConfig:
             buffer_size=int(data.get("buffer_size", 512)),
             donation_hint_shown=bool(data.get("donation_hint_shown", False)),
             onboarding_done=bool(data.get("onboarding_done", False)),
+            safe_take_mode=bool(data.get("safe_take_mode", False)),
             output_device_offsets=offsets,
         )
 

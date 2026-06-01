@@ -43,6 +43,7 @@ from audio_device_control import (
 from config import AppConfig, CONFIG_FILE, load_config, save_config
 from device_manager import AudioDevice, DeviceManager
 from health import HealthMonitor
+from healer import Healer
 import first_launch
 from first_launch import DRIVER_INSTALL_PATH, is_driver_installed
 from helper_client import CONFIG_SOCKET, HelperClient, OutputSpec
@@ -144,6 +145,12 @@ class AudioRouterApp(rumps.App):
             target=self._health_poll_loop, name="health-poll", daemon=True)
         self._health_poll_thread.start()
 
+        # Tranche B: Healer (Safe-Take-aware)
+        self._healer = Healer(
+            helper_client=self._helper,
+            safe_take_getter=lambda: getattr(self._config, 'safe_take_mode', False)
+        )
+
         # Komponenten starten
         self._device_manager.start()
 
@@ -158,6 +165,10 @@ class AudioRouterApp(rumps.App):
                     "Please reinstall AudioRouterNow."
                 ),
             )
+
+        # Tranche B: Safe-Take State nach Helper-Start synchronisieren
+        if self._config.safe_take_mode:
+            self._helper.set_safe_take(True)
 
         # Menu aufbauen + Outputs wiederherstellen
         self._restore_saved_outputs()
@@ -231,8 +242,16 @@ class AudioRouterApp(rumps.App):
             )
             items.append(sr_item)
 
+        # Tranche B: Safe-Take-Modus
+        safe_mark = "[x]" if self._config.safe_take_mode else "[ ]"
+        safe_item = rumps.MenuItem(
+            f"{safe_mark}  Safe mode (no auto-healing)",
+            callback=self._toggle_safe_take,
+        )
+
         items += [
             None,
+            safe_item,
             self._help_menu,
             None,
             self._donation_btn,
@@ -322,6 +341,13 @@ class AudioRouterApp(rumps.App):
         save_config(self._config)
         if self._config.auto_sample_rate:
             self._apply_best_sample_rate()
+        self._build_menu()
+
+    def _toggle_safe_take(self, sender):
+        self._config.safe_take_mode = not self._config.safe_take_mode
+        save_config(self._config)
+        self._helper.set_safe_take(self._config.safe_take_mode)
+        logger.info("Safe-Take: %s", "aktiviert" if self._config.safe_take_mode else "deaktiviert")
         self._build_menu()
 
     def _set_sample_rate(self, rate: int):
@@ -635,6 +661,24 @@ class AudioRouterApp(rumps.App):
                 audio_flowing = int(status.get("ring_frames", 0)) > 0
                 sh = self._health_monitor.update(status, audio_flowing)
                 self._health_level = sh.level   # GIL-atomare Zuweisung
+
+                # Tranche B: Heilung anstoßen
+                self._healer.process(sh)
+                # Tripped-Outputs → Notification (einmalig pro Trip)
+                for (uid, ch_off) in self._healer.tripped_outputs():
+                    # Finde Device-Name für bessere UX
+                    dev_name = next(
+                        (o.name for o in sh.outputs if o.uid == uid and o.ch_offset == ch_off),
+                        uid
+                    )
+                    if not getattr(self, f'_tripped_notified_{uid}_{ch_off}', False):
+                        setattr(self, f'_tripped_notified_{uid}_{ch_off}', True)
+                        rumps.notification(
+                            title="AudioRouterNow — Output unreachable",
+                            subtitle="",
+                            message=f"'{dev_name}' Ch{ch_off+1}-{ch_off+2} could not be recovered. "
+                                    "Reconnect the device or restart via menu.",
+                        )
             except Exception as e:
                 logger.debug("health_poll_loop Fehler: %s", e)
 

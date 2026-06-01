@@ -120,6 +120,11 @@ typedef struct DeviceOutput {
     uint64_t         last_progress_ns;   /* mach_absolute_time() der letzten Bewegung */
     _Atomic uint32_t stalled;            /* 1 = als gestallt markiert (Diagnose)  */
     _Atomic uint32_t recovery_count;     /* Diagnose: wie oft hat sich dieser Output von einem Stall erholt */
+    /* Tranche B: Pre-Roll High-Water-Mark.
+     * preroll_armed=1 -> IOProc gibt Stille bis Ring >= preroll_target_frames,
+     * dann self-clear (release-store auf 0). Re-armed nach SHM-Reconnect. */
+    _Atomic uint32_t preroll_target_frames; /* HWM in Frames (0=deaktiviert) */
+    _Atomic uint32_t preroll_armed;         /* 1=IOProc gibt Stille bis HWM, dann self-clear */
     /* Phase 6 — Adaptive SRC fuer Clock-Drift-Kompensation */
     double               src_frac_ridx;    /* fraktionaler Leseindex — NUR vom IOProc-Thread gelesen/geschrieben */
     _Atomic uint32_t     src_ratio_q20;    /* Q20-Ratio: base_ratio = 1<<20. Volume-Thread schreibt, IOProc liest */
@@ -169,6 +174,10 @@ static atomic_int              g_hotplug_registered = 0;
 
 /* SHM-Bereitschafts-Flag: 0 = noch nicht verbunden, 1 = Ring bereit */
 static atomic_int              g_shm_ready          = 0;
+
+/* Tranche B: Safe-Take-Modus — deaktiviert alle Heiler-Aktuatoren,
+ * erlaubt nur Telemetrie. Fuer Recording/Live-Situationen. */
+static atomic_int              g_safe_take          = 0;
 
 /* H3: Hot-Plug-Flag — Callback setzt nur dieses Flag, Volume-Thread reagiert.
  * Kein CoreAudio-Call im Property-Callback-Kontext (Re-Entry-Deadlock-Risiko). */
@@ -578,6 +587,25 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
         atomic_store_explicit(&dev->frac_ridx_reset_pending, 0u, memory_order_release);
     }
 
+    /* Tranche B: Pre-Roll Gate — gibt Stille bis Ring ≥ HWM (43ms @48kHz).
+     * RT-safe: nur relaxed-atomic loads + ein release-store. Kein malloc, kein lock. */
+    if (atomic_load_explicit(&dev->preroll_armed, memory_order_relaxed)) {
+        uint32_t hwm    = atomic_load_explicit(&dev->preroll_target_frames, memory_order_relaxed);
+        uint32_t widx_p = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
+        uint32_t frac_s = (uint32_t)(dev->src_frac_ridx * 2.0);
+        uint32_t behind_p = widx_p - frac_s;
+        if (behind_p / 2u < hwm) {
+            /* Noch nicht genug gepuffert — Stille ausgeben, Position NICHT bewegen */
+            for (UInt32 b = 0; b < outOutputData->mNumberBuffers; b++) {
+                memset(outOutputData->mBuffers[b].mData, 0,
+                       outOutputData->mBuffers[b].mDataByteSize);
+            }
+            return noErr;
+        }
+        /* HWM erreicht — Pre-Roll abschalten (einmalig, release) */
+        atomic_store_explicit(&dev->preroll_armed, 0u, memory_order_release);
+    }
+
     /* Volume + Mute aus Shared-Control lesen (atomic, low-cost) */
     uint32_t vol_q16 = atomic_load_explicit(&ring->volume_q16, memory_order_relaxed);
     uint32_t muted   = atomic_load_explicit(&ring->muted,      memory_order_relaxed);
@@ -860,6 +888,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
     tmp.last_progress_ns = get_time_ns();
     atomic_store_explicit(&tmp.stalled, 0u, memory_order_relaxed);
     atomic_store_explicit(&tmp.recovery_count, 0u, memory_order_relaxed);
+    /* Tranche B: Pre-Roll — Consumer wartet auf ARN_RING_CAPACITY/4 Frames (≈43ms @48kHz) */
+    atomic_store_explicit(&tmp.preroll_target_frames, ARN_RING_CAPACITY / 4u, memory_order_relaxed);
+    atomic_store_explicit(&tmp.preroll_armed, 1u, memory_order_relaxed);
 
     /* Sample-Rate-Abgleich und SRC-Initialisierung (wie in output_add_locked) */
     ARNSharedRing *ring_now = atomic_load_explicit(&g_ring, memory_order_acquire);
@@ -1484,6 +1515,9 @@ static void *volume_poll_thread(void *arg)
                             g_outputs[i].last_ridx_sample = w;
                             g_outputs[i].last_progress_ns = get_time_ns();
                             atomic_store_explicit(&g_outputs[i].stalled, 0u, memory_order_release);
+                            /* Tranche B: Pre-Roll re-arm nach SHM-Reconnect — Ring wurde
+                             * neu verbunden, erst wieder HWM aufbauen bevor Audio fliesst. */
+                            atomic_store_explicit(&g_outputs[i].preroll_armed, 1u, memory_order_release);
                         }
                         pthread_mutex_unlock(&g_outputs_lock);
                     }
@@ -1807,10 +1841,12 @@ static int parse_and_execute(int fd, const char *line)
         } else {
             ioproc_age_ms = (unsigned long long)((get_time_ns() - last_ioproc_ns) / 1000000ULL);
         }
+        /* Tranche B: Safe-Take-State exponieren — Python kann aktuellen Modus lesen. */
+        int safe_take = atomic_load_explicit(&g_safe_take, memory_order_acquire);
         snprintf(resp, sizeof(resp),
                  "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u,"
-                 "\"reconnect_count\":%u,\"ioproc_age_ms\":%llu,\"ready\":true}",
-                 active_buf, frames, calls, reconnect_count, ioproc_age_ms);
+                 "\"reconnect_count\":%u,\"ioproc_age_ms\":%llu,\"safe_take\":%d,\"ready\":true}",
+                 active_buf, frames, calls, reconnect_count, ioproc_age_ms, safe_take);
         send_line(fd, resp);
         return 0;
     }
@@ -1927,6 +1963,86 @@ static int parse_and_execute(int fd, const char *line)
 
         snprintf(resp, sizeof(resp), "{\"ok\":true,\"rate\":%u}", new_sr);
         send_line(fd, resp);
+        return 0;
+    }
+
+    /* Tranche B: reconnect_output — Python-Brain kann gezielt einen Output neu starten */
+    if (json_has_cmd(line, "reconnect_output")) {
+        /* Safe-Take Guard */
+        if (atomic_load_explicit(&g_safe_take, memory_order_acquire)) {
+            send_line(fd, "{\"ok\":false,\"error\":\"safe_take\"}");
+            return 0;
+        }
+        /* SHM Guard */
+        if (!atomic_load_explicit(&g_shm_ready, memory_order_acquire)) {
+            send_line(fd, "{\"ok\":false,\"error\":\"shm_reconnecting\"}");
+            return 0;
+        }
+        /* uid extrahieren ("uid":"...") */
+        char uid[512] = {0};
+        const char *uid_key = strstr(line, "\"uid\"");
+        if (uid_key) {
+            const char *colon = strchr(uid_key, ':');
+            const char *q1 = colon ? strchr(colon, '"') : NULL;
+            const char *q2 = q1 ? strchr(q1 + 1, '"') : NULL;
+            if (q1 && q2) {
+                size_t len = (size_t)(q2 - (q1 + 1));
+                if (len >= sizeof(uid)) len = sizeof(uid) - 1;
+                memcpy(uid, q1 + 1, len);
+                uid[len] = '\0';
+            }
+        }
+        /* ch_offset extrahieren ("ch_offset":N) */
+        uint32_t ch_offset = 0;
+        const char *off_key = strstr(line, "\"ch_offset\"");
+        if (off_key) {
+            const char *col2 = strchr(off_key, ':');
+            if (col2) {
+                col2++;
+                while (*col2 == ' ' || *col2 == '\t') col2++;
+                int v = atoi(col2);
+                if (v < 0 || v > 32) v = 0;  /* Clamp wie in parse_outputs */
+                ch_offset = (uint32_t)v;
+            }
+        }
+        if (!uid[0]) {
+            send_line(fd, "{\"ok\":false,\"error\":\"missing_uid\"}");
+            return 0;
+        }
+        /* 3-Phasen-Design: output_remove_locked unter Lock, output_add ohne Lock */
+        pthread_mutex_lock(&g_outputs_lock);
+        int slot = find_output_slot_locked(uid, ch_offset);
+        if (slot < 0) {
+            pthread_mutex_unlock(&g_outputs_lock);
+            send_line(fd, "{\"ok\":false,\"error\":\"not_found\"}");
+            return 0;
+        }
+        output_remove_locked(uid, ch_offset);
+        pthread_mutex_unlock(&g_outputs_lock);
+        /* output_add ausserhalb des Locks (3-Phasen-Design) */
+        int rc = output_add(uid, ch_offset);
+        if (rc == 0) {
+            send_line(fd, "{\"ok\":true,\"reconnected\":true}");
+        } else {
+            send_line(fd, "{\"ok\":false,\"error\":\"output_add_failed\"}");
+        }
+        return 0;
+    }
+
+    /* Tranche B: set_safe_take — deaktiviert/aktiviert alle Heiler-Aktuatoren */
+    if (json_has_cmd(line, "set_safe_take")) {
+        uint32_t enabled = 0;
+        const char *en_key = strstr(line, "\"enabled\"");
+        if (en_key) {
+            const char *col = strchr(en_key, ':');
+            if (col) {
+                col++;
+                while (*col == ' ' || *col == '\t') col++;
+                enabled = (uint32_t)(atoi(col) != 0);
+            }
+        }
+        atomic_store_explicit(&g_safe_take, (int)enabled, memory_order_release);
+        send_line(fd, "{\"ok\":true}");
         return 0;
     }
 
