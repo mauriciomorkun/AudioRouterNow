@@ -63,7 +63,9 @@
  * Pfad wird zur Laufzeit aus $HOME gebildet — kein TOCTOU-Risiko. */
 static char g_config_socket_path[512] = {0};
 #define VOLUME_POLL_INTERVAL_US 50000                          /* 50ms Volume-Polling */
-#define STALL_TIMEOUT_NS  (300ULL * 1000ULL * 1000ULL)  /* K2: 300ms ohne Fortschritt = Stall */
+#define STALL_TIMEOUT_NS  (1000ULL * 1000ULL * 1000ULL)  /* K2: 1000ms ohne Fortschritt = Stall
+                                                            * (erhöht von 300ms — SRC-Boundary-
+                                                            * Instabilität braucht mehr Settle-Zeit) */
 
 #define MAX_OUTPUTS            8
 
@@ -619,13 +621,16 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
     }
 
     /* Benötigte Samples: floor(nFrames * ratio * 2).
-     * Kein +N Lookahead — der Ring ist zirkulaer, 1 Stichprobe am Rand
-     * ist vernachlaessigbar. Beim originalen v1-Code war needed = nFrames*2
-     * (ratio=1.0), dies ist damit identisch oder strenger fuer ratio>1. */
+     * Toleranz: 4 Samples (= 2 Stereo-Frames). Verhindert Boundary-Instabilität
+     * wenn ratio genau an der Grenze liegt (z.B. 48000/44100 = 1.0884 →
+     * needed = 1114, Ring liefert mal 1113 mal 1115 je nach Timing-Jitter).
+     * Ohne Toleranz → alternierende Underruns → Stall-Detection feuert.
+     * Die 4 fehlenden Samples werden mit Stille aufgefüllt — unhörbar. */
     uint32_t needed_samples = (uint32_t)(nFrames * ratio * 2.0);
+    const uint32_t JITTER_TOLERANCE = 4u;  /* 2 Stereo-Frames Toleranz */
 
     int underrun = 0;
-    if (behind < needed_samples) {
+    if (behind + JITTER_TOLERANCE < needed_samples) {
         /* Underrun: Stille — Position NICHT veraendern, naechster Call holt auf */
         memset(dev->temp_buf, 0, nSamplesStereo * sizeof(float));
         underrun = 1;
@@ -1127,9 +1132,57 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
     fprintf(stdout, "Helper: Output entfernt: %s [Ch %u-%u]\n",
             dev->name, ch_offset + 1, ch_offset + 2);
 
-    /* Slot durch letzten ersetzen (kein Hole) */
+    /* Slot durch letzten ersetzen (kein Hole).
+     * WICHTIG: Der verschobene Output hat einen IOProc dessen inClientData
+     * noch auf die ALTE Adresse (&g_outputs[letzter]) zeigt. Nach dem Kopieren
+     * zu &g_outputs[slot] muss der IOProc mit der neuen Adresse neu registriert
+     * werden — sonst liest er aus dem geleerten (genullten) letzten Slot. */
     if (slot != g_n_outputs - 1) {
+        /* Verschobenen Output kurz stoppen */
+        DeviceOutput *moved_src = &g_outputs[g_n_outputs - 1];
+        if (moved_src->active && moved_src->proc_id) {
+            AudioDeviceStop(moved_src->dev_id, moved_src->proc_id);
+            AudioDeviceDestroyIOProcID(moved_src->dev_id, moved_src->proc_id);
+            moved_src->proc_id = NULL;
+            moved_src->active  = false;
+        }
+        /* Struct kopieren (neue stabile Adresse: &g_outputs[slot]) */
         g_outputs[slot] = g_outputs[g_n_outputs - 1];
+        DeviceOutput *moved = &g_outputs[slot];
+
+        /* IOProc mit neuer Adresse neu anlegen und starten */
+        if (moved->uid[0] && moved->dev_id != kAudioDeviceUnknown) {
+            OSStatus rerr = AudioDeviceCreateIOProcID(moved->dev_id, device_ioproc,
+                                                       moved, &moved->proc_id);
+            if (rerr == noErr) {
+                rerr = AudioDeviceStart(moved->dev_id, moved->proc_id);
+                if (rerr == noErr) {
+                    moved->active = true;
+                    /* K6: Pending-Reset damit IOProc seine neue Position kennt */
+                    ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
+                    if (ring) {
+                        uint32_t w = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
+                        atomic_store_explicit(&moved->frac_ridx_reset_widx, w, memory_order_relaxed);
+                        atomic_store_explicit(&moved->frac_ridx_reset_pending, 1u, memory_order_release);
+                        atomic_store_explicit(&moved->local_ridx, w, memory_order_release);
+                        moved->last_ridx_sample = w;
+                        moved->last_progress_ns = get_time_ns();
+                        atomic_store_explicit(&moved->stalled, 0u, memory_order_release);
+                    }
+                    fprintf(stdout, "Helper: Output '%s' [Ch %u-%u] nach Slot-Verschiebung neu gestartet\n",
+                            moved->name, moved->ch_offset + 1, moved->ch_offset + 2);
+                } else {
+                    fprintf(stderr, "Helper: AudioDeviceStart fehlgeschlagen nach Slot-Verschiebung "
+                            "(OSStatus %d) fuer '%s'\n", (int)rerr, moved->name);
+                    AudioDeviceDestroyIOProcID(moved->dev_id, moved->proc_id);
+                    moved->proc_id = NULL;
+                }
+            } else {
+                fprintf(stderr, "Helper: AudioDeviceCreateIOProcID fehlgeschlagen nach Slot-Verschiebung "
+                        "(OSStatus %d) fuer '%s'\n", (int)rerr, moved->name);
+                moved->proc_id = NULL;
+            }
+        }
     }
     memset(&g_outputs[g_n_outputs - 1], 0, sizeof(DeviceOutput));
     g_n_outputs--;
@@ -1454,11 +1507,29 @@ static void *volume_poll_thread(void *arg)
                         && (now_ns - dev->last_progress_ns) > STALL_TIMEOUT_NS) {
                         if (!atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
                             atomic_store_explicit(&dev->stalled, 1u, memory_order_release);
+                            /* K2-FIX: Pending-Reset auf write_idx — bricht den Endlos-Underrun-Zyklus.
+                             * Ohne Reset: IOProc springt per Overflow-Guard auf widx, hat behind=0
+                             * und needed>0 → immer Underrun → local_ridx bewegt sich nie → Stall bleibt.
+                             * Mit Reset: IOProc setzt src_frac_ridx=widx/2, naechste Calls recovern
+                             * sobald write_idx genug vorgerückt ist. */
+                            atomic_store_explicit(&dev->frac_ridx_reset_widx, w_now, memory_order_relaxed);
+                            atomic_store_explicit(&dev->frac_ridx_reset_pending, 1u, memory_order_release);
+                            /* local_ridx auf w_now setzen damit P-Regler nicht irrtümlich
+                             * "Ring voll" meldet und Ratio aufpumpt (würde needed > increment machen). */
+                            atomic_store_explicit(&dev->local_ridx, w_now, memory_order_release);
+                            dev->last_ridx_sample = w_now;
                             fprintf(stderr, "Helper: Output '%s' gestallt — "
                                     "kein Fortschritt seit >300ms trotz Daten im Ring. "
-                                    "Aus read_idx-Aggregat ausgeschlossen.\n", dev->name);
+                                    "Aus read_idx-Aggregat ausgeschlossen, Position auf write_idx gesetzt.\n",
+                                    dev->name);
                         }
                     }
+                }
+
+                /* K2-FIX: P-Regler auf gestallten Outputs NICHT anwenden —
+                 * fill = w_now - w_now = 0 nach dem Reset oben, ratio bleibt bei base_ratio. */
+                if (atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
+                    continue;
                 }
 
                 uint32_t fill_samples  = w_now - atomic_load_explicit(&dev->local_ridx, memory_order_acquire);
