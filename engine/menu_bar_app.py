@@ -663,22 +663,30 @@ class AudioRouterApp(rumps.App):
                 self._health_level = sh.level   # GIL-atomare Zuweisung
 
                 # Tranche B: Heilung anstoßen
+                prev_tripped = set(self._healer.tripped_outputs())
                 self._healer.process(sh)
-                # Tripped-Outputs → Notification (einmalig pro Trip)
-                for (uid, ch_off) in self._healer.tripped_outputs():
-                    # Finde Device-Name für bessere UX
+                # Tripped-Outputs → Notification (einmalig pro Trip-Ereignis)
+                # Nutze Set statt dynamische Attribute — sauberer, kein uid-als-Attributname
+                if not hasattr(self, '_notified_trips'):
+                    self._notified_trips: set = set()
+                # Breaker, die sich erholt haben: aus dem Notified-Set entfernen
+                current_tripped = set(self._healer.tripped_outputs())
+                recovered = prev_tripped - current_tripped
+                self._notified_trips -= recovered
+                # Neue Trips notifizieren
+                new_trips = current_tripped - self._notified_trips
+                for (uid, ch_off) in new_trips:
                     dev_name = next(
                         (o.name for o in sh.outputs if o.uid == uid and o.ch_offset == ch_off),
                         uid
                     )
-                    if not getattr(self, f'_tripped_notified_{uid}_{ch_off}', False):
-                        setattr(self, f'_tripped_notified_{uid}_{ch_off}', True)
-                        rumps.notification(
-                            title="AudioRouterNow — Output unreachable",
-                            subtitle="",
-                            message=f"'{dev_name}' Ch{ch_off+1}-{ch_off+2} could not be recovered. "
-                                    "Reconnect the device or restart via menu.",
-                        )
+                    self._notified_trips.add((uid, ch_off))
+                    rumps.notification(
+                        title="AudioRouterNow — Output unreachable",
+                        subtitle="",
+                        message=f"'{dev_name}' Ch{ch_off+1}-{ch_off+2} could not be recovered. "
+                                "Reconnect the device or restart via menu.",
+                    )
             except Exception as e:
                 logger.debug("health_poll_loop Fehler: %s", e)
 
