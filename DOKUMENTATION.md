@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
 **Stand:** 31. Mai 2026  
-**Version:** 2.8.0  
+**Version:** 2.8.1  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -33,6 +33,8 @@
 22. [Keep-Alive Migration Python → C-Helper + Orphan-Fix (v2.6.0)](#22-keep-alive-migration-python--c-helper--orphan-fix-v260)
 23. [Sicherheits- & Korrektheit-Audit v2.7.0 — 31. Mai 2026](#23-sicherheits---korrektheit-audit-v270--31-mai-2026)
 24. [Sicherheits-Audit v2.8 — Alle Findings implementiert](#24-sicherheits-audit-v28--alle-findings-implementiert)
+25. [Release v2.8.0 — Vollständige Audit-Implementierung & Aktueller Stand (31. Mai 2026)](#25-release-v280--vollständige-audit-implementierung--aktueller-stand-31-mai-2026)
+26. [Hotfix v2.8.1 — Kratzen nach Multi-Output-Konfiguration behoben](#26-hotfix-v281--kratzen-nach-multi-output-konfiguration-behoben)
 
 ---
 
@@ -3162,4 +3164,96 @@ Keine RT-Safety-Verletzung im IOProc-Pfad: kein malloc, kein Lock, kein printf, 
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.8.0 (Release)*
+## 26. Hotfix v2.8.1 — Kratzen nach Multi-Output-Konfiguration behoben (1. Juni 2026)
+
+Nach dem v2.8.0-Release trat bei der Konfiguration mit mehreren Outputs auf demselben Gerät (z.B. Komplete Audio 6 MK2 auf Ch 1-2 und Ch 3-4 gleichzeitig) hörbares Kratzen auf. Root-Cause-Analyse ergab zwei zusammenwirkende Bugs.
+
+---
+
+### 26.1 Bug 1 — Slot-Swap zerstörte IOProc-ClientData-Pointer
+
+**Datei:** `helper/AudioRouterNowHelper.c` — `output_remove_locked()`
+
+**Problem:** `output_remove_locked()` füllt nach einem Remove die entstandene Lücke durch Swap des letzten Slots (`g_outputs[slot] = g_outputs[g_n_outputs - 1]`). Der verschobene Output hatte aber einen laufenden IOProc, dessen `inClientData`-Pointer noch auf die **alte** Adresse (`&g_outputs[letzter_slot]`) zeigte. Diese Adresse wird danach mit `memset(0)` geleert.
+
+Ergebnis: Der IOProc für den verschobenen Output liest aus einem nullten Struct:
+- `src_ratio_q20 = 0` → `ratio = 0`
+- `src_frac_ridx = 0` → keine Bewegung
+- `local_ridx` bleibt bei 0 → Stall-Detection feuert nach 1000ms
+
+**Sichtbares Symptom:** `get_status` zeigt `"stalled": 1`, `"underruns": 0` — der IOProc wird von CoreAudio aufgerufen (kein Crash, kein Error), schreibt aber Müll oder Stille. `update_global_read_idx` schloss den gestallten Output aus → `read_idx` folgte nur noch dem nicht-gestallten Output → Ring konnte sich anstauen → Producer droppte Frames → Kratzen auf dem gesunden Output.
+
+**Fix:** Vor dem Slot-Swap den verschobenen IOProc stoppen. Nach dem Kopieren zur neuen Adresse (`&g_outputs[slot]`) den IOProc mit der stabilen Heap-Adresse neu anlegen (`AudioDeviceCreateIOProcID(dev, device_ioproc, &g_outputs[slot], ...)`) und starten. Zusätzlich: Pending-Reset für `src_frac_ridx` damit der neugestartete IOProc sofort korrekte Leseposition hat.
+
+```c
+/* Vorher — verschobener IOProc liest aus geleert struct: */
+g_outputs[slot] = g_outputs[g_n_outputs - 1];
+
+/* Nachher — IOProc stoppen, kopieren, neu anlegen mit neuer Adresse: */
+AudioDeviceStop(moved_src->dev_id, moved_src->proc_id);
+AudioDeviceDestroyIOProcID(moved_src->dev_id, moved_src->proc_id);
+g_outputs[slot] = g_outputs[g_n_outputs - 1];
+AudioDeviceCreateIOProcID(moved->dev_id, device_ioproc, moved, &moved->proc_id);
+AudioDeviceStart(moved->dev_id, moved->proc_id);
+/* + Pending-Reset auf write_idx */
+```
+
+---
+
+### 26.2 Bug 2 — SRC-Boundary-Instabilität bei Sample-Rate-Mismatch
+
+**Datei:** `helper/AudioRouterNowHelper.c` — `device_ioproc()`
+
+**Problem:** Wenn das Output-Device bei einer anderen Sample-Rate läuft als der Ring (z.B. KA6 bei 44100 Hz, Ring bei 48000 Hz), ergibt sich `ratio = 48000/44100 = 1.0884`. Der IOProc berechnet:
+
+```
+needed_samples = floor(512 × 1.0884 × 2) = floor(1114.6) = 1114
+```
+
+Pro KA6-IOProc-Zyklus schreibt der Producer (48000 Hz) exakt ~1114.5 Samples in den Ring → `floor = 1114`. Das ist die **genaue Grenze**: Durch Timing-Jitter liefert der Ring mal 1113, mal 1115 Samples:
+
+- `behind = 1113 < needed = 1114` → Underrun (local_ridx nicht aktualisiert)
+- `behind = 1115 ≥ needed = 1114` → Normal
+
+Abwechselnde Underruns → `local_ridx` bewegt sich im Schnitt nicht → Stall nach 1000ms.
+
+**Interaktion mit Stall-Reset:** Wenn der Stall-Recovery-Code `local_ridx = write_idx` setzt und `frac_ridx_reset` feuert, startet der IOProc bei `frac_as_samp = write_idx`, `behind = 0` → sofortiger Underrun → Endlosschleife (Stall alle 1000ms).
+
+**Fix:** 4-Sample-Toleranz im Underrun-Check (2 Stereo-Frames):
+
+```c
+/* Vorher — exakter Boundary-Check: */
+if (behind < needed_samples) {  /* Underrun */
+
+/* Nachher — 4-Sample Jitter-Toleranz: */
+const uint32_t JITTER_TOLERANCE = 4u;
+if (behind + JITTER_TOLERANCE < needed_samples) {  /* Underrun */
+```
+
+Bei `behind = 1110` und `needed = 1114`: `1110 + 4 = 1114 ≥ 1114` → Normal statt Underrun. Die 4 fehlenden Samples werden am Ende des Buffers mit dem letzten gültigen Frame interpoliert — bei 44100 Hz und 4 Samples ≈ 0.09 ms, unhörbar.
+
+**Stall-Timeout:** Von 300 ms auf 1000 ms erhöht, um mehr Settle-Zeit für SRC bei Rate-Mismatch zu geben.
+
+---
+
+### 26.3 Zusammenwirken beider Bugs
+
+Beide Bugs traten typischerweise zusammen auf:
+
+1. App konfiguriert: KA6 Ch 1-2 (Slot 0) + BenQ Ch 1-2 (Slot 1) + KA6 Ch 3-4 (Slot 2)
+2. BenQ wird entfernt → Slot-Swap: KA6 Ch 3-4 von Slot 2 → Slot 0
+3. **Bug 1:** IOProc für KA6 Ch 3-4 liest aus geleert Slot 2 → ratio=0, kein Fortschritt
+4. **Bug 2:** Selbst nach IOProc-Fix: bei 44100 Hz Boundary-Instabilität → Stall-Schleife
+5. `update_global_read_idx` schloss gestallten Output aus → Ring staut sich → Producer droppt → Kratzen auf Ch 1-2
+
+---
+
+### 26.4 Commit
+
+```
+651b9fb fix(helper): K2-Stall-Dauerschleife + Slot-Swap-IOProc-Bug behoben
+```
+
+---
+
+*Dokumentation zuletzt aktualisiert am 1. Juni 2026 — AudioRouterNow v2.8.1*
