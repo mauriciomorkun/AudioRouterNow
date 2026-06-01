@@ -39,6 +39,7 @@
 26. [Hotfix v2.8.1 — Kratzen nach Multi-Output-Konfiguration behoben](#26-hotfix-v281--kratzen-nach-multi-output-konfiguration-behoben)
 27. [Self-Healing Layer — Brainstorming & Konzept (1. Juni 2026)](#27-self-healing-layer--brainstorming--konzept-1-juni-2026)
 28. [Self-Healing Layer v1.0 — Implementierung (v2.9.0)](#28-self-healing-layer-v10--implementierung-v290)
+29. [v3.0 Optimierungsplan — 15 Verbesserungen (Ausführungsplan)](#29-v30-optimierungsplan--15-verbesserungen-ausführungsplan)
 
 ---
 
@@ -3835,3 +3836,159 @@ Ein neuer Benutzer erhält mit dieser DMG:
 ---
 
 *Dokumentation zuletzt aktualisiert am 1. Juni 2026 — AudioRouterNow v2.9.0*
+
+---
+
+## 29. v3.0 Optimierungsplan — 15 Verbesserungen (Ausführungsplan)
+
+Dieses Kapitel enthält den vollständigen Implementierungsplan für alle 15 identifizierten Verbesserungen. Erstellt mit Opus 4.8, alle 11 Quelldateien vollständig gelesen. **Kein Code geändert** — reine Planung zur Abnahme.
+
+**Status:** ⏳ Abnahme ausstehend
+
+---
+
+### 29.1 Übersicht
+
+| # | Titel | Schwere | ~h | Welle |
+|---|-------|---------|-----|-------|
+| P1 | Volume-Tasten: Event-driven statt osascript-Polling | 🔴 | 6–8 | 4 |
+| P2 | set_outputs UI/Reality-Divergenz | 🔴 | 3–4 | 2 |
+| P3 | Socket Auth-Token | 🔴 | 4–5 | 2 |
+| P4 | GetZeroTimeStamp: Frame-Counter statt Host-Clock | 🔴 | 5–7 | 1 |
+| P5 | Auto Sample-Rate: Geräte-native Rate erkennen | 🔴 | 4–6 | 3 |
+| P6 | Hard-Stall in ~300ms ohne False-Positives | 🟡 | 3–4 | 3 |
+| P7 | output_remove: CoreAudio-Calls außerhalb Lock | 🟡 | 5–6 | 3 |
+| P8 | Status-Cache statt Connect-per-Call | 🟡 | 4–6 | 2 |
+| P9 | SR-Wechsel: IOProc-Stille während Übergang | 🟡 | 3–4 | 3 |
+| P10 | Treiber-Versionscheck beim App-Start | 🟡 | 4–5 | 4 |
+| P11 | Lock-Datei aus /tmp nach ~/.audiorouter/ | 🟡 | 1–2 | 1 |
+| P12 | Toten Code löschen (output_add_locked) | 🟢 | 0.5 | 1 |
+| P13 | Framework-Loading einmalig | 🟢 | 1–2 | 1 |
+| P14 | Korrekte Latenz an CoreAudio melden | 🟢 | 1–2 | 1 |
+| P15 | 5-Tap Hann-FIR Downsampler | 🟢 | 4–6 | 4 |
+| **Σ** | | | **49–67h** | |
+
+---
+
+### 29.2 Dependency-Graph & Reihenfolge
+
+```
+Welle 1: P12 → P13 → P14 → P4 (Driver) → P11
+Welle 2: P3 + P11 → P8 → P2
+Welle 3: P9 → P5 | P6 | P7 (nach P2)
+Welle 4: P1 (nach P13) → P10 → P15
+```
+
+---
+
+### 29.3 Detailplan
+
+**P1 — Volume Event-driven** | 🔴 6–8h | Welle 4
+- `_volume_poll_loop` entfernen, `AudioObjectAddPropertyListener` auf `VirtualMainVolume`
+- `set_default_output_volume/muted` via ctypes statt osascript
+- `_pre_mute_volume` für Restore. CFUNCTYPE-Ref MUSS modul-global (GC-Schutz)
+- Commit: `P1: replace osascript volume polling with event-driven CoreAudio listener`
+
+**P2 — set_outputs State-Sync** | 🔴 3–4h | Welle 2
+- Helper-Response `resp['active']` parsen → `actual = {(uid, ch_off)}`
+- Bei Divergenz: `_active_device_names` korrigieren, `save_config()`, `_build_menu()` auf Main-Thread
+- Commit: `P2: reconcile menu state with helper's actual active outputs`
+
+**P3 — Socket Auth-Token** | 🔴 4–5h | Welle 2
+- 32 Bytes `/dev/urandom` → hex → `~/.audiorouter/helper.token` (0600, O_NOFOLLOW) VOR Socket-Erstellung
+- `ct_memcmp` Guard für `shutdown/set_outputs/set_sample_rate/reconnect_output/set_safe_take`
+- Python: Token laden, injizieren, reload-on-auth-error
+- Commit: `P3: authenticate privileged socket commands with a per-launch token`
+
+**P4 — Frame-Counter Clock** | 🔴 5–7h | Welle 1
+- `static atomic_ullong gFramesWritten` nach `gNumberTimeStamps` (Z.129)
+- `ARN_DoIOOperation`: `fetch_add(gFramesWritten, inIOBufferFrameSize, relaxed)` außerhalb `if(ring!=NULL)`
+- `ARN_GetZeroTimeStamp`: `completed = frames/period`, `outSampleTime = completed*period`
+- Reset in `ARN_StartIO` und `ARN_PerformDeviceConfigurationChange`
+- Commit: `P4: derive GetZeroTimeStamp sample time from frames actually written`
+
+**P5 — Auto Native SR** | 🔴 4–6h | Welle 3
+- `static atomic_int g_auto_sample_rate = 1;`
+- `output_add`: wenn Auto && `g_n_outputs==1` → Ring-SR = Device-SR (statt umgekehrt)
+- `find_default_output_device`: 48kHz-Präferenz entfernen
+- Commit: `P5: follow device-native sample rate in auto mode instead of forcing 48k`
+
+**P6 — Hard-Stall 300ms** | 🟡 3–4h | Welle 3
+- `_Atomic uint32_t ioproc_calls` + `uint32_t last_ioproc_calls_sample` in `DeviceOutput`
+- Hard-Stall wenn: ridx eingefroren UND fill>75% UND ioproc_calls steigt → 300ms Timeout
+- Schließt 44.1kHz-Jitter aus (der passiert bei LEEREM Ring) ✅
+- Commit: `P6: detect hard stalls in ~300ms without 44.1kHz false positives`
+
+**P7 — output_remove 3-Phasen** | 🟡 5–6h | Welle 3
+- Phase 1 (Lock): active=false markieren, Struct-Copy, Lock freigeben
+- Phase 2 (kein Lock): AudioDeviceStop/Destroy + Create/Start
+- Phase 3 (Lock): active=true committen, g_n_outputs--, Pending-Reset
+- Commit: `P7: move CoreAudio calls out of the lock in output removal`
+
+**P8 — Status-Cache** | 🟡 4–6h | Welle 2
+- `self._status_cache` + `_status_cache_ts` in App. health-poll befüllt es
+- `_compute_status` und `_process_pending_updates` lesen Cache (kein eigener Connect)
+- Commit: `P8: single status cache instead of per-call socket connects`
+
+**P9 — SR-Wechsel Stille** | 🟡 3–4h | Welle 3
+- `_Atomic uint32_t sr_changing` in `DeviceOutput`
+- `device_ioproc`: bei `sr_changing=1` → Stille, VOR Pre-Roll-Gate
+- `sr_reinit_all_outputs`: setzen vor Stop, clearen nach preroll_armed=1
+- Commit: `P9: silence the IOProc during sample-rate changes to avoid clicks`
+
+**P10 — ABI-Versionscheck** | 🟡 4–5h | Welle 4
+- Makefile: `abi_version`-Datei in Driver-Bundle einbetten
+- `first_launch.py`: `installed vs. bundled` vergleichen, bei Mismatch → Dialog + Reinstall
+- `_compute_status`: `🔴 Driver update required — click to reinstall`
+- Commit: `P10: detect and surface driver/app ABI version mismatch on launch`
+
+**P11 — Lock nach ~/.audiorouter/** | 🟡 1–2h | Welle 1
+- `static char g_lock_path[512]` statt `#define HELPER_LOCK_PATH`
+- `open(g_lock_path, O_CREAT|O_RDWR|O_NOFOLLOW, 0600)`. Bei ELOOP: log + abort
+- Dir-Init VOR Lock-Acquire (Reihenfolge Z.2284/Z.2289 tauschen)
+- Commit: `P11: move helper lock to ~/.audiorouter with O_NOFOLLOW`
+
+**P12 — Dead Code** | 🟢 0.5h | Welle 1
+- Z.1006–1161 in `AudioRouterNowHelper.c` löschen (#if 0 output_add_locked)
+- Commit: `P12: remove dead output_add_locked block`
+
+**P13 — Framework-Loading** | 🟢 1–2h | Welle 1
+- `_CA, _CF = _load_frameworks()` auf Modul-Scope. Alle Funktionsaufrufe (Z.57, 85, 115, 150, 250, 330, 362, 402, 494, 545) ersetzen. Loop-intern-Load entfernen
+- Commit: `P13: load CoreAudio/CoreFoundation frameworks once at import`
+
+**P14 — Korrekte Latenz** | 🟢 1–2h | Welle 1
+- `#define kReportedLatencyFrames (ARN_RING_CAPACITY / 4u)` nahe `kZeroTimeStampPeriod` (Z.86)
+- `ARN_GetPropertyData` Z.1239: `WRITE_SCALAR(UInt32, kReportedLatencyFrames)`
+- Commit: `P14: report real ring pre-roll latency instead of 0`
+
+**P15 — 5-Tap Hann-FIR** | 🟢 4–6h | Welle 4
+- `static const float kFir5[5]` — Hann-Fenster, summen-normalisiert
+- `device_ioproc` Z.697: 3-Tap-Box → 5-Tap-FIR (nur bei `ratio > 1.005`)
+- RT-Budget mit Instruments verifizieren
+- Commit: `P15: replace 3-tap box downsampler with 5-tap Hann FIR`
+
+---
+
+### 29.4 Gesamt-Zeitschätzung
+
+| Schweregrad | Punkte | Stunden |
+|-------------|--------|---------|
+| 🔴 Kritisch | P1–P5 | 22–30h |
+| 🟡 Mittel | P6–P11 | 20–27h |
+| 🟢 Nice-to-have | P12–P15 | 7–11h |
+| **Gesamt** | **15** | **≈ 49–68h** |
+
+---
+
+### 29.5 Status
+
+| Schritt | Status |
+|---------|--------|
+| Code-Analyse | ✅ Abgeschlossen |
+| Implementierungsplanung | ✅ Dieses Kapitel |
+| Welle 1 (P12,13,14,4,11) | ⏳ Abnahme ausstehend |
+| Welle 2 (P3,8,2) | ⏳ |
+| Welle 3 (P9,5,6,7) | ⏳ |
+| Welle 4 (P1,10,15) | ⏳ |
+| Abschluss-Audit | ⏳ |
+
