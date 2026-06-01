@@ -125,6 +125,10 @@ typedef struct DeviceOutput {
      * dann self-clear (release-store auf 0). Re-armed nach SHM-Reconnect. */
     _Atomic uint32_t preroll_target_frames; /* HWM in Frames (0=deaktiviert) */
     _Atomic uint32_t preroll_armed;         /* 1=IOProc gibt Stille bis HWM, dann self-clear */
+    /* Tranche C: PI-Regler State — NUR vom volume_poll_thread gelesen/geschrieben.
+     * Kein Atomic nötig: ausschließlich non-RT-Zugriff unter g_outputs_lock. */
+    double fill_ewma;    /* EWMA des Ring-Füllstands in Frames (Tranche C Glättung) */
+    double integ_error;  /* Integrator-Akkumulator für I-Term */
     /* Phase 6 — Adaptive SRC fuer Clock-Drift-Kompensation */
     double               src_frac_ridx;    /* fraktionaler Leseindex — NUR vom IOProc-Thread gelesen/geschrieben */
     _Atomic uint32_t     src_ratio_q20;    /* Q20-Ratio: base_ratio = 1<<20. Volume-Thread schreibt, IOProc liest */
@@ -925,6 +929,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
     tmp.src_ring_target = ARN_RING_CAPACITY / 2;
     uint32_t init_ratio_q20 = (uint32_t)(tmp.base_ratio * (double)(1u << 20));
     atomic_store_explicit(&tmp.src_ratio_q20, init_ratio_q20, memory_order_relaxed);
+    /* Tranche C: PI-Regler State initialisieren */
+    tmp.fill_ewma   = (double)(ARN_RING_CAPACITY / 4u);  /* = src_ring_target / 2 = target_frames */
+    tmp.integ_error = 0.0;
 
     /* H1: USB-Settle-Wartezeit OHNE Lock — der teure Teil */
     if (sr_was_changed) {
@@ -1276,6 +1283,9 @@ static void sr_reinit_all_outputs(void) {
              * IOProc laeuft weiter — direkter Schreibzugriff ist ein Data Race. */
             atomic_store_explicit(&dev->frac_ridx_reset_widx, w, memory_order_relaxed);
             atomic_store_explicit(&dev->frac_ridx_reset_pending, 1u, memory_order_release);
+            /* Tranche C: PI State zurücksetzen nach SR-Wechsel */
+            dev->fill_ewma   = (double)(dev->src_ring_target / 2u);
+            dev->integ_error = 0.0;
             /* active/proc_id bleiben unveraendert — Output laeuft weiter. */
             continue;
         }
@@ -1314,6 +1324,9 @@ static void sr_reinit_all_outputs(void) {
         uint32_t init_q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
         atomic_store_explicit(&dev->src_ratio_q20, init_q20, memory_order_relaxed);
         atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
+        /* Tranche C: PI State zurücksetzen nach SR-Wechsel */
+        dev->fill_ewma   = (double)(dev->src_ring_target / 2u);
+        dev->integ_error = 0.0;
 
         /* Schritt 4: IOProc neu erzeugen — mit Retry nach SR-Wechsel.
          * USB-Devices brauchen 100-500ms zum Rekonfigurieren nach SR-Wechsel.
@@ -1521,6 +1534,9 @@ static void *volume_poll_thread(void *arg)
                             /* Tranche B: Pre-Roll re-arm nach SHM-Reconnect — Ring wurde
                              * neu verbunden, erst wieder HWM aufbauen bevor Audio fliesst. */
                             atomic_store_explicit(&g_outputs[i].preroll_armed, 1u, memory_order_release);
+                            /* Tranche C: PI State zurücksetzen */
+                            g_outputs[i].fill_ewma   = (double)(g_outputs[i].src_ring_target / 2u);
+                            g_outputs[i].integ_error = 0.0;
                         }
                         pthread_mutex_unlock(&g_outputs_lock);
                     }
@@ -1532,6 +1548,12 @@ static void *volume_poll_thread(void *arg)
             #define SRC_P_GAIN       0.01f    /* P-Verstaerkung — stabil bei +/-500ppm Headroom */
             #define SRC_MAX_PPM      500.0f   /* Maximale Korrektur +/-500ppm                   */
             #define SRC_RATIO_CLAMP  (SRC_MAX_PPM / 1000000.0f)
+            /* Tranche C: PI-Regler Parameter */
+            #define SRC_EWMA_ALPHA   0.1f   /* EWMA-Glättung: τ ≈ 10 Polls × 50ms = 500ms */
+            #define SRC_KI           0.0005f /* I-Verstärkung: sehr klein — Drift ist ein langsamer Prozess */
+            #define SRC_DT           0.05f   /* Poll-Intervall in Sekunden */
+            /* Anti-Windup: I-Term darf max. ±300ppm beitragen (Gesamt-Clamp bleibt ±500ppm) */
+            #define SRC_KI_CLAMP     (300.0f / 1000000.0f)
 
             pthread_mutex_lock(&g_outputs_lock);
             uint32_t w_now = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
@@ -1551,6 +1573,9 @@ static void *volume_poll_thread(void *arg)
                     if (atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
                         atomic_store_explicit(&dev->stalled, 0u, memory_order_release);
                         atomic_fetch_add_explicit(&dev->recovery_count, 1u, memory_order_relaxed);
+                        /* Tranche C: PI-Regler State bei Stall-Recovery reinitialisieren */
+                        dev->fill_ewma   = (double)(dev->src_ring_target / 2u);
+                        dev->integ_error = 0.0;
                         fprintf(stdout, "Helper: Output '%s' hat sich von Stall erholt\n",
                                 dev->name);
                     }
@@ -1573,6 +1598,9 @@ static void *volume_poll_thread(void *arg)
                              * "Ring voll" meldet und Ratio aufpumpt (würde needed > increment machen). */
                             atomic_store_explicit(&dev->local_ridx, w_now, memory_order_release);
                             dev->last_ridx_sample = w_now;
+                            /* Tranche C: PI-Regler State bei Stall zurücksetzen */
+                            dev->fill_ewma   = (double)(dev->src_ring_target / 2u);
+                            dev->integ_error = 0.0;
                             fprintf(stderr, "Helper: Output '%s' gestallt — "
                                     "kein Fortschritt seit >1000ms trotz Daten im Ring. "
                                     "Aus read_idx-Aggregat ausgeschlossen, Position auf write_idx gesetzt.\n",
@@ -1591,17 +1619,35 @@ static void *volume_poll_thread(void *arg)
                 uint32_t fill_frames   = fill_samples / 2u;   /* Stereo -> /2 */
                 uint32_t target_frames = dev->src_ring_target / 2u;
 
-                /* P-Regler: positiver Fehler = Ring laeuft voll -> schneller abspielen */
-                float error_norm = (float)((int32_t)fill_frames - (int32_t)target_frames)
-                                   / ((float)ARN_RING_CAPACITY * 0.5f);
-                float correction = error_norm * SRC_P_GAIN;
+                /* Tranche C: EWMA-Glättung des Füllstands — trennt echten Drift von Jitter.
+                 * Zeitkonstante ≈ 10 Polls × 50ms = 500ms.
+                 * NUR vom volume_poll_thread: kein Atomic nötig. */
+                dev->fill_ewma = SRC_EWMA_ALPHA * (double)fill_frames
+                               + (1.0 - SRC_EWMA_ALPHA) * dev->fill_ewma;
 
-                /* Clamp auf +/-500ppm */
+                /* Normierter Fehler auf Basis EWMA (nicht nacktem fill_frames) */
+                float error_norm = (float)((double)dev->fill_ewma - (double)target_frames)
+                                   / ((float)ARN_RING_CAPACITY * 0.5f);
+
+                /* P-Term */
+                float p_term = error_norm * SRC_P_GAIN;
+
+                /* I-Term: Akkumuliert langfristigen Clock-Drift.
+                 * Anti-Windup: Clamp BEVOR Akkumulation — verhindert Integrator-Explosion. */
+                float ki_contrib = error_norm * SRC_KI * SRC_DT;
+                dev->integ_error += (double)ki_contrib;
+                /* Anti-Windup: I-Term-Beitrag auf ±SRC_KI_CLAMP begrenzen */
+                if (dev->integ_error >  (double)SRC_KI_CLAMP) dev->integ_error =  (double)SRC_KI_CLAMP;
+                if (dev->integ_error < -(double)SRC_KI_CLAMP) dev->integ_error = -(double)SRC_KI_CLAMP;
+
+                /* PI-Korrektur = P + I */
+                float correction = p_term + (float)dev->integ_error;
+
+                /* Gesamt-Clamp auf +/-500ppm (Hardware-Grenze) */
                 if (correction >  SRC_RATIO_CLAMP) correction =  SRC_RATIO_CLAMP;
                 if (correction < -SRC_RATIO_CLAMP) correction = -SRC_RATIO_CLAMP;
 
                 /* Basisverhaeltnis: ring_sr/device_sr. Gleiche Rate: 1.0. */
-                /* Verschiedene Rate (z.B. HDMI 44100 Hz): 1.0884.         */
                 float ratio_f = (float)dev->base_ratio + correction;
                 uint32_t ratio_q20 = (uint32_t)(ratio_f * (float)(1u << 20));
 
@@ -1779,12 +1825,16 @@ static void format_active_outputs(char *buf, size_t bufsz)
         uint32_t stalled = atomic_load_explicit(&g_outputs[i].stalled, memory_order_relaxed);
         uint32_t recovery_count = atomic_load_explicit(&g_outputs[i].recovery_count,
                                                        memory_order_relaxed);
+        /* Tranche C: fill_ewma fuer Drift-Tracking in health.py.
+         * Non-atomic — sicher gelesen unter g_outputs_lock (Volume-Thread schreibt
+         * ebenfalls nur unter diesem Lock). */
+        double fill_ewma = g_outputs[i].fill_ewma;
         written = snprintf(buf + pos, bufsz - pos,
                            "%s{\"uid\":\"%s\",\"name\":\"%s\",\"ch_offset\":%u,"
-                           "\"src_ratio\":%.6f,\"underruns\":%u,\"stalled\":%u,"
+                           "\"src_ratio\":%.6f,\"fill_ewma\":%.2f,\"underruns\":%u,\"stalled\":%u,"
                            "\"recovery_count\":%u}",
                            sep, safe_uid, safe_name, g_outputs[i].ch_offset,
-                           src_ratio, underruns, stalled, recovery_count);
+                           src_ratio, fill_ewma, underruns, stalled, recovery_count);
         if (written < 0) break;
         pos += (size_t)written;
     }
