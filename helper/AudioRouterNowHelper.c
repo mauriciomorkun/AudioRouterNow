@@ -1208,6 +1208,9 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
                         moved->last_ridx_sample = w;
                         moved->last_progress_ns = get_time_ns();
                         atomic_store_explicit(&moved->stalled, 0u, memory_order_release);
+                        /* Tranche B Minor-Fix: Pre-Roll nach IOProc-Neustart re-armen —
+                         * verhindert Underrun-Burst direkt nach Slot-Verschiebung. */
+                        atomic_store_explicit(&moved->preroll_armed, 1u, memory_order_release);
                     }
                     fprintf(stdout, "Helper: Output '%s' [Ch %u-%u] nach Slot-Verschiebung neu gestartet\n",
                             moved->name, moved->ch_offset + 1, moved->ch_offset + 2);
