@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 1. Juni 2026  
-**Version:** 2.8.1  
+**Stand:** 1. Juni 2026 (Kapitel 28 — Self-Healing Layer implementiert)
+**Version:** 2.9.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -37,6 +37,8 @@
 24. [Sicherheits-Audit v2.8 — Alle Findings implementiert](#24-sicherheits-audit-v28--alle-findings-implementiert)
 25. [Release v2.8.0 — Vollständige Audit-Implementierung & Aktueller Stand (31. Mai 2026)](#25-release-v280--vollständige-audit-implementierung--aktueller-stand-31-mai-2026)
 26. [Hotfix v2.8.1 — Kratzen nach Multi-Output-Konfiguration behoben](#26-hotfix-v281--kratzen-nach-multi-output-konfiguration-behoben)
+27. [Self-Healing Layer — Brainstorming & Konzept (1. Juni 2026)](#27-self-healing-layer--brainstorming--konzept-1-juni-2026)
+28. [Self-Healing Layer v1.0 — Implementierung (v2.9.0)](#28-self-healing-layer-v10--implementierung-v290)
 
 ---
 
@@ -3258,4 +3260,530 @@ Beide Bugs traten typischerweise zusammen auf:
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 1. Juni 2026 — AudioRouterNow v2.8.1*
+*Dokumentation zuletzt aktualisiert am 1. Juni 2026 — AudioRouterNow v2.9.0*
+
+---
+
+## 27. Self-Healing Layer — Brainstorming & Konzept (1. Juni 2026)
+
+Dieses Kapitel dokumentiert das Ergebnis einer strukturierten Brainstorming-Runde mit dem Ziel, die technische Machbarkeit eines **selbst-analysierenden und selbst-heilenden Layers** für AudioRouterNow zu bewerten. Die Runde wurde mit mehreren Opus-Agenten durchgeführt (Systems-Architekt, Multi-Expert-Panel). Stand: Konzeptphase — kein Code wurde geschrieben.
+
+---
+
+### 27.1 Das Grundproblem — Wasserleitung als Analogie
+
+AudioRouterNow lässt sich als Wasserleitung beschreiben:
+
+| Komponente | Analogie | Rolle |
+|-----------|----------|-------|
+| HAL Plugin (Driver) | Wasserwerk | Pumpt kontinuierlich Audio-Daten in den Tank |
+| Ring-Buffer | Wassertank | Puffer zwischen Produzent und Konsument |
+| Helper IOProc | Verteiler | Nimmt Wasser aus dem Tank, leitet es zu den Lautsprechern |
+
+Alle Audiobugs — Crackling, Stalls, Underruns, Dropouts — sind im Kern **ein einziges Problem**: der Füllstand des Ring-Buffers läuft außer Kontrolle.
+
+- **Tank zu leer** → Lautsprecher bekommt kein Audio → Underrun → Knacken
+- **Tank zu voll** → Producer muss stoppen → Verzögerung / Drift
+- **Verteiler eingefroren** (`stalled = 1`) → kein Audio trotz vollem Tank
+
+**Zentrale Erkenntnis:** Es gibt kein "Multi-Detektor"-Problem. Es gibt einen einzigen Regelkreis, dessen Messgröße der Ring-Füllstand ist.
+
+---
+
+### 27.2 Was bereits vorhanden ist — die Überraschung
+
+Im Gespräch stellte sich heraus: **Die Sensoren existieren bereits.** Das System misst schon alles Relevante, aber niemand wertet die Messwerte systematisch aus:
+
+| Sensor | Ort | Misst |
+|--------|-----|-------|
+| `underruns` | `DeviceOutput` (atomic) | Wie oft war der Ring leer? |
+| `stalled` | `DeviceOutput` (atomic uint32) | Ist der IOProc eingefroren? |
+| `instance_id` | SHM Header (atomic uint64) | Lebt der Helper noch / wurde er neu gestartet? |
+| `sr_change_gen` | SHM Header | Gab es einen Sample-Rate-Wechsel? |
+| `write_idx - read_idx` | SHM Ring | Aktueller Füllstand |
+
+Darüber hinaus existieren bereits:
+- `frac_ridx_reset_pending` — RT-safe Pending-Reset-Pattern (Vorbild für alle neuen Signalwege)
+- `restart_helper()` in Python — manueller Neustart als Aktuator
+- `get_status()` via Unix Socket — Telemetrie-Kanal ist bereits offen
+
+Das System hat bereits eine **Kamera** eingebaut — es fehlt der **Monitor**.
+
+---
+
+### 27.3 Architektur-Grundprinzip
+
+Die Zeitdomänen des Systems erzwingen eine strikte Rollen-Trennung:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  RT-Thread (IOProc)         → NUR zählen                │
+│  Takt: ~2–3ms               → relaxed atomics           │
+│  Erlaubt: counter++         → Kein malloc, kein lock    │
+├─────────────────────────────────────────────────────────┤
+│  Helper non-RT Thread       → Sammeln & Aggregieren     │
+│  Takt: 50ms (volume_poll)   → Flags setzen              │
+│  Erlaubt: Pending-Resets    → Lock kurz halten          │
+├─────────────────────────────────────────────────────────┤
+│  Python Brain               → Denken & Entscheiden      │
+│  Takt: 200ms (health-poll)  → Diagnose, Policy, Healing │
+│  Erlaubt: alles             → Kontextbewusstsein        │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Unveränderliche Regel:** Der RT-Thread (IOProc) darf **niemals** Entscheidungen treffen, malloc aufrufen, sperren oder blockieren. Er ist ein reiner Sensor. Jede Verletzung dieser Regel *erzeugt* die Probleme, die man heilen will.
+
+---
+
+### 27.4 Die 3 Tranchen
+
+Der Plan ist in drei unabhängige Stufen (Tranchen) aufgeteilt, von risikolos bis komplex:
+
+#### Tranche A — Telemetrie + Ampel (rein observierend)
+**Ziel:** Alle vorhandenen Sensoren systematisch auslesen, aggregieren und als Ampel im Menübar-Icon darstellen.
+
+- Neuer daemon-Thread `health-poll` in Python (200ms Intervall)
+- `engine/health.py` — Brain mit `HealthMonitor`-Klasse und Hysterese-Logik
+- Ampel-Zustände: 🟢 `healthy` / 🟡 `degraded` / 🔴 `critical`
+- **Hysterese:** Verschlechterung nach 2 Samples, Verbesserung erst nach 5 Samples — kein Flackern
+- Risiko: **Null** (rein read-only, kein Eingriff in Audio-Pfad)
+- Aufwand: ~2 Arbeitstage
+
+#### Tranche B — Sanfte Out-of-RT-Heilung
+**Ziel:** Auf erkannte Probleme reagieren, ohne den laufenden Audio-Pfad zu stören.
+
+Drei Mechanismen:
+
+1. **Pre-Roll High-Water-Mark:** IOProc gibt beim Start 43ms Stille aus, bis der Ring-Buffer ≥ 40% gefüllt ist. Verhindert "stotternde erste Sekunde". Einmalig beim Output-Start, automatisch.
+
+2. **Device-Reconnect mit exponentiellem Backoff:** Wenn ein Stall nach internem C-Recovery persistiert (>600ms), sendet Python `reconnect_output` an den Helper. Backoff: 0.5s → 1s → 2s → 4s → 8s. Nicht erneut versuchen solange der vorherige Versuch noch läuft.
+
+3. **Circuit Breaker:** Nach 5 fehlgeschlagenen Reconnect-Versuchen → Aufgeben, User per `rumps.notification` informieren. Keine endlose Reset-Schleife.
+
+4. **"Safe Take"-Modus:** Ein Schalter im Menü der **alle Heilungseingriffe deaktiviert**. Nur Telemetrie (Ampel) läuft weiter. Für Recording- und Live-Situationen, wo eine unerwartete 200ms-Stille schlimmer ist als ein kurzes Knistern.
+
+- Risiko: niedrig (greift nur wenn Device bereits tot)
+- Aufwand: ~3–4 Arbeitstage
+
+#### Tranche C — Adaptives SRC-Resampling (Forschungsphase)
+**Ziel:** Den bestehenden P-Regler auf `src_ratio_q20` zu einem PI-Regler mit EWMA-Glättung erweitern, um langsamen Clock-Drift zwischen Producer und Consumer-Device *unhörbar* und *kontinuierlich* auszuregeln.
+
+**Hintergrund:** Verschiedene Audio-Clocks (z.B. internes 48kHz ≠ USB-DAC 48kHz) driften minimal auseinander. Der aktuelle P-Regler reagiert auf den aktuellen Füllstand. Ein PI-Regler würde zusätzlich den akkumulierten Drift über Zeit berücksichtigen.
+
+```
+fill_ewma = ALPHA × fill_frames + (1-ALPHA) × fill_ewma     (ALPHA ≈ 0.1)
+error = fill_ewma - target_frames
+correction = Kp × error + Ki × Σ(error × dt)
+src_ratio_q20 = base_ratio + correction   (geclamped auf ±500 ppm)
+```
+
+- **Voraussetzung:** Tranche A muss zuerst laufen — die Drift-Messung aus der Telemetrie entscheidet, ob ein PI-Term überhaupt nötig ist
+- **Risiko:** mittel — falsches Parameter-Tuning erzeugt hörbare Pitch-Artefakte
+- Aufwand: ~3–4 Arbeitstage aktiv + ~1 Woche Kalenderzeit für Messläufe
+
+---
+
+### 27.5 Industrie-Vorbilder
+
+Das Konzept ist nicht neu — jedes professionelle Audio-System macht es:
+
+| System | Technik | Analog zu |
+|--------|---------|-----------|
+| USB Audio Class 2 | Async Feedback Endpoint (Hardware SRC) | Tranche C PI-Regler |
+| WebRTC NetEq | Adaptiver Jitter-Buffer (Latenz vs. Dropout) | Tranche A Fill-Level + Tranche B Pre-Roll |
+| TCP Congestion Control | AIMD (additive increase, multiplicative decrease) | Backoff-Asymmetrie in Tranche B |
+| Erlang/OTP Supervision | "Let it crash, restart in known-good state" | `reconnect_output` Befehl |
+| CoreAudio selbst | `kAudioDeviceProcessorOverload` Notification | Gratis-Underrun-Detektor (noch nicht abonniert) |
+
+---
+
+### 27.6 Die Taleb-Warnung — Self-Healing kann schaden
+
+Nassim Taleb's Konzept der Antifragilität bringt die wichtigste Einschränkung:
+
+> **RAID-Festplatten sterben am häufigsten während des Selbst-Reparatur-Prozesses.**
+
+Konkret für AudioRouterNow: Ein automatischer Reset mitten in einem Live-Konzert oder Recording ist **schlimmer** als das ursprüngliche Knistern. Das Knistern kann im Schnitt weggeschnitten werden. 200ms Stille mitten im besten Take nicht.
+
+**Gegenmaßnahmen (Pflicht, nicht Kür):**
+- **Hysterese:** Nicht auf einzelne Messwerte reagieren, sondern auf anhaltende Trends
+- **Refraktärzeit:** Nach jeder Heilaktion eine Mindest-Pause bevor die nächste erlaubt ist
+- **Circuit Breaker:** Nicht endlos wiederholen
+- **Safe Take-Modus:** Kontext-bewusste Abschaltung aller Eingriffe
+- **Asymmetrie:** Lieber langsam erholen als schnell eskalieren
+
+---
+
+### 27.7 Neue Dateien & Änderungen (Übersicht)
+
+| Datei | Status | Beschreibung |
+|-------|--------|-------------|
+| `engine/health.py` | **Neu** | Brain: HealthMonitor, OutputHealth, Hysterese-Logik |
+| `engine/healer.py` | **Neu** | Healer: CircuitBreaker, Backoff, Healing-Policy |
+| `engine/menu_bar_app.py` | Erweiterung | Ampel-Integration, Safe-Take-Menü, health-poll-Thread |
+| `engine/helper_client.py` | Erweiterung | `reconnect_output()`, `set_safe_take()` Methoden |
+| `engine/config.py` | Erweiterung | `safe_take_mode: bool` Feld |
+| `helper/AudioRouterNowHelper.c` | Erweiterung | Neue Counter (`recovery_count`, `g_reconnect_count`, `g_last_ioproc_call_ns`), `reconnect_output`-Befehl, `safe_take`-Guard, Pre-Roll-Felder |
+| `helper/shared_ring.h` | **Unverändert** | ABI bleibt v4 — alle neuen Felder in `DeviceOutput` (Helper-intern) |
+
+---
+
+### 27.8 Status
+
+| Phase | Status |
+|-------|--------|
+| Brainstorming | ✅ Abgeschlossen (1. Juni 2026) |
+| Implementierungsplan | ✅ Erstellt, zur Abnahme |
+| Tranche A — Telemetrie | ⏳ Ausstehend (Abnahme nötig) |
+| Tranche B — Heilung | ⏳ Ausstehend (nach A) |
+| Tranche C — SRC PI-Regler | ✅ Implementiert (1. Juni 2026, v2.9.0) |
+
+---
+
+## 28. Self-Healing Layer v1.0 — Implementierung (v2.9.0)
+
+Dieses Kapitel dokumentiert die vollständige technische Implementierung des Self-Healing Layers auf Basis des in Kapitel 27 beschriebenen Konzepts. Alle drei Tranchen wurden implementiert, mit dem Validator-Agent (Opus) geprüft und in `main` gemergt.
+
+**Commits:** `628b719` → `fd3d0a5` → `f87dfa4` → `8283ffd` → `481c33c` → `c904a62` → `301adcb` (Merge)
+**Branch:** `feat/tranche-a-self-healing` → `main`
+
+---
+
+### 28.1 Architektur-Grundprinzip
+
+Der Self-Healing Layer folgt einer strikten Drei-Schichten-Trennung nach Zeitdomäne:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  RT-Thread (device_ioproc)   → NUR atomic counters      │
+│  Takt: ~2–3ms                → memory_order_relaxed     │
+│  Einzige neue Zeile:           g_last_ioproc_call_ns    │
+├─────────────────────────────────────────────────────────┤
+│  Helper non-RT (volume_poll) → Sammeln + PI-Regler      │
+│  Takt: 50ms                  → unter g_outputs_lock     │
+│  Zuständig für:                fill_ewma, integ_error   │
+├─────────────────────────────────────────────────────────┤
+│  Python Brain                → Diagnose + Policy        │
+│  Takt: 200ms (health-poll)   → HealthMonitor + Healer   │
+│  Zuständig für:                Ampel, reconnect, Backoff│
+└─────────────────────────────────────────────────────────┘
+```
+
+**Unveränderliche Invarianten:**
+- `shared_ring.h` bleibt unverändert — **ABI v4** bleibt v4
+- `device_ioproc` enthält genau einen neuen Code-Pfad: den Pre-Roll Gate (Tranche B) und einen relaxed-atomic store (Tranche A) — kein malloc, kein Lock, kein printf
+- `keepalive_ioproc` ist vollständig unberührt
+
+---
+
+### 28.2 Tranche A — Telemetrie + Ampel
+
+**Ziel:** Alle vorhandenen Sensoren systematisch auslesen und als Ampel im Menübar-Icon visualisieren. Rein observierend — kein Eingriff in den Audio-Pfad.
+
+#### 28.2.1 Neue Sensoren im C-Helper
+
+**Neues Feld `recovery_count` in `DeviceOutput`** (`AudioRouterNowHelper.c`):
+```c
+_Atomic uint32_t recovery_count;  /* wie oft hat sich dieser Output von einem Stall erholt */
+```
+Inkrementiert wenn `stalled` von 1 → 0 wechselt.
+
+**Zwei neue globale Counter:**
+```c
+static _Atomic uint32_t g_reconnect_count    = 0;  /* SHM-Reconnects gesamt */
+static _Atomic uint64_t g_last_ioproc_call_ns = 0; /* Zeitstempel letzter device_ioproc-Call */
+```
+
+**RT-Zugriff in `device_ioproc`** (einzige neue Zeile, relaxed-atomic):
+```c
+atomic_store_explicit(&g_last_ioproc_call_ns, get_time_ns(), memory_order_relaxed);
+```
+
+**Erweitertes `get_status` JSON** (Top-Level):
+```json
+{
+  "ready": true,
+  "reconnect_count": 0,
+  "ioproc_age_ms": 12,
+  "active": [
+    { "uid": "...", "name": "KA6", "ch_offset": 0,
+      "src_ratio": 1.000023, "fill_ewma": 4096.0,
+      "underruns": 0, "stalled": false, "recovery_count": 0 }
+  ]
+}
+```
+Guard: wenn `g_last_ioproc_call_ns == 0` (noch kein IOProc-Call), wird `"ioproc_age_ms": 9999` gemeldet.
+
+**Bug-Fix:** Stall-Log-Text korrigiert von ">300ms" auf "**>1000ms**" (entspricht jetzt `STALL_TIMEOUT_NS = 1s`).
+
+#### 28.2.2 `engine/health.py` (neue Datei)
+
+Klassen: `OutputHealth`, `SystemHealth`, `HealthMonitor`
+
+**Klassifikation (pro Poll-Sample, vor Hysterese):**
+
+| Zustand | Bedingung |
+|---------|-----------|
+| `critical` | IOProc tot (`ioproc_age_ms > 500ms`) ODER `stalled=1` ODER neuer Reconnect |
+| `degraded` | Neue Underruns ODER SRC-Drift > 350 ppm ODER Ring-Füllstand < 10% / > 95% |
+| `healthy` | Alles unauffällig |
+
+**Hysterese** (verhindert Flackern):
+- Verschlechterung: nach **2 Samples** in Folge (= 400ms)
+- Verbesserung: nach **5 Samples** in Folge (= 1s)
+
+**Backward-Kompatibilität:** Fehlende Keys (alter Helper ohne Tranche-A-Felder) werden mit sicheren Defaults behandelt — kein KeyError, kein false-positive `critical`.
+
+#### 28.2.3 Integration in `menu_bar_app.py`
+
+Neuer Daemon-Thread `health-poll` (200ms, Non-blocking):
+```python
+self._health_poll_thread = threading.Thread(
+    target=self._health_poll_loop, name="health-poll", daemon=True)
+```
+
+**Ampel in `_compute_status()`** — ersetzt fest codiertes `🟢` im "Routing active"-Zweig:
+```
+🟢  Routing active — KA6              (healthy)
+🟡  Routing active — KA6 — 2 new underruns  (degraded)
+🔴  Routing active — KA6 — stalled    (critical)
+```
+
+---
+
+### 28.3 Tranche B — Sanfte Out-of-RT-Heilung
+
+**Ziel:** Auf erkannte Probleme reagieren — ausschließlich außerhalb des RT-Pfads.
+
+#### 28.3.1 Pre-Roll High-Water-Mark
+
+**Zwei neue Felder in `DeviceOutput`:**
+```c
+_Atomic uint32_t preroll_target_frames; /* HWM in Frames (default: ARN_RING_CAPACITY/4 = 4096) */
+_Atomic uint32_t preroll_armed;         /* 1 = Stille ausgeben bis HWM erreicht, dann self-clear */
+```
+
+**Gate im `device_ioproc`** (nach K6-Pending-Reset, vor SRC-Block):
+```c
+if (atomic_load_explicit(&dev->preroll_armed, memory_order_relaxed)) {
+    if (behind_p / 2u < hwm) {
+        /* Stille — Position NICHT bewegen */
+        return noErr;
+    }
+    atomic_store_explicit(&dev->preroll_armed, 0u, memory_order_release); // self-clear
+}
+```
+
+**Effekt:** Beim Start jedes Outputs werden ~43ms Stille ausgegeben, bis der Ring-Buffer zu 25% (4096 Frames) gefüllt ist. Verhindert das "stotternde erste Sekunde"-Problem durch Underruns beim Start.
+
+Pre-Roll wird **automatisch re-armed** nach: `output_add()`, SHM-Reconnect, `output_remove_locked` Slot-Verschiebung.
+
+#### 28.3.2 `reconnect_output` Socket-Befehl
+
+Neuer JSON-Befehl `{"cmd": "reconnect_output", "uid": "...", "ch_offset": 0}`:
+
+```
+Python erkennt persistenten Stall (>600ms, interne C-Recovery wirkt nicht)
+     ↓
+HelperClient.reconnect_output(uid, ch_offset)
+     ↓
+Helper: g_safe_take-Guard → g_shm_ready-Guard → output_remove_locked (unter Lock)
+     ↓
+     output_add(uid, ch_offset)  ← 3-Phasen-Design, AUSSERHALB Lock
+```
+
+Guards:
+- `g_safe_take == 1` → `{"ok":false,"error":"safe_take"}`
+- `g_shm_ready == 0` → `{"ok":false,"error":"shm_reconnecting"}`
+
+#### 28.3.3 `engine/healer.py` (neue Datei)
+
+```
+Healer.process(SystemHealth)
+  └─ pro Output: stall_samples zählen
+     └─ nach STALL_PERSIST_SAMPLES=3 (600ms): Heilversuch
+        └─ CircuitBreaker: Backoff 0.5→1→2→4→8s
+           └─ nach MAX_ATTEMPTS=5: tripped → Notification
+```
+
+**CircuitBreaker-Lifecycle:**
+```
+stalled=False → stall_samples=0 (Reset bei jeder Recovery)
+stalled=True  → stall_samples++ jede 200ms
+             → nach 3 Samples: reconnect_output
+             → bei Fehler: failures++, open_until = now + BACKOFF[failures]
+             → bei 5 Fehlern: tripped=True → einmalige Notification
+             → bei Recovery: vollständiger Reset
+```
+
+**Notification-Dedup:** Ein `set` (`_notified_trips`) verhindert doppelte Notifications. Wird bei Erholung geleert → erneuter Trip löst erneut Notification aus.
+
+#### 28.3.4 Safe-Take-Modus
+
+Neues globales Flag im Helper:
+```c
+static atomic_int g_safe_take = 0;
+```
+
+| Zustand | Verhalten |
+|---------|-----------|
+| `safe_take = 0` | Normal — Self-Healing aktiv |
+| `safe_take = 1` | Nur Telemetrie — keine Heilungseingriffe |
+
+**Doppelte Sperre:**
+1. C-Helper: `g_safe_take`-Guard in `reconnect_output` und `set_safe_take`
+2. Python: `Healer.process()` prüft `safe_take_getter()` vor allem
+
+**UI:** Menüpunkt `[ ] Safe mode (no auto-healing)` — Toggle, persistiert in `config.json` (`safe_take_mode: bool`).
+
+**Sync beim App-Start:** `config.safe_take_mode=True` → `set_safe_take(True)` an den frisch gespawnten Helper.
+
+---
+
+### 28.4 Tranche C — PI-Regler + EWMA SRC
+
+**Ziel:** Langsamen Clock-Drift zwischen Producer und Consumer *unhörbar und kontinuierlich* ausregeln.
+
+#### 28.4.1 Das Problem
+
+Zwei Geräte mit nominell gleicher Sample-Rate (48kHz) ticken physikalisch minimal unterschiedlich. Über Minuten akkumuliert sich der Unterschied. Der P-Regler kompensiert nur den *momentanen* Füllstands-Fehler — der *systematische* Drift (z.B. −23 ppm dauerhaft) führt zu periodischen Underrun/Overflow-Zyklen.
+
+#### 28.4.2 Neue Felder in `DeviceOutput`
+
+```c
+/* NUR vom volume_poll_thread geschrieben (unter g_outputs_lock) — non-atomic */
+double fill_ewma;    /* EWMA des Füllstands in Frames, α=0.1, τ≈500ms */
+double integ_error;  /* PI-Integrator-Akkumulator */
+```
+
+#### 28.4.3 Regler-Parameter
+
+```c
+#define SRC_EWMA_ALPHA  0.1f    /* Zeitkonstante ≈ 10 × 50ms = 500ms      */
+#define SRC_KI          0.0005f /* I-Verstärkung (sehr konservativ)        */
+#define SRC_DT          0.05f   /* Poll-Intervall 50ms                     */
+#define SRC_KI_CLAMP    (300.0f / 1000000.0f)  /* I-Beitrag max ±300ppm   */
+/* SRC_P_GAIN = 0.01 (unverändert), SRC_RATIO_CLAMP = ±500ppm (unverändert) */
+```
+
+#### 28.4.4 Regler-Schaltung (im `volume_poll_thread`)
+
+```
+Ring-Füllstand (fill_frames)
+    │
+    ▼ EWMA (α=0.1)
+fill_ewma ──────────────────────────────────┐
+    │                                       │
+    ├─ error = fill_ewma − target_frames    │
+    │                                       │
+    ├─ P-Term = Kp × error_norm             │
+    │                                       │
+    └─ I-Term:                              │
+         integ_error += Ki × error × dt     │
+         integ_error = clamp(±300ppm)  ←────┘ Anti-Windup
+    │
+    ├─ correction = P + I
+    ├─ correction = clamp(±500ppm)   ← Gesamt-Clamp
+    │
+    └─ src_ratio_q20 = (base_ratio + correction) × 2²⁰
+```
+
+**Anti-Windup:** Der I-Akkumulator wird auf ±300ppm begrenzt *bevor* P+I addiert werden. Das verhindert Integrator-Explosion bei anhaltenden Regelfehlen (z.B. nach Stall).
+
+#### 28.4.5 State-Resets (alle diskontinuierlichen Übergänge)
+
+Der PI-State (`fill_ewma`, `integ_error`) wird zurückgesetzt bei:
+
+| Ereignis | Wo | Warum |
+|----------|-----|-------|
+| Stall erkannt | `volume_poll_thread` Stall-Branch | Alter Integrator-Wert würde falsch kicken |
+| Stall-Recovery | `volume_poll_thread` Recovery-Branch | Neustart auf neutralem Niveau |
+| SHM-Reconnect | `volume_poll_thread` Reconnect-Loop | Neues SHM = neue Audio-Session |
+| SR-Wechsel (SR-match) | `sr_reinit_all_outputs` | base_ratio ändert sich |
+| SR-Wechsel (SR-differs) | `sr_reinit_all_outputs` | IOProc wird neu gestartet |
+
+Reset-Wert: `fill_ewma = src_ring_target / 2.0` (= target_frames), `integ_error = 0.0`
+
+#### 28.4.6 Stabilität
+
+- **Kp = 0.01 (unverändert):** bewährter Wert, liefert prompte P-Reaktion
+- **Ki = 0.0005 (sehr konservativ):** Drift ist ein Minuten-Prozess — kleines Ki verhindert Schwingungen
+- **Defensiver Clamp:** `if (ratio_f < 0.0f) ratio_f = 0.0f;` vor dem `uint32_t`-Cast (verhindert UB bei pathologischem `base_ratio`)
+- **Tuning-Empfehlung:** `src_ratio` + `fill_ewma` aus `get_status` über ≥30min loggen → bei stabiler Konvergenz ist kein Re-Tuning nötig
+
+---
+
+### 28.5 Neue Dateien + Geänderte Dateien (vollständige Übersicht)
+
+| Datei | Änderung | Inhalt |
+|-------|----------|--------|
+| `engine/health.py` | **NEU** | `OutputHealth`, `SystemHealth`, `HealthMonitor` (Hysterese, Telemetrie) |
+| `engine/healer.py` | **NEU** | `CircuitBreaker`, `Healer` (Backoff, Safe-Take-Policy) |
+| `engine/menu_bar_app.py` | Erweitert | health-poll-Thread, Ampel, Safe-Take-Menü, Notification-Dedup |
+| `engine/helper_client.py` | Erweitert | `reconnect_output()`, `set_safe_take()` |
+| `engine/config.py` | Erweitert | `safe_take_mode: bool = False` |
+| `helper/AudioRouterNowHelper.c` | Erweitert | Alle C-Änderungen (s. unten) |
+| `helper/shared_ring.h` | **Unverändert** | ABI v4 bleibt v4 |
+| `driver/src/AudioRouterNowDriver.c` | **Unverändert** | Kein HAL-Driver-Eingriff nötig |
+
+**C-Helper-Änderungen im Detail (`AudioRouterNowHelper.c`):**
+
+| Bereich | Was hinzugekommen |
+|---------|-------------------|
+| `DeviceOutput` struct | `recovery_count`, `preroll_target_frames`, `preroll_armed`, `fill_ewma`, `integ_error` |
+| Globals | `g_reconnect_count`, `g_last_ioproc_call_ns`, `g_safe_take` |
+| `device_ioproc()` | Relaxed-atomic store `g_last_ioproc_call_ns` + Pre-Roll Gate |
+| `output_add()` | Init neuer Felder auf Stack-Kopie `tmp` |
+| `output_remove_locked()` | Pre-Roll re-arm nach Slot-Verschiebung |
+| `volume_poll_thread` | PI-Regler ersetzt P-Regler; EWMA; State-Resets; `g_reconnect_count++` |
+| `sr_reinit_all_outputs()` | PI State-Reset in beiden Branches |
+| `format_active_outputs()` | `recovery_count`, `fill_ewma` im JSON |
+| `get_status`-Handler | `reconnect_count`, `ioproc_age_ms`, `safe_take` im JSON |
+| Socket-Handler | Neue Befehle: `reconnect_output`, `set_safe_take` |
+
+---
+
+### 28.6 Audit-Ergebnisse
+
+Alle drei Tranchen wurden mit dem Validator-Agent (Opus) unabhängig geprüft:
+
+| Tranche | Commit | Audit | Kritische Punkte |
+|---------|--------|-------|-----------------|
+| A | `628b719` + `fd3d0a5` | ✅ Bestanden | RT-Safety ✅, ABI ✅, JSON-Compat ✅ |
+| B | `f87dfa4` + `8283ffd` | ✅ Bestanden | Pre-Roll RT ✅, Lock-Disziplin ✅, Safe-Take ✅ |
+| C | `481c33c` + `c904a62` | ✅ Bestanden | Thread-Safety ✅, Anti-Windup ✅, Resets ✅ |
+
+Angewendete Audit-Korrekturen:
+- **B1:** `last_ridx_sample` + `last_progress_ns` + `stalled=0` nach SHM-Reconnect (verhindert false-positive `recovery_count`)
+- **B2:** `ioproc_alive=True` wenn `ioproc_age_ms`-Key fehlt (Backward-Kompatibilität)
+- **Tranche B Minor:** Pre-Roll re-arm nach Slot-Verschiebung; Notification-Set statt dynamische Attribute
+- **Tranche C:** 6 clang-tidy `bugprone-integer-division` Warnungen behoben; defensiver `ratio_f ≥ 0` Clamp
+
+---
+
+### 28.7 Bekannte Einschränkungen + Tuning-Hinweise
+
+1. **PI-Regler Ki ist konservativ** — bei sehr stabilen Clock-Paaren (modernes USB-DAC) ist der I-Term-Beitrag messbar aber minimal. Erst nach Messläufen (30+ min, `src_ratio` + `fill_ewma` aus `get_status` loggen) über Re-Tuning entscheiden.
+
+2. **Pre-Roll-Latenz** — 43ms Anlauf-Stille bei jedem Output-Start. Bei Video-Sync (Lippensynchronität < 40ms) kann der Wert in `DeviceOutput.preroll_target_frames` via `reconnect_output`-Befehl im Vorhinein auf niedrigere Werte angepasst werden (API vorhanden, kein UI dafür geplant).
+
+3. **Safe-Take und Helper-Neustart** — Wenn der Helper von außen (launchd) neu gestartet wird, beginnt er mit `g_safe_take=0`. Der App-Start synchronisiert den Wert nur wenn `safe_take_mode=True` — bewusste Asymmetrie (Default = Self-Healing aktiv).
+
+4. **Circuit Breaker Reset** — Nach 5 Fehlversuchen bleibt der Breaker offen bis: (a) das Device sich von selbst erholt, (b) manuelle Device-Neuauswahl im Menü, oder (c) Helper-Neustart via Statuszeile.
+
+---
+
+### 28.8 Status
+
+| Tranche | Feature | Status | Version |
+|---------|---------|--------|---------|
+| A | Telemetrie + Ampel | ✅ Produktiv | v2.9.0 |
+| B | Pre-Roll HWM | ✅ Produktiv | v2.9.0 |
+| B | reconnect_output + Backoff | ✅ Produktiv | v2.9.0 |
+| B | Circuit Breaker | ✅ Produktiv | v2.9.0 |
+| B | Safe-Take-Modus | ✅ Produktiv | v2.9.0 |
+| C | EWMA + PI-Regler | ✅ Produktiv (konservativ parametriert) | v2.9.0 |
+
+---
+
+*Dokumentation zuletzt aktualisiert am 1. Juni 2026 — AudioRouterNow v2.9.0*
