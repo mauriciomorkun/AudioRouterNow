@@ -91,11 +91,18 @@ class HealthMonitor:
         # ── Rohdaten parsen ────────────────────────────────────────────
         ring_frames    = int(status.get("ring_frames", 0))
         ring_fill      = ring_frames / ARN_RING_CAPACITY_FRAMES
-        ioproc_age_ms  = int(status.get("ioproc_age_ms", 9999))
+        # B2-Fix: Wenn ioproc_age_ms fehlt (alter Helper ohne Tranche-A-Counter),
+        # auf True defaulten — kein false-positive Critical gegen alte Binaries.
+        _ioproc_age_raw = status.get("ioproc_age_ms", None)
+        ioproc_age_ms  = int(_ioproc_age_raw) if _ioproc_age_raw is not None else 0
         reconnect_count = int(status.get("reconnect_count", 0))
 
-        # ioproc_alive: nur relevant wenn Audio fließt (sonst keepalive-only)
-        ioproc_alive = (ioproc_age_ms < IOPROC_ALIVE_MS) if audio_flowing else True
+        # ioproc_alive: nur relevant wenn Audio fließt (sonst keepalive-only).
+        # Wenn der Helper das Feld nicht kennt (alt), nehmen wir alive=True an.
+        if _ioproc_age_raw is None:
+            ioproc_alive = True
+        else:
+            ioproc_alive = (ioproc_age_ms < IOPROC_ALIVE_MS) if audio_flowing else True
 
         outputs: List[OutputHealth] = []
         reasons: List[str] = []
