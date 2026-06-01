@@ -930,7 +930,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
     uint32_t init_ratio_q20 = (uint32_t)(tmp.base_ratio * (double)(1u << 20));
     atomic_store_explicit(&tmp.src_ratio_q20, init_ratio_q20, memory_order_relaxed);
     /* Tranche C: PI-Regler State initialisieren */
-    tmp.fill_ewma   = (double)(ARN_RING_CAPACITY / 4u);  /* = src_ring_target / 2 = target_frames */
+    tmp.fill_ewma   = (double)ARN_RING_CAPACITY / 4.0;   /* = src_ring_target / 2 = target_frames */
     tmp.integ_error = 0.0;
 
     /* H1: USB-Settle-Wartezeit OHNE Lock — der teure Teil */
@@ -1284,7 +1284,7 @@ static void sr_reinit_all_outputs(void) {
             atomic_store_explicit(&dev->frac_ridx_reset_widx, w, memory_order_relaxed);
             atomic_store_explicit(&dev->frac_ridx_reset_pending, 1u, memory_order_release);
             /* Tranche C: PI State zurücksetzen nach SR-Wechsel */
-            dev->fill_ewma   = (double)(dev->src_ring_target / 2u);
+            dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
             dev->integ_error = 0.0;
             /* active/proc_id bleiben unveraendert — Output laeuft weiter. */
             continue;
@@ -1325,7 +1325,7 @@ static void sr_reinit_all_outputs(void) {
         atomic_store_explicit(&dev->src_ratio_q20, init_q20, memory_order_relaxed);
         atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
         /* Tranche C: PI State zurücksetzen nach SR-Wechsel */
-        dev->fill_ewma   = (double)(dev->src_ring_target / 2u);
+        dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
         dev->integ_error = 0.0;
 
         /* Schritt 4: IOProc neu erzeugen — mit Retry nach SR-Wechsel.
@@ -1535,7 +1535,7 @@ static void *volume_poll_thread(void *arg)
                              * neu verbunden, erst wieder HWM aufbauen bevor Audio fliesst. */
                             atomic_store_explicit(&g_outputs[i].preroll_armed, 1u, memory_order_release);
                             /* Tranche C: PI State zurücksetzen */
-                            g_outputs[i].fill_ewma   = (double)(g_outputs[i].src_ring_target / 2u);
+                            g_outputs[i].fill_ewma   = (double)g_outputs[i].src_ring_target / 2.0;
                             g_outputs[i].integ_error = 0.0;
                         }
                         pthread_mutex_unlock(&g_outputs_lock);
@@ -1574,7 +1574,7 @@ static void *volume_poll_thread(void *arg)
                         atomic_store_explicit(&dev->stalled, 0u, memory_order_release);
                         atomic_fetch_add_explicit(&dev->recovery_count, 1u, memory_order_relaxed);
                         /* Tranche C: PI-Regler State bei Stall-Recovery reinitialisieren */
-                        dev->fill_ewma   = (double)(dev->src_ring_target / 2u);
+                        dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
                         dev->integ_error = 0.0;
                         fprintf(stdout, "Helper: Output '%s' hat sich von Stall erholt\n",
                                 dev->name);
@@ -1599,7 +1599,7 @@ static void *volume_poll_thread(void *arg)
                             atomic_store_explicit(&dev->local_ridx, w_now, memory_order_release);
                             dev->last_ridx_sample = w_now;
                             /* Tranche C: PI-Regler State bei Stall zurücksetzen */
-                            dev->fill_ewma   = (double)(dev->src_ring_target / 2u);
+                            dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
                             dev->integ_error = 0.0;
                             fprintf(stderr, "Helper: Output '%s' gestallt — "
                                     "kein Fortschritt seit >1000ms trotz Daten im Ring. "
@@ -1649,6 +1649,10 @@ static void *volume_poll_thread(void *arg)
 
                 /* Basisverhaeltnis: ring_sr/device_sr. Gleiche Rate: 1.0. */
                 float ratio_f = (float)dev->base_ratio + correction;
+                /* Defensiver Clamp: verhindert UB beim float→uint32_t-Cast falls
+                 * base_ratio pathologisch klein waere (in der Praxis unmoeglich bei
+                 * realen Sample-Raten, aber sicher ist sicher). */
+                if (ratio_f < 0.0f) ratio_f = 0.0f;
                 uint32_t ratio_q20 = (uint32_t)(ratio_f * (float)(1u << 20));
 
                 atomic_store_explicit(&dev->src_ratio_q20, ratio_q20, memory_order_release);
