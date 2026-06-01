@@ -119,6 +119,7 @@ typedef struct DeviceOutput {
     uint32_t         last_ridx_sample;   /* zuletzt gesehener local_ridx-Wert    */
     uint64_t         last_progress_ns;   /* mach_absolute_time() der letzten Bewegung */
     _Atomic uint32_t stalled;            /* 1 = als gestallt markiert (Diagnose)  */
+    _Atomic uint32_t recovery_count;     /* Diagnose: wie oft hat sich dieser Output von einem Stall erholt */
     /* Phase 6 — Adaptive SRC fuer Clock-Drift-Kompensation */
     double               src_frac_ridx;    /* fraktionaler Leseindex — NUR vom IOProc-Thread gelesen/geschrieben */
     _Atomic uint32_t     src_ratio_q20;    /* Q20-Ratio: base_ratio = 1<<20. Volume-Thread schreibt, IOProc liest */
@@ -149,6 +150,10 @@ static pthread_mutex_t         g_outputs_lock   = PTHREAD_MUTEX_INITIALIZER;
 
 /* Diagnostic: wie oft wurde IRGENDEIN IOProc aufgerufen? */
 static _Atomic uint32_t        g_ioproc_calls   = 0;
+
+/* Tranche A: Self-Healing-Telemetrie */
+static _Atomic uint32_t        g_reconnect_count    = 0;  /* Wie oft wurde SHM neu verbunden */
+static _Atomic uint64_t        g_last_ioproc_call_ns = 0; /* Zeitstempel letzter IOProc-Call */
 
 /* Config-Socket Thread */
 static pthread_t               g_config_thread;
@@ -551,6 +556,9 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
     (void)inInputData; (void)inInputTime; (void)inOutputTime;
 
     atomic_fetch_add_explicit(&g_ioproc_calls, 1u, memory_order_relaxed);
+    /* Tranche A: Zeitstempel des letzten echten Audio-IOProc-Calls (nur device_ioproc,
+     * NICHT keepalive_ioproc — keepalive macht kein echtes Audio). RT-safe relaxed store. */
+    atomic_store_explicit(&g_last_ioproc_call_ns, get_time_ns(), memory_order_relaxed);
 
     DeviceOutput  *dev  = (DeviceOutput *)inClientData;
     /* H2: g_ring atomar mit acquire laden — sieht immer entweder das alte
@@ -851,6 +859,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
     tmp.last_ridx_sample = start_widx;
     tmp.last_progress_ns = get_time_ns();
     atomic_store_explicit(&tmp.stalled, 0u, memory_order_relaxed);
+    atomic_store_explicit(&tmp.recovery_count, 0u, memory_order_relaxed);
 
     /* Sample-Rate-Abgleich und SRC-Initialisierung (wie in output_add_locked) */
     ARNSharedRing *ring_now = atomic_load_explicit(&g_ring, memory_order_acquire);
@@ -1449,6 +1458,7 @@ static void *volume_poll_thread(void *arg)
                     ARNSharedRing *new_ring = shm_connect();
                     if (new_ring) {
                         atomic_store_explicit(&g_ring, new_ring, memory_order_release);
+                        atomic_fetch_add_explicit(&g_reconnect_count, 1u, memory_order_relaxed);
                         break;
                     }
                     usleep(SHM_RETRY_INTERVAL_US);
@@ -1496,6 +1506,7 @@ static void *volume_poll_thread(void *arg)
                     dev->last_progress_ns  = now_ns;
                     if (atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
                         atomic_store_explicit(&dev->stalled, 0u, memory_order_release);
+                        atomic_fetch_add_explicit(&dev->recovery_count, 1u, memory_order_relaxed);
                         fprintf(stdout, "Helper: Output '%s' hat sich von Stall erholt\n",
                                 dev->name);
                     }
@@ -1519,7 +1530,7 @@ static void *volume_poll_thread(void *arg)
                             atomic_store_explicit(&dev->local_ridx, w_now, memory_order_release);
                             dev->last_ridx_sample = w_now;
                             fprintf(stderr, "Helper: Output '%s' gestallt — "
-                                    "kein Fortschritt seit >300ms trotz Daten im Ring. "
+                                    "kein Fortschritt seit >1000ms trotz Daten im Ring. "
                                     "Aus read_idx-Aggregat ausgeschlossen, Position auf write_idx gesetzt.\n",
                                     dev->name);
                         }
@@ -1722,11 +1733,14 @@ static void format_active_outputs(char *buf, size_t bufsz)
                                                   memory_order_relaxed);
 
         uint32_t stalled = atomic_load_explicit(&g_outputs[i].stalled, memory_order_relaxed);
+        uint32_t recovery_count = atomic_load_explicit(&g_outputs[i].recovery_count,
+                                                       memory_order_relaxed);
         written = snprintf(buf + pos, bufsz - pos,
                            "%s{\"uid\":\"%s\",\"name\":\"%s\",\"ch_offset\":%u,"
-                           "\"src_ratio\":%.6f,\"underruns\":%u,\"stalled\":%u}",
+                           "\"src_ratio\":%.6f,\"underruns\":%u,\"stalled\":%u,"
+                           "\"recovery_count\":%u}",
                            sep, safe_uid, safe_name, g_outputs[i].ch_offset,
-                           src_ratio, underruns, stalled);
+                           src_ratio, underruns, stalled, recovery_count);
         if (written < 0) break;
         pos += (size_t)written;
     }
@@ -1775,9 +1789,21 @@ static int parse_and_execute(int fd, const char *line)
         ARNSharedRing *rstat = atomic_load_explicit(&g_ring, memory_order_acquire);
         uint32_t frames = rstat ? arn_ring_frames_available(rstat) : 0u;
         uint32_t calls  = atomic_load_explicit(&g_ioproc_calls, memory_order_relaxed);
+        /* Tranche A: Self-Healing-Telemetrie */
+        uint32_t reconnect_count = atomic_load_explicit(&g_reconnect_count,
+                                                        memory_order_relaxed);
+        uint64_t last_ioproc_ns  = atomic_load_explicit(&g_last_ioproc_call_ns,
+                                                        memory_order_relaxed);
+        unsigned long long ioproc_age_ms;
+        if (last_ioproc_ns == 0) {
+            ioproc_age_ms = 9999ULL;  /* noch kein IOProc-Call seit Start */
+        } else {
+            ioproc_age_ms = (unsigned long long)((get_time_ns() - last_ioproc_ns) / 1000000ULL);
+        }
         snprintf(resp, sizeof(resp),
-                 "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u,\"ready\":true}",
-                 active_buf, frames, calls);
+                 "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u,"
+                 "\"reconnect_count\":%u,\"ioproc_age_ms\":%llu,\"ready\":true}",
+                 active_buf, frames, calls, reconnect_count, ioproc_age_ms);
         send_line(fd, resp);
         return 0;
     }
