@@ -9,6 +9,90 @@ Each release contains **two sections**:
 
 ---
 
+## v2.9.0 — June 1, 2026
+
+### For Everyone
+
+**AudioRouterNow now monitors itself and recovers from audio problems automatically.**
+
+If your audio ever crackles, drops out, or a device freezes — the app now detects this within seconds and tries to fix it on its own, without you having to restart anything.
+
+What's new:
+- **Health indicator in the menu bar icon:** 🟢 all good, 🟡 something looks off, 🔴 a problem was detected
+- **Automatic recovery:** if a device stalls, the app reconnects it automatically (up to 5 attempts, with increasing wait times between each try)
+- **Smarter audio start:** a brief 43ms buffer fills before audio plays to prevent the "stuttering first second" on new devices
+- **Safe mode:** a new menu option `Safe mode (no auto-healing)` — when activated, the app only monitors but never touches anything. Recommended for live recordings or concerts where any interruption is worse than the original problem
+- **Better long-term stability:** an improved audio clock drift compensator (PI controller) smooths out tiny timing differences between devices over time — completely inaudible
+
+**Who is affected:** All users benefit. No action required. The Safe mode toggle is in the menu if you need it.
+
+---
+
+### For Power Users
+
+Complete implementation of the Self-Healing Layer (3 Tranches). All changes pass an independent Opus validator audit. ABI remains v4. RT thread (`device_ioproc`) has only one new line of code.
+
+#### Tranche A — Telemetry + Health Indicator
+
+**New atomic counters in `DeviceOutput`:** `recovery_count` (stall→healthy transitions), `g_reconnect_count` (SHM reconnects), `g_last_ioproc_call_ns` (timestamp of last real IOProc call).
+
+**`get_status` JSON extended** with `reconnect_count`, `ioproc_age_ms` (ms since last `device_ioproc` call; 9999 if none yet), `recovery_count` per output, `fill_ewma` per output (Tranche C).
+
+**`engine/health.py`** — new module: `OutputHealth`, `SystemHealth`, `HealthMonitor`. Three-level classification with hysteresis:
+- Degradation: 2 consecutive samples (400ms)
+- Recovery: 5 consecutive samples (1s)
+- Critical triggers: `ioproc_age_ms > 500` (when audio flowing), `stalled=1`, new reconnect
+- Degraded triggers: new underruns, SRC drift > 350 ppm, ring fill < 10% or > 95%
+
+**`menu_bar_app.py`:** new `health-poll` daemon thread (200ms), icon ampel integrated in `_compute_status()` final branch.
+
+#### Tranche B — Soft Out-of-RT Healing
+
+**Pre-Roll High-Water-Mark (`device_ioproc`, RT-safe):**
+```c
+if (atomic_load(&dev->preroll_armed, relaxed)) {
+    if (behind_p / 2u < hwm) { /* output silence, don't move position */ return noErr; }
+    atomic_store(&dev->preroll_armed, 0u, release);  // self-clear at HWM
+}
+```
+Default HWM: `ARN_RING_CAPACITY/4 = 4096 frames ≈ 43ms @48kHz`. Re-armed on every `output_add`, SHM-reconnect, and slot-swap IOProc restart.
+
+**`reconnect_output` socket command:** `output_remove_locked` under lock → `output_add` outside lock (3-phase design, same as H1). Guards: `g_safe_take` (→ `safe_take` error), `g_shm_ready=0` (→ `shm_reconnecting` error).
+
+**`engine/healer.py`** — new module:
+- `STALL_PERSIST_SAMPLES = 3` (600ms) before first attempt
+- Backoff: `[0.5, 1.0, 2.0, 4.0, 8.0]` seconds
+- `MAX_ATTEMPTS = 5` → `tripped=True` → `rumps.notification`
+- Breaker fully resets on output recovery
+- Python-side `safe_take_getter()` check (double guard)
+
+**Safe-Take-Modus:** `g_safe_take atomic_int` global in Helper. `set_safe_take` socket command. `config.safe_take_mode: bool` (persisted). App syncs state on start. Double guard: C (`g_safe_take`) + Python (`Healer.process()`).
+
+#### Tranche C — PI Controller + EWMA SRC
+
+Extends the existing P controller on `src_ratio_q20` (volume_poll_thread, 50ms, non-RT) with an I term and EWMA smoothing:
+
+```
+fill_ewma = 0.1 × fill_frames + 0.9 × fill_ewma         (τ ≈ 500ms)
+error     = fill_ewma − target_frames
+correction = Kp×error + Ki×Σ(error×dt)
+           where Ki=0.0005, dt=0.05s, I clamped to ±300ppm
+src_ratio_q20 = (base_ratio + correction) × 2²⁰          (total ±500ppm)
+```
+
+Non-atomic `fill_ewma` and `integ_error` fields in `DeviceOutput` — single writer (volume_poll_thread under `g_outputs_lock`). `get_status` reads under same lock. Zero RT-path exposure.
+
+State resets at all discontinuities: stall-set, stall-recovery, SHM-reconnect, SR-change (both branches of `sr_reinit_all_outputs`).
+
+Defensive clamp `if (ratio_f < 0.0f) ratio_f = 0.0f` before `uint32_t` cast (prevents UB under pathological `base_ratio`).
+
+**All 6 `bugprone-integer-division` clang-tidy warnings resolved** (`(double)(u/u)` → `(double)u / 2.0`).
+
+**Commits:** `628b719` → `fd3d0a5` → `f87dfa4` → `8283ffd` → `481c33c` → `c904a62` → `301adcb` (merge) → docs/version bump
+**Full technical documentation:** DOKUMENTATION.md, Kapitel 28.
+
+---
+
 ## v2.8.1 — June 1, 2026
 
 ### For Everyone
