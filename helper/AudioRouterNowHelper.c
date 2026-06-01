@@ -119,6 +119,16 @@ typedef struct DeviceOutput {
     uint32_t         last_ridx_sample;   /* zuletzt gesehener local_ridx-Wert    */
     uint64_t         last_progress_ns;   /* mach_absolute_time() der letzten Bewegung */
     _Atomic uint32_t stalled;            /* 1 = als gestallt markiert (Diagnose)  */
+    _Atomic uint32_t recovery_count;     /* Diagnose: wie oft hat sich dieser Output von einem Stall erholt */
+    /* Tranche B: Pre-Roll High-Water-Mark.
+     * preroll_armed=1 -> IOProc gibt Stille bis Ring >= preroll_target_frames,
+     * dann self-clear (release-store auf 0). Re-armed nach SHM-Reconnect. */
+    _Atomic uint32_t preroll_target_frames; /* HWM in Frames (0=deaktiviert) */
+    _Atomic uint32_t preroll_armed;         /* 1=IOProc gibt Stille bis HWM, dann self-clear */
+    /* Tranche C: PI-Regler State — NUR vom volume_poll_thread gelesen/geschrieben.
+     * Kein Atomic nötig: ausschließlich non-RT-Zugriff unter g_outputs_lock. */
+    double fill_ewma;    /* EWMA des Ring-Füllstands in Frames (Tranche C Glättung) */
+    double integ_error;  /* Integrator-Akkumulator für I-Term */
     /* Phase 6 — Adaptive SRC fuer Clock-Drift-Kompensation */
     double               src_frac_ridx;    /* fraktionaler Leseindex — NUR vom IOProc-Thread gelesen/geschrieben */
     _Atomic uint32_t     src_ratio_q20;    /* Q20-Ratio: base_ratio = 1<<20. Volume-Thread schreibt, IOProc liest */
@@ -150,6 +160,10 @@ static pthread_mutex_t         g_outputs_lock   = PTHREAD_MUTEX_INITIALIZER;
 /* Diagnostic: wie oft wurde IRGENDEIN IOProc aufgerufen? */
 static _Atomic uint32_t        g_ioproc_calls   = 0;
 
+/* Tranche A: Self-Healing-Telemetrie */
+static _Atomic uint32_t        g_reconnect_count    = 0;  /* Wie oft wurde SHM neu verbunden */
+static _Atomic uint64_t        g_last_ioproc_call_ns = 0; /* Zeitstempel letzter IOProc-Call */
+
 /* Config-Socket Thread */
 static pthread_t               g_config_thread;
 static int                     g_config_listen_fd = -1;
@@ -164,6 +178,10 @@ static atomic_int              g_hotplug_registered = 0;
 
 /* SHM-Bereitschafts-Flag: 0 = noch nicht verbunden, 1 = Ring bereit */
 static atomic_int              g_shm_ready          = 0;
+
+/* Tranche B: Safe-Take-Modus — deaktiviert alle Heiler-Aktuatoren,
+ * erlaubt nur Telemetrie. Fuer Recording/Live-Situationen. */
+static atomic_int              g_safe_take          = 0;
 
 /* H3: Hot-Plug-Flag — Callback setzt nur dieses Flag, Volume-Thread reagiert.
  * Kein CoreAudio-Call im Property-Callback-Kontext (Re-Entry-Deadlock-Risiko). */
@@ -551,6 +569,9 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
     (void)inInputData; (void)inInputTime; (void)inOutputTime;
 
     atomic_fetch_add_explicit(&g_ioproc_calls, 1u, memory_order_relaxed);
+    /* Tranche A: Zeitstempel des letzten echten Audio-IOProc-Calls (nur device_ioproc,
+     * NICHT keepalive_ioproc — keepalive macht kein echtes Audio). RT-safe relaxed store. */
+    atomic_store_explicit(&g_last_ioproc_call_ns, get_time_ns(), memory_order_relaxed);
 
     DeviceOutput  *dev  = (DeviceOutput *)inClientData;
     /* H2: g_ring atomar mit acquire laden — sieht immer entweder das alte
@@ -568,6 +589,25 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
                                                     memory_order_relaxed);
         dev->src_frac_ridx = (double)target_widx / 2.0;
         atomic_store_explicit(&dev->frac_ridx_reset_pending, 0u, memory_order_release);
+    }
+
+    /* Tranche B: Pre-Roll Gate — gibt Stille bis Ring ≥ HWM (43ms @48kHz).
+     * RT-safe: nur relaxed-atomic loads + ein release-store. Kein malloc, kein lock. */
+    if (atomic_load_explicit(&dev->preroll_armed, memory_order_relaxed)) {
+        uint32_t hwm    = atomic_load_explicit(&dev->preroll_target_frames, memory_order_relaxed);
+        uint32_t widx_p = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
+        uint32_t frac_s = (uint32_t)(dev->src_frac_ridx * 2.0);
+        uint32_t behind_p = widx_p - frac_s;
+        if (behind_p / 2u < hwm) {
+            /* Noch nicht genug gepuffert — Stille ausgeben, Position NICHT bewegen */
+            for (UInt32 b = 0; b < outOutputData->mNumberBuffers; b++) {
+                memset(outOutputData->mBuffers[b].mData, 0,
+                       outOutputData->mBuffers[b].mDataByteSize);
+            }
+            return noErr;
+        }
+        /* HWM erreicht — Pre-Roll abschalten (einmalig, release) */
+        atomic_store_explicit(&dev->preroll_armed, 0u, memory_order_release);
     }
 
     /* Volume + Mute aus Shared-Control lesen (atomic, low-cost) */
@@ -851,6 +891,10 @@ static int output_add(const char *uid, uint32_t ch_offset)
     tmp.last_ridx_sample = start_widx;
     tmp.last_progress_ns = get_time_ns();
     atomic_store_explicit(&tmp.stalled, 0u, memory_order_relaxed);
+    atomic_store_explicit(&tmp.recovery_count, 0u, memory_order_relaxed);
+    /* Tranche B: Pre-Roll — Consumer wartet auf ARN_RING_CAPACITY/4 Frames (≈43ms @48kHz) */
+    atomic_store_explicit(&tmp.preroll_target_frames, ARN_RING_CAPACITY / 4u, memory_order_relaxed);
+    atomic_store_explicit(&tmp.preroll_armed, 1u, memory_order_relaxed);
 
     /* Sample-Rate-Abgleich und SRC-Initialisierung (wie in output_add_locked) */
     ARNSharedRing *ring_now = atomic_load_explicit(&g_ring, memory_order_acquire);
@@ -885,6 +929,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
     tmp.src_ring_target = ARN_RING_CAPACITY / 2;
     uint32_t init_ratio_q20 = (uint32_t)(tmp.base_ratio * (double)(1u << 20));
     atomic_store_explicit(&tmp.src_ratio_q20, init_ratio_q20, memory_order_relaxed);
+    /* Tranche C: PI-Regler State initialisieren */
+    tmp.fill_ewma   = (double)ARN_RING_CAPACITY / 4.0;   /* = src_ring_target / 2 = target_frames */
+    tmp.integ_error = 0.0;
 
     /* H1: USB-Settle-Wartezeit OHNE Lock — der teure Teil */
     if (sr_was_changed) {
@@ -1168,6 +1215,9 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
                         moved->last_ridx_sample = w;
                         moved->last_progress_ns = get_time_ns();
                         atomic_store_explicit(&moved->stalled, 0u, memory_order_release);
+                        /* Tranche B Minor-Fix: Pre-Roll nach IOProc-Neustart re-armen —
+                         * verhindert Underrun-Burst direkt nach Slot-Verschiebung. */
+                        atomic_store_explicit(&moved->preroll_armed, 1u, memory_order_release);
                     }
                     fprintf(stdout, "Helper: Output '%s' [Ch %u-%u] nach Slot-Verschiebung neu gestartet\n",
                             moved->name, moved->ch_offset + 1, moved->ch_offset + 2);
@@ -1233,6 +1283,9 @@ static void sr_reinit_all_outputs(void) {
              * IOProc laeuft weiter — direkter Schreibzugriff ist ein Data Race. */
             atomic_store_explicit(&dev->frac_ridx_reset_widx, w, memory_order_relaxed);
             atomic_store_explicit(&dev->frac_ridx_reset_pending, 1u, memory_order_release);
+            /* Tranche C: PI State zurücksetzen nach SR-Wechsel */
+            dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
+            dev->integ_error = 0.0;
             /* active/proc_id bleiben unveraendert — Output laeuft weiter. */
             continue;
         }
@@ -1271,6 +1324,9 @@ static void sr_reinit_all_outputs(void) {
         uint32_t init_q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
         atomic_store_explicit(&dev->src_ratio_q20, init_q20, memory_order_relaxed);
         atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
+        /* Tranche C: PI State zurücksetzen nach SR-Wechsel */
+        dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
+        dev->integ_error = 0.0;
 
         /* Schritt 4: IOProc neu erzeugen — mit Retry nach SR-Wechsel.
          * USB-Devices brauchen 100-500ms zum Rekonfigurieren nach SR-Wechsel.
@@ -1449,6 +1505,7 @@ static void *volume_poll_thread(void *arg)
                     ARNSharedRing *new_ring = shm_connect();
                     if (new_ring) {
                         atomic_store_explicit(&g_ring, new_ring, memory_order_release);
+                        atomic_fetch_add_explicit(&g_reconnect_count, 1u, memory_order_relaxed);
                         break;
                     }
                     usleep(SHM_RETRY_INTERVAL_US);
@@ -1467,6 +1524,19 @@ static void *volume_poll_thread(void *arg)
                                                   memory_order_relaxed);
                             atomic_store_explicit(&g_outputs[i].frac_ridx_reset_pending, 1u,
                                                   memory_order_release);
+                            /* B1-Fix: last_ridx_sample + last_progress_ns synchronisieren —
+                             * verhindert false-positive recovery_count-Inkremente nach Reconnect.
+                             * Ohne Fix: cur_ridx(=w) != last_ridx_sample(=alter Wert) → sofortiger
+                             * recovery++ obwohl kein echter Stall-Recovery stattfand. */
+                            g_outputs[i].last_ridx_sample = w;
+                            g_outputs[i].last_progress_ns = get_time_ns();
+                            atomic_store_explicit(&g_outputs[i].stalled, 0u, memory_order_release);
+                            /* Tranche B: Pre-Roll re-arm nach SHM-Reconnect — Ring wurde
+                             * neu verbunden, erst wieder HWM aufbauen bevor Audio fliesst. */
+                            atomic_store_explicit(&g_outputs[i].preroll_armed, 1u, memory_order_release);
+                            /* Tranche C: PI State zurücksetzen */
+                            g_outputs[i].fill_ewma   = (double)g_outputs[i].src_ring_target / 2.0;
+                            g_outputs[i].integ_error = 0.0;
                         }
                         pthread_mutex_unlock(&g_outputs_lock);
                     }
@@ -1478,6 +1548,12 @@ static void *volume_poll_thread(void *arg)
             #define SRC_P_GAIN       0.01f    /* P-Verstaerkung — stabil bei +/-500ppm Headroom */
             #define SRC_MAX_PPM      500.0f   /* Maximale Korrektur +/-500ppm                   */
             #define SRC_RATIO_CLAMP  (SRC_MAX_PPM / 1000000.0f)
+            /* Tranche C: PI-Regler Parameter */
+            #define SRC_EWMA_ALPHA   0.1f   /* EWMA-Glättung: τ ≈ 10 Polls × 50ms = 500ms */
+            #define SRC_KI           0.0005f /* I-Verstärkung: sehr klein — Drift ist ein langsamer Prozess */
+            #define SRC_DT           0.05f   /* Poll-Intervall in Sekunden */
+            /* Anti-Windup: I-Term darf max. ±300ppm beitragen (Gesamt-Clamp bleibt ±500ppm) */
+            #define SRC_KI_CLAMP     (300.0f / 1000000.0f)
 
             pthread_mutex_lock(&g_outputs_lock);
             uint32_t w_now = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
@@ -1496,6 +1572,10 @@ static void *volume_poll_thread(void *arg)
                     dev->last_progress_ns  = now_ns;
                     if (atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
                         atomic_store_explicit(&dev->stalled, 0u, memory_order_release);
+                        atomic_fetch_add_explicit(&dev->recovery_count, 1u, memory_order_relaxed);
+                        /* Tranche C: PI-Regler State bei Stall-Recovery reinitialisieren */
+                        dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
+                        dev->integ_error = 0.0;
                         fprintf(stdout, "Helper: Output '%s' hat sich von Stall erholt\n",
                                 dev->name);
                     }
@@ -1518,8 +1598,11 @@ static void *volume_poll_thread(void *arg)
                              * "Ring voll" meldet und Ratio aufpumpt (würde needed > increment machen). */
                             atomic_store_explicit(&dev->local_ridx, w_now, memory_order_release);
                             dev->last_ridx_sample = w_now;
+                            /* Tranche C: PI-Regler State bei Stall zurücksetzen */
+                            dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
+                            dev->integ_error = 0.0;
                             fprintf(stderr, "Helper: Output '%s' gestallt — "
-                                    "kein Fortschritt seit >300ms trotz Daten im Ring. "
+                                    "kein Fortschritt seit >1000ms trotz Daten im Ring. "
                                     "Aus read_idx-Aggregat ausgeschlossen, Position auf write_idx gesetzt.\n",
                                     dev->name);
                         }
@@ -1536,18 +1619,40 @@ static void *volume_poll_thread(void *arg)
                 uint32_t fill_frames   = fill_samples / 2u;   /* Stereo -> /2 */
                 uint32_t target_frames = dev->src_ring_target / 2u;
 
-                /* P-Regler: positiver Fehler = Ring laeuft voll -> schneller abspielen */
-                float error_norm = (float)((int32_t)fill_frames - (int32_t)target_frames)
-                                   / ((float)ARN_RING_CAPACITY * 0.5f);
-                float correction = error_norm * SRC_P_GAIN;
+                /* Tranche C: EWMA-Glättung des Füllstands — trennt echten Drift von Jitter.
+                 * Zeitkonstante ≈ 10 Polls × 50ms = 500ms.
+                 * NUR vom volume_poll_thread: kein Atomic nötig. */
+                dev->fill_ewma = SRC_EWMA_ALPHA * (double)fill_frames
+                               + (1.0 - SRC_EWMA_ALPHA) * dev->fill_ewma;
 
-                /* Clamp auf +/-500ppm */
+                /* Normierter Fehler auf Basis EWMA (nicht nacktem fill_frames) */
+                float error_norm = (float)((double)dev->fill_ewma - (double)target_frames)
+                                   / ((float)ARN_RING_CAPACITY * 0.5f);
+
+                /* P-Term */
+                float p_term = error_norm * SRC_P_GAIN;
+
+                /* I-Term: Akkumuliert langfristigen Clock-Drift.
+                 * Anti-Windup: Clamp BEVOR Akkumulation — verhindert Integrator-Explosion. */
+                float ki_contrib = error_norm * SRC_KI * SRC_DT;
+                dev->integ_error += (double)ki_contrib;
+                /* Anti-Windup: I-Term-Beitrag auf ±SRC_KI_CLAMP begrenzen */
+                if (dev->integ_error >  (double)SRC_KI_CLAMP) dev->integ_error =  (double)SRC_KI_CLAMP;
+                if (dev->integ_error < -(double)SRC_KI_CLAMP) dev->integ_error = -(double)SRC_KI_CLAMP;
+
+                /* PI-Korrektur = P + I */
+                float correction = p_term + (float)dev->integ_error;
+
+                /* Gesamt-Clamp auf +/-500ppm (Hardware-Grenze) */
                 if (correction >  SRC_RATIO_CLAMP) correction =  SRC_RATIO_CLAMP;
                 if (correction < -SRC_RATIO_CLAMP) correction = -SRC_RATIO_CLAMP;
 
                 /* Basisverhaeltnis: ring_sr/device_sr. Gleiche Rate: 1.0. */
-                /* Verschiedene Rate (z.B. HDMI 44100 Hz): 1.0884.         */
                 float ratio_f = (float)dev->base_ratio + correction;
+                /* Defensiver Clamp: verhindert UB beim float→uint32_t-Cast falls
+                 * base_ratio pathologisch klein waere (in der Praxis unmoeglich bei
+                 * realen Sample-Raten, aber sicher ist sicher). */
+                if (ratio_f < 0.0f) ratio_f = 0.0f;
                 uint32_t ratio_q20 = (uint32_t)(ratio_f * (float)(1u << 20));
 
                 atomic_store_explicit(&dev->src_ratio_q20, ratio_q20, memory_order_release);
@@ -1722,11 +1827,18 @@ static void format_active_outputs(char *buf, size_t bufsz)
                                                   memory_order_relaxed);
 
         uint32_t stalled = atomic_load_explicit(&g_outputs[i].stalled, memory_order_relaxed);
+        uint32_t recovery_count = atomic_load_explicit(&g_outputs[i].recovery_count,
+                                                       memory_order_relaxed);
+        /* Tranche C: fill_ewma fuer Drift-Tracking in health.py.
+         * Non-atomic — sicher gelesen unter g_outputs_lock (Volume-Thread schreibt
+         * ebenfalls nur unter diesem Lock). */
+        double fill_ewma = g_outputs[i].fill_ewma;
         written = snprintf(buf + pos, bufsz - pos,
                            "%s{\"uid\":\"%s\",\"name\":\"%s\",\"ch_offset\":%u,"
-                           "\"src_ratio\":%.6f,\"underruns\":%u,\"stalled\":%u}",
+                           "\"src_ratio\":%.6f,\"fill_ewma\":%.2f,\"underruns\":%u,\"stalled\":%u,"
+                           "\"recovery_count\":%u}",
                            sep, safe_uid, safe_name, g_outputs[i].ch_offset,
-                           src_ratio, underruns, stalled);
+                           src_ratio, fill_ewma, underruns, stalled, recovery_count);
         if (written < 0) break;
         pos += (size_t)written;
     }
@@ -1775,9 +1887,23 @@ static int parse_and_execute(int fd, const char *line)
         ARNSharedRing *rstat = atomic_load_explicit(&g_ring, memory_order_acquire);
         uint32_t frames = rstat ? arn_ring_frames_available(rstat) : 0u;
         uint32_t calls  = atomic_load_explicit(&g_ioproc_calls, memory_order_relaxed);
+        /* Tranche A: Self-Healing-Telemetrie */
+        uint32_t reconnect_count = atomic_load_explicit(&g_reconnect_count,
+                                                        memory_order_relaxed);
+        uint64_t last_ioproc_ns  = atomic_load_explicit(&g_last_ioproc_call_ns,
+                                                        memory_order_relaxed);
+        unsigned long long ioproc_age_ms;
+        if (last_ioproc_ns == 0) {
+            ioproc_age_ms = 9999ULL;  /* noch kein IOProc-Call seit Start */
+        } else {
+            ioproc_age_ms = (unsigned long long)((get_time_ns() - last_ioproc_ns) / 1000000ULL);
+        }
+        /* Tranche B: Safe-Take-State exponieren — Python kann aktuellen Modus lesen. */
+        int safe_take = atomic_load_explicit(&g_safe_take, memory_order_acquire);
         snprintf(resp, sizeof(resp),
-                 "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u,\"ready\":true}",
-                 active_buf, frames, calls);
+                 "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u,"
+                 "\"reconnect_count\":%u,\"ioproc_age_ms\":%llu,\"safe_take\":%d,\"ready\":true}",
+                 active_buf, frames, calls, reconnect_count, ioproc_age_ms, safe_take);
         send_line(fd, resp);
         return 0;
     }
@@ -1894,6 +2020,86 @@ static int parse_and_execute(int fd, const char *line)
 
         snprintf(resp, sizeof(resp), "{\"ok\":true,\"rate\":%u}", new_sr);
         send_line(fd, resp);
+        return 0;
+    }
+
+    /* Tranche B: reconnect_output — Python-Brain kann gezielt einen Output neu starten */
+    if (json_has_cmd(line, "reconnect_output")) {
+        /* Safe-Take Guard */
+        if (atomic_load_explicit(&g_safe_take, memory_order_acquire)) {
+            send_line(fd, "{\"ok\":false,\"error\":\"safe_take\"}");
+            return 0;
+        }
+        /* SHM Guard */
+        if (!atomic_load_explicit(&g_shm_ready, memory_order_acquire)) {
+            send_line(fd, "{\"ok\":false,\"error\":\"shm_reconnecting\"}");
+            return 0;
+        }
+        /* uid extrahieren ("uid":"...") */
+        char uid[512] = {0};
+        const char *uid_key = strstr(line, "\"uid\"");
+        if (uid_key) {
+            const char *colon = strchr(uid_key, ':');
+            const char *q1 = colon ? strchr(colon, '"') : NULL;
+            const char *q2 = q1 ? strchr(q1 + 1, '"') : NULL;
+            if (q1 && q2) {
+                size_t len = (size_t)(q2 - (q1 + 1));
+                if (len >= sizeof(uid)) len = sizeof(uid) - 1;
+                memcpy(uid, q1 + 1, len);
+                uid[len] = '\0';
+            }
+        }
+        /* ch_offset extrahieren ("ch_offset":N) */
+        uint32_t ch_offset = 0;
+        const char *off_key = strstr(line, "\"ch_offset\"");
+        if (off_key) {
+            const char *col2 = strchr(off_key, ':');
+            if (col2) {
+                col2++;
+                while (*col2 == ' ' || *col2 == '\t') col2++;
+                int v = atoi(col2);
+                if (v < 0 || v > 32) v = 0;  /* Clamp wie in parse_outputs */
+                ch_offset = (uint32_t)v;
+            }
+        }
+        if (!uid[0]) {
+            send_line(fd, "{\"ok\":false,\"error\":\"missing_uid\"}");
+            return 0;
+        }
+        /* 3-Phasen-Design: output_remove_locked unter Lock, output_add ohne Lock */
+        pthread_mutex_lock(&g_outputs_lock);
+        int slot = find_output_slot_locked(uid, ch_offset);
+        if (slot < 0) {
+            pthread_mutex_unlock(&g_outputs_lock);
+            send_line(fd, "{\"ok\":false,\"error\":\"not_found\"}");
+            return 0;
+        }
+        output_remove_locked(uid, ch_offset);
+        pthread_mutex_unlock(&g_outputs_lock);
+        /* output_add ausserhalb des Locks (3-Phasen-Design) */
+        int rc = output_add(uid, ch_offset);
+        if (rc == 0) {
+            send_line(fd, "{\"ok\":true,\"reconnected\":true}");
+        } else {
+            send_line(fd, "{\"ok\":false,\"error\":\"output_add_failed\"}");
+        }
+        return 0;
+    }
+
+    /* Tranche B: set_safe_take — deaktiviert/aktiviert alle Heiler-Aktuatoren */
+    if (json_has_cmd(line, "set_safe_take")) {
+        uint32_t enabled = 0;
+        const char *en_key = strstr(line, "\"enabled\"");
+        if (en_key) {
+            const char *col = strchr(en_key, ':');
+            if (col) {
+                col++;
+                while (*col == ' ' || *col == '\t') col++;
+                enabled = (uint32_t)(atoi(col) != 0);
+            }
+        }
+        atomic_store_explicit(&g_safe_take, (int)enabled, memory_order_release);
+        send_line(fd, "{\"ok\":true}");
         return 0;
     }
 

@@ -229,6 +229,24 @@ class HelperClient:
             logger.warning(f"set_sample_rate fehlgeschlagen: {e}")
             return None
 
+    def reconnect_output(self, uid: str, ch_offset: int) -> Optional[dict]:
+        """Sendet reconnect_output-Befehl an den Helper (Tranche B)."""
+        payload = {"cmd": "reconnect_output", "uid": uid, "ch_offset": int(ch_offset)}
+        try:
+            return self._send(payload)
+        except Exception as e:
+            logger.warning(f"reconnect_output fehlgeschlagen: {e}")
+            return None
+
+    def set_safe_take(self, enabled: bool) -> Optional[dict]:
+        """Aktiviert/deaktiviert Safe-Take-Modus im Helper (Tranche B)."""
+        payload = {"cmd": "set_safe_take", "enabled": 1 if enabled else 0}
+        try:
+            return self._send(payload)
+        except Exception as e:
+            logger.warning(f"set_safe_take fehlgeschlagen: {e}")
+            return None
+
     # ------------------------------------------------------------------
     # Internal — Socket-Kommunikation
     # ------------------------------------------------------------------
