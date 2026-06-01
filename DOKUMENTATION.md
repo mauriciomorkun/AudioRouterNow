@@ -3786,4 +3786,52 @@ Angewendete Audit-Korrekturen:
 
 ---
 
+### 28.9 Build v2.9.0 — Produktions-DMG
+
+**Build-Datum:** 1. Juni 2026  
+**Build-System:** macOS 26 (Tahoe), Apple Silicon (arm64)  
+**Output:** `~/Desktop/AudioRouterNow.dmg` (12 MB)
+
+#### Build-Inhalt (verifiziert)
+
+| Komponente | Version | Architektur |
+|-----------|---------|-------------|
+| `AudioRouterNowDriver` | v2.9.0 | Universal (arm64 + x86_64) |
+| `AudioRouterNowHelper` | v2.9.0 | Universal (arm64 + x86_64) |
+| `AudioRouterNow.app` | 2.9.0 | arm64 (PyInstaller) |
+| `health.py` | — | In PYZ-Archiv eingebettet ✅ |
+| `healer.py` | — | In PYZ-Archiv eingebettet ✅ |
+
+#### Build-Prozess
+
+```bash
+cd installer && ./build.sh
+```
+
+Das Skript führt folgende Schritte aus:
+1. `make -C driver` — baut Driver + Helper als Universal Binary, beide ad-hoc signiert
+2. Python venv + `pip install -r engine/requirements.txt` + PyInstaller 6.20
+3. `pyinstaller AudioRouterNow.spec` — bündelt App inkl. Driver-Bundle + alle Engine-Module
+4. Ad-hoc Code-Signierung der `.app` mit `disable-library-validation` Entitlements
+5. `dmgbuild` — erstellt DMG mit Hintergrundbild
+6. Finder AppleScript — setzt DMG-Hintergrundbild persistent
+7. Custom DMG-Icon via AppKit
+
+#### PyInstaller-Hinweis
+
+`health.py` und `healer.py` werden **nicht als plain `.py`-Dateien** im Bundle abgelegt. PyInstaller kompiliert alle Python-Module zu Bytecode und packt sie in das `PYZ-00.pyz`-Archiv im App-Executable. Die Module sind als `health` und `healer` im Archiv nachweisbar (verifiziert via Binärsuche).
+
+#### Für einen neuen Benutzer
+
+Ein neuer Benutzer erhält mit dieser DMG:
+- ✅ Self-Healing Layer vollständig (alle 3 Tranchen)
+- ✅ 🟢/🟡/🔴 Ampel im Menübar-Icon
+- ✅ Automatische Recovery bei Stalls
+- ✅ Pre-Roll Buffer (keine stotternde erste Sekunde)
+- ✅ Safe mode Toggle im Menü
+- ✅ PI-Regler für Clock-Drift-Kompensation
+- ✅ Alle Bugfixes aus v2.7.0, v2.8.0, v2.8.1
+
+---
+
 *Dokumentation zuletzt aktualisiert am 1. Juni 2026 — AudioRouterNow v2.9.0*
