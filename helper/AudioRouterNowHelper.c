@@ -1477,6 +1477,13 @@ static void *volume_poll_thread(void *arg)
                                                   memory_order_relaxed);
                             atomic_store_explicit(&g_outputs[i].frac_ridx_reset_pending, 1u,
                                                   memory_order_release);
+                            /* B1-Fix: last_ridx_sample + last_progress_ns synchronisieren —
+                             * verhindert false-positive recovery_count-Inkremente nach Reconnect.
+                             * Ohne Fix: cur_ridx(=w) != last_ridx_sample(=alter Wert) → sofortiger
+                             * recovery++ obwohl kein echter Stall-Recovery stattfand. */
+                            g_outputs[i].last_ridx_sample = w;
+                            g_outputs[i].last_progress_ns = get_time_ns();
+                            atomic_store_explicit(&g_outputs[i].stalled, 0u, memory_order_release);
                         }
                         pthread_mutex_unlock(&g_outputs_lock);
                     }
