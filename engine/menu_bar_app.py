@@ -39,6 +39,12 @@ from audio_device_control import (
     get_device_supported_sample_rates,
     is_audio_router_default,
     SUPPORTED_SAMPLE_RATES,
+    # P1: Event-driven Volume
+    register_volume_listener,
+    unregister_volume_listener,
+    set_default_output_volume,
+    set_muted,
+    get_default_output_volume,
 )
 from config import AppConfig, CONFIG_FILE, load_config, save_config
 from device_manager import AudioDevice, DeviceManager
@@ -137,12 +143,13 @@ class AudioRouterApp(rumps.App):
         self._ui_timer = rumps.Timer(self._process_pending_updates, 0.5)
         self._ui_timer.start()
 
-        # H8: Volume-Polling in eigenem Daemon-Thread — NICHT auf dem rumps
-        # Main-Thread, da osascript-Subprozesse den Event-Loop blockieren.
-        self._volume_poll_stop = threading.Event()
-        self._volume_poll_thread = threading.Thread(
-            target=self._volume_poll_loop, name="volume-poll", daemon=True)
-        self._volume_poll_thread.start()
+        # P1: Event-driven Volume — CoreAudio Property-Listener statt
+        # osascript-Polling. Der Listener feuert bei jeder Lautstaerke-Aenderung
+        # des Standard-Ausgabegeraets; ein periodischer Poll-Thread entfaellt.
+        try:
+            register_volume_listener(self._on_volume_changed)
+        except Exception as e:
+            logger.debug("Volume-Listener konnte nicht registriert werden: %s", e)
 
         # Tranche A: Health-Monitor
         self._health_monitor = HealthMonitor()
@@ -506,9 +513,11 @@ class AudioRouterApp(rumps.App):
             return
         # Helper und Routing stoppen
         self._ui_timer.stop()
-        # H8: Volume-Poll-Thread sauber beenden
-        if hasattr(self, '_volume_poll_stop'):
-            self._volume_poll_stop.set()
+        # P1: Volume-Listener abmelden (event-driven, kein Poll-Thread mehr)
+        try:
+            unregister_volume_listener()
+        except Exception:
+            pass
         # Tranche A: Health-Poll-Thread sauber beenden
         if hasattr(self, '_health_poll_stop'):
             self._health_poll_stop.set()
@@ -531,9 +540,11 @@ class AudioRouterApp(rumps.App):
 
     def _quit_app(self, sender):
         self._ui_timer.stop()
-        # H8: Volume-Poll-Thread sauber beenden
-        if hasattr(self, '_volume_poll_stop'):
-            self._volume_poll_stop.set()
+        # P1: Volume-Listener abmelden (event-driven, kein Poll-Thread mehr)
+        try:
+            unregister_volume_listener()
+        except Exception:
+            pass
         # Tranche A: Health-Poll-Thread sauber beenden
         if hasattr(self, '_health_poll_stop'):
             self._health_poll_stop.set()
@@ -623,39 +634,22 @@ class AudioRouterApp(rumps.App):
                 ),
             )
 
-        # H8: Volume-Sync-Fallback läuft jetzt in _volume_poll_loop (Daemon-Thread).
-        # Kein synchroner osascript-Aufruf mehr auf dem rumps Main-Thread.
+        # P1: Volume-Sync ist jetzt event-driven (CoreAudio Property-Listener,
+        # siehe _on_volume_changed). Kein Poll-Thread, kein osascript mehr.
 
-    def _poll_volume_sync(self):
-        """Fallback: Wenn Keyboard-Volume-Keys den Driver nicht direkt erreichen,
-        erkennt dieser Poll die Änderung und triggert volume_q16 via osascript.
+    def _on_volume_changed(self):
+        """P1: CoreAudio-Listener-Callback bei Lautstaerke-Aenderung des
+        Standard-Ausgabegeraets. Laeuft auf einem CoreAudio-Thread.
 
-        DEPRECATED (H8): Dieser synchrone Call wird nicht mehr vom rumps
-        Main-Thread aufgerufen. Verbleibt für eventuelle externe Nutzung.
-        Die eigentliche Logik läuft in _volume_poll_loop (Daemon-Thread)."""
-        pass
-
-    def _volume_poll_loop(self):
-        """H8: Daemon-Thread für Volume-Polling via osascript.
-        Läuft vollständig im Hintergrund — blockiert NIE den rumps Main-Thread."""
-        import subprocess
-        while not self._volume_poll_stop.wait(0.5):
-            try:
-                r = subprocess.run(
-                    ['osascript', '-e', 'output volume of (get volume settings)'],
-                    capture_output=True, text=True, timeout=1.0)
-                new_vol = int(r.stdout.strip())
-            except Exception:
-                continue
-            old_vol = getattr(self, '_last_polled_volume', new_vol)
-            self._last_polled_volume = new_vol  # int-Zuweisung ist GIL-atomar
-            if new_vol != old_vol:
-                try:
-                    subprocess.run(
-                        ['osascript', '-e', f'set volume output volume {new_vol}'],
-                        capture_output=True, timeout=1.0)
-                except Exception:
-                    pass
+        Wenn das Standard-Ausgabegeraet Audio Router ist, hat die Aenderung den
+        Driver bereits via SetPropertyData → gVolume → volume_q16 erreicht; es
+        ist nichts weiter zu tun. Der Callback dient als Ersatz fuer den
+        frueheren osascript-Poll und kann hier fuer UI-Reaktionen genutzt
+        werden. Bewusst schlank gehalten (kein Subprozess, kein Blockieren)."""
+        try:
+            logger.debug("Volume-Aenderung erkannt (event-driven)")
+        except Exception:
+            pass
 
     def _health_poll_loop(self):
         """Tranche A: Daemon-Thread für Health-Telemetrie (200ms Intervall).
@@ -815,8 +809,8 @@ class AudioRouterApp(rumps.App):
         Keyboard-Volume-Keys senden NSSystemDefined-Events mit subtype 8.
         Sie erreichen virtuelle HAL-Devices nicht direkt — dieser Handler
         verarbeitet sie manuell: liest den aktuellen Output-Volume, passt
-        ihn an und setzt ihn via osascript (was den Driver's SetPropertyData
-        korrekt triggert und volume_q16 im SHM aktualisiert).
+        ihn an und setzt ihn direkt via CoreAudio (P1 — was den Driver's
+        SetPropertyData korrekt triggert und volume_q16 im SHM aktualisiert).
 
         Key-Codes (NX_KEYTYPE_*): 2=Volume Down, 3=Volume Up, 7=Mute.
         data1-Format: bits 31-16 = key code, bits 15-8 = key state (0xA=down).
@@ -832,34 +826,28 @@ class AudioRouterApp(rumps.App):
             if key_state != 0xA:      # Nur Key-Down verarbeiten
                 return
 
-            # H8: osascript-Calls in Thread — Event-Handler muss sofort zurückgeben
+            # P1: Volume direkt via CoreAudio setzen (kein osascript-Subprozess).
+            # Im Thread, damit der Event-Handler sofort zurueckkehrt.
             def _apply_volume(kc=key_code):
-                import subprocess
                 try:
-                    r = subprocess.run(
-                        ['osascript', '-e', 'output volume of (get volume settings)'],
-                        capture_output=True, text=True, timeout=1.0)
-                    current = int(r.stdout.strip())
+                    current = get_default_output_volume()  # 0.0–1.0
                 except Exception:
                     return
 
-                STEP = 7  # ~15 Stufen von 0 bis 100
+                STEP = 1.0 / 15.0  # ~15 Stufen wie macOS-Standard
                 if kc == 3:    # Volume Up (NX_KEYTYPE_SOUND_UP)
-                    new_vol = min(100, current + STEP)
+                    new_vol = min(1.0, current + STEP)
+                    set_default_output_volume(new_vol)
                 elif kc == 2:  # Volume Down (NX_KEYTYPE_SOUND_DOWN)
-                    new_vol = max(0, current - STEP)
-                elif kc == 7:  # Mute (NX_KEYTYPE_MUTE)
-                    new_vol = 0 if current > 0 else 50
+                    new_vol = max(0.0, current - STEP)
+                    set_default_output_volume(new_vol)
+                elif kc == 7:  # Mute (NX_KEYTYPE_MUTE) — toggeln
+                    set_muted(current > 0.0)
+                    new_vol = 0.0 if current > 0.0 else current
                 else:
                     return
-
-                try:
-                    subprocess.run(
-                        ['osascript', '-e', f'set volume output volume {new_vol}'],
-                        capture_output=True, timeout=1.0)
-                except Exception:
-                    pass
-                logger.debug(f"Media Key: volume {current}% → {new_vol}%")
+                logger.debug("Media Key: volume %.0f%% → %.0f%%",
+                             current * 100.0, new_vol * 100.0)
 
             threading.Thread(target=_apply_volume, name="media-key-vol", daemon=True).start()
         except Exception as exc:
