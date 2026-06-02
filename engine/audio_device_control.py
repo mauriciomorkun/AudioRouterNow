@@ -23,6 +23,7 @@ _kAudioObjectPropertyElementMain        = 0
 _kCFStringEncodingUTF8                  = 0x08000100
 # Volume / Mute
 _kAudioHardwareServiceDeviceProperty_VirtualMainVolume = 0x766D766C  # 'vmvl'
+_kAudioDevicePropertyVolumeScalar       = 0x766F6C6D  # 'volm' — Device-Level-Control
 _kAudioDevicePropertyMute               = 0x6D757465  # 'mute'
 
 
@@ -85,8 +86,11 @@ def _get_default_output_device_id() -> int:
 
 def get_default_output_volume() -> float:
     """
-    Liest die aktuelle Systemlautstaerke (0.0–1.0) des Standard-Ausgabegeraets
-    via kAudioHardwareServiceDeviceProperty_VirtualMainVolume.
+    Liest die aktuelle Systemlautstaerke (0.0–1.0) des Standard-Ausgabegeraets.
+
+    Probiert VirtualMainVolume ('vmvl') und faellt auf die Device-Level-Control-
+    Scalar-Property ('volm') zurueck — Letztere funktioniert auf dem virtuellen
+    Audio-Router-Device, wo 'vmvl' nicht unterstuetzt wird.
 
     Gibt 1.0 zurueck bei Fehler (fail-open: kein ungewolltes Muting).
     """
@@ -96,7 +100,7 @@ def get_default_output_volume() -> float:
         if dev_id == 0:
             return 1.0
         addr = _AudioObjectPropertyAddress(
-            _kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            _volume_selector_for(dev_id),
             _kAudioObjectPropertyScopeOutput,
             _kAudioObjectPropertyElementMain,
         )
@@ -109,9 +113,9 @@ def get_default_output_volume() -> float:
             ctypes.byref(sz),
             ctypes.byref(vol),
         )
-        if ret != 0:
-            return 1.0
-        return max(0.0, min(1.0, float(vol.value)))
+        if ret == 0:
+            return max(0.0, min(1.0, float(vol.value)))
+        return 1.0
     except Exception:
         return 1.0
 
@@ -569,6 +573,239 @@ def get_audio_router_sample_rate() -> int:
     except Exception as e:
         logger.debug(f"get_audio_router_sample_rate Fehler: {e}")
         return 48000
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# P1: Event-driven Volume — Property-Listener statt osascript-Polling.
+# ──────────────────────────────────────────────────────────────────────────
+
+# CFUNCTYPE-Signatur des CoreAudio Property-Listeners:
+#   OSStatus listener(AudioObjectID, UInt32 nAddresses,
+#                     const AudioObjectPropertyAddress*, void* clientData)
+_AOPropertyListenerProc = ctypes.CFUNCTYPE(
+    ctypes.c_int32,        # OSStatus
+    ctypes.c_uint32,       # AudioObjectID
+    ctypes.c_uint32,       # inNumberAddresses
+    ctypes.c_void_p,       # const AudioObjectPropertyAddress*
+    ctypes.c_void_p,       # void* clientData
+)
+
+# WICHTIG (GC-Schutz): Der CFUNCTYPE-Callback MUSS modul-global referenziert
+# bleiben, sonst sammelt der Python-GC ihn ein, waehrend CoreAudio noch einen
+# Funktionspointer haelt → Crash. Ebenso die Adresse, auf der registriert wurde.
+_vol_listener = None                 # type: ignore[assignment]
+_vol_listener_device_id: int = 0
+_vol_listener_selector: int = 0      # Property-Selector, auf dem registriert wurde
+_vol_listener_user_cb = None         # vom Aufrufer gesetzter Python-Callback
+
+# _pre_mute_volume: zuletzt bekannte Lautstaerke vor dem Muten — fuer Restore.
+_pre_mute_volume: float = 1.0
+
+_CA.AudioObjectSetPropertyData.argtypes = [
+    ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p,
+    ctypes.c_uint32, ctypes.c_void_p,
+]
+_CA.AudioObjectSetPropertyData.restype = ctypes.c_int32
+_CA.AudioObjectHasProperty.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+_CA.AudioObjectHasProperty.restype = ctypes.c_bool
+
+
+def _volume_selector_for(dev_id: int) -> int:
+    """P1: Liefert den Volume-Property-Selector, den `dev_id` tatsaechlich
+    unterstuetzt: 'vmvl' (HW-Geraete) oder 'volm' (virtuelles Audio-Router-
+    Device). Per AudioObjectHasProperty bestimmt — verhindert, dass wir auf
+    eine vom Device nicht implementierte Property setzen/registrieren."""
+    for selector in (_kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+                     _kAudioDevicePropertyVolumeScalar):
+        addr = _AudioObjectPropertyAddress(
+            selector,
+            _kAudioObjectPropertyScopeOutput,
+            _kAudioObjectPropertyElementMain,
+        )
+        try:
+            if _CA.AudioObjectHasProperty(ctypes.c_uint32(dev_id), ctypes.byref(addr)):
+                return selector
+        except Exception:
+            pass
+    # Fallback: VolumeScalar (auf dem virtuellen Device der funktionierende Weg).
+    return _kAudioDevicePropertyVolumeScalar
+_CA.AudioObjectAddPropertyListener.argtypes = [
+    ctypes.c_uint32, ctypes.c_void_p, _AOPropertyListenerProc, ctypes.c_void_p,
+]
+_CA.AudioObjectAddPropertyListener.restype = ctypes.c_int32
+_CA.AudioObjectRemovePropertyListener.argtypes = [
+    ctypes.c_uint32, ctypes.c_void_p, _AOPropertyListenerProc, ctypes.c_void_p,
+]
+_CA.AudioObjectRemovePropertyListener.restype = ctypes.c_int32
+
+
+def set_default_output_volume(volume: float) -> bool:
+    """P1: Setzt die Systemlautstaerke (0.0–1.0) des Standard-Ausgabegeraets
+    direkt via CoreAudio (kein osascript-Subprozess mehr).
+
+    Gibt True bei Erfolg zurueck."""
+    try:
+        dev_id = _get_default_output_device_id()
+        if dev_id == 0:
+            return False
+        v = max(0.0, min(1.0, float(volume)))
+        vol = ctypes.c_float(v)
+        # Den vom Device tatsaechlich unterstuetzten Selector verwenden
+        # ('vmvl' auf HW, 'volm' auf dem virtuellen Audio-Router-Device).
+        addr = _AudioObjectPropertyAddress(
+            _volume_selector_for(dev_id),
+            _kAudioObjectPropertyScopeOutput,
+            _kAudioObjectPropertyElementMain,
+        )
+        status = _CA.AudioObjectSetPropertyData(
+            ctypes.c_uint32(dev_id),
+            ctypes.byref(addr),
+            ctypes.c_uint32(0), None,
+            ctypes.c_uint32(4),
+            ctypes.byref(vol),
+        )
+        if status == 0 and v > 0.0:
+            # Nicht-Null-Lautstaerke fuer spaeteres Unmute merken.
+            global _pre_mute_volume
+            _pre_mute_volume = v
+        return status == 0
+    except Exception as e:
+        logger.debug(f"set_default_output_volume Fehler: {e}")
+        return False
+
+
+def set_muted(muted: bool) -> bool:
+    """P1: Mutet/Unmutet das Standard-Ausgabegeraet direkt via CoreAudio.
+
+    Bevorzugt die Mute-Property; faellt das Device darauf nicht ein, wird ueber
+    die Lautstaerke gemutet (0.0) bzw. die zuvor gemerkte Lautstaerke
+    wiederhergestellt (_pre_mute_volume). Gibt True bei Erfolg zurueck."""
+    global _pre_mute_volume
+    try:
+        dev_id = _get_default_output_device_id()
+        if dev_id == 0:
+            return False
+
+        if muted:
+            # aktuelle (Nicht-Null-)Lautstaerke fuer Restore sichern
+            cur = get_default_output_volume()
+            if cur > 0.0:
+                _pre_mute_volume = cur
+
+        addr = _AudioObjectPropertyAddress(
+            _kAudioDevicePropertyMute,
+            _kAudioObjectPropertyScopeOutput,
+            _kAudioObjectPropertyElementMain,
+        )
+        flag = ctypes.c_uint32(1 if muted else 0)
+        status = _CA.AudioObjectSetPropertyData(
+            ctypes.c_uint32(dev_id),
+            ctypes.byref(addr),
+            ctypes.c_uint32(0), None,
+            ctypes.c_uint32(4),
+            ctypes.byref(flag),
+        )
+        if status == 0:
+            return True
+
+        # Fallback: ueber die Lautstaerke muten/unmuten.
+        if muted:
+            return set_default_output_volume(0.0)
+        return set_default_output_volume(_pre_mute_volume)
+    except Exception as e:
+        logger.debug(f"set_muted Fehler: {e}")
+        return False
+
+
+def register_volume_listener(callback) -> bool:
+    """P1: Registriert einen CoreAudio Property-Listener auf
+    kAudioDevicePropertyVirtualMainVolume des aktuellen Standard-Ausgabegeraets.
+
+    `callback` ist ein argumentloses Python-Callable, das bei jeder
+    Lautstaerke-Aenderung aufgerufen wird (auf einem CoreAudio-Thread — der
+    Aufrufer muss thread-sicher reagieren). Ersetzt den frueheren osascript-
+    Poll-Loop. Gibt True bei erfolgreicher Registrierung zurueck."""
+    global _vol_listener, _vol_listener_device_id, _vol_listener_user_cb
+    global _vol_listener_selector
+    try:
+        dev_id = _get_default_output_device_id()
+        if dev_id == 0:
+            return False
+
+        # Vorherigen Listener (falls Device gewechselt) entfernen.
+        unregister_volume_listener()
+
+        _vol_listener_user_cb = callback
+
+        def _trampoline(in_object_id, n_addresses, in_addresses, client_data):
+            try:
+                if _vol_listener_user_cb is not None:
+                    _vol_listener_user_cb()
+            except Exception:
+                pass
+            return 0  # noErr
+
+        # GC-Schutz: Callback modul-global halten.
+        _vol_listener = _AOPropertyListenerProc(_trampoline)
+
+        # Auf der vom Device unterstuetzten Property registrieren ('vmvl' auf
+        # HW, 'volm' auf dem virtuellen Audio-Router-Device).
+        selector = _volume_selector_for(dev_id)
+        addr = _AudioObjectPropertyAddress(
+            selector,
+            _kAudioObjectPropertyScopeOutput,
+            _kAudioObjectPropertyElementMain,
+        )
+        status = _CA.AudioObjectAddPropertyListener(
+            ctypes.c_uint32(dev_id),
+            ctypes.byref(addr),
+            _vol_listener,
+            None,
+        )
+        if status == 0:
+            _vol_listener_device_id = dev_id
+            _vol_listener_selector = selector
+            logger.info("Volume-Listener auf Device %d registriert (event-driven, sel=0x%X)",
+                        dev_id, selector)
+            return True
+
+        # Registrierung fehlgeschlagen → State zuruecksetzen.
+        _vol_listener = None
+        _vol_listener_user_cb = None
+        logger.warning("AudioObjectAddPropertyListener fehlgeschlagen (OSStatus %d)", status)
+        return False
+    except Exception as e:
+        logger.debug(f"register_volume_listener Fehler: {e}")
+        _vol_listener = None
+        _vol_listener_user_cb = None
+        return False
+
+
+def unregister_volume_listener() -> None:
+    """P1: Entfernt den zuvor registrierten Volume-Listener (falls vorhanden)."""
+    global _vol_listener, _vol_listener_device_id, _vol_listener_user_cb
+    global _vol_listener_selector
+    if _vol_listener is None or _vol_listener_device_id == 0:
+        return
+    try:
+        addr = _AudioObjectPropertyAddress(
+            _vol_listener_selector or _kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            _kAudioObjectPropertyScopeOutput,
+            _kAudioObjectPropertyElementMain,
+        )
+        _CA.AudioObjectRemovePropertyListener(
+            ctypes.c_uint32(_vol_listener_device_id),
+            ctypes.byref(addr),
+            _vol_listener,
+            None,
+        )
+    except Exception as e:
+        logger.debug(f"unregister_volume_listener Fehler: {e}")
+    finally:
+        _vol_listener = None
+        _vol_listener_device_id = 0
+        _vol_listener_selector = 0
+        _vol_listener_user_cb = None
 
 
 # Keep-Alive wird ab v2.6 vom C-Helper verwaltet (keepalive_ioproc in AudioRouterNowHelper.c).
