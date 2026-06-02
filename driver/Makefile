@@ -38,6 +38,7 @@ RES_BUNDLE  := $(CONTENTS)/Resources
 BINARY      := $(MACOS_DIR)/$(EXEC_NAME)
 HELPER_BIN  := $(MACOS_DIR)/$(HELPER_NAME)
 HELPER_PLIST_DST := $(RES_BUNDLE)/com.audiorouter.now.helper.plist
+ABI_VERSION_DST  := $(RES_BUNDLE)/abi_version
 
 INSTALL_DIR := /Library/Audio/Plug-Ins/HAL
 
@@ -75,7 +76,7 @@ HELPER_LDFLAGS := $(ARCHS) \
 
 all: build
 
-build: $(BINARY) $(HELPER_BIN) $(CONTENTS)/Info.plist $(HELPER_PLIST_DST)
+build: $(BINARY) $(HELPER_BIN) $(CONTENTS)/Info.plist $(HELPER_PLIST_DST) $(ABI_VERSION_DST)
 	@echo ""
 	@echo "  Build fertig:  $(BUNDLE_DIR)"
 	@echo "  Driver Archs:  $$(lipo -archs $(BINARY))"
@@ -109,6 +110,15 @@ $(CONTENTS)/Info.plist: $(PLIST) | $(CONTENTS)
 $(HELPER_PLIST_DST): $(HELPER_PLIST_SRC) | $(RES_BUNDLE)
 	@echo "==> Kopiere launchd plist"
 	cp $(HELPER_PLIST_SRC) $@
+
+# P10: ABI-Version aus dem Treiber-Source extrahieren und ins Bundle schreiben.
+# Single Source of Truth ist '#define kDriverABIVersion N' in AudioRouterNowDriver.c.
+$(ABI_VERSION_DST): $(SRC) | $(RES_BUNDLE)
+	@echo "==> Generiere abi_version aus kDriverABIVersion"
+	@ABI=$$(grep -E '^\s*#define\s+kDriverABIVersion' $(SRC) | grep -oE '[0-9]+' | head -1); \
+	if [ -z "$$ABI" ]; then echo "FEHLER: kDriverABIVersion nicht gefunden"; exit 1; fi; \
+	printf '%s\n' "$$ABI" > $@; \
+	echo "==> abi_version = $$ABI"
 
 # --- Verzeichnis-Regeln ------------------------------------------------------
 $(MACOS_DIR):
