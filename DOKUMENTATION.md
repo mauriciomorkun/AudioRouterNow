@@ -1,6 +1,6 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 2. Juni 2026 (Kapitel 32 — Hotfix SRC Drift Threshold)
+**Stand:** 2. Juni 2026 (Kapitel 33 — v3.0 Build #2)
 **Version:** 3.0.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
@@ -43,6 +43,7 @@
 30. [v3.0 Optimierungsplan — Vollständige Implementierung (2. Juni 2026)](#30-v30-optimierungsplan--vollständige-implementierung-2-juni-2026)
 31. [v3.0 Build & Release (2. Juni 2026)](#31-v30-build--release-2-juni-2026)
 32. [Hotfix — SRC Drift Warning Threshold (2. Juni 2026)](#32-hotfix--src-drift-warning-threshold-2-juni-2026)
+33. [v3.0 Build #2 — Hotfix eingebaut (2. Juni 2026)](#33-v30-build-2--hotfix-eingebaut-2-juni-2026)
 
 ---
 
@@ -4258,4 +4259,30 @@ Der Schwellenwert von 350 ppm wurde ursprünglich zu konservativ gewählt und l�
 - Gelb nur noch bei echten Problemen: Drift > 600 ppm, Underruns, Stalls, Reconnects
 - Der PI-Regler läuft unverändert — Drift wird weiterhin aktiv kompensiert
 - Fix erfordert Neu-Build der DMG (Python-Engine ist eingebunden)
+
+---
+
+## 33. v3.0 Build #2 — Hotfix eingebaut (2. Juni 2026)
+
+Zweiter Produktions-Build nach dem SRC-Drift-Hotfix (Kapitel 32). Der Fix in `engine/health.py` (Schwellenwert 350→600 ppm) ist in dieser DMG eingebaut.
+
+### 33.1 Build
+
+| Schritt | Ergebnis |
+|---------|----------|
+| Driver (Universal Binary) | ✅ x86_64 + arm64, ad-hoc signiert |
+| Helper (Universal Binary) | ✅ x86_64 + arm64, ad-hoc signiert |
+| ABI-Version | `1` |
+| PyInstaller .app | ✅ mit SRC-Drift-Fix (health.py 600 ppm) |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 12 MB |
+
+**Build-Befehl:** `bash installer/build.sh`
+
+### 33.2 Status
+
+| Schritt | Status |
+|---------|--------|
+| Build | ✅ |
+| SRC-Drift-Fix eingebaut | ✅ |
+| DMG auf Desktop | ✅ |
 
