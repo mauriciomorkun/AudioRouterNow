@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 1. Juni 2026 (Kapitel 28 — Self-Healing Layer implementiert)
-**Version:** 2.9.0  
+**Stand:** 2. Juni 2026 (Kapitel 30 — v3.0 Implementierung)
+**Version:** 3.0.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -40,6 +40,7 @@
 27. [Self-Healing Layer — Brainstorming & Konzept (1. Juni 2026)](#27-self-healing-layer--brainstorming--konzept-1-juni-2026)
 28. [Self-Healing Layer v1.0 — Implementierung (v2.9.0)](#28-self-healing-layer-v10--implementierung-v290)
 29. [v3.0 Optimierungsplan — 15 Verbesserungen (Ausführungsplan)](#29-v30-optimierungsplan--15-verbesserungen-ausführungsplan)
+30. [v3.0 Optimierungsplan — Vollständige Implementierung (2. Juni 2026)](#30-v30-optimierungsplan--vollständige-implementierung-2-juni-2026)
 
 ---
 
@@ -3991,4 +3992,190 @@ Welle 4: P1 (nach P13) → P10 → P15
 | Welle 3 (P9,5,6,7) | ✅ Implementiert |
 | Welle 4 (P1,10,15) | ✅ Implementiert |
 | Abschluss-Audit | ✅ Implementiert |
+
+---
+
+## 30. v3.0 Optimierungsplan — Vollständige Implementierung (2. Juni 2026)
+
+Dieses Kapitel dokumentiert die vollständige technische Umsetzung aller 15 in Kapitel 29 geplanten Verbesserungen. Die Implementierung erfolgte in vier Wellen über einen geschätzten Planaufwand von 49–68 Stunden und wurde in 16 Commits auf `main` gemergt (`246f00c` bis `f2e8c8f`). Kapitel 29 enthält den Detailplan mit Dependency-Graph, Schwere-Bewertung und Zeitschätzungen — dieses Kapitel fokussiert auf das Was und Wie der tatsächlichen Umsetzung.
+
+---
+
+### 30.1 Übersicht
+
+Das Ziel des v3.0-Zyklus war, den nach der Self-Healing-Implementierung (v2.9.0) identifizierten Restschulden-Katalog vollständig abzuarbeiten. Die 15 Punkte adressieren vier Dimensionen: **Code-Qualität** (toten Code entfernen, Initialisierung vereinfachen), **Sicherheit** (Auth-Token, Lock-Pfad), **Audio-Korrektheit** (Frame-Counter, Native SR, Stall-Erkennung, SR-Wechsel) und **UX & Robustheit** (Event-driven Volume, ABI-Check, besserer Downsampler).
+
+Alle 15 Fixes sind auf `main`; kein einziger Punkt aus Kapitel 29 wurde verschoben oder vereinfacht. Die ABI von `shared_ring.h` (v4) bleibt unverändert — alle Änderungen sind rückwärtskompatibel mit dem installierten Treiber.
+
+---
+
+### 30.2 Welle 1 — Fundament-Fixes
+
+Welle 1 legt das saubere Fundament: toten Code entfernen, teure Initialisierung auf Modul-Scope verlagern, korrekte Latenz-Meldung, präzises Zeitmodell und sicherer Lock-Pfad.
+
+| # | Commit | Titel | Datei(en) |
+|---|--------|-------|-----------|
+| P12 | `246f00c` | Remove dead `output_add_locked` block | `AudioRouterNowHelper.c` |
+| P13 | `4e0acf7` | Load CoreAudio/CoreFoundation frameworks once at import | `audio_device_control.py` |
+| P14 | `48eb8b7` | Report real ring pre-roll latency instead of 0 | `AudioRouterNowDriver.c` |
+| P4 | `a31e69f` | Derive GetZeroTimeStamp sample time from frames actually written | `AudioRouterNowDriver.c` |
+| P11 | `f626a43` | Move helper lock to `~/.audiorouter` with `O_NOFOLLOW` | `AudioRouterNowHelper.c` |
+
+**P12 — Toten Code entfernen (`output_add_locked`)**
+
+Die Funktion `output_add_locked` war in einem `#if 0`-Block eingeschlossen und seit v2.8 (Drei-Phasen-`output_add`, Fix H1) nicht mehr erreichbar. Der Block umfasste 157 Zeilen C-Code. Er wurde ersatzlos entfernt. Der entsprechende Forward-Declaration-Kommentar (`output_add_locked: entfernt in v2.8`) im Header-Bereich der Datei bleibt als historischer Hinweis erhalten. Das Entfernen reduziert die kognitive Last beim Lesen der Datei erheblich und schließt das Risiko aus, dass der Block versehentlich wieder aktiviert wird.
+
+**P13 — Framework-Loading auf Modul-Scope**
+
+In `audio_device_control.py` wurden `CoreAudio` und `CoreFoundation` bisher bei jedem Funktionsaufruf über `ctypes.CDLL()` neu geladen. Das erzeugte messbare Overhead, insbesondere im health-poll-Pfad, der alle 200ms ausgeführt wird. Mit P13 wird `_load_frameworks()` exakt einmal beim Modul-Import ausgeführt: `_CA, _CF = _load_frameworks()` auf Modul-Scope. Alle internen Funktionen (`get_default_output_volume`, `set_default_output_volume`, `register_volume_listener` etc.) greifen seither über die modul-globalen Variablen `_CA` und `_CF` zu — kein wiederholtes `dlopen` mehr.
+
+**P14 — Korrekte Latenz an CoreAudio melden**
+
+Die Eigenschaft `kAudioDevicePropertyLatency` meldete bisher den Hardcode-Wert `0`. Das ist technisch falsch: der Helper hält einen Pre-Roll-Puffer im SHM-Ring vor, bevor er an die physischen Outputs ausgibt — diese Latenz existiert real. Mit P14 wird `#define kReportedLatencyFrames (ARN_RING_CAPACITY / 4u)` in `AudioRouterNowDriver.c` definiert (nahe `kZeroTimeStampPeriod` bei Zeile 95) und in `ARN_GetPropertyData` für `kAudioDevicePropertyLatency` über `WRITE_SCALAR(UInt32, kReportedLatencyFrames)` zurückgegeben. Bei `ARN_RING_CAPACITY = 16384` ergibt das 4096 Frames — was bei 48kHz exakt 85ms entspricht und den tatsächlichen Pre-Roll-Versatz korrekt abbildet.
+
+**P4 — Frame-Counter statt Host-Clock in `GetZeroTimeStamp`**
+
+`ARN_GetZeroTimeStamp` berechnete die `outSampleTime` bisher aus der Host-Clock (`gAnchorHostTime`), was bei langen Sessions zu messbarer Zeitdrift führte — der virtuelle Zeitstempel divergierte vom tatsächlich ausgegebenen Ring-Fortschritt. Mit P4 zählt `static atomic_ullong gFramesWritten` in `ARN_DoIOOperation` jeden IOProc-Aufruf: `atomic_fetch_add_explicit(&gFramesWritten, inIOBufferFrameSize, memory_order_relaxed)`. `ARN_GetZeroTimeStamp` liest den Counter (relaxed load), berechnet `completed = frames / kZeroTimeStampPeriod` und setzt `outSampleTime = completed * kZeroTimeStampPeriod`. Damit ist die gemeldete Sample-Zeit exakt konsistent mit den tatsächlich in den Ring geschriebenen Frames — kein Drift über Zeit. Der Counter wird in `ARN_StartIO` und `ARN_PerformDeviceConfigurationChange` zurückgesetzt.
+
+**P11 — Lock-Datei nach `~/.audiorouter/` mit `O_NOFOLLOW`**
+
+Der Single-Instance-Lock lag bisher in `/tmp/` — einem world-writable Verzeichnis. Mit P11 wird die Lock-Datei nach `~/.audiorouter/helper.lock` verlegt. Der Pfad wird zur Laufzeit aus `$HOME` gebildet und in `g_lock_path[512]` gespeichert; das Verzeichnis `~/.audiorouter/` wird mit `mkdir(0700)` erstellt (nur Owner-Zugriff). Das `open()` verwendet `O_NOFOLLOW`: ist `helper.lock` ein Symlink, schlägt der `open()`-Aufruf mit `ELOOP` fehl. In diesem Fall bricht der Helper mit `abort()` ab — ein Symlink an dieser Stelle ist ein Zeichen eines möglichen Angriffs. Die Funktion `config_socket_path_init()` muss vor `helper_acquire_instance_lock()` laufen, damit das Verzeichnis bereits existiert.
+
+---
+
+### 30.3 Welle 2 — Security & IPC
+
+Welle 2 härtet den Kommunikationskanal zwischen App und Helper ab: Auth-Token für privilegierte Kommandos, zentraler Status-Cache und automatische State-Synchronisation.
+
+| # | Commit | Titel | Datei(en) |
+|---|--------|-------|-----------|
+| P3 | `38715af` | Authenticate privileged socket commands with a per-launch token | `AudioRouterNowHelper.c`, `helper_client.py` |
+| P8 | `a547d0e` | Single status cache instead of per-call socket connects | `menu_bar_app.py` |
+| P2 | `7367370` | Reconcile menu state with helper's actual active outputs | `menu_bar_app.py` |
+
+**P3 — Per-Launch Auth-Token für privilegierte Socket-Kommandos**
+
+Alle privilegierten Kommandos über den Config-Socket (`shutdown`, `set_outputs`, `set_sample_rate`, `reconnect_output`, `set_safe_take`) konnten bisher von jedem lokalen Prozess ohne Authentifizierung gesendet werden. Mit P3 generiert der Helper beim Start 32 Zufallsbytes aus `/dev/urandom`, formatiert sie als 64 Hex-Zeichen und schreibt das Token nach `~/.audiorouter/helper.token` (Permissions `0600`, geöffnet mit `O_NOFOLLOW`). Ein bereits existierender Eintrag wird via `unlink()` vorher entfernt, um fremde Symlinks auszuschließen.
+
+Die Verifikation im Socket-Handler nutzt `ct_memcmp` — eine eigene Constant-Time-Implementierung (XOR-Akkumulator, kein Short-Circuit wie `memcmp`), die Timing-Seitenkanäle verhindert. Vor dem `ct_memcmp`-Aufruf wird geprüft, ob der empfangene Token exakt 64 Zeichen lang ist — ein kürzeres Token würde sonst mit Padding verglichen werden. Auf Python-Seite lädt `helper_client.py` das Token aus der Datei und injiziert es als `"token": "<hex>"` in jede privilegierte Anfrage.
+
+**P8 — Zentraler Status-Cache**
+
+Vor P8 öffneten `_compute_status()` und `_process_pending_updates()` bei jedem Aufruf eine eigene Socket-Verbindung zum Helper, um den Status zu lesen. Bei einem 500ms-UI-Timer und 200ms-health-poll ergab das bis zu 8 Socket-Connects pro Sekunde. Mit P8 befüllt ausschließlich der `health-poll`-Thread den Cache: `self._status_cache: dict | None` und `self._status_cache_ts: float`. Alle anderen Stellen lesen den Cache über eine Hilfsfunktion, die das Alter prüft (`max_age`-Parameter). Die Anzahl der Socket-Verbindungen reduziert sich von O(n Aufrufe) auf genau 5 pro Sekunde (health-poll-Frequenz).
+
+**P2 — UI-State / Helper-Reality-Abgleich**
+
+Der UI-State (welche Outputs als aktiv markiert sind) und der tatsächliche Zustand im Helper konnten auseinanderlaufen: wenn ein Output-Start fehlschlug (Device verschwunden, IOProc-Fehler), zeigte das Menü trotzdem ein Häkchen. Mit P2 parst `_reconcile_active_outputs()` die `resp['active']`-Liste aus der `set_outputs`-Antwort des Helpers und vergleicht sie mit dem internen `_active_device_names`-Set. Bei Divergenz werden `_active_device_names` und `_device_offsets` auf die tatsächlich aktiven Outputs zurückgebaut, via `save_config()` persistiert und das `_device_update_pending`-Flag gesetzt, das der UI-Timer auf dem Main-Thread konsumiert und das Menü neu aufbaut.
+
+---
+
+### 30.4 Welle 3 — Audio-Robustheit
+
+Welle 3 beseitigt vier Klassen von Audio-Artefakten und Race-Conditions im zeitkritischen Pfad.
+
+| # | Commit | Titel | Datei(en) |
+|---|--------|-------|-----------|
+| P9 | `4a9d3c3` | Silence the IOProc during sample-rate changes to avoid clicks | `AudioRouterNowHelper.c` |
+| P5 | `1e5ef22` | Follow device-native sample rate in auto mode instead of forcing 48k | `AudioRouterNowHelper.c` |
+| P6 | `d14a7f1` | Detect hard stalls in ~300ms without 44.1kHz false positives | `AudioRouterNowHelper.c` |
+| P7 | `17f77aa` | Move CoreAudio calls out of the lock in output removal | `AudioRouterNowHelper.c` |
+
+**P9 — IOProc-Stille während Sample-Rate-Wechseln**
+
+Wenn `sr_reinit_all_outputs` einen IOProc stoppt und neu erstellt, konnte der noch-laufende IOProc im Zeitfenster zwischen `sr_changing=1` und dem tatsächlichen `AudioDeviceStop` noch einmal feuern und dabei falsch-geratete Samples (auf Basis der alten SR-Konfiguration) in den Output-Buffer schreiben — hörbar als Klicken oder kurzer Glitch. Mit P9 wird `_Atomic uint32_t sr_changing` in `DeviceOutput` eingeführt. `sr_reinit_all_outputs` setzt das Flag via `atomic_store_explicit(..., memory_order_release)` **bevor** der IOProc gestoppt wird. Im `device_ioproc` liegt der Gate-Check für `sr_changing` **vor** dem Pre-Roll-Gate: wenn `sr_changing=1`, gibt der IOProc sofort Stille zurück (`memset` + `return noErr`), kein Sample-Processing. Nach dem Neustart — sobald `preroll_armed=1` gesetzt ist — wird `sr_changing` zurück auf `0` cleared.
+
+**P5 — Auto-Modus folgt nativer Device-Sample-Rate**
+
+Im Auto-Sample-Rate-Modus wurde bisher 48kHz als Ziel-SR erzwungen, unabhängig davon, was das angeschlossene Device nativ unterstützt. Ein 44.1kHz-Interface wurde damit immer mit `base_ratio ≈ 1.0884` betrieben — mit unnötigem SRC-Aufwand und leicht schlechterer Qualität. Mit P5 setzt der erste hinzugefügte Output, wenn `g_auto_sample_rate=1` gesetzt ist, die Ring-SR direkt auf die native Device-SR statt umgekehrt. In `output_add()`: wenn `g_auto_sample_rate=1` und `g_n_outputs == 1` (erster Output), wird `ring_sr = device_sr` gesetzt; `base_ratio = ring_sr / device_sr = 1.0`. Die 48kHz-Präferenz in `find_default_output_device` wurde entfernt. Für alle weiteren Outputs bleibt die bereits festgelegte Ring-SR maßgeblich.
+
+**P6 — Hard-Stall-Erkennung in ~300ms ohne 44.1kHz-False-Positives**
+
+Der bestehende Soft-Stall-Mechanismus (1000ms-Timeout) ist bei 44.1kHz-Geräten etwas träge und erzeugt gelegentlich False-Positives, weil er nicht zwischen einem echten Stall und einem Underrun bei leerem Ring unterscheiden kann. P6 führt eine zweite, schnellere Stall-Erkennung ein: `_Atomic uint32_t ioproc_calls` in `DeviceOutput` wird vom IOProc bei jedem Aufruf inkrementiert (relaxed atomic, RT-safe). Der volume_poll_thread erkennt einen Hard-Stall wenn **gleichzeitig** drei Bedingungen erfüllt sind: (1) `local_ridx` ist eingefroren (keine Fortschrittsbewegung), (2) Ring-Füllstand überschreitet 75% (`HARD_STALL_FILL_NUM/HARD_STALL_FILL_DEN = 3/4`), und (3) `ioproc_calls` steigt (IOProc läuft, konsumiert aber nicht). Bei 44.1kHz-Jitter tritt Bedingung 2 nicht auf (der Ring ist bei einem Underrun leer, nicht voll) — dieser Mechanismus produziert dort keine False-Positives. Der Hard-Stall-Timeout beträgt `HARD_STALL_TIMEOUT_NS = 300ms`.
+
+**P7 — CoreAudio-Calls außerhalb des Locks in `output_remove_locked`**
+
+Vor P7 hielt `output_remove_locked` den `g_outputs_lock` über den gesamten `AudioDeviceStop/Destroy/Create/Start`-Zyklus. Diese CoreAudio-Calls können mehrere Dutzend Millisekunden dauern (USB-Devices besonders). Das blockierte den `volume_poll_thread` und alle Config-Commands für diese Zeit. P7 refaktoriert die Funktion in drei Phasen nach dem bereits in `output_add` etablierten Muster:
+
+- **Phase 1 (Lock gehalten):** Slot finden, `active=false` setzen, Device-Infos (`dev_id`, `proc_id`, `name`) in Stack-Variablen kopieren. Bei Slot-Verschiebung (letzter Output rückt nach) wird auch der verschobene Output deaktiviert und als Stack-Kopie `moved` gesichert. Lock freigeben.
+- **Phase 2 (kein Lock):** `AudioDeviceStop/DestroyIOProcID` für das Ziel. Bei Slot-Verschiebung: zusätzlich `Stop/Destroy/Create/Start` für den verschobenen Output — `AudioDeviceCreateIOProcID` erhält die stabile Ziel-Slot-Adresse `&g_outputs[slot]` als `inClientData`.
+- **Phase 3 (Lock wieder gehalten):** `active=true` für den neu gestarteten verschobenen Output setzen, `g_n_outputs--`, letzten Slot auf 0 zurücksetzen.
+
+Der Kontrakt der Funktion (`MUSS mit gehaltenem Lock aufgerufen werden und gibt mit gehaltenem Lock zurück`) bleibt für den Aufrufer transparent erhalten.
+
+---
+
+### 30.5 Welle 4 — UX & Qualität
+
+Welle 4 schließt drei UX-Lücken: event-getriebene Lautstärke statt Polling, ABI-Versionscheck beim Start und ein qualitativ besserer Downsampler.
+
+| # | Commit | Titel | Datei(en) |
+|---|--------|-------|-----------|
+| P1 | `fb96aa2` | Replace osascript volume polling with event-driven CoreAudio listener | `audio_device_control.py`, `menu_bar_app.py` |
+| P10 | `cefab2e` | Detect and surface driver/app ABI version mismatch on launch | `AudioRouterNowDriver.c`, `first_launch.py`, `Makefile` |
+| P15 | `8f57e1a` | Replace 3-tap box downsampler with 5-tap Hann FIR | `AudioRouterNowHelper.c` |
+
+**P1 — Event-driven Volume via `AudioObjectAddPropertyListener`**
+
+Die Lautstärke-Synchronisation lief bisher über `_volume_poll_loop` — einen Thread, der alle 200ms `osascript` aufrief und den aktuellen Lautstärkewert ablas. Das erzeugte systemweit sichtbaren Prozess-Overhead und eine fixe 200ms-Latenz bei Lautstärkeänderungen. Mit P1 wird der Poll-Thread entfernt und durch `AudioObjectAddPropertyListener` ersetzt. Der Listener wird auf die Property registriert, die das jeweilige Device tatsächlich unterstützt — ermittelt durch `_volume_selector_for(dev_id)`: diese Funktion fragt via `AudioObjectHasProperty` zuerst nach `VirtualMainVolume` (`vmvl`, 0x766D766C), fällt bei Fehlen auf `VolumeScalar` (`volm`, 0x766F6C6D) zurück. Wichtiger Befund aus der Implementierung: das virtuelle ARN-Device unterstützt `vmvl` nicht — nur `volm` ist vorhanden. Der CFUNCTYPE-Callback (`_AOPropertyListenerProc`) wird modul-global in `_vol_listener` referenziert (GC-Schutz: würde Python den Callback einsammeln, während CoreAudio noch einen Funktionszeiger hält, wäre der Absturz unvermeidlich). Lautstärkeänderungen werden nun sofort und ohne Polling-Overhead gemeldet.
+
+**P10 — ABI-Versionscheck beim App-Start**
+
+Wenn ein Benutzer die App aktualisiert, ohne den Treiber neu zu installieren (oder umgekehrt), kann die `shared_ring.h`-ABI zwischen Treiber und App auseinanderliegen — was zu stiller Fehlfunktion oder Abstürzen führt. P10 etabliert einen expliziten Versionscheck:
+
+Das Makefile extrahiert `#define kDriverABIVersion N` aus `AudioRouterNowDriver.c` via `grep` und schreibt die Zahl als Textdatei in `Contents/Resources/abi_version` im Bundle. Aktueller Wert: `1`. `first_launch.py` definiert `APP_EXPECTED_ABI_VERSION = 1` und liest beim App-Start `get_installed_driver_abi_version()` aus dem installierten Bundle. Bei Mismatch oder fehlender `abi_version`-Datei (alter Treiber vor P10) gibt `_compute_status()` die Statuszeile `🔴 Driver update required — click to reinstall` zurück und bietet den Reinstall-Dialog an. Bei Übereinstimmung verläuft der Start normal.
+
+**P15 — 5-Tap Hann-FIR Downsampler**
+
+Der bisherige 3-Tap-Box-Filter (`1/3, 1/3, 1/3`) dämpfte Spiegelfrequenzen beim Downsampling (Ring-SR > Device-SR, z.B. 96k→48k) nur schwach. P15 ersetzt ihn durch einen symmetrischen 5-Tap-FIR mit Hann-Fenster-Koeffizienten:
+
+```c
+static const float kFir5[5] = {0.0625f, 0.25f, 0.375f, 0.25f, 0.0625f};
+```
+
+Die Koeffizienten sind summen-normalisiert (Summe = 1.0): kein Pegelversatz. Der Filter ist zentriert auf den aktuellen Frame-Index `idx0` mit einem Span von ±2 Frames. Er wird nur bei `ratio > 1.005` aktiviert (kleines Epsilon für Floating-Point-Rauschen) — Upsampling (ratio ≤ 1.0) bleibt reine lineare Interpolation, da dort kein Aliasing-Problem besteht. Die Filter-Operationen (5 MACs pro Channel, 10 gesamt) bleiben vollständig im RT-Budget: keine Branches, kein malloc, kein Lock.
+
+---
+
+### 30.6 Architektur-Invarianten
+
+Alle 15 Fixes wurden unter strikter Einhaltung der seit v2.7 etablierten RT-Invarianten implementiert:
+
+**RT-Safety in `device_ioproc` und `DoIOOperation`:** Kein einziger der 15 Fixes führt malloc, Lock oder printf in den RT-Pfad ein. Alle neuen Operationen in `device_ioproc` sind entweder:
+- Atomare Loads mit `memory_order_acquire` oder `memory_order_relaxed` (P9: `sr_changing`; P6: `ioproc_calls` inkrementieren)
+- `memset` für Stille-Ausgabe (P9)
+- Multiplikation + Addition (P15: FIR-Filter)
+
+**ABI v4 unverändert:** `shared_ring.h` wurde in keinem der 16 Commits modifiziert. Die Treiber-seitige ABI-Version (`kDriverABIVersion = 1`) ist eine neue Konstante, die die bestehende ABI versioniert — sie ändert das Shared-Memory-Layout nicht.
+
+**Lock-Kontrakt bei P7:** `output_remove_locked` gibt mit gehaltenem Lock zurück — exakt wie vor P7. Der Lock wird intern temporär freigegeben (Phase 2), aber der Aufrufer sieht diese Unterbrechung nicht. Das Prinzip "rein mit Lock, raus mit Lock" bleibt erhalten.
+
+---
+
+### 30.7 Offene Verifikations-Punkte
+
+Die folgenden Punkte können nur durch Laufzeit-Tests mit echten Audio-Devices vollständig verifiziert werden:
+
+| Fix | Test | Erwartetes Ergebnis |
+|-----|------|---------------------|
+| P4 + P14 | 30-Minuten-Session, `outSampleTime` aus CoreAudio-Trace | Kein Zeitdrift; Latenz-Property gibt 4096 zurück |
+| P5 | 44.1kHz-Interface anschließen, Auto-Modus aktiv | `base_ratio = 1.0` im `get_status`-JSON; kein SRC-Aufwand |
+| P7 | Output entfernen während zweites Device läuft | Zweites Device läuft ohne Unterbrechung weiter; kein Lock-Timeout |
+| P15 | 96k-Quelle auf 48kHz-Device, Spectrum-Analyzer | Spiegelfrequenzen bei > 24kHz um > 20dB gedämpft gegenüber 3-Tap-Box |
+| P2 | Output-Start simuliert fehlschlagen (Device trennen während set_outputs läuft) | Menü-State wird automatisch korrigiert; `save_config()` persistiert korrekten State |
+
+---
+
+### 30.8 Status
+
+| Welle | Fixes | Status |
+|-------|-------|--------|
+| Welle 1 (P12, P13, P14, P4, P11) | 5 Fixes | ✅ |
+| Welle 2 (P3, P8, P2) | 3 Fixes | ✅ |
+| Welle 3 (P9, P5, P6, P7) | 4 Fixes | ✅ |
+| Welle 4 (P1, P10, P15) | 3 Fixes | ✅ |
+| Gesamt | 15 Fixes, 16 Commits | ✅ v3.0 |
+
+---
+
+*Dokumentation zuletzt aktualisiert am 2. Juni 2026 — AudioRouterNow v3.0.0*
 
