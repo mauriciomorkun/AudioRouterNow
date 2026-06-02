@@ -69,28 +69,14 @@ static char g_config_socket_path[512] = {0};
 
 #define MAX_OUTPUTS            8
 
-#define HELPER_LOCK_PATH   "/tmp/audiorouter.helper.lock"
+/* P11: Lock-Datei liegt in ~/.audiorouter/ (statt im world-writable /tmp).
+ * Pfad zur Laufzeit aus $HOME gebildet, geoeffnet mit O_NOFOLLOW. */
+static char g_lock_path[512] = {0};
 static int g_lock_fd = -1;
 
-/* M8: Single-Instance-Lock — verhindert zwei parallele Helper-Instanzen die
- * sich gegenseitig SHM und Config-Socket ueberschreiben wuerden. */
-static int helper_acquire_instance_lock(void)
-{
-    g_lock_fd = open(HELPER_LOCK_PATH, O_CREAT | O_RDWR, 0600);
-    if (g_lock_fd < 0) {
-        fprintf(stderr, "Helper: Lock-Datei konnte nicht geoeffnet werden (errno=%d)\n", errno);
-        return -1;
-    }
-    if (flock(g_lock_fd, LOCK_EX | LOCK_NB) != 0) {
-        fprintf(stderr, "Helper: Eine andere Helper-Instanz laeuft bereits — Abbruch\n");
-        close(g_lock_fd);
-        g_lock_fd = -1;
-        return -1;
-    }
-    return 0;
-}
-
-/* H7: Initialisiert g_config_socket_path aus $HOME. Erstellt ~/.audiorouter/ mit 0700. */
+/* P11/H7: Stellt sicher, dass ~/.audiorouter/ mit 0700 existiert und befuellt
+ * g_config_socket_path + g_lock_path. MUSS vor helper_acquire_instance_lock()
+ * laufen, damit das Verzeichnis fuer die Lock-Datei bereits existiert. */
 static void config_socket_path_init(void)
 {
     const char *home = getenv("HOME");
@@ -101,6 +87,39 @@ static void config_socket_path_init(void)
     mkdir(dir, 0700);  /* Fehler (existiert schon) ignorieren */
     snprintf(g_config_socket_path, sizeof(g_config_socket_path),
              "%s/.audiorouter/audiorouter.config.sock", home);
+    snprintf(g_lock_path, sizeof(g_lock_path),
+             "%s/.audiorouter/helper.lock", home);
+}
+
+/* M8/P11: Single-Instance-Lock — verhindert zwei parallele Helper-Instanzen die
+ * sich gegenseitig SHM und Config-Socket ueberschreiben wuerden.
+ * O_NOFOLLOW: ein untergeschobener Symlink wird nicht gefolgt (ELOOP) — in dem
+ * Fall brechen wir hart ab (potentieller Angriff). */
+static int helper_acquire_instance_lock(void)
+{
+    if (!g_lock_path[0]) {
+        /* Defensive: sollte nie passieren, config_socket_path_init() laeuft zuvor. */
+        fprintf(stderr, "Helper: Lock-Pfad nicht initialisiert — Abbruch\n");
+        return -1;
+    }
+    g_lock_fd = open(g_lock_path, O_CREAT | O_RDWR | O_NOFOLLOW, 0600);
+    if (g_lock_fd < 0) {
+        if (errno == ELOOP) {
+            fprintf(stderr, "Helper: Lock-Datei '%s' ist ein Symlink (O_NOFOLLOW) "
+                    "— moeglicher Angriff, Abbruch\n", g_lock_path);
+            abort();
+        }
+        fprintf(stderr, "Helper: Lock-Datei '%s' konnte nicht geoeffnet werden (errno=%d)\n",
+                g_lock_path, errno);
+        return -1;
+    }
+    if (flock(g_lock_fd, LOCK_EX | LOCK_NB) != 0) {
+        fprintf(stderr, "Helper: Eine andere Helper-Instanz laeuft bereits — Abbruch\n");
+        close(g_lock_fd);
+        g_lock_fd = -1;
+        return -1;
+    }
+    return 0;
 }
 
 /* ── Datenstrukturen ────────────────────────────────────────────────────── */
@@ -2123,13 +2142,15 @@ int main(int argc, char *argv[])
         g_mach_ns_per_tick = (double)tb.numer / (double)tb.denom;
     }
 
-    /* M8: Single-Instance-Guard — sofort nach Signal-Setup, vor allem anderen. */
+    /* P11/H7: Verzeichnis ~/.audiorouter/ erstellen und Pfade (Socket + Lock)
+     * initialisieren. MUSS vor dem Lock-Acquire laufen, da die Lock-Datei nun
+     * in diesem Verzeichnis liegt. */
+    config_socket_path_init();
+
+    /* M8/P11: Single-Instance-Guard — direkt nach der Pfad-Init, vor allem anderen. */
     if (helper_acquire_instance_lock() != 0) {
         return 1;
     }
-
-    /* H7: Socket-Pfad initialisieren (~/.audiorouter/audiorouter.config.sock) */
-    config_socket_path_init();
 
     fprintf(stdout, "AudioRouterNow Helper v2.0 (Phase 5)\n");
     fprintf(stdout, "SHM: %s  Ring: %u Frames ~ %.0f ms @48kHz\n",
