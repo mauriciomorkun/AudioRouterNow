@@ -1,6 +1,6 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 2. Juni 2026 (Kapitel 31 — v3.0 Build & Release)
+**Stand:** 2. Juni 2026 (Kapitel 32 — Hotfix SRC Drift Threshold)
 **Version:** 3.0.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
@@ -42,6 +42,7 @@
 29. [v3.0 Optimierungsplan — 15 Verbesserungen (Ausführungsplan)](#29-v30-optimierungsplan--15-verbesserungen-ausführungsplan)
 30. [v3.0 Optimierungsplan — Vollständige Implementierung (2. Juni 2026)](#30-v30-optimierungsplan--vollständige-implementierung-2-juni-2026)
 31. [v3.0 Build & Release (2. Juni 2026)](#31-v30-build--release-2-juni-2026)
+32. [Hotfix — SRC Drift Warning Threshold (2. Juni 2026)](#32-hotfix--src-drift-warning-threshold-2-juni-2026)
 
 ---
 
@@ -4215,4 +4216,46 @@ Installierter Treiber: `/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver` — T
 | Treiber installiert | ✅ |
 | App läuft | ✅ |
 | DMG auf Desktop | ✅ |
+
+---
+
+## 32. Hotfix — SRC Drift Warning Threshold (2. Juni 2026)
+
+### 32.1 Symptom
+
+Nach der Erstinstallation von v3.0 zeigte das Menüleisten-Icon Gelb, obwohl Musik korrekt abgespielt wurde und alle Outputs aktiv waren. Die Statuszeile zeigte:
+
+> `"Output 'Komplete Audio 6 MK2': SRC drift -501 ppm (near limit)"`
+
+Zusätzlich wurde eine subtile "Wandern"-Empfindung im Klangbild wahrgenommen — leichte Tonhöhen-/Tempo-Modulation bei bekannter Musik.
+
+### 32.2 Ursache
+
+Der Warnschwellenwert in `health.py` war mit **350 ppm** zu eng für reale Audio-Interface-Hardware:
+
+- Reale Quarz-Oszillatoren driften typisch **±100–600 ppm** vom Nominalwert
+- Das Komplete Audio 6 MK2 zeigte konstant **-501 ppm** Drift — normales Verhalten
+- Der PI-Regler kompensiert diesen Drift korrekt per SRC-Ratio-Anpassung
+- Die ständigen Korrekturen des PI-Reglers (Hunting) können bei ~500 ppm als subtile Tonhöhen-Modulation (~0.87 Cent) wahrnehmbar sein
+
+Der Schwellenwert von 350 ppm wurde ursprünglich zu konservativ gewählt und löste bei normalen Audio-Interfaces fälschlicherweise Gelb aus.
+
+### 32.3 Fix
+
+**Datei:** `engine/health.py`  
+**Commit:** `f749164`
+
+| Stelle | Vorher | Nachher |
+|--------|--------|---------|
+| Warn-Meldung (Z.152) | `abs(ppm) > 350` | `abs(ppm) > 600` |
+| Level-Klassifikation (Z.172) | `abs(o.src_ratio_ppm) > 350` | `abs(o.src_ratio_ppm) > 600` |
+
+**Begründung 600 ppm:** Deckt normalen Quarz-Drift realer Interfaces ab (±600 ppm ≈ 0.06% = ~1 Cent). Echter Drift über 600 ppm deutet auf Konfigurationsproblem oder Gerätefehler hin und rechtfertigt eine Warnung.
+
+### 32.4 Auswirkung
+
+- Normaler Betrieb → dauerhaft 🟢 Grün
+- Gelb nur noch bei echten Problemen: Drift > 600 ppm, Underruns, Stalls, Reconnects
+- Der PI-Regler läuft unverändert — Drift wird weiterhin aktiv kompensiert
+- Fix erfordert Neu-Build der DMG (Python-Engine ist eingebunden)
 
