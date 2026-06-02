@@ -3843,7 +3843,7 @@ Ein neuer Benutzer erhält mit dieser DMG:
 
 Dieses Kapitel enthält den vollständigen Implementierungsplan für alle 15 identifizierten Verbesserungen. Erstellt mit Opus 4.8, alle 11 Quelldateien vollständig gelesen. **Kein Code geändert** — reine Planung zur Abnahme.
 
-**Status:** ⏳ Abnahme ausstehend
+**Status:** ✅ Implementiert (alle 15 Verbesserungen umgesetzt)
 
 ---
 
@@ -3986,9 +3986,9 @@ Welle 4: P1 (nach P13) → P10 → P15
 |---------|--------|
 | Code-Analyse | ✅ Abgeschlossen |
 | Implementierungsplanung | ✅ Dieses Kapitel |
-| Welle 1 (P12,13,14,4,11) | ⏳ Abnahme ausstehend |
-| Welle 2 (P3,8,2) | ⏳ |
-| Welle 3 (P9,5,6,7) | ⏳ |
-| Welle 4 (P1,10,15) | ⏳ |
-| Abschluss-Audit | ⏳ |
+| Welle 1 (P12,13,14,4,11) | ✅ Implementiert |
+| Welle 2 (P3,8,2) | ✅ Implementiert |
+| Welle 3 (P9,5,6,7) | ✅ Implementiert |
+| Welle 4 (P1,10,15) | ✅ Implementiert |
+| Abschluss-Audit | ✅ Implementiert |
 
