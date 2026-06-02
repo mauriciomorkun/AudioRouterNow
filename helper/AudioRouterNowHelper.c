@@ -1184,78 +1184,144 @@ static int output_add(const char *uid, uint32_t ch_offset)
 
 /*
  * Entfernt Output-Device (uid + ch_offset).
- * MUSS unter g_outputs_lock aufgerufen werden.
+ *
+ * P7: 3-Phasen-Design — die schweren CoreAudio-Calls (AudioDeviceStop/Destroy/
+ * Create/Start) laufen OHNE g_outputs_lock, damit ein blockierendes CoreAudio
+ * den Lock nicht ueber Dutzende Millisekunden haelt (was den volume_poll_thread
+ * und andere Config-Kommandos blockieren wuerde).
+ *
+ *   Phase 1 (Lock gehalten): Slot finden, Ziel + ggf. zu verschiebenden Output
+ *            auf active=false setzen, Device-Infos in Stack-Kopien sichern,
+ *            Lock freigeben.
+ *   Phase 2 (KEIN Lock): Stop/Destroy fuer das Ziel; fuer den verschobenen
+ *            Output Stop/Destroy/Create/Start auf der Stack-Kopie.
+ *   Phase 3 (Lock wieder gehalten): verschobenen Output committen, Slot
+ *            kompaktieren, Pending-Flags setzen, g_n_outputs--.
+ *
+ * KONTRAKT: MUSS mit gehaltenem g_outputs_lock aufgerufen werden und gibt mit
+ * gehaltenem Lock zurueck (der Lock wird intern nur temporaer freigegeben).
  */
 static void output_remove_locked(const char *uid, uint32_t ch_offset)
 {
     int slot = find_output_slot_locked(uid, ch_offset);
     if (slot < 0) return;
 
-    DeviceOutput *dev = &g_outputs[slot];
+    /* ── Phase 1 (Lock): active=false, Stack-Kopien anlegen ── */
+    int last = g_n_outputs - 1;
+    bool need_move = (slot != last);
 
-    if (dev->proc_id) {
-        AudioDeviceStop(dev->dev_id, dev->proc_id);
-        AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
+    /* Ziel-Device-Infos sichern. */
+    AudioDeviceID       tgt_dev   = g_outputs[slot].dev_id;
+    AudioDeviceIOProcID tgt_proc  = g_outputs[slot].proc_id;
+    char                tgt_name[256];
+    snprintf(tgt_name, sizeof(tgt_name), "%s", g_outputs[slot].name);
+    g_outputs[slot].active  = false;   /* volume_poll_thread ueberspringt jetzt */
+    g_outputs[slot].proc_id = NULL;
+
+    /* Verschobenen Output (falls noetig) als Stack-Kopie sichern + deaktivieren. */
+    DeviceOutput moved;       /* lokale Arbeitskopie */
+    AudioDeviceID       moved_old_dev  = kAudioDeviceUnknown;
+    AudioDeviceIOProcID moved_old_proc = NULL;
+    if (need_move) {
+        moved = g_outputs[last];               /* Stack-Kopie */
+        moved_old_dev  = moved.dev_id;
+        moved_old_proc = moved.proc_id;
+        g_outputs[last].active  = false;        /* volume_poll_thread ueberspringt */
+        g_outputs[last].proc_id = NULL;
     }
 
+    pthread_mutex_unlock(&g_outputs_lock);
+
+    /* ── Phase 2 (KEIN Lock): schwere CoreAudio-Calls ── */
+    if (tgt_proc) {
+        AudioDeviceStop(tgt_dev, tgt_proc);
+        AudioDeviceDestroyIOProcID(tgt_dev, tgt_proc);
+    }
     fprintf(stdout, "Helper: Output entfernt: %s [Ch %u-%u]\n",
-            dev->name, ch_offset + 1, ch_offset + 2);
+            tgt_name, ch_offset + 1, ch_offset + 2);
 
-    /* Slot durch letzten ersetzen (kein Hole).
-     * WICHTIG: Der verschobene Output hat einen IOProc dessen inClientData
-     * noch auf die ALTE Adresse (&g_outputs[letzter]) zeigt. Nach dem Kopieren
-     * zu &g_outputs[slot] muss der IOProc mit der neuen Adresse neu registriert
-     * werden — sonst liest er aus dem geleerten (genullten) letzten Slot. */
-    if (slot != g_n_outputs - 1) {
-        /* Verschobenen Output kurz stoppen */
-        DeviceOutput *moved_src = &g_outputs[g_n_outputs - 1];
-        if (moved_src->active && moved_src->proc_id) {
-            AudioDeviceStop(moved_src->dev_id, moved_src->proc_id);
-            AudioDeviceDestroyIOProcID(moved_src->dev_id, moved_src->proc_id);
-            moved_src->proc_id = NULL;
-            moved_src->active  = false;
+    bool moved_started = false;
+    uint32_t moved_reset_w = 0;
+    if (need_move) {
+        /* Alten IOProc des verschobenen Outputs stoppen/zerstoeren. */
+        if (moved_old_proc) {
+            AudioDeviceStop(moved_old_dev, moved_old_proc);
+            AudioDeviceDestroyIOProcID(moved_old_dev, moved_old_proc);
         }
-        /* Struct kopieren (neue stabile Adresse: &g_outputs[slot]) */
-        g_outputs[slot] = g_outputs[g_n_outputs - 1];
-        DeviceOutput *moved = &g_outputs[slot];
+        moved.proc_id = NULL;
+        moved.active  = false;
 
-        /* IOProc mit neuer Adresse neu anlegen und starten */
-        if (moved->uid[0] && moved->dev_id != kAudioDeviceUnknown) {
-            OSStatus rerr = AudioDeviceCreateIOProcID(moved->dev_id, device_ioproc,
-                                                       moved, &moved->proc_id);
+        /* IOProc mit der STABILEN Ziel-Adresse (&g_outputs[slot]) neu anlegen.
+         * inClientData muss die endgueltige Slot-Adresse sein — der IOProc liest
+         * darueber seinen Zustand. Wir geben &g_outputs[slot] als clientData,
+         * obwohl wir den Lock nicht halten: die Adresse ist stabil (festes Array),
+         * und der IOProc startet erst nach AudioDeviceStart zu feuern; bis dahin
+         * committen wir in Phase 3 den Inhalt. */
+        if (moved.uid[0] && moved.dev_id != kAudioDeviceUnknown) {
+            DeviceOutput *target_addr = &g_outputs[slot];
+            OSStatus rerr = AudioDeviceCreateIOProcID(moved.dev_id, device_ioproc,
+                                                      target_addr, &moved.proc_id);
             if (rerr == noErr) {
-                rerr = AudioDeviceStart(moved->dev_id, moved->proc_id);
+                /* Reset-Position + Pre-Roll in der Stack-Kopie vorbereiten. */
+                ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
+                if (ring) {
+                    moved_reset_w = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
+                }
+                atomic_store_explicit(&moved.frac_ridx_reset_widx, moved_reset_w, memory_order_relaxed);
+                atomic_store_explicit(&moved.frac_ridx_reset_pending, 1u, memory_order_relaxed);
+                atomic_store_explicit(&moved.local_ridx, moved_reset_w, memory_order_relaxed);
+                moved.last_ridx_sample = moved_reset_w;
+                moved.last_progress_ns = get_time_ns();
+                atomic_store_explicit(&moved.stalled, 0u, memory_order_relaxed);
+                atomic_store_explicit(&moved.preroll_armed, 1u, memory_order_relaxed);
+
+                /* WICHTIG: Den vollstaendigen Inhalt (inkl. neuer proc_id) in den
+                 * Ziel-Slot schreiben BEVOR AudioDeviceStart feuert. Der Slot[slot]
+                 * trug bisher nur den (inaktiven, proc_id=NULL) entfernten Output;
+                 * der neue IOProc liest ueber target_addr seinen Zustand. Solange
+                 * active noch false ist, ueberspringt der volume_poll_thread den
+                 * Slot — das Schreiben ohne Lock ist hier sicher (kein paralleler
+                 * Strukturschreiber, single config-thread). */
+                moved.active = false;        /* bis Start bestaetigt ist */
+                g_outputs[slot] = moved;
+
+                rerr = AudioDeviceStart(g_outputs[slot].dev_id, g_outputs[slot].proc_id);
                 if (rerr == noErr) {
-                    moved->active = true;
-                    /* K6: Pending-Reset damit IOProc seine neue Position kennt */
-                    ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
-                    if (ring) {
-                        uint32_t w = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
-                        atomic_store_explicit(&moved->frac_ridx_reset_widx, w, memory_order_relaxed);
-                        atomic_store_explicit(&moved->frac_ridx_reset_pending, 1u, memory_order_release);
-                        atomic_store_explicit(&moved->local_ridx, w, memory_order_release);
-                        moved->last_ridx_sample = w;
-                        moved->last_progress_ns = get_time_ns();
-                        atomic_store_explicit(&moved->stalled, 0u, memory_order_release);
-                        /* Tranche B Minor-Fix: Pre-Roll nach IOProc-Neustart re-armen —
-                         * verhindert Underrun-Burst direkt nach Slot-Verschiebung. */
-                        atomic_store_explicit(&moved->preroll_armed, 1u, memory_order_release);
-                    }
+                    moved_started = true;
                     fprintf(stdout, "Helper: Output '%s' [Ch %u-%u] nach Slot-Verschiebung neu gestartet\n",
-                            moved->name, moved->ch_offset + 1, moved->ch_offset + 2);
+                            g_outputs[slot].name, g_outputs[slot].ch_offset + 1,
+                            g_outputs[slot].ch_offset + 2);
                 } else {
                     fprintf(stderr, "Helper: AudioDeviceStart fehlgeschlagen nach Slot-Verschiebung "
-                            "(OSStatus %d) fuer '%s'\n", (int)rerr, moved->name);
-                    AudioDeviceDestroyIOProcID(moved->dev_id, moved->proc_id);
-                    moved->proc_id = NULL;
+                            "(OSStatus %d) fuer '%s'\n", (int)rerr, g_outputs[slot].name);
+                    AudioDeviceDestroyIOProcID(g_outputs[slot].dev_id, g_outputs[slot].proc_id);
+                    g_outputs[slot].proc_id = NULL;
                 }
             } else {
                 fprintf(stderr, "Helper: AudioDeviceCreateIOProcID fehlgeschlagen nach Slot-Verschiebung "
-                        "(OSStatus %d) fuer '%s'\n", (int)rerr, moved->name);
-                moved->proc_id = NULL;
+                        "(OSStatus %d) fuer '%s'\n", (int)rerr, moved.name);
+                moved.proc_id = NULL;
+                moved.active  = false;
+                g_outputs[slot] = moved;   /* inaktiver Slot, sauber kopiert */
             }
+        } else {
+            /* Verschobener Output ohne gueltiges Device — als inaktiv committen. */
+            moved.active  = false;
+            moved.proc_id = NULL;
+            g_outputs[slot] = moved;
         }
     }
+
+    /* ── Phase 3 (Lock wieder): active committen + kompaktieren ── */
+    pthread_mutex_lock(&g_outputs_lock);
+
+    if (need_move && moved_started) {
+        /* Jetzt erst active=true setzen — der IOProc laeuft bereits, der Slot
+         * ist vollstaendig befuellt. */
+        atomic_store_explicit(&g_outputs[slot].preroll_armed, 1u, memory_order_release);
+        g_outputs[slot].active = true;
+    }
+
     memset(&g_outputs[g_n_outputs - 1], 0, sizeof(DeviceOutput));
     g_n_outputs--;
 }
