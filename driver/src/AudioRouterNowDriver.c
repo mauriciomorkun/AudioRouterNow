@@ -85,6 +85,12 @@ enum {
 /* Zeitmodell ------------------------------------------------------------- */
 #define kZeroTimeStampPeriod        (kRingBufferFrames * 64u)  /* Frames    */
 
+/* P14: Gemeldete Latenz. Der Helper haelt einen Pre-Roll-Puffer im SHM-Ring
+ * vor, bevor er an die physischen Outputs ausgibt. Wir melden ein Viertel der
+ * Ring-Kapazitaet als Geraete-Latenz, damit der HAL/Clients den realen
+ * Pre-Roll-Versatz beruecksichtigen koennen (statt faelschlich 0). */
+#define kReportedLatencyFrames      (ARN_RING_CAPACITY / 4u)   /* Frames    */
+
 static bool ARN_IsValidSampleRate(Float64 sr) {
     for (size_t i = 0; i < kNumSupportedSampleRates; i++) {
         if (kSupportedSampleRates[i] == sr) return true;
@@ -1234,9 +1240,10 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
             WRITE_SCALAR(UInt32, 0);
             break;
 
-        /* 'ltnc' — gemeinsam fuer Device und Stream (gleicher FourCC). */
+        /* 'ltnc' — gemeinsam fuer Device und Stream (gleicher FourCC).
+         * P14: Realen Pre-Roll-Versatz des Helper-Rings melden statt 0. */
         case kAudioDevicePropertyLatency:
-            WRITE_SCALAR(UInt32, 0);
+            WRITE_SCALAR(UInt32, kReportedLatencyFrames);
             break;
 
         case kAudioDevicePropertySafetyOffset:
