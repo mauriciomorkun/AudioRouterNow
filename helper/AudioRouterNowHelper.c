@@ -258,6 +258,10 @@ typedef struct DeviceOutput {
      * dann self-clear (release-store auf 0). Re-armed nach SHM-Reconnect. */
     _Atomic uint32_t preroll_target_frames; /* HWM in Frames (0=deaktiviert) */
     _Atomic uint32_t preroll_armed;         /* 1=IOProc gibt Stille bis HWM, dann self-clear */
+    /* P9: Sample-Rate-Wechsel-Gate. Waehrend sr_reinit_all_outputs den IOProc
+     * stoppt/neu erstellt, gibt der IOProc reine Stille aus (kein Klicken durch
+     * inkonsistente Ring-SR / halb-rekonfigurierte Devices). Atomar, RT-gelesen. */
+    _Atomic uint32_t sr_changing;           /* 1=IOProc gibt Stille (SR-Wechsel laeuft) */
     /* Tranche C: PI-Regler State — NUR vom volume_poll_thread gelesen/geschrieben.
      * Kein Atomic nötig: ausschließlich non-RT-Zugriff unter g_outputs_lock. */
     double fill_ewma;    /* EWMA des Ring-Füllstands in Frames (Tranche C Glättung) */
@@ -722,6 +726,19 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
                                                     memory_order_relaxed);
         dev->src_frac_ridx = (double)target_widx / 2.0;
         atomic_store_explicit(&dev->frac_ridx_reset_pending, 0u, memory_order_release);
+    }
+
+    /* P9: SR-Wechsel-Gate — VOR dem Pre-Roll-Gate pruefen. Waehrend
+     * sr_reinit_all_outputs laeuft (Device gestoppt/neu konfiguriert, Ring-SR
+     * im Umbruch), gibt der IOProc reine Stille aus statt potentiell falsch
+     * geratete Samples → kein Klicken/Knacken. RT-safe: nur ein acquire-load
+     * + memset, kein malloc/lock. */
+    if (atomic_load_explicit(&dev->sr_changing, memory_order_acquire)) {
+        for (UInt32 b = 0; b < outOutputData->mNumberBuffers; b++) {
+            memset(outOutputData->mBuffers[b].mData, 0,
+                   outOutputData->mBuffers[b].mDataByteSize);
+        }
+        return noErr;
     }
 
     /* Tranche B: Pre-Roll Gate — gibt Stille bis Ring ≥ HWM (43ms @48kHz).
@@ -1268,6 +1285,11 @@ static void sr_reinit_all_outputs(void) {
 
         /* SR weicht ab — Output muss neu initialisiert werden. */
 
+        /* P9: Stille-Gate aktivieren BEVOR der IOProc gestoppt/neu gebaut wird.
+         * Falls der (noch laufende) IOProc waehrend des Stops nochmal feuert,
+         * gibt er Stille statt falsch geratete Samples aus. */
+        atomic_store_explicit(&dev->sr_changing, 1u, memory_order_release);
+
         /* Schritt 1: IOProc stoppen */
         if (dev->active && dev->proc_id) {
             AudioDeviceStop(dev->dev_id, dev->proc_id);
@@ -1322,6 +1344,9 @@ static void sr_reinit_all_outputs(void) {
             fprintf(stderr, "Helper: AudioDeviceCreateIOProcID endgueltig fehlgeschlagen "
                             "fuer %s — Output bleibt inaktiv\n", dev->name);
             dev->active = false;
+            /* P9: Gate wieder freigeben — kein IOProc mehr aktiv, sonst bliebe
+             * das Flag fuer einen spaeter neu erstellten IOProc faelschlich gesetzt. */
+            atomic_store_explicit(&dev->sr_changing, 0u, memory_order_release);
             continue;
         }
 
@@ -1340,8 +1365,18 @@ static void sr_reinit_all_outputs(void) {
             AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
             dev->proc_id = NULL;
             dev->active  = false;
+            /* P9: Gate freigeben — kein laufender IOProc. */
+            atomic_store_explicit(&dev->sr_changing, 0u, memory_order_release);
         } else {
             dev->active = true;
+            /* P9: Pre-Roll neu scharf schalten, DANN das SR-Wechsel-Gate
+             * freigeben. Reihenfolge wichtig: sobald sr_changing=0 ist, gibt der
+             * IOProc wieder Audio aus — er soll dann sauber via Pre-Roll
+             * anlaufen statt mit halb gefuelltem Ring. */
+            atomic_store_explicit(&dev->preroll_target_frames, ARN_RING_CAPACITY / 4u,
+                                  memory_order_relaxed);
+            atomic_store_explicit(&dev->preroll_armed, 1u, memory_order_release);
+            atomic_store_explicit(&dev->sr_changing, 0u, memory_order_release);
             fprintf(stdout, "Helper: Output neu gestartet nach SR-Wechsel: %s [Ch %u-%u]\n",
                     dev->name, dev->ch_offset + 1, dev->ch_offset + 2);
         }
