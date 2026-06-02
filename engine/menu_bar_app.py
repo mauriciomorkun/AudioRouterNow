@@ -126,6 +126,13 @@ class AudioRouterApp(rumps.App):
         # Status-Zeile: letzter (title, action_key)-Wert zum Flacker-Schutz
         self._last_status_cache = (None, None)
 
+        # P8: Zentraler Status-Cache. Der health-poll-Loop (200ms) ruft ohnehin
+        # regelmaessig get_status auf — andere Stellen (_compute_status,
+        # _process_pending_updates) lesen den Cache statt eigene Socket-Connects
+        # zu oeffnen. Dict-Zuweisung ist GIL-atomar; kein zusaetzliches Lock noetig.
+        self._status_cache: dict | None = None
+        self._status_cache_ts: float = 0.0
+
         # Main-thread UI-Timer
         self._ui_timer = rumps.Timer(self._process_pending_updates, 0.5)
         self._ui_timer.start()
@@ -582,7 +589,10 @@ class AudioRouterApp(rumps.App):
         # wiederholt neu setzen und laufende Streams unterbrechen).
         if self._needs_reconfigure and alive_now:
             if self._reconfigure_attempts < 5:
-                status = self._helper.get_status()
+                # P8: Cache lesen statt eigenem Socket-Connect. Faellt der Cache
+                # leer aus (z.B. Helper gerade erst hochgefahren), gilt das als
+                # "noch nicht ready" — der naechste Timer-Tick versucht es erneut.
+                status = self._cached_status()
                 if status is not None and status.get('ready') is not False:
                     self._reconfigure_attempts += 1
                     logger.info(
@@ -653,11 +663,17 @@ class AudioRouterApp(rumps.App):
         while not self._health_poll_stop.wait(0.2):
             if not self._helper_alive:
                 self._health_level = "critical"
+                # P8: Cache invalidieren — Helper tot, alter Status ist ungueltig.
+                self._status_cache = None
                 continue
             try:
                 status = self._helper.get_status(timeout=0.15)
                 if status is None:
                     continue
+                # P8: Frischen Status zentral cachen fuer _compute_status /
+                # _process_pending_updates (vermeidet zusaetzliche Socket-Connects).
+                self._status_cache = status
+                self._status_cache_ts = time.monotonic()
                 audio_flowing = int(status.get("ring_frames", 0)) > 0
                 sh = self._health_monitor.update(status, audio_flowing)
                 self._health_level = sh.level   # GIL-atomare Zuweisung
@@ -690,6 +706,17 @@ class AudioRouterApp(rumps.App):
             except Exception as e:
                 logger.debug("health_poll_loop Fehler: %s", e)
 
+    def _cached_status(self, max_age: float = 1.0) -> dict | None:
+        """P8: Liefert den vom health-poll-Loop befuellten Status-Cache, sofern
+        nicht aelter als max_age Sekunden. Vermeidet eigene Socket-Connects in
+        haeufig aufgerufenen Pfaden (UI-Timer, Status-Berechnung)."""
+        cache = self._status_cache
+        if cache is None:
+            return None
+        if (time.monotonic() - self._status_cache_ts) > max_age:
+            return None
+        return cache
+
     def _compute_status(self) -> tuple[str, object]:
         """
         Berechnet den aktuellen Systemzustand und liefert (title, action_key).
@@ -720,10 +747,10 @@ class AudioRouterApp(rumps.App):
         if not routed_here:
             return ("🟡  System audio not routed here — click to fix", "switch_audio")
 
-        # 4. audio_flowing — get_status NUR wenn helper_alive AND outputs_selected.
-        #    Kurzer Timeout, damit ein haengender Helper den 0.5s-Timer nicht blockiert.
+        # 4. audio_flowing — P8: Status aus dem zentralen Cache lesen (vom
+        #    health-poll-Loop alle 200ms aktualisiert) statt eigenem Socket-Connect.
         audio_flowing = False
-        status = self._helper.get_status(timeout=0.2)
+        status = self._cached_status()
         if status is not None:
             try:
                 audio_flowing = int(status.get("ring_frames", 0)) > 0
