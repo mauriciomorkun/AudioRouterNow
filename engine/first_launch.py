@@ -25,6 +25,41 @@ LAUNCHD_LABEL       = "com.audiorouter.now.helper"
 LAUNCHD_AGENTS_DIR  = Path.home() / "Library" / "LaunchAgents"
 LAUNCHD_INSTALL_PATH = LAUNCHD_AGENTS_DIR / LAUNCHD_PLIST_NAME
 
+# P10: Vom App-Build erwartete Treiber-ABI-Version. MUSS mit kDriverABIVersion
+# in driver/src/AudioRouterNowDriver.c uebereinstimmen. Bei jeder ABI-relevanten
+# Aenderung (shared_ring.h-Layout, Property-Modell) BEIDE Stellen hochzaehlen.
+APP_EXPECTED_ABI_VERSION = 1
+ABI_VERSION_FILE_NAME = "abi_version"
+
+
+def _read_abi_version_file(bundle_path: Path) -> int | None:
+    """P10: Liest Contents/Resources/abi_version aus einem .driver-Bundle.
+    Gibt die ABI-Version als int zurueck, oder None wenn nicht lesbar/parsebar
+    (z.B. alter Treiber ohne abi_version-Datei)."""
+    f = bundle_path / "Contents" / "Resources" / ABI_VERSION_FILE_NAME
+    try:
+        txt = f.read_text(encoding="ascii").strip()
+        return int(txt)
+    except (OSError, ValueError):
+        return None
+
+
+def get_installed_driver_abi_version() -> int | None:
+    """P10: ABI-Version des aktuell INSTALLIERTEN Treibers (oder None)."""
+    return _read_abi_version_file(DRIVER_INSTALL_PATH)
+
+
+def driver_abi_matches() -> bool:
+    """P10: True, wenn der installierte Treiber ABI-kompatibel mit dieser App ist.
+
+    Fehlt die abi_version-Datei (alter Treiber vor P10), gilt das als Mismatch —
+    der Treiber sollte dann neu installiert werden, damit beide Seiten dieselbe
+    shared_ring.h-ABI verwenden."""
+    installed = get_installed_driver_abi_version()
+    if installed is None:
+        return False
+    return installed == APP_EXPECTED_ABI_VERSION
+
 
 def _get_driver_source_path() -> Path:
     """
@@ -215,8 +250,33 @@ def check_and_install() -> bool:
         False if the user cancelled the installation or an error occurred.
     """
     if is_driver_installed():
-        logger.info("Driver already installed — no action needed.")
-        # Clean up any launchd agent — app manages helper directly
+        # P10: ABI-Version pruefen. Stimmt sie nicht (oder fehlt sie, alter
+        # Treiber), den Treiber neu installieren — sonst koennten App und
+        # Treiber inkompatible shared_ring.h-Layouts verwenden.
+        if driver_abi_matches():
+            logger.info("Driver already installed and ABI-compatible — no action needed.")
+            _ensure_no_launchd_agent()
+            return True
+
+        installed_abi = get_installed_driver_abi_version()
+        logger.warning(
+            "Driver ABI mismatch: installed=%s, expected=%d — reinstalling driver.",
+            installed_abi, APP_EXPECTED_ABI_VERSION,
+        )
+        _show_install_dialog()
+        success, error_msg = install_driver()
+        if not success:
+            _show_error_dialog(error_msg)
+            return False
+        if not driver_abi_matches():
+            _show_error_dialog(
+                "The driver was reinstalled but the ABI version still does not match.\n\n"
+                f"Installed: {get_installed_driver_abi_version()}, "
+                f"expected: {APP_EXPECTED_ABI_VERSION}.\n\n"
+                "Please restart AudioRouterNow."
+            )
+            return False
+        logger.info("Driver reinstalled — ABI now matches.")
         _ensure_no_launchd_agent()
         return True
 
