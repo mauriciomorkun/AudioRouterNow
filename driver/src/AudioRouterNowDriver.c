@@ -133,6 +133,11 @@ static _Atomic bool                     gMute               = false; /* atomar f
  * geschrieben und von GetZeroTimeStamp (RT-Thread) gelesen. Verhindert Data Race. */
 static atomic_ullong                    gAnchorHostTime     = 0;
 static atomic_ullong                    gNumberTimeStamps   = 0;
+/* P4: Echte vom RT-Pfad geschriebene Frame-Anzahl. GetZeroTimeStamp leitet
+ * die Sample-Zeit aus den TATSAECHLICH geschriebenen Frames ab, statt aus der
+ * Host-Clock — so bleibt die Sample-Zeit konsistent mit dem Ring-Fortschritt,
+ * auch wenn IOProc-Calls zeitlich driften. RT-sicher: nur atomic_fetch_add. */
+static atomic_ullong                    gFramesWritten      = 0;
 /*
  * gHostTicksPerFrame: wird nur von nicht-RT-Pfaden geschrieben (Initialize,
  * StartIO). Von GetZeroTimeStamp atomar gelesen — kein Mutex noetig.
@@ -695,6 +700,12 @@ static OSStatus ARN_PerformDeviceConfigurationChange(AudioServerPlugInDriverRef 
         Float64 nanosPerTick = (Float64)tb.numer / (Float64)tb.denom;
         atomic_store(&gHostTicksPerFrameBits,
                      _f64_to_u64((1.0e9 / gSampleRate) / nanosPerTick));
+        /* P4: Frame-Zaehler und Anker beim SR-Wechsel zuruecksetzen, damit die
+         * Sample-Zeit-Uhr (frame-basiert) sauber neu startet — sonst mischen
+         * sich Frames vor/nach dem Wechsel. */
+        atomic_store(&gFramesWritten, 0);
+        atomic_store(&gNumberTimeStamps, 0);
+        atomic_store_explicit(&gAnchorHostTime, mach_absolute_time(), memory_order_release);
         /* SHM-Ring mit neuer SR neu initialisieren */
         ARNSharedRing *ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
         if (ring != NULL) {
@@ -1665,6 +1676,7 @@ static OSStatus ARN_StartIO(AudioServerPlugInDriverRef inDriver,
         /* Erster Client startet die Uhr. K5: atomic store (RT-Thread liest in GetZeroTimeStamp). */
         atomic_store_explicit(&gAnchorHostTime, mach_absolute_time(), memory_order_release);
         atomic_store(&gNumberTimeStamps, 0);
+        atomic_store(&gFramesWritten, 0);  /* P4: Frame-Zaehler beim Start zuruecksetzen. */
         atomic_store(&gDeviceIsRunning, 1);
         os_log(gLog, "AudioRouterNow: StartIO — Device laeuft");
     }
@@ -1705,21 +1717,20 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
     }
 
     /*
-     * Modell einer freilaufenden Uhr: alle kZeroTimeStampPeriod Frames
-     * ein neuer Anker. Da das Device virtuell ist, leiten wir die
-     * verstrichene Zeit aus der Host-Clock ab.
+     * P4: Sample-Zeit aus den TATSAECHLICH geschriebenen Frames ableiten.
+     * Frueher wurde die verstrichene Zeit aus der Host-Clock geschaetzt, was
+     * bei zeitlich driftenden IOProc-Calls zu einer Sample-Zeit fuehren konnte,
+     * die nicht zum Ring-Fortschritt passt. Jetzt zaehlt ARN_DoIOOperation die
+     * verarbeiteten Frames in gFramesWritten, und wir runden auf die letzte
+     * voll abgeschlossene kZeroTimeStampPeriod-Grenze.
      */
-    UInt64 now      = mach_absolute_time();
-    /* K5: atomic load — verhindert Data Race mit StartIO (schreibt unter gStateMutex). */
     UInt64 anchor   = (UInt64)atomic_load_explicit(&gAnchorHostTime, memory_order_acquire);
 
     /* Fix macOS 26: Vor dem ersten StartIO ist gAnchorHostTime = 0.
-     * Das ergibt elapsed = (now - 0) = riesige Zahl → coreaudiod denkt
-     * das Device ist weit in der Zukunft → ruft StartIO nie auf.
-     * Lösung: vor StartIO den aktuellen Zeitpunkt als Anker nutzen
-     * damit elapsed ≈ 0 und der Timestamp sinnvoll ist. */
+     * Das ergibt einen unsinnigen Host-Timestamp → coreaudiod ruft StartIO
+     * nie auf. Lösung: vor StartIO den aktuellen Zeitpunkt als Anker nutzen. */
     if (anchor == 0) {
-        anchor = now;
+        anchor = mach_absolute_time();
     }
 
     /* Kein Mutex im RT-Pfad — atomic_load verhindert Priority-Inversion. */
@@ -1730,12 +1741,11 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
         ticksPerFrame = 1.0;
     }
 
-    Float64 elapsedFrames = (Float64)(now - anchor) / ticksPerFrame;
-    UInt64  period        = kZeroTimeStampPeriod;
-    UInt64  completed     = (UInt64)(elapsedFrames / (Float64)period);
+    uint64_t frames    = atomic_load_explicit(&gFramesWritten, memory_order_relaxed);
+    uint64_t completed = frames / kZeroTimeStampPeriod;
 
-    *outSampleTime = (Float64)(completed * period);
-    *outHostTime   = anchor + (UInt64)((Float64)(completed * period) * ticksPerFrame);
+    *outSampleTime = (Float64)(completed * kZeroTimeStampPeriod);
+    *outHostTime   = anchor + (UInt64)((Float64)(completed * kZeroTimeStampPeriod) * ticksPerFrame);
     *outSeed       = 1; /* Format aendert sich nie waehrend IO */
 
     atomic_store(&gNumberTimeStamps, completed);
@@ -1812,6 +1822,13 @@ static OSStatus ARN_DoIOOperation(AudioServerPlugInDriverRef inDriver,
         ioMainBuffer != NULL && inIOBufferFrameSize > 0) {
 
         size_t byteCount = (size_t)inIOBufferFrameSize * kBytesPerFrame;
+
+        /* P4: Tatsaechlich verarbeitete Frames zaehlen — Basis fuer die
+         * Sample-Zeit in GetZeroTimeStamp. RT-sicher (nur atomic_fetch_add,
+         * kein malloc/lock/printf). Ausserhalb des ring!=NULL-Blocks, damit
+         * der Takt auch dann konsistent fortschreitet, wenn der Ring gerade
+         * neu gemappt wird. */
+        atomic_fetch_add_explicit(&gFramesWritten, inIOBufferFrameSize, memory_order_relaxed);
 
         /* Mute beruecksichtigen: stilles Signal trotzdem als Frame senden,
          * damit die Python-Engine ihren Takt behaelt. Volume wird in der
