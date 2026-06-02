@@ -1,6 +1,6 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 2. Juni 2026 (Kapitel 33 — v3.0 Build #2)
+**Stand:** 2. Juni 2026 (Kapitel 35 — v3.0 Build #3)
 **Version:** 3.0.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
@@ -44,6 +44,8 @@
 31. [v3.0 Build & Release (2. Juni 2026)](#31-v30-build--release-2-juni-2026)
 32. [Hotfix — SRC Drift Warning Threshold (2. Juni 2026)](#32-hotfix--src-drift-warning-threshold-2-juni-2026)
 33. [v3.0 Build #2 — Hotfix eingebaut (2. Juni 2026)](#33-v30-build-2--hotfix-eingebaut-2-juni-2026)
+34. [Feature: Visueller Fortschritts-Balken bei Treiber-Installation (2. Juni 2026)](#34-feature-visueller-fortschritts-balken-bei-treiber-installation-2-juni-2026)
+35. [v3.0 Build #3 — Progress-Bar-Feature (2. Juni 2026)](#35-v30-build-3--progress-bar-feature-2-juni-2026)
 
 ---
 
@@ -4284,5 +4286,71 @@ Zweiter Produktions-Build nach dem SRC-Drift-Hotfix (Kapitel 32). Der Fix in `en
 |---------|--------|
 | Build | ✅ |
 | SRC-Drift-Fix eingebaut | ✅ |
+| DMG auf Desktop | ✅ |
+
+---
+
+## 34. Feature: Visueller Fortschritts-Balken bei Treiber-Installation (2. Juni 2026)
+
+### 34.1 Motivation
+
+Beim ersten App-Start wurde der User nach dem Passwort-Dialog mit einem leeren Bildschirm konfrontiert — keine Rückmeldung über den Fortschritt der Treiber-Installation. Ziel: Visuelles Feedback zwischen Passwort-Bestätigung und Onboarding-Wizard.
+
+### 34.2 Design
+
+- **Stil:** Schlicht, borderless, zentriert — kein Fenster-Chrome
+- **Farbe:** Dunkel (#1A1A1A/#252525) mit orangenem Akzent (#FF6600, App-Icon-Farbe)
+- **Elemente:** Titel, Schritt-Text (grau), Fortschritts-Balken (orange), dünne orange Linie am unteren Rand
+- **Verhalten:** Erscheint sofort nach Info-Dialog, schließt sich automatisch nach Abschluss
+
+### 34.3 Installations-Schritte (sichtbar im Fenster)
+
+| % | Schritt-Text |
+|---|-------------|
+| 0 | Warte auf Passwort-Bestätigung… |
+| 25 | Kopiere Treiber… |
+| 60 | Starte Audio-Dienst neu… |
+| 80 | Signiere Treiber… |
+| 100 | ✓ Installation abgeschlossen |
+
+### 34.4 Technische Umsetzung
+
+**Toolkit:** tkinter (in PyInstaller-Bundle via hiddenimports)
+
+**Progress-Kommunikation via Temp-Datei:**
+- `install_driver()` schreibt ein Shell-Script nach `/tmp/.arn_install.sh`
+- Script schreibt Marker `0/1/2/3` in `/tmp/.arn_install_progress` während es läuft
+- Main-Thread: `root.after(200ms)` Polling liest Marker → aktualisiert Balken
+
+**Threading-Modell:**
+- Background-Thread: `osascript with administrator privileges` (blockiert bis Passwort + Installation)
+- Main-Thread: `tkinter.mainloop()` + `after()`-Callbacks für Polling
+- Graceful Fallback: bei tkinter-Fehler → `install_thread.join()` ohne UI
+
+**Betroffene Dateien:**
+- `engine/first_launch.py` — neue Klasse `_InstallProgressWindow` + überarbeitetes `install_driver()`
+- `installer/AudioRouterNow.spec` — tkinter aus `excludes` entfernt, zu `hiddenimports` hinzugefügt
+
+**Commit:** `bdf9e16`
+
+---
+
+## 35. v3.0 Build #3 — Progress-Bar-Feature (2. Juni 2026)
+
+Dritter Produktions-Build mit visuellem Fortschritts-Balken bei der Treiber-Installation.
+
+### 35.1 Build
+
+| Schritt | Ergebnis |
+|---------|----------|
+| Driver + Helper (Universal Binary) | ✅ x86_64 + arm64 |
+| PyInstaller .app | ✅ mit Progress-Bar + tkinter gebündelt |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 12 MB |
+
+### 35.2 Status
+
+| | |
+|--|--|
+| Feature eingebaut | ✅ |
 | DMG auf Desktop | ✅ |
 
