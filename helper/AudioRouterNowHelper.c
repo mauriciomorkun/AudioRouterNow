@@ -66,6 +66,13 @@ static char g_config_socket_path[512] = {0};
 #define STALL_TIMEOUT_NS  (1000ULL * 1000ULL * 1000ULL)  /* K2: 1000ms ohne Fortschritt = Stall
                                                             * (erhöht von 300ms — SRC-Boundary-
                                                             * Instabilität braucht mehr Settle-Zeit) */
+/* P6: Hard-Stall — schnellere Erkennung (~300ms) NUR wenn der IOProc nachweislich
+ * laeuft (ioproc_calls steigt) aber NICHT konsumiert (ridx eingefroren) UND der
+ * Ring sehr voll ist (>75%). Diese Kombination ist kein normaler Underrun und
+ * tritt auch bei 44.1kHz nicht faelschlich auf — daher das kurze Fenster. */
+#define HARD_STALL_TIMEOUT_NS  (300ULL * 1000ULL * 1000ULL)  /* 300ms */
+#define HARD_STALL_FILL_NUM    3u   /* Ring-Fill-Schwelle: > 75% = 3/4 der Kapazitaet */
+#define HARD_STALL_FILL_DEN    4u
 
 #define MAX_OUTPUTS            8
 
@@ -252,6 +259,14 @@ typedef struct DeviceOutput {
     uint32_t         last_ridx_sample;   /* zuletzt gesehener local_ridx-Wert    */
     uint64_t         last_progress_ns;   /* mach_absolute_time() der letzten Bewegung */
     _Atomic uint32_t stalled;            /* 1 = als gestallt markiert (Diagnose)  */
+    /* P6: Hard-Stall-Detection (~300ms). Der IOProc inkrementiert ioproc_calls
+     * bei jedem Aufruf (RT-safe, relaxed). Der Health-Check erkennt einen
+     * Hard-Stall wenn GLEICHZEITIG: ridx eingefroren, Ring-Fill > 75% UND
+     * ioproc_calls steigt (IOProc laeuft, konsumiert aber nicht). 300ms-Fenster
+     * vermeidet 44.1kHz-False-Positives des langsameren Soft-Stalls (1000ms). */
+    _Atomic uint32_t ioproc_calls;          /* vom IOProc inkrementiert (RT)        */
+    uint32_t         last_ioproc_calls_sample; /* letzter im Health-Check gesehener Wert */
+    uint64_t         hard_stall_since_ns;   /* Beginn des Hard-Stall-Fensters (0=keins) */
     _Atomic uint32_t recovery_count;     /* Diagnose: wie oft hat sich dieser Output von einem Stall erholt */
     /* Tranche B: Pre-Roll High-Water-Mark.
      * preroll_armed=1 -> IOProc gibt Stille bis Ring >= preroll_target_frames,
@@ -712,6 +727,10 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
     ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
 
     if (!dev || !ring || !outOutputData) return noErr;
+
+    /* P6: Pro-Output IOProc-Call-Zaehler — Basis fuer Hard-Stall-Detection.
+     * RT-safe: nur relaxed atomic increment. */
+    atomic_fetch_add_explicit(&dev->ioproc_calls, 1u, memory_order_relaxed);
 
     /* K6: Pending-Reset fuer src_frac_ridx — RT-safe, kein Lock.
      * Volume-Thread/sr_reinit setzt das Flag + Zielwert atomar.
@@ -1586,6 +1605,47 @@ static void *volume_poll_thread(void *arg)
                 /* K2: Stall-Detection — prüfe ob local_ridx Fortschritt macht. */
                 uint32_t cur_ridx = atomic_load_explicit(&dev->local_ridx, memory_order_acquire);
                 uint64_t now_ns   = get_time_ns();
+
+                /* P6: Hard-Stall-Detection (~300ms). Drei Bedingungen MUESSEN
+                 * gleichzeitig gelten:
+                 *   (1) ridx eingefroren (cur_ridx == last_ridx_sample),
+                 *   (2) Ring-Fill > 75%,
+                 *   (3) ioproc_calls steigt (IOProc laeuft, konsumiert aber nicht).
+                 * Solange alle drei seit >300ms gelten → Hard-Stall. */
+                uint32_t cur_ioproc_calls = atomic_load_explicit(&dev->ioproc_calls,
+                                                                 memory_order_relaxed);
+                bool ioproc_running = (cur_ioproc_calls != dev->last_ioproc_calls_sample);
+                uint32_t hard_fill  = w_now - cur_ridx;  /* Samples im Ring fuer diesen Output */
+                bool ring_very_full = (hard_fill >
+                    (ARN_RING_CAPACITY * HARD_STALL_FILL_NUM) / HARD_STALL_FILL_DEN);
+                bool ridx_frozen    = (cur_ridx == dev->last_ridx_sample);
+                dev->last_ioproc_calls_sample = cur_ioproc_calls;
+
+                if (ridx_frozen && ring_very_full && ioproc_running
+                    && !atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
+                    if (dev->hard_stall_since_ns == 0) {
+                        dev->hard_stall_since_ns = now_ns;  /* Fenster startet */
+                    } else if ((now_ns - dev->hard_stall_since_ns) > HARD_STALL_TIMEOUT_NS) {
+                        /* Hard-Stall bestaetigt — gleiche Recovery wie Soft-Stall. */
+                        atomic_store_explicit(&dev->stalled, 1u, memory_order_release);
+                        atomic_store_explicit(&dev->frac_ridx_reset_widx, w_now, memory_order_relaxed);
+                        atomic_store_explicit(&dev->frac_ridx_reset_pending, 1u, memory_order_release);
+                        atomic_store_explicit(&dev->local_ridx, w_now, memory_order_release);
+                        dev->last_ridx_sample = w_now;
+                        dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
+                        dev->integ_error = 0.0;
+                        dev->hard_stall_since_ns = 0;
+                        fprintf(stderr, "Helper: Output '%s' HARD-STALL — IOProc laeuft, "
+                                "ridx eingefroren, Ring >75%% seit >300ms. "
+                                "Position auf write_idx zurueckgesetzt.\n", dev->name);
+                        /* Stall gesetzt + Position auf w_now korrigiert — Soft-Stall-
+                         * Logik und P-Regler fuer diesen Tick ueberspringen. */
+                        continue;
+                    }
+                } else {
+                    /* Mindestens eine Bedingung verletzt → Fenster zuruecksetzen. */
+                    dev->hard_stall_since_ns = 0;
+                }
 
                 if (cur_ridx != dev->last_ridx_sample) {
                     /* Fortschritt — Stall zurücksetzen */
