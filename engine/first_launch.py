@@ -14,8 +14,6 @@ import shutil
 import subprocess
 import sys
 import threading
-import tkinter as tk
-from tkinter import ttk
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -68,11 +66,11 @@ def driver_abi_matches() -> bool:
 # Installation Progress Window
 # ---------------------------------------------------------------------------
 
-_ACCENT = "#1FDDAE"          # Mint-Türkis aus App-Icon (RGB 31/221/174)
-_BG     = "#1A1A1A"          # Dunkler Hintergrund
-_BG2    = "#252525"          # Etwas helleres Panel
-_FG     = "#F0F0F0"          # Weißer Text
-_FG2    = "#888888"          # Grauer Untertitel-Text
+_ACCENT_RGB  = (0.122, 0.867, 0.682)   # #1FDDAE — Mint-Türkis aus App-Icon
+_BG_RGB      = (0.102, 0.102, 0.102)   # #1A1A1A
+_PANEL_RGB   = (0.145, 0.145, 0.145)   # #252525
+_FG_RGB      = (0.941, 0.941, 0.941)   # #F0F0F0
+_FG2_RGB     = (0.533, 0.533, 0.533)   # #888888
 
 _STEPS = [
     (0,   "Warte auf Passwort-Bestätigung…"),
@@ -84,107 +82,117 @@ _STEPS = [
 
 
 class _InstallProgressWindow:
-    """Schlichtes Fortschritts-Fenster für die Treiber-Installation.
+    """Fortschritts-Fenster via AppKit (kein tkinter nötig).
 
-    Erscheint zwischen Info-Dialog und Onboarding-Wizard. Nutzt tkinter
-    (im PyInstaller-Build als hiddenimport vorhanden). Fenster ist
-    borderless, zentriert, immer im Vordergrund.
+    Nutzt NSWindow + NSProgressIndicator + NSTextField.
+    Event-Loop: NSRunLoop.mainRunLoop().runMode_beforeDate_() im Polling-Modus —
+    kein NSApplication.run() nötig (kompatibel mit späterer rumps-Initialisierung).
     """
 
     def __init__(self) -> None:
-        self.root = tk.Tk()
-        self.root.withdraw()  # erstmal verstecken, bis alles gebaut ist
+        from AppKit import (
+            NSApplication, NSWindow, NSTextField, NSProgressIndicator,
+            NSColor, NSView, NSFont, NSTextAlignment,
+            NSWindowStyleMaskBorderless, NSBackingStoreBuffered,
+            NSFloatingWindowLevel,
+        )
+        from Foundation import NSMakeRect
 
-        self.root.title("AudioRouterNow")
-        self.root.resizable(False, False)
-        self.root.configure(bg=_BG)
-        self.root.overrideredirect(True)   # kein Fenster-Chrome
-        self.root.attributes("-topmost", True)
+        # NSApplication einmalig initialisieren (kein Dock-Icon)
+        _app = NSApplication.sharedApplication()
+        _app.setActivationPolicy_(1)   # NSApplicationActivationPolicyAccessory
 
-        # Fenster-Größe und Zentrierung
-        w, h = 420, 150
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        x = (sw - w) // 2
-        y = (sh - h) // 2
-        self.root.geometry(f"{w}x{h}+{x}+{y}")
+        W, H = 420, 150
 
-        # Äußerer Rahmen mit leicht hellerem Hintergrund
-        outer = tk.Frame(self.root, bg=_BG, padx=1, pady=1)
-        outer.pack(fill=tk.BOTH, expand=True)
+        self._window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(0, 0, W, H),
+            NSWindowStyleMaskBorderless,
+            NSBackingStoreBuffered,
+            False,
+        )
+        r, g, b = _BG_RGB
+        self._window.setBackgroundColor_(
+            NSColor.colorWithRed_green_blue_alpha_(r, g, b, 1.0)
+        )
+        self._window.setLevel_(NSFloatingWindowLevel + 1)
+        self._window.center()
+        self._window.setOpaque_(True)
 
-        inner = tk.Frame(outer, bg=_BG2, padx=24, pady=20)
-        inner.pack(fill=tk.BOTH, expand=True)
+        content = self._window.contentView()
+
+        # Panel-Hintergrund (leicht heller)
+        panel = NSView.alloc().initWithFrame_(NSMakeRect(1, 1, W - 2, H - 2))
+        panel.setWantsLayer_(True)
+        pr, pg, pb = _PANEL_RGB
+        panel.layer().setBackgroundColor_(
+            NSColor.colorWithRed_green_blue_alpha_(pr, pg, pb, 1.0).CGColor()
+        )
+        content.addSubview_(panel)
+
+        def _label(text, x, y, w, h, size, bold=False, color_rgb=_FG_RGB):
+            f = NSTextField.alloc().initWithFrame_(NSMakeRect(x, y, w, h))
+            f.setStringValue_(text)
+            f.setEditable_(False)
+            f.setBordered_(False)
+            f.setDrawsBackground_(False)
+            cr, cg, cb = color_rgb
+            f.setTextColor_(NSColor.colorWithRed_green_blue_alpha_(cr, cg, cb, 1.0))
+            f.setFont_(NSFont.boldSystemFontOfSize_(size) if bold
+                       else NSFont.systemFontOfSize_(size))
+            panel.addSubview_(f)
+            return f
 
         # Titel
-        tk.Label(
-            inner, text="AudioRouterNow — Treiber-Installation",
-            bg=_BG2, fg=_FG,
-            font=("Helvetica Neue", 13, "bold"),
-            anchor="w",
-        ).pack(fill=tk.X)
+        _label("AudioRouterNow — Treiber-Installation",
+               24, H - 44, W - 48, 22, 13.0, bold=True)
 
-        # Schritt-Text
-        self._step_var = tk.StringVar(value=_STEPS[0][1])
-        tk.Label(
-            inner, textvariable=self._step_var,
-            bg=_BG2, fg=_FG2,
-            font=("Helvetica Neue", 11),
-            anchor="w",
-        ).pack(fill=tk.X, pady=(6, 10))
-
-        # Progress Bar mit orangem Akzent
-        style = ttk.Style(self.root)
-        style.theme_use("default")
-        style.configure(
-            "ARN.Horizontal.TProgressbar",
-            troughcolor="#3A3A3A",
-            background=_ACCENT,
-            bordercolor=_BG2,
-            lightcolor=_ACCENT,
-            darkcolor=_ACCENT,
+        # Schritt-Text (dynamisch)
+        self._step_field = _label(
+            _STEPS[0][1], 24, H - 68, W - 48, 18, 11.0, color_rgb=_FG2_RGB
         )
-        self._progress_var = tk.IntVar(value=0)
-        self._bar = ttk.Progressbar(
-            inner,
-            style="ARN.Horizontal.TProgressbar",
-            orient="horizontal",
-            length=372,
-            mode="determinate",
-            maximum=100,
-            variable=self._progress_var,
+
+        # Fortschritts-Balken
+        self._bar = NSProgressIndicator.alloc().initWithFrame_(
+            NSMakeRect(24, 32, W - 48, 16)
         )
-        self._bar.pack(fill=tk.X)
+        self._bar.setStyle_(0)           # NSProgressIndicatorBarStyle
+        self._bar.setIndeterminate_(False)
+        self._bar.setMinValue_(0.0)
+        self._bar.setMaxValue_(100.0)
+        self._bar.setDoubleValue_(0.0)
+        panel.addSubview_(self._bar)
 
-        # Thin accent line am unteren Rand
-        tk.Frame(self.root, bg=_ACCENT, height=2).pack(fill=tk.X, side=tk.BOTTOM)
+        # Türkise Linie unten
+        accent_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, W, 3))
+        accent_view.setWantsLayer_(True)
+        ar, ag, ab = _ACCENT_RGB
+        accent_view.layer().setBackgroundColor_(
+            NSColor.colorWithRed_green_blue_alpha_(ar, ag, ab, 1.0).CGColor()
+        )
+        content.addSubview_(accent_view)
 
-        self.root.deiconify()   # jetzt sichtbar machen
-        self.root.update()
+        self._window.makeKeyAndOrderFront_(None)
+        _app.activateIgnoringOtherApps_(True)
+        self._closed = False
 
     # ------------------------------------------------------------------
     def set_step(self, pct: int, text: str) -> None:
-        """Aktualisiert Fortschrittsbalken und Schritt-Text (thread-safe via after)."""
-        def _update():
-            self._progress_var.set(pct)
-            self._step_var.set(text)
-            self.root.update_idletasks()
+        if self._closed:
+            return
         try:
-            self.root.after(0, _update)
-        except tk.TclError:
+            self._bar.setDoubleValue_(float(pct))
+            self._step_field.setStringValue_(text)
+            self._window.displayIfNeeded()
+        except Exception:
             pass
 
     def close(self) -> None:
-        """Schließt das Fenster nach kurzem Delay (damit 100%-Status kurz sichtbar ist)."""
-        def _do_close():
-            try:
-                self.root.quit()
-                self.root.destroy()
-            except tk.TclError:
-                pass
+        if self._closed:
+            return
+        self._closed = True
         try:
-            self.root.after(700, _do_close)
-        except tk.TclError:
+            self._window.orderOut_(None)
+        except Exception:
             pass
 
 
@@ -326,46 +334,54 @@ def install_driver() -> tuple[bool, str]:
     install_thread.start()
 
     if win_available:
-        # Map: Marker-Wert → (Prozent, Text) aus _STEPS
-        _marker_map = {
-            0: _STEPS[0],   # 0 → warte
-            1: _STEPS[1],   # 1 → kopiere
-            2: _STEPS[2],   # 2 → neustart
-            3: _STEPS[2],   # 3 → neustart (noch kein codesign)
-        }
+        from Foundation import NSRunLoop, NSDate, NSDefaultRunLoopMode
 
-        def _poll() -> None:
-            """Liest Temp-Datei und aktualisiert Balken; ruft sich selbst alle 200ms auf."""
-            # Marker lesen
+        _marker_map = {
+            0: _STEPS[0],
+            1: _STEPS[1],
+            2: _STEPS[2],
+            3: _STEPS[2],
+        }
+        _codesign_shown = False
+
+        def _tick() -> bool:
+            """Liest Progress-Datei, aktualisiert Fenster. Gibt True zurück wenn fertig."""
+            nonlocal _codesign_shown
+            if not install_thread.is_alive():
+                if not _codesign_shown:
+                    _codesign_shown = True
+                    win.set_step(*_STEPS[3])   # 80% — Signiere
+                    return False               # noch eine Runde warten
+                win.set_step(*_STEPS[4])       # 100% — Fertig
+                return True
+
             try:
                 marker = int(progress_file.read_text().strip())
             except (OSError, ValueError):
                 marker = 0
+            win.set_step(*_marker_map.get(marker, _STEPS[0]))
+            return False
 
-            pct, text = _marker_map.get(marker, _STEPS[0])
-            win.set_step(pct, text)
-
-            if not install_thread.is_alive():
-                # osascript fertig — codesign-Schritt anzeigen
-                win.set_step(*_STEPS[3])  # 80 % — Signiere Treiber
-                win.root.after(600, _finish)
-                return
-
-            win.root.after(200, _poll)
-
-        def _finish() -> None:
-            """Zeigt 100 % und schließt dann das Fenster."""
-            win.set_step(*_STEPS[4])   # 100 % — Installation abgeschlossen
-            win.close()
-
-        win.root.after(200, _poll)
-
+        # NSRunLoop-Polling (200ms Ticks) statt tkinter mainloop
         try:
-            win.root.mainloop()
-        except Exception:  # noqa: BLE001
-            pass
+            _done = False
+            _finish_ticks = 0
+            while not _done:
+                NSRunLoop.mainRunLoop().runMode_beforeDate_(
+                    NSDefaultRunLoopMode,
+                    NSDate.dateWithTimeIntervalSinceNow_(0.2),
+                )
+                if _tick():
+                    # 100% kurz anzeigen, dann schließen
+                    _finish_ticks += 1
+                    if _finish_ticks >= 4:   # ~800ms
+                        _done = True
+        except Exception as exc:
+            logger.warning("Progress window error: %s", exc)
+            install_thread.join()
+
+        win.close()
     else:
-        # Fallback ohne UI
         install_thread.join()
 
     # ------------------------------------------------------------------
