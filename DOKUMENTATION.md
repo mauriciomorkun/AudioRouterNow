@@ -1,6 +1,6 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 2. Juni 2026 (Kapitel 36 — v3.0 Build #4)
+**Stand:** 2. Juni 2026 (Kapitel 37 — Bugfix tkinter + Build #5)
 **Version:** 3.0.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
@@ -47,6 +47,7 @@
 34. [Feature: Visueller Fortschritts-Balken bei Treiber-Installation (2. Juni 2026)](#34-feature-visueller-fortschritts-balken-bei-treiber-installation-2-juni-2026)
 35. [v3.0 Build #3 — Progress-Bar-Feature (2. Juni 2026)](#35-v30-build-3--progress-bar-feature-2-juni-2026)
 36. [v3.0 Build #4 — Türkis-Akzentfarbe (2. Juni 2026)](#36-v30-build-4--türkis-akzentfarbe-2-juni-2026)
+37. [Bugfix — App startet nicht (tkinter fehlt) + Build #5 (2. Juni 2026)](#37-bugfix--app-startet-nicht-tkinter-fehlt--build-5-2-juni-2026)
 
 ---
 
@@ -4397,4 +4398,46 @@ Vierter Produktions-Build nach der Farbkorrektur des Progress-Bar-Fensters.
 |--|--|
 | Build | ✅ |
 | DMG auf Desktop | ✅ `~/Desktop/AudioRouterNow.dmg` |
+
+---
+
+## 37. Bugfix — App startet nicht (tkinter fehlt) + Build #5 (2. Juni 2026)
+
+### 37.1 Problem
+
+Nach Installation der DMG aus Build #4 startete die App nicht — kein Fenster, keine Reaktion. Ursache per Terminal-Diagnose:
+
+```
+ModuleNotFoundError: No module named 'tkinter'
+[PYI-ERROR] Failed to execute script 'menu_bar_app': No module named 'tkinter'
+```
+
+### 37.2 Ursache
+
+Homebrew Python 3.14 hat **kein Tcl/Tk-Binding** (`_tkinter`) eingebaut. PyInstaller kann `tkinter` daher nicht in den Bundle aufnehmen — selbst mit `hiddenimports = ["tkinter"]` schlägt der Import zur Laufzeit fehl. Das Progress-Fenster in `first_launch.py` wurde in Kapitel 34 mit tkinter implementiert, was in diesem Build-Setup nicht funktioniert.
+
+### 37.3 Fix
+
+Kompletter Ersatz von tkinter durch **AppKit + NSRunLoop**:
+
+| Vorher | Nachher |
+|--------|---------|
+| `import tkinter as tk` | entfernt |
+| `from tkinter import ttk` | entfernt |
+| `ttk.Progressbar` | `NSProgressIndicator` |
+| `tk.Tk()` / `tk.Frame()` | `NSWindow` / `NSView` |
+| `root.mainloop()` | `NSRunLoop.mainRunLoop().runMode_beforeDate_()` |
+| Hex-String Farben (`#1A1A1A`) | Float-RGB-Tupel für AppKit (`colorWithRed_green_blue_alpha_`) |
+
+AppKit ist im PyInstaller-Bundle vorhanden (rumps zieht es ein). Das NSRunLoop-Polling (`200ms Ticks`) ersetzt den tkinter-Event-Loop vollständig.
+
+**Commit:** `e1fb6c3`
+
+### 37.4 Build #5
+
+| Schritt | Ergebnis |
+|---------|----------|
+| PyInstaller .app | ✅ ohne tkinter, mit AppKit Progress-Fenster |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 12 MB |
+| App startet | ✅ kein `ModuleNotFoundError` mehr |
 
