@@ -37,8 +37,6 @@ a = Analysis(
         "first_launch",
         "audio_device_control",
         "onboarding",
-        "tkinter",
-        "tkinter.ttk",
     ],
     hookspath=[],
     hooksconfig={},
