@@ -23,8 +23,14 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 CONFIG_SOCKET = str(Path.home() / ".audiorouter" / "audiorouter.config.sock")
+# P3: Per-Launch Auth-Token, vom Helper nach ~/.audiorouter/helper.token (0600) geschrieben.
+TOKEN_PATH = str(Path.home() / ".audiorouter" / "helper.token")
 CONNECT_TIMEOUT = 2.0
 READ_TIMEOUT = 10.0
+
+# P3: Kommandos, die das Auth-Token mitschicken muessen (privilegiert).
+_PRIVILEGED_CMDS = {"shutdown", "set_outputs", "set_sample_rate",
+                    "reconnect_output", "set_safe_take"}
 
 
 @dataclass
@@ -75,6 +81,25 @@ class HelperClient:
         self._proc: Optional[subprocess.Popen] = None
         self._lock = threading.Lock()
         self._spawned_by_us = False
+        # P3: Auth-Token beim Start laden (kann beim ersten Aufruf noch fehlen,
+        # wird dann lazy/bei auth-Fehler nachgeladen).
+        self._auth_token: Optional[str] = None
+        self._load_token()
+
+    # ------------------------------------------------------------------
+    # P3: Auth-Token
+    # ------------------------------------------------------------------
+
+    def _load_token(self) -> Optional[str]:
+        """Laedt das Auth-Token aus ~/.audiorouter/helper.token.
+        Gibt das Token zurueck (oder None, wenn nicht lesbar)."""
+        try:
+            with open(TOKEN_PATH, "r", encoding="ascii") as f:
+                tok = f.read().strip()
+            self._auth_token = tok if tok else None
+        except OSError:
+            self._auth_token = None
+        return self._auth_token
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -167,7 +192,17 @@ class HelperClient:
         """
         with self._lock:
             try:
-                self._send_no_lock({"cmd": "shutdown"})
+                # P3: shutdown ist privilegiert — Token mitschicken (inline, da
+                # wir bereits self._lock halten; _send_privileged wuerde re-locken).
+                payload = {"cmd": "shutdown"}
+                if self._auth_token:
+                    payload["token"] = self._auth_token
+                resp = self._send_no_lock(payload)
+                if resp.get("error") == "auth":
+                    self._load_token()
+                    if self._auth_token:
+                        payload["token"] = self._auth_token
+                    self._send_no_lock(payload)
             except Exception as e:
                 logger.debug(f"Shutdown-Send schlug fehl: {e}")
 
@@ -216,7 +251,7 @@ class HelperClient:
             "outputs": [{"uid": o.uid, "ch_offset": int(o.ch_offset)} for o in outputs],
         }
         try:
-            return self._send(payload)
+            return self._send_privileged(payload)
         except Exception as e:
             logger.warning(f"set_outputs fehlgeschlagen: {e}")
             return None
@@ -224,7 +259,7 @@ class HelperClient:
     def set_sample_rate(self, rate: int) -> Optional[dict]:
         payload = {"cmd": "set_sample_rate", "rate": rate}
         try:
-            return self._send(payload)
+            return self._send_privileged(payload)
         except Exception as e:
             logger.warning(f"set_sample_rate fehlgeschlagen: {e}")
             return None
@@ -233,7 +268,7 @@ class HelperClient:
         """Sendet reconnect_output-Befehl an den Helper (Tranche B)."""
         payload = {"cmd": "reconnect_output", "uid": uid, "ch_offset": int(ch_offset)}
         try:
-            return self._send(payload)
+            return self._send_privileged(payload)
         except Exception as e:
             logger.warning(f"reconnect_output fehlgeschlagen: {e}")
             return None
@@ -242,7 +277,7 @@ class HelperClient:
         """Aktiviert/deaktiviert Safe-Take-Modus im Helper (Tranche B)."""
         payload = {"cmd": "set_safe_take", "enabled": 1 if enabled else 0}
         try:
-            return self._send(payload)
+            return self._send_privileged(payload)
         except Exception as e:
             logger.warning(f"set_safe_take fehlgeschlagen: {e}")
             return None
@@ -268,6 +303,23 @@ class HelperClient:
     def _send(self, payload: dict, timeout: Optional[float] = None) -> dict:
         with self._lock:
             return self._send_no_lock(payload, timeout=timeout)
+
+    def _send_privileged(self, payload: dict, timeout: Optional[float] = None) -> dict:
+        """P3: Sendet ein privilegiertes Kommando MIT Auth-Token. Bei
+        {"error":"auth"} wird das Token neu geladen und EINMAL erneut versucht
+        (deckt einen Helper-Neustart ab, der ein neues Token erzeugt hat)."""
+        with self._lock:
+            if self._auth_token:
+                payload = {**payload, "token": self._auth_token}
+            resp = self._send_no_lock(payload, timeout=timeout)
+            if resp.get("error") == "auth":
+                # Token koennte veraltet sein (Helper neu gestartet) — neu laden + 1x retry.
+                logger.info("Auth-Fehler — Token wird neu geladen und Request wiederholt")
+                self._load_token()
+                if self._auth_token:
+                    payload = {**payload, "token": self._auth_token}
+                resp = self._send_no_lock(payload, timeout=timeout)
+            return resp
 
     def _send_no_lock(self, payload: dict, timeout: Optional[float] = None) -> dict:
         connect_to = timeout if timeout is not None else CONNECT_TIMEOUT

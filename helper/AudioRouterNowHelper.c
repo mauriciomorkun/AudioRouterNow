@@ -74,6 +74,13 @@ static char g_config_socket_path[512] = {0};
 static char g_lock_path[512] = {0};
 static int g_lock_fd = -1;
 
+/* P3: Per-Launch Auth-Token (64 Hex-Zeichen + NUL). Beim Start aus
+ * /dev/urandom erzeugt und nach ~/.audiorouter/helper.token (0600)
+ * geschrieben. Privilegierte Socket-Kommandos muessen dieses Token
+ * mitschicken. */
+static char g_auth_token[65] = {0};
+static char g_token_path[512] = {0};
+
 /* P11/H7: Stellt sicher, dass ~/.audiorouter/ mit 0700 existiert und befuellt
  * g_config_socket_path + g_lock_path. MUSS vor helper_acquire_instance_lock()
  * laufen, damit das Verzeichnis fuer die Lock-Datei bereits existiert. */
@@ -89,6 +96,113 @@ static void config_socket_path_init(void)
              "%s/.audiorouter/audiorouter.config.sock", home);
     snprintf(g_lock_path, sizeof(g_lock_path),
              "%s/.audiorouter/helper.lock", home);
+    snprintf(g_token_path, sizeof(g_token_path),
+             "%s/.audiorouter/helper.token", home);
+}
+
+/* P3: Constant-time Vergleich — verhindert Timing-Seitenkanal beim Token-Check.
+ * Vergleicht IMMER alle n Bytes, kein Short-Circuit (im Gegensatz zu memcmp).
+ * Rueckgabe: 0 wenn gleich, !=0 sonst. */
+static int ct_memcmp(const void *a, const void *b, size_t n)
+{
+    const unsigned char *pa = (const unsigned char *)a;
+    const unsigned char *pb = (const unsigned char *)b;
+    unsigned char diff = 0;
+    for (size_t i = 0; i < n; i++) {
+        diff |= (unsigned char)(pa[i] ^ pb[i]);
+    }
+    return (int)diff;
+}
+
+/* P3: Erzeugt 32 Zufallsbytes aus /dev/urandom, formatiert sie als 64 Hex-Zeichen
+ * in g_auth_token und schreibt das Token nach ~/.audiorouter/helper.token (0600,
+ * O_NOFOLLOW). Rueckgabe: 0 bei Erfolg, -1 bei Fehler. */
+static int auth_token_init(void)
+{
+    unsigned char raw[32];
+    int rfd = open("/dev/urandom", O_RDONLY);
+    if (rfd < 0) {
+        fprintf(stderr, "Helper: /dev/urandom konnte nicht geoeffnet werden (errno=%d)\n", errno);
+        return -1;
+    }
+    size_t got = 0;
+    while (got < sizeof(raw)) {
+        ssize_t r = read(rfd, raw + got, sizeof(raw) - got);
+        if (r <= 0) {
+            if (errno == EINTR) continue;
+            close(rfd);
+            fprintf(stderr, "Helper: Lesen aus /dev/urandom fehlgeschlagen (errno=%d)\n", errno);
+            return -1;
+        }
+        got += (size_t)r;
+    }
+    close(rfd);
+
+    static const char hexd[] = "0123456789abcdef";
+    for (size_t i = 0; i < sizeof(raw); i++) {
+        g_auth_token[i * 2]     = hexd[(raw[i] >> 4) & 0xF];
+        g_auth_token[i * 2 + 1] = hexd[raw[i] & 0xF];
+    }
+    g_auth_token[64] = '\0';
+
+    /* O_NOFOLLOW: kein untergeschobener Symlink. O_TRUNC: altes Token ersetzen. */
+    unlink(g_token_path); /* alten (evtl. fremden) Eintrag entfernen */
+    int tfd = open(g_token_path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+    if (tfd < 0) {
+        fprintf(stderr, "Helper: Token-Datei '%s' konnte nicht geschrieben werden (errno=%d)\n",
+                g_token_path, errno);
+        return -1;
+    }
+    size_t off = 0;
+    while (off < 64) {
+        ssize_t w = write(tfd, g_auth_token + off, 64 - off);
+        if (w <= 0) {
+            if (errno == EINTR) continue;
+            close(tfd);
+            return -1;
+        }
+        off += (size_t)w;
+    }
+    close(tfd);
+    return 0;
+}
+
+/* P3: Extrahiert den Wert von "token":"..." aus der JSON-Zeile in out (Groesse cap).
+ * Rueckgabe: true wenn ein Token gefunden wurde. */
+static bool parse_token(const char *line, char *out, size_t cap)
+{
+    if (cap == 0) return false;
+    out[0] = '\0';
+    const char *key = strstr(line, "\"token\"");
+    if (!key) return false;
+    const char *colon = strchr(key, ':');
+    if (!colon) return false;
+    const char *q1 = strchr(colon, '"');
+    if (!q1) return false;
+    q1++;
+    const char *q2 = strchr(q1, '"');
+    if (!q2) return false;
+    size_t len = (size_t)(q2 - q1);
+    if (len >= cap) len = cap - 1;
+    memcpy(out, q1, len);
+    out[len] = '\0';
+    return true;
+}
+
+/* P3: Prueft, ob die Request-Zeile ein gueltiges Auth-Token enthaelt.
+ * Constant-time Vergleich. Rueckgabe: true bei gueltigem Token. */
+static bool auth_check(const char *line)
+{
+    char tok[128];
+    if (!parse_token(line, tok, sizeof(tok))) {
+        return false;
+    }
+    /* Laengenpruefung VOR ct_memcmp — sonst koennte ein kuerzeres Token
+     * out-of-bounds vergleichen. Beide muessen exakt 64 Zeichen sein. */
+    if (strlen(tok) != 64 || strlen(g_auth_token) != 64) {
+        return false;
+    }
+    return ct_memcmp(tok, g_auth_token, 64) == 0;
 }
 
 /* M8/P11: Single-Instance-Lock — verhindert zwei parallele Helper-Instanzen die
@@ -1725,6 +1839,10 @@ static int parse_and_execute(int fd, const char *line)
     }
 
     if (json_has_cmd(line, "shutdown")) {
+        if (!auth_check(line)) {
+            send_line(fd, "{\"ok\":false,\"error\":\"auth\"}");
+            return 1;  /* Socket schliessen */
+        }
         snprintf(resp, sizeof(resp), "{\"ok\":true,\"shutting_down\":true}");
         send_line(fd, resp);
         atomic_store_explicit(&g_running, 0, memory_order_release);
@@ -1771,6 +1889,10 @@ static int parse_and_execute(int fd, const char *line)
     }
 
     if (json_has_cmd(line, "set_outputs")) {
+        if (!auth_check(line)) {
+            send_line(fd, "{\"ok\":false,\"error\":\"auth\"}");
+            return 1;  /* Socket schliessen */
+        }
         char     new_uids[MAX_OUTPUTS][512];
         uint32_t new_offs[MAX_OUTPUTS];
         memset(new_uids, 0, sizeof(new_uids));
@@ -1827,6 +1949,10 @@ static int parse_and_execute(int fd, const char *line)
     }
 
     if (json_has_cmd(line, "set_sample_rate")) {
+        if (!auth_check(line)) {
+            send_line(fd, "{\"ok\":false,\"error\":\"auth\"}");
+            return 1;  /* Socket schliessen */
+        }
         /* Parse rate: "rate":N */
         uint32_t new_sr = 0;
         const char *rate_key = strstr(line, "\"rate\"");
@@ -1887,6 +2013,10 @@ static int parse_and_execute(int fd, const char *line)
 
     /* Tranche B: reconnect_output — Python-Brain kann gezielt einen Output neu starten */
     if (json_has_cmd(line, "reconnect_output")) {
+        if (!auth_check(line)) {
+            send_line(fd, "{\"ok\":false,\"error\":\"auth\"}");
+            return 1;  /* Socket schliessen */
+        }
         /* Safe-Take Guard */
         if (atomic_load_explicit(&g_safe_take, memory_order_acquire)) {
             send_line(fd, "{\"ok\":false,\"error\":\"safe_take\"}");
@@ -1950,6 +2080,10 @@ static int parse_and_execute(int fd, const char *line)
 
     /* Tranche B: set_safe_take — deaktiviert/aktiviert alle Heiler-Aktuatoren */
     if (json_has_cmd(line, "set_safe_take")) {
+        if (!auth_check(line)) {
+            send_line(fd, "{\"ok\":false,\"error\":\"auth\"}");
+            return 1;  /* Socket schliessen */
+        }
         uint32_t enabled = 0;
         const char *en_key = strstr(line, "\"enabled\"");
         if (en_key) {
@@ -2149,6 +2283,14 @@ int main(int argc, char *argv[])
 
     /* M8/P11: Single-Instance-Guard — direkt nach der Pfad-Init, vor allem anderen. */
     if (helper_acquire_instance_lock() != 0) {
+        return 1;
+    }
+
+    /* P3: Per-Launch Auth-Token erzeugen und nach ~/.audiorouter/helper.token
+     * schreiben. Muss vor dem Start des Config-Sockets laufen, damit jeder
+     * privilegierte Request bereits gegen ein gueltiges Token geprueft wird. */
+    if (auth_token_init() != 0) {
+        fprintf(stderr, "Helper: Auth-Token konnte nicht initialisiert werden — Abbruch\n");
         return 1;
     }
 
