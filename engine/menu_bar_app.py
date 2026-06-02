@@ -925,6 +925,11 @@ class AudioRouterApp(rumps.App):
             logger.warning("Helper antwortet nicht — bitte prüfen")
         else:
             logger.info(f"Outputs an Helper gesendet ({len(specs)}): ok={resp.get('ok')}")
+            # P2: Menue-Zustand mit den TATSAECHLICH aktiven Outputs des Helpers
+            # abgleichen. Wenn z.B. ein Output nicht startbar war (Device weg,
+            # SR-Mismatch), korrigieren wir die interne Auswahl, damit das Menue
+            # nicht "aktiv" anzeigt was real nicht laeuft.
+            self._reconcile_active_outputs(resp)
 
         # Donation-Hint Trigger bei erstem erfolgreichen Setup
         if specs and not self._config.donation_hint_shown:
@@ -933,6 +938,81 @@ class AudioRouterApp(rumps.App):
             self._donation_hint_at = time.monotonic() + DONATION_HINT_DELAY
 
         return True
+
+    def _reconcile_active_outputs(self, resp: dict) -> None:
+        """P2: Gleicht die interne Auswahl (_active_device_names / _device_offsets)
+        mit den TATSAECHLICH aktiven Outputs des Helpers (resp['active']) ab.
+
+        Der Helper ist die Autoritaet darueber, was real laeuft: konnte ein
+        gewuenschter Output nicht gestartet werden (Device verschwunden,
+        IOProc-Fehler), taucht er nicht in 'active' auf. Bei Divergenz korrigieren
+        wir die interne Auswahl, persistieren sie und bauen das Menue auf dem
+        Main-Thread neu (via _device_update_pending, das der UI-Timer konsumiert).
+        """
+        active = resp.get('active')
+        if not isinstance(active, list):
+            return
+
+        # Tatsaechlich aktive (uid, ch_offset)-Tupel + uid→name Mapping vom Helper.
+        actual: set[tuple[str, int]] = set()
+        uid_to_name: dict[str, str] = {}
+        for entry in active:
+            try:
+                uid = str(entry['uid'])
+                off = int(entry['ch_offset'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            actual.add((uid, off))
+            name = entry.get('name')
+            if name:
+                uid_to_name[uid] = str(name)
+
+        # Erwartete (uid, ch_offset)-Tupel aus dem internen Zustand bilden.
+        devices = self._device_manager.get_output_devices()
+        name_to_uid = {d.name: d.uid for d in devices}
+        expected: set[tuple[str, int]] = set()
+        for dev_name in self._active_device_names:
+            uid = name_to_uid.get(dev_name)
+            if not uid:
+                continue
+            for off in self._device_offsets.get(dev_name, [0]):
+                expected.add((uid, int(off)))
+
+        if actual == expected:
+            return  # Kein Drift — nichts zu tun.
+
+        logger.info("P2: Output-Drift erkannt — erwartet=%s, tatsaechlich=%s — korrigiere",
+                    sorted(expected), sorted(actual))
+
+        # Internen Zustand auf die tatsaechlich aktiven Outputs zurueckbauen.
+        new_names: set[str] = set()
+        new_offsets: Dict[str, List[int]] = {}
+        # uid→name auch aus dem aktuellen Device-Scan ergaenzen (fuer Namen, die
+        # der Helper nicht mitgeliefert hat).
+        uid_to_name_scan = {d.uid: d.name for d in devices}
+        for (uid, off) in actual:
+            name = uid_to_name.get(uid) or uid_to_name_scan.get(uid)
+            if not name:
+                # Unbekanntes Device — koennen wir nicht im Menue darstellen, ueberspringen.
+                continue
+            new_names.add(name)
+            new_offsets.setdefault(name, []).append(off)
+
+        for n in new_offsets:
+            new_offsets[n] = sorted(set(new_offsets[n]))
+
+        self._active_device_names = new_names
+        self._device_offsets = new_offsets
+
+        # Persistieren.
+        self._config.output_device_names = list(self._active_device_names)
+        self._config.output_device_offsets = {
+            k: list(v) for k, v in self._device_offsets.items()
+        }
+        save_config(self._config)
+
+        # Menue auf dem Main-Thread neu bauen (UI-Timer konsumiert das Flag).
+        self._device_update_pending = True
 
     def _auto_start_if_configured(self):
         """
