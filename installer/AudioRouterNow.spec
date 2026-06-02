@@ -37,12 +37,14 @@ a = Analysis(
         "first_launch",
         "audio_device_control",
         "onboarding",
+        "tkinter",
+        "tkinter.ttk",
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        "tkinter", "matplotlib", "PIL",
+        "matplotlib", "PIL",
         # Phase 4: alte Audio-Deps explizit ausschliessen
         "sounddevice", "numpy", "_sounddevice_data",
         "cffi", "_cffi_backend",
