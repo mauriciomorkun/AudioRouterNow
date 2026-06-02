@@ -165,6 +165,21 @@ class AudioRouterApp(rumps.App):
             safe_take_getter=lambda: getattr(self._config, 'safe_take_mode', False)
         )
 
+        # P10: Treiber-ABI-Version gegen App-Erwartung pruefen (einmalig beim
+        # Start gecacht — kein File-Read pro Status-Tick). Bei Mismatch zeigt
+        # _compute_status eine "Driver update required"-Zeile.
+        try:
+            self._driver_abi_ok = first_launch.driver_abi_matches()
+            if not self._driver_abi_ok:
+                logger.warning(
+                    "Driver-ABI-Mismatch: installiert=%s, erwartet=%d",
+                    first_launch.get_installed_driver_abi_version(),
+                    first_launch.APP_EXPECTED_ABI_VERSION,
+                )
+        except Exception as e:
+            logger.debug("ABI-Check fehlgeschlagen: %s", e)
+            self._driver_abi_ok = True  # fail-open: keine Falsch-Alarme
+
         # Komponenten starten
         self._device_manager.start()
 
@@ -728,6 +743,10 @@ class AudioRouterApp(rumps.App):
         helper_alive = self._helper_alive
         outputs_selected = bool(self._active_device_names)
 
+        # 0. P10: Treiber-ABI inkompatibel → alles andere zweitrangig.
+        if not getattr(self, "_driver_abi_ok", True):
+            return ("🔴  Driver update required — click to reinstall", "reinstall_driver")
+
         # 1. Helper tot → alles andere irrelevant
         if not helper_alive:
             return ("⚠️  Helper not responding — click to restart", "restart_helper")
@@ -788,6 +807,30 @@ class AudioRouterApp(rumps.App):
             self._restart_helper(sender)
         elif action_key == "switch_audio":
             self._switch_system_audio(sender)
+        elif action_key == "reinstall_driver":
+            self._reinstall_driver(sender)
+
+    def _reinstall_driver(self, sender):
+        """P10: Treiber bei ABI-Mismatch neu installieren (Klick auf Status-Zeile)."""
+        try:
+            success, error_msg = first_launch.install_driver()
+            if success and first_launch.driver_abi_matches():
+                self._driver_abi_ok = True
+                rumps.alert(
+                    title="AudioRouterNow",
+                    message="Driver updated. Please restart AudioRouterNow to "
+                            "complete the update.",
+                    ok="OK",
+                )
+            else:
+                rumps.alert(
+                    title="AudioRouterNow — Driver update failed",
+                    message=(error_msg or "The driver ABI version still does not match.")
+                            + "\n\nPlease reinstall AudioRouterNow.",
+                    ok="OK",
+                )
+        except Exception as e:
+            logger.error("Driver-Reinstall fehlgeschlagen: %s", e)
 
     def _restart_helper(self, sender):
         """

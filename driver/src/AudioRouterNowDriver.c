@@ -82,6 +82,15 @@ enum {
     kObjectID_Mute_Output       = 6
 };
 
+/* P10: ABI-Version des Treibers. Wird gegen die von der App erwartete Version
+ * verglichen (siehe first_launch.py). Bei Inkompatibilitaet zwischen Treiber-
+ * und App-Build (z.B. geaenderte shared_ring.h-ABI) muss der Treiber neu
+ * installiert werden. Das Makefile generiert daraus die Datei
+ * Contents/Resources/abi_version im Bundle.
+ * WICHTIG: Bei jeder ABI-relevanten Aenderung (shared_ring.h-Layout,
+ * Property-Modell) hochzaehlen. */
+#define kDriverABIVersion           1u
+
 /* Zeitmodell ------------------------------------------------------------- */
 #define kZeroTimeStampPeriod        (kRingBufferFrames * 64u)  /* Frames    */
 
