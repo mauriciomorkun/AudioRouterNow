@@ -35,6 +35,10 @@ class _AudioObjectPropertyAddress(ctypes.Structure):
 
 
 def _load_frameworks():
+    """Laedt CoreAudio + CoreFoundation GENAU EINMAL und konfiguriert
+    die benoetigten Funktions-Signaturen. Ergebnis wird in _CA/_CF gecacht
+    (siehe Modul-Scope unten) — wiederholtes ctypes.CDLL() pro Aufruf
+    ist teuer und unnoetig."""
     CA = ctypes.CDLL("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")
     CF = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
 
@@ -51,10 +55,15 @@ def _load_frameworks():
     return CA, CF
 
 
+# Frameworks GENAU EINMAL beim Import laden (P13). Alle Funktionen
+# verwenden die Modul-globalen _CA / _CF statt bei jedem Aufruf neu zu laden.
+_CA, _CF = _load_frameworks()
+
+
 def _get_default_output_device_id() -> int:
     """Gibt die CoreAudio Device-ID des Standard-Ausgabegeraets zurueck, oder 0 bei Fehler."""
     try:
-        CA, _ = _load_frameworks()
+        CA, _ = _CA, _CF
         addr = _AudioObjectPropertyAddress(
             _kAudioHardwarePropertyDefaultOutputDevice,
             _kAudioObjectPropertyScopeGlobal,
@@ -82,7 +91,7 @@ def get_default_output_volume() -> float:
     Gibt 1.0 zurueck bei Fehler (fail-open: kein ungewolltes Muting).
     """
     try:
-        CA, _ = _load_frameworks()
+        CA, _ = _CA, _CF
         dev_id = _get_default_output_device_id()
         if dev_id == 0:
             return 1.0
@@ -112,7 +121,7 @@ def get_default_output_muted() -> bool:
     Gibt True zurueck wenn das Standard-Ausgabegeraet gemuted ist.
     """
     try:
-        CA, _ = _load_frameworks()
+        CA, _ = _CA, _CF
         dev_id = _get_default_output_device_id()
         if dev_id == 0:
             return False
@@ -147,7 +156,7 @@ def set_default_output_device(device_name: str) -> tuple[bool, str]:
         (False, Fehlermeldung) bei Fehler
     """
     try:
-        CA, CF = _load_frameworks()
+        CA, CF = _CA, _CF
 
         # Alle Devices holen
         addr = _AudioObjectPropertyAddress(
@@ -247,7 +256,7 @@ def set_default_system_output_device(device_name: str) -> tuple[bool, str]:
     Audio Router auch als System Output gesetzt sein.
     """
     try:
-        CA, CF = _load_frameworks()
+        CA, CF = _CA, _CF
 
         addr = _AudioObjectPropertyAddress(
             _kAudioHardwarePropertyDevices,
@@ -327,7 +336,7 @@ _kAudioDevicePropertyDeviceUID                  = 0x75696420  # 'uid '
 def _get_all_device_ids() -> list[int]:
     """Gibt alle CoreAudio Device-IDs zurueck."""
     try:
-        CA, _ = _load_frameworks()
+        CA, _ = _CA, _CF
         addr = _AudioObjectPropertyAddress(
             _kAudioHardwarePropertyDevices,
             _kAudioObjectPropertyScopeGlobal,
@@ -359,7 +368,7 @@ def _get_all_device_ids() -> list[int]:
 def _get_device_name(dev_id: int) -> str | None:
     """Gibt den Namen eines CoreAudio Devices zurueck."""
     try:
-        CA, CF = _load_frameworks()
+        CA, CF = _CA, _CF
         addr = _AudioObjectPropertyAddress(
             _kAudioObjectPropertyName,
             _kAudioObjectPropertyScopeGlobal,
@@ -399,7 +408,7 @@ def get_device_supported_sample_rates(device_uid: str) -> list[int]:
     Fallback: [48000] bei Fehler.
     """
     try:
-        CA, _ = _load_frameworks()
+        CA, CF = _CA, _CF
 
         # Device-ID anhand UID suchen
         dev_id_found: int | None = None
@@ -419,11 +428,6 @@ def get_device_supported_sample_rates(device_uid: str) -> list[int]:
                 ctypes.byref(cf_uid),
             ) != 0 or not cf_uid.value:
                 continue
-            CF = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
-            CF.CFStringGetCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int64, ctypes.c_uint32]
-            CF.CFStringGetCString.restype = ctypes.c_bool
-            CF.CFRelease.argtypes = [ctypes.c_void_p]
-            CF.CFRelease.restype = None
             buf = ctypes.create_string_buffer(512)
             CF.CFStringGetCString(cf_uid, buf, 512, _kCFStringEncodingUTF8)
             CF.CFRelease(cf_uid)
@@ -491,7 +495,7 @@ def start_audio_router_device() -> bool:
     Gibt True bei Erfolg zurück.
     """
     try:
-        CA, _ = _load_frameworks()
+        CA, _ = _CA, _CF
 
         device_id = _find_audio_router_device_id()
         if device_id is None:
@@ -542,7 +546,7 @@ def get_audio_router_sample_rate() -> int:
     Fallback: 48000 bei Fehler.
     """
     try:
-        CA, _ = _load_frameworks()
+        CA, _ = _CA, _CF
         dev_id = _find_audio_router_device_id()
         if dev_id is None:
             return 48000
