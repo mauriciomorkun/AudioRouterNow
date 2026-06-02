@@ -853,16 +853,34 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
             float l = ring->samples[si0] * inv + ring->samples[si2] * frac;
             float r = ring->samples[si1] * inv + ring->samples[si3] * frac;
 
-            /* M7: Bei Downsampling (Ring-SR > Device-SR, ratio > 1.0) ein
-             * 3-Tap-Box-Average zur Aliasing-Daempfung. Upsampling (ratio <= 1.0)
-             * bleibt reine Linear-Interpolation — kein Aliasing-Problem dort.
-             * Kein vollstaendiger FIR-Filter (RT-Budget), aber deutlich besser
-             * als reine Linear-Interpolation bei z.B. 96kHz → 48kHz (ratio ≈ 2.0). */
+            /* P15: Bei Downsampling (Ring-SR > Device-SR, ratio > 1.0) ein
+             * symmetrischer 5-Tap-FIR (Hann-Fenster) zur Aliasing-Daempfung,
+             * zentriert auf idx0. Ersetzt den frueheren 3-Tap-Box-Filter:
+             * staerkere Daempfung der Spiegelfrequenzen bei minimal hoeherem
+             * RT-Budget (5 statt 3 MACs pro Channel). Upsampling (ratio <= 1.0)
+             * bleibt reine Linear-Interpolation — dort kein Aliasing-Problem.
+             * Koeffizienten summen-normalisiert (Summe = 1.0): kein Pegelversatz. */
             if (ratio > 1.005) {  /* threshold > 1.0 mit kleinem Epsilon fuer FP-Rauschen */
-                uint32_t sn0 = ((idx0 + 2u) * 2u    ) & ARN_RING_MASK;
-                uint32_t sn1 = ((idx0 + 2u) * 2u + 1) & ARN_RING_MASK;
-                l = 0.5f * l + 0.25f * (ring->samples[si0] + ring->samples[sn0]);
-                r = 0.5f * r + 0.25f * (ring->samples[si1] + ring->samples[sn1]);
+                static const float kFir5[5] = {0.0625f, 0.25f, 0.375f, 0.25f, 0.0625f};
+                /* Frame-Indizes idx0-2 .. idx0+2 → Ring-Sample-Indizes (Stereo). */
+                uint32_t lL0 = ((idx0 - 2u) * 2u    ) & ARN_RING_MASK;
+                uint32_t lL1 = ((idx0 - 1u) * 2u    ) & ARN_RING_MASK;
+                uint32_t lL3 = ((idx0 + 1u) * 2u    ) & ARN_RING_MASK;
+                uint32_t lL4 = ((idx0 + 2u) * 2u    ) & ARN_RING_MASK;
+                uint32_t rR0 = ((idx0 - 2u) * 2u + 1) & ARN_RING_MASK;
+                uint32_t rR1 = ((idx0 - 1u) * 2u + 1) & ARN_RING_MASK;
+                uint32_t rR3 = ((idx0 + 1u) * 2u + 1) & ARN_RING_MASK;
+                uint32_t rR4 = ((idx0 + 2u) * 2u + 1) & ARN_RING_MASK;
+                l = kFir5[0] * ring->samples[lL0]
+                  + kFir5[1] * ring->samples[lL1]
+                  + kFir5[2] * ring->samples[si0]
+                  + kFir5[3] * ring->samples[lL3]
+                  + kFir5[4] * ring->samples[lL4];
+                r = kFir5[0] * ring->samples[rR0]
+                  + kFir5[1] * ring->samples[rR1]
+                  + kFir5[2] * ring->samples[si1]
+                  + kFir5[3] * ring->samples[rR3]
+                  + kFir5[4] * ring->samples[rR4];
             }
 
             dev->temp_buf[f * 2    ] = l;
