@@ -1,6 +1,6 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 2. Juni 2026 (Kapitel 35 — v3.0 Build #3)
+**Stand:** 2. Juni 2026 (Kapitel 36 — v3.0 Build #4)
 **Version:** 3.0.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
@@ -46,6 +46,7 @@
 33. [v3.0 Build #2 — Hotfix eingebaut (2. Juni 2026)](#33-v30-build-2--hotfix-eingebaut-2-juni-2026)
 34. [Feature: Visueller Fortschritts-Balken bei Treiber-Installation (2. Juni 2026)](#34-feature-visueller-fortschritts-balken-bei-treiber-installation-2-juni-2026)
 35. [v3.0 Build #3 — Progress-Bar-Feature (2. Juni 2026)](#35-v30-build-3--progress-bar-feature-2-juni-2026)
+36. [v3.0 Build #4 — Türkis-Akzentfarbe (2. Juni 2026)](#36-v30-build-4--türkis-akzentfarbe-2-juni-2026)
 
 ---
 
@@ -4333,6 +4334,19 @@ Beim ersten App-Start wurde der User nach dem Passwort-Dialog mit einem leeren B
 
 **Commit:** `bdf9e16`
 
+### 34.5 Farbkorrektur — Türkis statt Orange
+
+Nach erster Sichtung wurde die Akzentfarbe korrigiert:
+
+| | Wert | Beschreibung |
+|--|------|-------------|
+| **Vorher** | `#FF6600` | Orange (initial angenommen) |
+| **Nachher** | `#1FDDAE` | Mint-Türkis — exakt aus App-Icon extrahiert |
+
+Die genaue Farbe wurde per Pixel-Analyse aus `installer/AudioRouterNow.icns` gewonnen (RGB 31/221/174). Gilt für: Fortschritts-Balken Fill, untere Akzent-Linie, Trough-Hintergrund (dunklerer Ton).
+
+**Commit:** `e267de2`
+
 ---
 
 ## 35. v3.0 Build #3 — Progress-Bar-Feature (2. Juni 2026)
@@ -4353,4 +4367,34 @@ Dritter Produktions-Build mit visuellem Fortschritts-Balken bei der Treiber-Inst
 |--|--|
 | Feature eingebaut | ✅ |
 | DMG auf Desktop | ✅ |
+
+---
+
+## 36. v3.0 Build #4 — Türkis-Akzentfarbe (2. Juni 2026)
+
+Vierter Produktions-Build nach der Farbkorrektur des Progress-Bar-Fensters.
+
+### 36.1 Build
+
+| Schritt | Ergebnis |
+|---------|----------|
+| Driver + Helper (Universal Binary) | ✅ x86_64 + arm64 |
+| PyInstaller .app | ✅ Progress-Bar mit Türkis `#1FDDAE` |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 12 MB |
+
+### 36.2 Enthaltene Änderungen seit v2.9.0
+
+| Commit | Beschreibung |
+|--------|-------------|
+| `246f00c`–`f2e8c8f` | 15-Punkt v3.0 Optimierungsplan (Wellen 1–4) |
+| `f749164` | Hotfix SRC Drift Threshold 350→600 ppm |
+| `bdf9e16` | Visueller Fortschritts-Balken bei Erstinstallation |
+| `e267de2` | Akzentfarbe Türkis `#1FDDAE` aus App-Icon |
+
+### 36.3 Status
+
+| | |
+|--|--|
+| Build | ✅ |
+| DMG auf Desktop | ✅ `~/Desktop/AudioRouterNow.dmg` |
 
