@@ -1,6 +1,6 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 2. Juni 2026 (Kapitel 30 — v3.0 Implementierung)
+**Stand:** 2. Juni 2026 (Kapitel 31 — v3.0 Build & Release)
 **Version:** 3.0.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
@@ -41,6 +41,7 @@
 28. [Self-Healing Layer v1.0 — Implementierung (v2.9.0)](#28-self-healing-layer-v10--implementierung-v290)
 29. [v3.0 Optimierungsplan — 15 Verbesserungen (Ausführungsplan)](#29-v30-optimierungsplan--15-verbesserungen-ausführungsplan)
 30. [v3.0 Optimierungsplan — Vollständige Implementierung (2. Juni 2026)](#30-v30-optimierungsplan--vollständige-implementierung-2-juni-2026)
+31. [v3.0 Build & Release (2. Juni 2026)](#31-v30-build--release-2-juni-2026)
 
 ---
 
@@ -4174,8 +4175,44 @@ Die folgenden Punkte können nur durch Laufzeit-Tests mit echten Audio-Devices v
 | Welle 3 (P9, P5, P6, P7) | 4 Fixes | ✅ |
 | Welle 4 (P1, P10, P15) | 3 Fixes | ✅ |
 | Gesamt | 15 Fixes, 16 Commits | ✅ v3.0 |
+| Build & Deploy | ✅ DMG 11MB, Treiber installiert (02. Juni 2026) |
 
 ---
 
 *Dokumentation zuletzt aktualisiert am 2. Juni 2026 — AudioRouterNow v3.0.0*
+
+---
+
+## 31. v3.0 Build & Release (2. Juni 2026)
+
+### 31.1 Build
+
+| Schritt | Ergebnis |
+|---------|----------|
+| Driver (Universal Binary) | ✅ x86_64 + arm64, ad-hoc signiert |
+| Helper (Universal Binary) | ✅ x86_64 + arm64, ad-hoc signiert |
+| ABI-Version | `1` (in `driver/build/AudioRouterNow.driver/Contents/Resources/abi_version`) |
+| PyInstaller .app | ✅ `installer/dist/AudioRouterNow.app` |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 11 MB |
+| Signierung | ad-hoc + Entitlements (library-validation deaktiviert) |
+
+**Build-Befehl:** `bash installer/build.sh` (ausgeführt aus `AudioRouterNow/`)
+
+### 31.2 Lokale Installation
+
+```bash
+sudo make -C driver install   # → /Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver
+sudo make -C driver reload    # → coreaudiod Neustart, Treiber aktiv
+```
+
+Installierter Treiber: `/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver` — Timestamp 02. Juni 2026 14:32
+
+### 31.3 Status
+
+| Schritt | Status |
+|---------|--------|
+| Build | ✅ |
+| Treiber installiert | ✅ |
+| App läuft | ✅ |
+| DMG auf Desktop | ✅ |
 
