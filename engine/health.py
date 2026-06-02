@@ -149,7 +149,7 @@ class HealthMonitor:
                 reasons.append(f"Output '{name}' Ch{ch_offset+1}-{ch_offset+2}: stalled")
             if delta > 0:
                 reasons.append(f"Output '{name}' Ch{ch_offset+1}-{ch_offset+2}: {delta} new underrun(s)")
-            if abs(ppm) > 350:
+            if abs(ppm) > 600:
                 reasons.append(f"Output '{name}': SRC drift {ppm:+.0f} ppm (near limit)")
 
         # Reconnect-Delta
@@ -169,7 +169,7 @@ class HealthMonitor:
         # ── Roh-Level-Klassifikation (vor Hysterese) ──────────────────
         any_stalled    = any(o.stalled for o in outputs)
         any_underrun   = any(o.underruns_delta > 0 for o in outputs)
-        any_drift      = any(abs(o.src_ratio_ppm) > 350 for o in outputs)
+        any_drift      = any(abs(o.src_ratio_ppm) > 600 for o in outputs)
         fill_critical  = (ring_fill < 0.10 or ring_fill > 0.95) and audio_flowing
 
         if (not ioproc_alive and audio_flowing) or any_stalled or reconnect_delta > 0:
