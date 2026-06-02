@@ -13,6 +13,9 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import tkinter as tk
+from tkinter import ttk
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -61,6 +64,130 @@ def driver_abi_matches() -> bool:
     return installed == APP_EXPECTED_ABI_VERSION
 
 
+# ---------------------------------------------------------------------------
+# Installation Progress Window
+# ---------------------------------------------------------------------------
+
+_ACCENT = "#FF6600"          # Orange passend zum App-Icon
+_BG     = "#1A1A1A"          # Dunkler Hintergrund
+_BG2    = "#252525"          # Etwas helleres Panel
+_FG     = "#F0F0F0"          # Weißer Text
+_FG2    = "#888888"          # Grauer Untertitel-Text
+
+_STEPS = [
+    (0,   "Warte auf Passwort-Bestätigung…"),
+    (25,  "Kopiere Treiber…"),
+    (60,  "Starte Audio-Dienst neu…"),
+    (80,  "Signiere Treiber…"),
+    (100, "✓ Installation abgeschlossen"),
+]
+
+
+class _InstallProgressWindow:
+    """Schlichtes Fortschritts-Fenster für die Treiber-Installation.
+
+    Erscheint zwischen Info-Dialog und Onboarding-Wizard. Nutzt tkinter
+    (im PyInstaller-Build als hiddenimport vorhanden). Fenster ist
+    borderless, zentriert, immer im Vordergrund.
+    """
+
+    def __init__(self) -> None:
+        self.root = tk.Tk()
+        self.root.withdraw()  # erstmal verstecken, bis alles gebaut ist
+
+        self.root.title("AudioRouterNow")
+        self.root.resizable(False, False)
+        self.root.configure(bg=_BG)
+        self.root.overrideredirect(True)   # kein Fenster-Chrome
+        self.root.attributes("-topmost", True)
+
+        # Fenster-Größe und Zentrierung
+        w, h = 420, 150
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
+
+        # Äußerer Rahmen mit leicht hellerem Hintergrund
+        outer = tk.Frame(self.root, bg=_BG, padx=1, pady=1)
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        inner = tk.Frame(outer, bg=_BG2, padx=24, pady=20)
+        inner.pack(fill=tk.BOTH, expand=True)
+
+        # Titel
+        tk.Label(
+            inner, text="AudioRouterNow — Treiber-Installation",
+            bg=_BG2, fg=_FG,
+            font=("Helvetica Neue", 13, "bold"),
+            anchor="w",
+        ).pack(fill=tk.X)
+
+        # Schritt-Text
+        self._step_var = tk.StringVar(value=_STEPS[0][1])
+        tk.Label(
+            inner, textvariable=self._step_var,
+            bg=_BG2, fg=_FG2,
+            font=("Helvetica Neue", 11),
+            anchor="w",
+        ).pack(fill=tk.X, pady=(6, 10))
+
+        # Progress Bar mit orangem Akzent
+        style = ttk.Style(self.root)
+        style.theme_use("default")
+        style.configure(
+            "ARN.Horizontal.TProgressbar",
+            troughcolor="#3A3A3A",
+            background=_ACCENT,
+            bordercolor=_BG2,
+            lightcolor=_ACCENT,
+            darkcolor=_ACCENT,
+        )
+        self._progress_var = tk.IntVar(value=0)
+        self._bar = ttk.Progressbar(
+            inner,
+            style="ARN.Horizontal.TProgressbar",
+            orient="horizontal",
+            length=372,
+            mode="determinate",
+            maximum=100,
+            variable=self._progress_var,
+        )
+        self._bar.pack(fill=tk.X)
+
+        # Thin accent line am unteren Rand
+        tk.Frame(self.root, bg=_ACCENT, height=2).pack(fill=tk.X, side=tk.BOTTOM)
+
+        self.root.deiconify()   # jetzt sichtbar machen
+        self.root.update()
+
+    # ------------------------------------------------------------------
+    def set_step(self, pct: int, text: str) -> None:
+        """Aktualisiert Fortschrittsbalken und Schritt-Text (thread-safe via after)."""
+        def _update():
+            self._progress_var.set(pct)
+            self._step_var.set(text)
+            self.root.update_idletasks()
+        try:
+            self.root.after(0, _update)
+        except tk.TclError:
+            pass
+
+    def close(self) -> None:
+        """Schließt das Fenster nach kurzem Delay (damit 100%-Status kurz sichtbar ist)."""
+        def _do_close():
+            try:
+                self.root.quit()
+                self.root.destroy()
+            except tk.TclError:
+                pass
+        try:
+            self.root.after(700, _do_close)
+        except tk.TclError:
+            pass
+
+
 def _get_driver_source_path() -> Path:
     """
     Returns the path to the .driver bundle — depending on whether the app is
@@ -101,9 +228,9 @@ def install_driver() -> tuple[bool, str]:
     """
     Installs the HAL driver with administrator privileges via AppleScript.
 
-    The command is run via 'osascript -e'. macOS shows the user a password
-    dialog. After a successful install, coreaudiod is restarted so Core Audio
-    recognises the new driver.
+    Shows a visual progress window during installation. The install shell
+    script writes progress markers to a temp file; the main thread polls
+    this file every 200 ms and advances the progress bar.
 
     Returns:
         (True, "") on success.
@@ -119,50 +246,156 @@ def install_driver() -> tuple[bool, str]:
         logger.error(msg)
         return False, msg
 
-    # AppleScript: cp -r copies the entire .driver bundle (directory),
-    # killall coreaudiod restarts the audio daemon.
-    # '|| true' prevents an exit-code error if coreaudiod is already restarting.
-    shell_cmd = (
-        f"cp -r '{source}' '{DRIVER_INSTALL_PATH}' "
-        f"&& killall coreaudiod || true"
-    )
-
-    applescript = (
-        f'do shell script "{shell_cmd}" with administrator privileges'
-    )
-
-    logger.info("Starting driver installation via AppleScript...")
-    logger.debug("AppleScript: %s", applescript)
+    # ------------------------------------------------------------------
+    # Temp-Dateien für Progress-Kommunikation
+    # ------------------------------------------------------------------
+    progress_file = Path("/tmp/.arn_install_progress")
+    script_file   = Path("/tmp/.arn_install.sh")
 
     try:
-        result = subprocess.run(
-            ["osascript", "-e", applescript],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except subprocess.TimeoutExpired:
-        msg = "Timeout during driver installation (60s)."
-        logger.error(msg)
-        return False, msg
-    except FileNotFoundError:
-        msg = "osascript not found — is this a Mac?"
-        logger.error(msg)
-        return False, msg
+        progress_file.write_text("0")
+    except OSError:
+        pass
 
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        # AppleScript error code -128 = user cancelled the password prompt
+    # Shell-Script: schreibt 1→2→3 in progress_file als Steps
+    shell_script = (
+        f"#!/bin/bash\n"
+        f"echo 1 > '{progress_file}'\n"                   # Kopiere…
+        f"cp -rf '{source}' '{DRIVER_INSTALL_PATH}'\n"
+        f"echo 2 > '{progress_file}'\n"                   # Neustart…
+        f"killall coreaudiod || true\n"
+        f"echo 3 > '{progress_file}'\n"                   # Script done
+    )
+    try:
+        script_file.write_text(shell_script)
+        script_file.chmod(0o755)
+    except OSError as exc:
+        logger.warning("Could not write install script: %s — falling back.", exc)
+        script_file = None
+
+    # ------------------------------------------------------------------
+    # AppleScript-Befehl
+    # ------------------------------------------------------------------
+    if script_file is not None:
+        shell_cmd = f"/bin/bash '{script_file}'"
+    else:
+        shell_cmd = (
+            f"cp -rf '{source}' '{DRIVER_INSTALL_PATH}' "
+            f"&& killall coreaudiod || true"
+        )
+
+    applescript = f'do shell script "{shell_cmd}" with administrator privileges'
+
+    # ------------------------------------------------------------------
+    # Ergebnis-Container für Background-Thread
+    # ------------------------------------------------------------------
+    _result: dict = {"returncode": None, "stderr": ""}
+
+    def _run_install() -> None:
+        logger.info("Starting driver installation via AppleScript...")
+        try:
+            r = subprocess.run(
+                ["osascript", "-e", applescript],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            _result["returncode"] = r.returncode
+            _result["stderr"]     = r.stderr.strip()
+        except subprocess.TimeoutExpired:
+            _result["returncode"] = -1
+            _result["stderr"]     = "Timeout during driver installation (120s)."
+        except FileNotFoundError:
+            _result["returncode"] = -1
+            _result["stderr"]     = "osascript not found — is this a Mac?"
+        except Exception as exc:  # noqa: BLE001
+            _result["returncode"] = -1
+            _result["stderr"]     = str(exc)
+
+    # ------------------------------------------------------------------
+    # Progress-Fenster aufbauen + Installation im Hintergrund starten
+    # ------------------------------------------------------------------
+    try:
+        win = _InstallProgressWindow()
+        win_available = True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not create progress window: %s", exc)
+        win_available = False
+
+    install_thread = threading.Thread(target=_run_install, daemon=True)
+    install_thread.start()
+
+    if win_available:
+        # Map: Marker-Wert → (Prozent, Text) aus _STEPS
+        _marker_map = {
+            0: _STEPS[0],   # 0 → warte
+            1: _STEPS[1],   # 1 → kopiere
+            2: _STEPS[2],   # 2 → neustart
+            3: _STEPS[2],   # 3 → neustart (noch kein codesign)
+        }
+
+        def _poll() -> None:
+            """Liest Temp-Datei und aktualisiert Balken; ruft sich selbst alle 200ms auf."""
+            # Marker lesen
+            try:
+                marker = int(progress_file.read_text().strip())
+            except (OSError, ValueError):
+                marker = 0
+
+            pct, text = _marker_map.get(marker, _STEPS[0])
+            win.set_step(pct, text)
+
+            if not install_thread.is_alive():
+                # osascript fertig — codesign-Schritt anzeigen
+                win.set_step(*_STEPS[3])  # 80 % — Signiere Treiber
+                win.root.after(600, _finish)
+                return
+
+            win.root.after(200, _poll)
+
+        def _finish() -> None:
+            """Zeigt 100 % und schließt dann das Fenster."""
+            win.set_step(*_STEPS[4])   # 100 % — Installation abgeschlossen
+            win.close()
+
+        win.root.after(200, _poll)
+
+        try:
+            win.root.mainloop()
+        except Exception:  # noqa: BLE001
+            pass
+    else:
+        # Fallback ohne UI
+        install_thread.join()
+
+    # ------------------------------------------------------------------
+    # Cleanup Temp-Dateien
+    # ------------------------------------------------------------------
+    for f in (progress_file, script_file):
+        if f is not None:
+            try:
+                f.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    # ------------------------------------------------------------------
+    # Ergebnis auswerten
+    # ------------------------------------------------------------------
+    if _result["returncode"] is None:
+        # Sollte nicht passieren
+        return False, "Installation thread did not complete."
+
+    if _result["returncode"] != 0:
+        stderr = _result["stderr"]
         if "-128" in stderr:
-            msg = "Installation cancelled — password was not entered."
-        else:
-            msg = f"Driver installation failed:\n{stderr}"
-        logger.error("Installation failed (rc=%d): %s", result.returncode, stderr)
+            return False, "Installation cancelled — password was not entered."
+        msg = f"Driver installation failed:\n{stderr}"
+        logger.error("Installation failed (rc=%d): %s", _result["returncode"], stderr)
         return False, msg
 
     logger.info("Driver successfully installed at: %s", DRIVER_INSTALL_PATH)
 
-    # Sign the installed driver (ad-hoc, best-effort)
+    # Sign the installed driver (ad-hoc, best-effort — kein admin nötig)
     logger.info("Signing installed driver (ad-hoc)...")
     subprocess.run(
         ["codesign", "--force", "--deep", "--sign", "-", str(DRIVER_INSTALL_PATH)],
