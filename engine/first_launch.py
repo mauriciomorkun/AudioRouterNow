@@ -68,7 +68,7 @@ def driver_abi_matches() -> bool:
 # Installation Progress Window
 # ---------------------------------------------------------------------------
 
-_ACCENT = "#FF6600"          # Orange passend zum App-Icon
+_ACCENT = "#1FDDAE"          # Mint-Türkis aus App-Icon (RGB 31/221/174)
 _BG     = "#1A1A1A"          # Dunkler Hintergrund
 _BG2    = "#252525"          # Etwas helleres Panel
 _FG     = "#F0F0F0"          # Weißer Text
