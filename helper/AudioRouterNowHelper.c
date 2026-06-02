@@ -320,6 +320,10 @@ static atomic_int              g_shm_ready          = 0;
  * erlaubt nur Telemetrie. Fuer Recording/Live-Situationen. */
 static atomic_int              g_safe_take          = 0;
 
+/* P5: Auto-Sample-Rate. 1 = der Ring folgt der nativen SR des ersten Outputs
+ * (kein Forcieren von 48kHz). 0 = Manueller Modus (set_sample_rate steuert). */
+static atomic_int              g_auto_sample_rate   = 1;
+
 /* H3: Hot-Plug-Flag — Callback setzt nur dieses Flag, Volume-Thread reagiert.
  * Kein CoreAudio-Call im Property-Callback-Kontext (Re-Entry-Deadlock-Risiko). */
 static atomic_int              g_hotplug_pending    = 0;
@@ -635,8 +639,11 @@ static AudioDeviceID find_audio_router_device(void) {
 }
 
 /*
- * Auto-Auswahl: erstes 48kHz-Device das nicht das eigene virtuelle ist.
- * Wird verwendet wenn kein UID-Hint vorhanden ist.
+ * Auto-Auswahl: erstes echtes Output-Device (>=2 Kanaele), das nicht das
+ * eigene virtuelle ist. Wird verwendet wenn kein UID-Hint vorhanden ist.
+ *
+ * P5: KEINE Bevorzugung von 48kHz mehr — der Ring folgt im Auto-Modus der
+ * nativen Rate des gewaehlten Devices (siehe output_add / g_auto_sample_rate).
  */
 static AudioDeviceID find_default_output_device(void)
 {
@@ -655,33 +662,21 @@ static AudioDeviceID find_default_output_device(void)
 
     AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &size, devices);
 
-    AudioDeviceID fallback = kAudioDeviceUnknown;
-    AudioDeviceID result   = kAudioDeviceUnknown;
+    AudioDeviceID result = kAudioDeviceUnknown;
 
     for (UInt32 i = 0; i < count; i++) {
         char *uid = device_get_uid(devices[i]);
         UInt32 out_ch = device_output_channels(devices[i]);
         if (out_ch >= 2 && uid && strcmp(uid, OUR_DEVICE_UID) != 0) {
-            if (fallback == kAudioDeviceUnknown) fallback = devices[i];
-
-            AudioObjectPropertyAddress sr_addr = {
-                .mSelector = kAudioDevicePropertyNominalSampleRate,
-                .mScope    = kAudioObjectPropertyScopeGlobal,
-                .mElement  = kAudioObjectPropertyElementMain
-            };
-            Float64 rate = 0.0;
-            UInt32 sz = sizeof(rate);
-            AudioObjectGetPropertyData(devices[i], &sr_addr, 0, NULL, &sz, &rate);
-            if ((UInt32)rate == 48000u) {
-                result = devices[i];
-                free(uid);
-                break;
-            }
+            /* Erstes geeignetes Device gewinnt — unabhaengig von seiner SR. */
+            result = devices[i];
+            free(uid);
+            break;
         }
         free(uid);
     }
     free(devices);
-    return (result != kAudioDeviceUnknown) ? result : fallback;
+    return result;
 }
 
 /* ── CoreAudio IOProc — pro Device ──────────────────────────────────────── */
@@ -1009,6 +1004,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
     ARNSharedRing *ring_snap = atomic_load_explicit(&g_ring, memory_order_acquire);
     uint32_t start_widx = ring_snap
         ? atomic_load_explicit(&ring_snap->write_idx, memory_order_acquire) : 0u;
+    /* P5: Ist das der erste Output? (unter Lock gelesen) — entscheidet, ob der
+     * Ring im Auto-Modus die native SR dieses Devices uebernimmt. */
+    bool is_first_output = (g_n_outputs == 0);
     pthread_mutex_unlock(&g_outputs_lock);
 
     /* ── Phase 2: Schwere Arbeit auf Stack-Kopie, KEIN Lock ── */
@@ -1059,7 +1057,19 @@ static int output_add(const char *uid, uint32_t ch_offset)
     AudioObjectGetPropertyData(dev_id, &sr_prop, 0, NULL, &sr_size, &device_sr);
 
     bool sr_was_changed = false;
-    if ((uint32_t)device_sr != (uint32_t)ring_sr) {
+    /* P5: Auto-Modus + erster Output → Ring folgt der nativen Device-SR,
+     * statt das Device auf eine (evtl. 48kHz-) Ring-SR zu zwingen. Damit laeuft
+     * z.B. ein 44.1kHz-Interface ohne Resampling, base_ratio = 1.0. */
+    if (atomic_load_explicit(&g_auto_sample_rate, memory_order_acquire) &&
+        is_first_output && ring_now &&
+        (uint32_t)device_sr != (uint32_t)ring_sr &&
+        (uint32_t)device_sr != 0u) {
+        arn_ring_set_sample_rate(ring_now, (uint32_t)device_sr);
+        fprintf(stdout, "Helper: Auto-SR — Ring folgt nativer Rate von '%s': %.0f Hz\n",
+                uid, device_sr);
+        ring_sr = device_sr;  /* base_ratio wird damit 1.0 */
+    } else if ((uint32_t)device_sr != (uint32_t)ring_sr) {
+        /* Manueller Modus oder weiterer Output: Device auf Ring-SR ziehen. */
         if (AudioObjectSetPropertyData(dev_id, &sr_prop, 0, NULL, sizeof(Float64), &ring_sr) == noErr) {
             fprintf(stdout, "Helper: '%s' Sample-Rate auf %.0f Hz gesetzt\n", uid, ring_sr);
             device_sr      = ring_sr;
@@ -2012,6 +2022,10 @@ static int parse_and_execute(int fd, const char *line)
             send_line(fd, resp);
             return 0;
         }
+
+        /* P5: Explizite SR-Wahl deaktiviert den Auto-Modus — ab jetzt steuert
+         * der User die Rate, neue Outputs ziehen sich auf diese Ring-SR. */
+        atomic_store_explicit(&g_auto_sample_rate, 0, memory_order_release);
 
         ARNSharedRing *rsr = atomic_load_explicit(&g_ring, memory_order_acquire);
         if (!rsr) {
