@@ -88,14 +88,13 @@ _active_progress_window = None
 def close_active_progress_window() -> None:
     """Schließt das Treiber-Installations-Fortschrittsfenster.
 
-    Wird von AudioRouterApp.__init__() aufgerufen, bevor der Onboarding-Wizard
-    erscheint — so bleibt das Fenster während der App-Initialisierung sichtbar
-    und schließt sich erst wenn der Wizard bereit ist.
+    Wird von AudioRouterApp.__init__() aufgerufen, genau wenn der Wizard bereit
+    ist — animiert dann den Balken auf 100 % (600 ms sichtbar) und schließt.
     Kein Effekt wenn kein Fenster aktiv ist (no-op).
     """
     global _active_progress_window
     if _active_progress_window is not None:
-        _active_progress_window.close()
+        _active_progress_window.complete_then_close()
         _active_progress_window = None
 
 
@@ -231,6 +230,26 @@ class _InstallProgressWindow:
             self._window.orderOut_(None)
         except Exception:
             pass
+
+    def complete_then_close(self) -> None:
+        """Animiert Balken auf 100 %, hält 600 ms sichtbar, dann schließt.
+
+        Wird von close_active_progress_window() aufgerufen — genau dann wenn
+        der Wizard bereit ist. So bedeutet 100% = 'Wizard ist da'.
+        """
+        if self._closed:
+            return
+        try:
+            from Foundation import NSRunLoop, NSDate, NSDefaultRunLoopMode
+            self.set_step(100, "✓ App bereit")
+            for _ in range(3):   # 3 × 200 ms = 600 ms sichtbar bei 100 %
+                NSRunLoop.mainRunLoop().runMode_beforeDate_(
+                    NSDefaultRunLoopMode,
+                    NSDate.dateWithTimeIntervalSinceNow_(0.2),
+                )
+        except Exception:
+            pass
+        self.close()
 
 
 def _get_driver_source_path() -> Path:
@@ -394,7 +413,11 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
                     _codesign_shown = True
                     win.set_step(*_STEPS[3])   # 80% — Signiere
                     return False               # noch eine Runde warten
-                win.set_step(*_STEPS[4])       # 100% — Fertig
+                # keep_open: 100% wird erst in complete_then_close() gezeigt (= Wizard bereit)
+                if keep_open:
+                    win.set_step(90, "✓ Installation abgeschlossen")
+                else:
+                    win.set_step(*_STEPS[4])   # 100% — Fertig
                 return True
 
             try:
@@ -416,8 +439,13 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
                 if _tick():
                     # 100% kurz anzeigen, dann Zustand wechseln
                     _finish_ticks += 1
-                    if _finish_ticks >= 4:   # ~800ms bei 100%
-                        win.set_step(100, "App wird gestartet…")
+                    if _finish_ticks >= 4:   # ~800ms bei 90/100%
+                        # keep_open: Balken bleibt bei 90% bis close_active_progress_window()
+                        # aufgerufen wird (= Wizard bereit → dann 100%)
+                        if keep_open:
+                            win.set_step(90, "App wird gestartet…")
+                        else:
+                            win.set_step(100, "App wird gestartet…")
                         _done = True
         except Exception as exc:
             logger.warning("Progress window error: %s", exc)
