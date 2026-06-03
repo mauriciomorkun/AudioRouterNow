@@ -26,7 +26,8 @@ CONFIG_SOCKET = str(Path.home() / ".audiorouter" / "audiorouter.config.sock")
 # P3: Per-Launch Auth-Token, vom Helper nach ~/.audiorouter/helper.token (0600) geschrieben.
 TOKEN_PATH = str(Path.home() / ".audiorouter" / "helper.token")
 CONNECT_TIMEOUT = 2.0
-READ_TIMEOUT = 10.0
+READ_TIMEOUT = 5.0
+QUICK_TIMEOUT = 0.5
 
 # P3: Kommandos, die das Auth-Token mitschicken muessen (privilegiert).
 _PRIVILEGED_CMDS = {"shutdown", "set_outputs", "set_sample_rate",
@@ -80,6 +81,7 @@ class HelperClient:
     def __init__(self):
         self._proc: Optional[subprocess.Popen] = None
         self._lock = threading.Lock()
+        self._spawn_lock = threading.Lock()   # schützt nur den Helper-Spawn-Prozess
         self._spawned_by_us = False
         # P3: Auth-Token beim Start laden (kann beim ersten Aufruf noch fehlen,
         # wird dann lazy/bei auth-Fehler nachgeladen).
@@ -109,19 +111,30 @@ class HelperClient:
         """
         Stellt sicher, dass der Helper läuft UND routing-bereit ist.
 
+        P1-C FIX: self._lock wird NICHT mehr für die gesamte Startup-Sequenz
+        gehalten (zuvor bis zu 25s). Ein separater _spawn_lock schützt den
+        Spawn-Prozess, self._lock wird nur für kurze Socket-Checks gehalten.
+
         Phasen:
-          1. Socket erreichbar?  → weiter zu Phase 2
-          2. Warte auf SHM-bereit (get_status → ready:true) → return True
-          Falls Socket tot: Helper spawnen, dann Phase 1+2 durchlaufen.
+          1. Socket erreichbar?  → warte auf SHM-bereit → return True
+          Falls Socket tot: Helper spawnen (unter _spawn_lock), dann Phasen 1+2.
         """
-        with self._lock:
+        # Schneller Check ohne langen Lock
+        if self._is_socket_alive():
+            logger.info("Helper Socket erreichbar — warte auf SHM-Bereitschaft")
+            if self._wait_for_ready():
+                return True
+            logger.warning("Helper Socket erreichbar, SHM-Timeout — App retries via Timer")
+            return True
+
+        # Helper muss gespawnt werden — _spawn_lock verhindert Doppel-Spawn
+        with self._spawn_lock:
+            # Double-checked: vielleicht hat ein paralleler Thread den Helper
+            # gerade gespawnt waehrend wir auf _spawn_lock warteten.
             if self._is_socket_alive():
-                logger.info("Helper Socket erreichbar — warte auf SHM-Bereitschaft")
+                logger.info("Helper wurde von parallelem Thread gestartet — weiter zu Phase 2")
                 if self._wait_for_ready():
                     return True
-                # Socket lebt aber SHM bleibt unreachable — trotzdem True
-                # (App-Retry via _needs_reconfigure greift als Fallback)
-                logger.warning("Helper Socket erreichbar, SHM-Timeout — App retries via Timer")
                 return True
 
             binary = _find_helper_binary()
@@ -131,24 +144,25 @@ class HelperClient:
 
             logger.info(f"Helper wird gespawnt: {binary}")
             try:
-                # stdout/stderr nach ~/Library/Logs/AudioRouterNow loggen, damit Diagnose moeglich ist
                 log_dir = Path.home() / "Library" / "Logs" / "AudioRouterNow"
                 log_dir.mkdir(parents=True, exist_ok=True)
                 log_out = open(log_dir / "helper.log", "ab", buffering=0)
                 log_err = open(log_dir / "helper.err", "ab", buffering=0)
-                self._proc = subprocess.Popen(
+                proc = subprocess.Popen(
                     [str(binary)],
                     stdout=log_out,
                     stderr=log_err,
                     stdin=subprocess.DEVNULL,
                     start_new_session=True,
                 )
-                self._spawned_by_us = True
+                with self._lock:
+                    self._proc = proc
+                    self._spawned_by_us = True
             except OSError as e:
                 logger.error(f"Helper konnte nicht gestartet werden: {e}")
                 return False
 
-            # Phase 1: Warte bis Socket erreichbar (max 15s)
+            # Phase 1: Warte bis Socket erreichbar (max 15s) — OHNE self._lock
             deadline = time.monotonic() + 15.0
             while time.monotonic() < deadline:
                 if self._is_socket_alive():
@@ -159,7 +173,7 @@ class HelperClient:
                 logger.error("Helper gestartet, aber Socket nicht erreichbar")
                 return False
 
-            # Phase 2: Warte bis SHM-Ring bereit (max 10s zusätzlich)
+            # Phase 2: Warte bis SHM-Ring bereit (max 10s) — OHNE self._lock
             if self._wait_for_ready():
                 logger.info("Helper vollständig bereit (Socket + SHM)")
                 return True
@@ -171,7 +185,10 @@ class HelperClient:
         """
         Wartet bis get_status() → ready:true meldet (SHM verbunden).
         Gibt True zurück wenn bereit, False bei Timeout.
-        Darf NUR unter self._lock aufgerufen werden.
+
+        P1-C: Ruft _send_no_lock() auf — darf NICHT unter self._lock aufgerufen
+        werden (würde Deadlock verursachen). ensure_running() hält self._lock
+        daher nicht mehr während dieser Methode läuft.
         """
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -243,6 +260,18 @@ class HelperClient:
             return self._send({"cmd": "get_status"}, timeout=timeout)
         except Exception as e:
             logger.warning(f"get_status fehlgeschlagen: {e}")
+            return None
+
+    def get_status_quick(self) -> Optional[dict]:
+        """
+        Schneller Status-Poll für den Main-Thread / UI-Updates.
+
+        Verwendet kurzen Timeout (0.5s) damit die UI nicht einfriert wenn der
+        Helper hängt. Liefert None bei Timeout statt zu blockieren.
+        """
+        try:
+            return self._send({"cmd": "get_status"}, timeout=QUICK_TIMEOUT)
+        except Exception:
             return None
 
     def set_outputs(self, outputs: List[OutputSpec]) -> Optional[dict]:
