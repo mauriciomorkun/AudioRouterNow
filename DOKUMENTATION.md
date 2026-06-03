@@ -5045,3 +5045,21 @@ Nach Build #7 ist AudioRouterNow vollständig gehärtet gegen den MacBook-Freeze
 | Ladebalken zeigt 100% zu früh | ✅ Behoben |
 
 **Kein Hard Reboot** durch AudioRouterNow mehr möglich.
+
+---
+
+### 41.5 Live-Verifikation — 3. Juni 2026
+
+Build #7 wurde vom Entwickler auf dem eigenen Mac vollständig getestet:
+
+| Schritt | Ergebnis |
+|---------|:--------:|
+| DMG öffnen | ✅ |
+| App in Applications ziehen | ✅ |
+| App starten → Treiber-Installation (Passwort-Prompt) | ✅ |
+| Ladebalken läuft realistisch (0% → 90%) | ✅ |
+| Balken springt auf 100% genau wenn Wizard erscheint | ✅ |
+| First-Run-Wizard vollständig durchlaufen | ✅ |
+| Menu-Bar-Icon erscheint | ✅ |
+
+**Fazit:** Installations-Flow funktioniert exakt wie vorgesehen — Ladebalken, Timing und Wizard-Übergang sind visuell korrekt und konsistent.
