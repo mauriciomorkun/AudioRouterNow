@@ -212,6 +212,8 @@ class AudioRouterApp(rumps.App):
         )
 
         # First-Run Wizard (einmalig nach Installation)
+        # Fortschritts-Fenster schließen (blieb nach Treiber-Install offen)
+        first_launch.close_active_progress_window()
         if not self._config.onboarding_done:
             from onboarding import run_first_run_wizard
             run_first_run_wizard(self, self._config)

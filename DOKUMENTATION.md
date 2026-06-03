@@ -1,6 +1,6 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 2. Juni 2026 (Kapitel 37 — Bugfix tkinter + Build #5)
+**Stand:** 3. Juni 2026 (Kapitel 38 — Progress-Bar Farbe + Timing-Fix + Build #6)
 **Version:** 3.0.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
@@ -4440,4 +4440,120 @@ AppKit ist im PyInstaller-Bundle vorhanden (rumps zieht es ein). Das NSRunLoop-P
 | PyInstaller .app | ✅ ohne tkinter, mit AppKit Progress-Fenster |
 | DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 12 MB |
 | App startet | ✅ kein `ModuleNotFoundError` mehr |
+
+---
+
+## 38. Fix — Progress-Bar Farbe (türkis) + Timing (bleibt bis Wizard) + Build #6 (3. Juni 2026)
+
+### 38.1 Problemstellung
+
+Nach Build #5 wurden zwei UX-Mängel am Progress-Fenster bei der Erstinstallation gemeldet:
+
+1. **Farbe**: Der Fortschrittsbalken erschien in grauer Systemfarbe statt in der App-Icon-Farbe Türkis (#1FDDAE).
+2. **Timing**: Der Fortschrittsbalken verschwand nach Abschluss der Treiber-Installation sofort — es entstand eine sichtbare Lücke (schwarzer Bildschirm / leerer Hintergrund), bevor der Onboarding-Wizard erschien.
+
+### 38.2 Ursache Fix 1 — Grauer Balken
+
+`NSProgressIndicator` ignoriert die `wantsLayer_`/`CALayer`-Hintergrundfarbe vollständig. AppKit rendert das System-Widget in der Akzentfarbe des Systems (Standard: Blau auf macOS, da kein Akzentfarben-Override). Es gibt keine öffentliche API um die Farbe direkt zu setzen; private API (`setValue_forKey_: "progressIndicatorColor"`) ist fragil und veraltet.
+
+### 38.3 Fix 1 — Benutzerdefinierter CALayer-Balken
+
+`NSProgressIndicator` wurde durch zwei gestapelte `NSView`-Layer ersetzt:
+
+| Schicht | Rolle | Farbe |
+|---------|-------|-------|
+| `_bar_track` | Dunkler Hintergrund-Track | `#383838` (22% Grau) |
+| `_bar_fill` | Türkise Füllung | `#1FDDAE` (_ACCENT_RGB) |
+
+```
+_bar_track (NSView, cornerRadius=7, masksToBounds=True)
+  └─ _bar_fill (NSView, volle Höhe, Breite = pct/100 * max_width)
+```
+
+`_bar_track.layer().setMasksToBounds_(True)` sorgt dafür, dass die Füllung an den gerundeten Track-Ecken abgeschnitten wird — standard macOS-Progress-Bar-Optik, vollständig in türkis.
+
+`set_step()` ruft `_bar_fill.setFrame_(NSMakeRect(0, 0, fill_w, bar_h))` auf:
+
+```python
+def set_step(self, pct: int, text: str) -> None:
+    from Foundation import NSMakeRect
+    fill_w = (pct / 100.0) * self._bar_max_w
+    self._bar_fill.setFrame_(NSMakeRect(0, 0, fill_w, self._bar_h))
+    self._step_field.setStringValue_(text)
+    self._window.displayIfNeeded()
+```
+
+### 38.4 Ursache Fix 2 — Lücke vor dem Wizard
+
+Nach Rückkehr von `install_driver()` →  `check_and_install()` → `main()` startet `AudioRouterApp()`. Die Initialisierung des App-Objekts (Device-Discovery, Helper-Start, Menu-Setup) dauert ~1–3 Sekunden. In dieser Zeit war das Progress-Fenster bereits geschlossen.
+
+### 38.5 Fix 2 — Fenster bleibt offen bis Wizard
+
+**Konzept:** Modul-globale Variable `_active_progress_window` hält das Fenster am Leben. `close_active_progress_window()` schließt es bei Bedarf (no-op wenn nichts offen).
+
+**Ablauf:**
+
+```
+check_and_install()
+  → install_driver(keep_open=True)
+      → Installation läuft (0%…100%)
+      → Zeigt "✓ Installation abgeschlossen" für ~800ms
+      → Wechselt zu "App wird gestartet…"
+      → Fenster bleibt offen (_active_progress_window = win)
+      → Kehrt zurück
+  → Kehrt zurück (True)
+
+AudioRouterApp.__init__()
+  → Device-Discovery, Helper-Start, Menu-Setup (~1–3s)
+  → first_launch.close_active_progress_window()   ← Fenster schließt hier
+  → if not onboarding_done: run_first_run_wizard() ← Wizard erscheint direkt danach
+```
+
+**Implementierung in `first_launch.py`:**
+
+```python
+_active_progress_window = None
+
+def close_active_progress_window() -> None:
+    global _active_progress_window
+    if _active_progress_window is not None:
+        _active_progress_window.close()
+        _active_progress_window = None
+```
+
+`install_driver(keep_open=True)` — neuer optionaler Parameter:
+```python
+if keep_open:
+    global _active_progress_window
+    _active_progress_window = win   # kein win.close()
+else:
+    win.close()
+```
+
+**`check_and_install()` — nur für Frisch-Installation:**
+```python
+success, error_msg = install_driver(keep_open=True)  # Fenster bleibt offen
+```
+ABI-Mismatch-Reinstall und Menu-Item-Reinstall rufen weiterhin `install_driver()` ohne `keep_open` auf (kein Wizard zu erwarten).
+
+**`menu_bar_app.py` — Close vor Wizard:**
+```python
+# First-Run Wizard (einmalig nach Installation)
+first_launch.close_active_progress_window()   # Fenster schließen
+if not self._config.onboarding_done:
+    from onboarding import run_first_run_wizard
+    run_first_run_wizard(self, self._config)
+```
+
+### 38.6 Build #6
+
+| Schritt | Ergebnis |
+|---------|----------|
+| Änderungen | `engine/first_launch.py` (+67 Zeilen), `engine/menu_bar_app.py` (+2 Zeilen) |
+| PyInstaller .app | ✅ |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 12 MB |
+| Progress-Bar Farbe | ✅ Türkis (#1FDDAE) via CALayer |
+| Progress-Bar Timing | ✅ Bleibt sichtbar bis Wizard erscheint |
+
+**Commit:** (folgt)
 
