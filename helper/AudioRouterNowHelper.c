@@ -1384,18 +1384,21 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
 }
 
 /*
- * sr_reinit_all_outputs — wird aufgerufen wenn der SHM-Ring eine neue
- * Sample-Rate meldet (sr_change_gen hat sich geaendert).
- * MUSS unter g_outputs_lock aufgerufen werden.
+ * sr_reinit_all_outputs — Reagiert auf Sample-Rate-Wechsel (sr_change_gen).
  *
- * Stoppt alle IOProcs, berechnet base_ratio neu, startet IOProcs neu.
+ * P0-A FIX: Nicht mehr vom Caller unter g_outputs_lock aufgerufen.
+ * Die Funktion verwaltet den Lock selbst, um CoreAudio-Calls (Mach-IPC)
+ * ausserhalb des Locks ausfuehren zu koennen:
+ *
+ *   Snapshot-Phase (unter Lock): n_outputs + Device-Infos lesen.
+ *   CoreAudio-Phase (OHNE Lock): Stop/Create/Start pro Output.
+ *   Commit-Phase   (kurzer Lock): State-Updates schreiben.
  */
 static void sr_reinit_all_outputs(void) {
     ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
     if (!ring) return;
     uint32_t new_sr = atomic_load_explicit(&ring->sample_rate, memory_order_acquire);
     fprintf(stdout, "Helper: Sample-Rate geaendert auf %u Hz — pruefe Outputs\n", new_sr);
-
     uint32_t w = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
 
     AudioObjectPropertyAddress sr_prop = {
@@ -1404,134 +1407,167 @@ static void sr_reinit_all_outputs(void) {
         kAudioObjectPropertyElementMain
     };
 
-    /* Fix 3b: Pro Output einzeln pruefen ob ein Reinit (Stop/Start) ueberhaupt
-     * noetig ist. Stimmt die aktuelle Device-SR bereits mit der Ring-SR ueberein,
-     * wird der Output NICHT gestoppt — nur die Leseposition wird neu gesetzt.
-     * Das verhindert, dass z.B. KA6 stoppt, wenn nur die MacBook-Speaker entfernt
-     * werden und die optimale Ring-SR sich faktisch nicht aendert. */
-    for (int i = 0; i < g_n_outputs; i++) {
-        DeviceOutput *dev = &g_outputs[i];
-        if (!dev->uid[0]) continue;
+    /* ── Snapshot-Phase: unter Lock Ausgabe-Kopien erstellen ── */
+    pthread_mutex_lock(&g_outputs_lock);
+    int n = g_n_outputs;
+    pthread_mutex_unlock(&g_outputs_lock);
 
-        /* Aktuelle Device-SR lesen */
+    for (int i = 0; i < n; i++) {
+
+        /* Zustand unter Lock lesen */
+        pthread_mutex_lock(&g_outputs_lock);
+        if (i >= g_n_outputs || !g_outputs[i].uid[0]) {
+            pthread_mutex_unlock(&g_outputs_lock);
+            continue;
+        }
+        AudioDeviceID   dev_id   = g_outputs[i].dev_id;
+        AudioDeviceIOProcID old_proc = g_outputs[i].proc_id;
+        bool            was_active  = g_outputs[i].active;
+        char            dev_name[256];
+        strncpy(dev_name, g_outputs[i].name, sizeof(dev_name) - 1);
+        dev_name[sizeof(dev_name)-1] = '\0';
+
+        /* Aktuelle Device-SR lesen (ohne Lock, aber unter diesem Lock-Hold ist ok) */
         Float64 device_sr = (Float64)new_sr;
         UInt32  sz = sizeof(Float64);
-        AudioObjectGetPropertyData(dev->dev_id, &sr_prop, 0, NULL, &sz, &device_sr);
+        AudioObjectGetPropertyData(dev_id, &sr_prop, 0, NULL, &sz, &device_sr);
 
         /* Fix 3b: SR stimmt bereits ueberein — kein disruptiver Stop/Start. */
         if ((uint32_t)device_sr == new_sr) {
-            dev->base_ratio = 1.0;
-            uint32_t q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
-            atomic_store_explicit(&dev->src_ratio_q20, q20, memory_order_relaxed);
-            atomic_store_explicit(&dev->local_ridx, w, memory_order_release);
-            /* K6: Pending-Reset statt Direktschreiben in src_frac_ridx.
-             * IOProc laeuft weiter — direkter Schreibzugriff ist ein Data Race. */
-            atomic_store_explicit(&dev->frac_ridx_reset_widx, w, memory_order_relaxed);
-            atomic_store_explicit(&dev->frac_ridx_reset_pending, 1u, memory_order_release);
-            /* Tranche C: PI State zurücksetzen nach SR-Wechsel */
-            dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
-            dev->integ_error = 0.0;
-            /* active/proc_id bleiben unveraendert — Output laeuft weiter. */
+            g_outputs[i].base_ratio = 1.0;
+            uint32_t q20 = (uint32_t)(1.0 * (double)(1u << 20));
+            atomic_store_explicit(&g_outputs[i].src_ratio_q20, q20, memory_order_relaxed);
+            atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
+            atomic_store_explicit(&g_outputs[i].frac_ridx_reset_widx, w, memory_order_relaxed);
+            atomic_store_explicit(&g_outputs[i].frac_ridx_reset_pending, 1u, memory_order_release);
+            g_outputs[i].fill_ewma   = (double)g_outputs[i].src_ring_target / 2.0;
+            g_outputs[i].integ_error = 0.0;
+            pthread_mutex_unlock(&g_outputs_lock);
             continue;
         }
 
-        /* SR weicht ab — Output muss neu initialisiert werden. */
+        /* P9: Stille-Gate aktivieren BEVOR IOProc gestoppt wird. */
+        atomic_store_explicit(&g_outputs[i].sr_changing, 1u, memory_order_release);
+        /* IOProc-Infos fuer Stop/Destroy merken, dann deaktivieren. */
+        g_outputs[i].active  = false;
+        g_outputs[i].proc_id = NULL;
+        /* Leseposition zuruecksetzen (IOProc gestoppt gleich). */
+        atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
+        g_outputs[i].src_frac_ridx = (double)w / 2.0;
+        atomic_store_explicit(&g_outputs[i].frac_ridx_reset_pending, 0u, memory_order_release);
+        pthread_mutex_unlock(&g_outputs_lock);
 
-        /* P9: Stille-Gate aktivieren BEVOR der IOProc gestoppt/neu gebaut wird.
-         * Falls der (noch laufende) IOProc waehrend des Stops nochmal feuert,
-         * gibt er Stille statt falsch geratete Samples aus. */
-        atomic_store_explicit(&dev->sr_changing, 1u, memory_order_release);
+        /* ── CoreAudio-Phase: OHNE Lock ── */
 
-        /* Schritt 1: IOProc stoppen */
-        if (dev->active && dev->proc_id) {
-            AudioDeviceStop(dev->dev_id, dev->proc_id);
-            AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
-            dev->proc_id = NULL;
-            dev->active  = false;
+        /* Schritt 1: alten IOProc stoppen (lockfrei) */
+        if (was_active && old_proc) {
+            AudioDeviceStop(dev_id, old_proc);
+            AudioDeviceDestroyIOProcID(dev_id, old_proc);
         }
 
-        /* Schritt 2: Leseposition auf aktuellen write_idx setzen.
-         * IOProc wurde in Schritt 1 gestoppt — direktes Schreiben hier sicher.
-         * Pending-Flag zuruecksetzen damit der (bald wieder startende) IOProc
-         * nicht einen veralteten Pending-Reset ausfuehrt. */
-        atomic_store_explicit(&dev->local_ridx, w, memory_order_release);
-        dev->src_frac_ridx = (double)w / 2.0;
-        atomic_store_explicit(&dev->frac_ridx_reset_pending, 0u, memory_order_release);
-
-        /* Schritt 3: Versuche Device auf neue Ring-SR zu setzen */
+        /* Schritt 2: Device auf neue Ring-SR setzen (lockfrei) */
         Float64 ring_sr_f = (Float64)new_sr;
-        if (AudioObjectSetPropertyData(dev->dev_id, &sr_prop, 0, NULL,
-                                       sizeof(Float64), &ring_sr_f) == noErr) {
+        if (AudioObjectSetPropertyData(dev_id, &sr_prop, 0, NULL,
+                                       sizeof(Float64), &ring_sr_f) != noErr) {
+            /* Nicht-fatal: aktuelle Device-SR fuer base_ratio neu lesen */
+            sz = sizeof(Float64);
+            AudioObjectGetPropertyData(dev_id, &sr_prop, 0, NULL, &sz, &device_sr);
+        } else {
             device_sr = ring_sr_f;
         }
-        dev->base_ratio = (double)new_sr / (double)device_sr;
-        /* M5: base_ratio Plausibilitaetscheck auch im SR-Reinit-Pfad. */
-        if (dev->base_ratio <= 0.0 || dev->base_ratio > 10.0) {
-            fprintf(stderr, "Helper: Warnung — unplausibler base_ratio %.6f nach SR-Reinit "
-                    "fuer '%s' — setze 1.0\n", dev->base_ratio, dev->name);
-            dev->base_ratio = 1.0;
-        }
-        uint32_t init_q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
-        atomic_store_explicit(&dev->src_ratio_q20, init_q20, memory_order_relaxed);
-        atomic_store_explicit(&dev->underruns, 0u, memory_order_relaxed);
-        /* Tranche C: PI State zurücksetzen nach SR-Wechsel */
-        dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
-        dev->integ_error = 0.0;
 
-        /* Schritt 4: IOProc neu erzeugen — mit Retry nach SR-Wechsel.
-         * USB-Devices brauchen 100-500ms zum Rekonfigurieren nach SR-Wechsel.
-         * Sofortiger AudioDeviceCreateIOProcID-Aufruf schlaegt mit 'nope' fehl. */
-        OSStatus err = kAudioHardwareNotRunningError;
-        for (int attempt = 0; attempt < 5; attempt++) {
-            if (attempt > 0) {
-                usleep(200000); /* 200ms — USB-Device Rekonfigurierungszeit */
-            }
-            err = AudioDeviceCreateIOProcID(dev->dev_id, device_ioproc, dev, &dev->proc_id);
-            if (err == noErr) break;
-            fprintf(stderr, "Helper: AudioDeviceCreateIOProcID Versuch %d/5 fehlgeschlagen "
-                            "(OSStatus %d) fuer %s\n", attempt + 1, (int)err, dev->name);
-            dev->proc_id = NULL;
+        double base_ratio = (double)new_sr / (double)device_sr;
+        if (base_ratio <= 0.0 || base_ratio > 10.0) {
+            fprintf(stderr, "Helper: Warnung — unplausibler base_ratio %.6f nach SR-Reinit "
+                    "fuer '%s' — setze 1.0\n", base_ratio, dev_name);
+            base_ratio = 1.0;
         }
-        if (err != noErr) {
-            fprintf(stderr, "Helper: AudioDeviceCreateIOProcID endgueltig fehlgeschlagen "
-                            "fuer %s — Output bleibt inaktiv\n", dev->name);
-            dev->active = false;
-            /* P9: Gate wieder freigeben — kein IOProc mehr aktiv, sonst bliebe
-             * das Flag fuer einen spaeter neu erstellten IOProc faelschlich gesetzt. */
-            atomic_store_explicit(&dev->sr_changing, 0u, memory_order_release);
+        uint32_t init_q20 = (uint32_t)(base_ratio * (double)(1u << 20));
+
+        /* Schritt 3: IOProc neu erzeugen — mit Retry nach SR-Wechsel (lockfrei). */
+        AudioDeviceIOProcID new_proc = NULL;
+        OSStatus err = kAudioHardwareNotRunningError;
+
+        /* Re-Validierung: Slot noch vorhanden? */
+        pthread_mutex_lock(&g_outputs_lock);
+        bool slot_valid = (i < g_n_outputs && g_outputs[i].dev_id == dev_id);
+        DeviceOutput *slot_ptr = slot_valid ? &g_outputs[i] : NULL;
+        pthread_mutex_unlock(&g_outputs_lock);
+
+        if (!slot_valid) {
+            fprintf(stderr, "Helper: SR-Reinit: Slot %d nicht mehr gueltig fuer '%s'\n",
+                    i, dev_name);
             continue;
         }
 
-        /* Fix 3a: AudioDeviceStart mit Retry — bis zu 3 Versuche, 100ms Pause.
-         * Verhindert dass ein einmaliger transienter Fehler den Output dauerhaft
-         * im stillen active=false-Zustand stehen laesst. */
-        for (int retry = 0; retry < 3; retry++) {
-            err = AudioDeviceStart(dev->dev_id, dev->proc_id);
+        for (int attempt = 0; attempt < 5; attempt++) {
+            if (attempt > 0) usleep(200000); /* 200ms, lockfrei */
+            err = AudioDeviceCreateIOProcID(dev_id, device_ioproc, slot_ptr, &new_proc);
             if (err == noErr) break;
-            if (retry < 2) usleep(100000);  /* 100ms */
+            fprintf(stderr, "Helper: AudioDeviceCreateIOProcID Versuch %d/5 fehlgeschlagen "
+                    "(OSStatus %d) fuer %s\n", attempt + 1, (int)err, dev_name);
+            new_proc = NULL;
         }
+
         if (err != noErr) {
-            fprintf(stderr, "Helper: AudioDeviceStart fehlgeschlagen nach 3 Versuchen "
-                            "(OSStatus %d) fuer %s — Output bleibt inaktiv\n",
-                    (int)err, dev->name);
-            AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
-            dev->proc_id = NULL;
-            dev->active  = false;
-            /* P9: Gate freigeben — kein laufender IOProc. */
-            atomic_store_explicit(&dev->sr_changing, 0u, memory_order_release);
-        } else {
-            dev->active = true;
-            /* P9: Pre-Roll neu scharf schalten, DANN das SR-Wechsel-Gate
-             * freigeben. Reihenfolge wichtig: sobald sr_changing=0 ist, gibt der
-             * IOProc wieder Audio aus — er soll dann sauber via Pre-Roll
-             * anlaufen statt mit halb gefuelltem Ring. */
-            atomic_store_explicit(&dev->preroll_target_frames, ARN_RING_CAPACITY / 4u,
-                                  memory_order_relaxed);
-            atomic_store_explicit(&dev->preroll_armed, 1u, memory_order_release);
-            atomic_store_explicit(&dev->sr_changing, 0u, memory_order_release);
-            fprintf(stdout, "Helper: Output neu gestartet nach SR-Wechsel: %s [Ch %u-%u]\n",
-                    dev->name, dev->ch_offset + 1, dev->ch_offset + 2);
+            fprintf(stderr, "Helper: AudioDeviceCreateIOProcID endgueltig fehlgeschlagen "
+                    "fuer %s — Output bleibt inaktiv\n", dev_name);
+            /* Commit-Phase: sr_changing-Gate freigeben, active bleibt false */
+            pthread_mutex_lock(&g_outputs_lock);
+            if (i < g_n_outputs && g_outputs[i].dev_id == dev_id) {
+                atomic_store_explicit(&g_outputs[i].sr_changing, 0u, memory_order_release);
+            }
+            pthread_mutex_unlock(&g_outputs_lock);
+            continue;
         }
+
+        /* Schritt 4: Start mit Retry (lockfrei) */
+        for (int retry = 0; retry < 3; retry++) {
+            err = AudioDeviceStart(dev_id, new_proc);
+            if (err == noErr) break;
+            if (retry < 2) usleep(100000);
+        }
+
+        /* ── Commit-Phase: State-Updates unter kurzem Lock ── */
+        pthread_mutex_lock(&g_outputs_lock);
+        if (i < g_n_outputs && g_outputs[i].dev_id == dev_id) {
+            if (err != noErr) {
+                fprintf(stderr, "Helper: AudioDeviceStart fehlgeschlagen nach 3 Versuchen "
+                        "(OSStatus %d) fuer %s — Output bleibt inaktiv\n",
+                        (int)err, dev_name);
+                AudioDeviceDestroyIOProcID(dev_id, new_proc);
+                g_outputs[i].proc_id = NULL;
+                g_outputs[i].active  = false;
+                atomic_store_explicit(&g_outputs[i].sr_changing, 0u, memory_order_release);
+            } else {
+                g_outputs[i].proc_id     = new_proc;
+                g_outputs[i].base_ratio  = base_ratio;
+                atomic_store_explicit(&g_outputs[i].src_ratio_q20, init_q20, memory_order_relaxed);
+                atomic_store_explicit(&g_outputs[i].underruns, 0u, memory_order_relaxed);
+                g_outputs[i].fill_ewma   = (double)g_outputs[i].src_ring_target / 2.0;
+                g_outputs[i].integ_error = 0.0;
+                /* Pre-Roll neu scharf schalten, DANN Gate freigeben. */
+                atomic_store_explicit(&g_outputs[i].preroll_target_frames, ARN_RING_CAPACITY / 4u,
+                                      memory_order_relaxed);
+                atomic_store_explicit(&g_outputs[i].preroll_armed, 1u, memory_order_release);
+                atomic_store_explicit(&g_outputs[i].sr_changing, 0u, memory_order_release);
+                g_outputs[i].active      = true;
+                fprintf(stdout, "Helper: Output neu gestartet nach SR-Wechsel: %s [Ch %u-%u]\n",
+                        g_outputs[i].name, g_outputs[i].ch_offset + 1,
+                        g_outputs[i].ch_offset + 2);
+            }
+        } else {
+            /* Slot verschwunden (Hot-Unplug waehrend Reinit) — IOProc sauber stoppen */
+            pthread_mutex_unlock(&g_outputs_lock);
+            if (err == noErr) {
+                AudioDeviceStop(dev_id, new_proc);
+                AudioDeviceDestroyIOProcID(dev_id, new_proc);
+            }
+            fprintf(stderr, "Helper: SR-Reinit: Slot nach Start nicht mehr vorhanden fuer '%s'\n",
+                    dev_name);
+            continue;
+        }
+        pthread_mutex_unlock(&g_outputs_lock);
     }
 }
 
@@ -1877,9 +1913,7 @@ static void *volume_poll_thread(void *arg)
                     last_sr_gen = cur_gen; /* Initialisierung: aktuellen Wert merken */
                 } else if (cur_gen != last_sr_gen) {
                     last_sr_gen = cur_gen;
-                    pthread_mutex_lock(&g_outputs_lock);
                     sr_reinit_all_outputs();
-                    pthread_mutex_unlock(&g_outputs_lock);
                 }
             }
         }
