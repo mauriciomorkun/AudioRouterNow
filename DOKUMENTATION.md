@@ -1,6 +1,6 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 3. Juni 2026 (Kapitel 41 — Build #7 — Stability-Hardened Release)
+**Stand:** 3. Juni 2026 (Kapitel 42 — Post-Launch Strategie & Roadmap)
 **Version:** 3.1.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
@@ -52,6 +52,7 @@
 39. [Stabilitäts-Fix-Batch — MacBook-Freeze Behebung (3. Juni 2026)](#39-stabilitäts-fix-batch--macbook-freeze-behebung)
 40. [Entwicklungs-Chronik — 29. Mai bis 3. Juni 2026](#40-entwicklungs-chronik--29-mai-bis-3-juni-2026)
 41. [Build #7 — Stability-Hardened Release (3. Juni 2026)](#41-build-7--stability-hardened-release-3-juni-2026)
+42. [Post-Launch Strategie & Roadmap](#42-post-launch-strategie--roadmap)
 
 ---
 
@@ -5063,3 +5064,395 @@ Build #7 wurde vom Entwickler auf dem eigenen Mac vollständig getestet:
 | Menu-Bar-Icon erscheint | ✅ |
 
 **Fazit:** Installations-Flow funktioniert exakt wie vorgesehen — Ladebalken, Timing und Wizard-Übergang sind visuell korrekt und konsistent.
+
+---
+
+## 42. Post-Launch Strategie & Roadmap
+
+**Datum:** 3. Juni 2026 · **Basis:** v3.1.0 / Build #7 (erstes stability-gehärtetes Release)  
+**Methodik:** Experten-Panel (8 Frameworks) + PM-Roadmap · **Modus:** Brainstorming → Entscheidung → Plan
+
+> Dieses Kapitel dokumentiert die strategische Session nach Abschluss der technischen Stabilisierungs-Phase. AudioRouterNow ist technisch fertig und stabil — jetzt geht es darum, was danach kommt.
+
+---
+
+### 42.1 Ist-Zustand: Was ist bereits erledigt?
+
+| Bereich | Status |
+|---------|:------:|
+| GitHub Repository mit poliertem README (BlackHole-Vergleich, Architektur) | ✅ |
+| Buy Me a Coffee Link (`buymeacoffee.com/mauriciomorkun`) | ✅ |
+| MIT License (maximale Optionalität für Community und Forks) | ✅ |
+| Professionelles DMG (no-Terminal, one-click, First-Run-Wizard) | ✅ |
+| RELEASE_NOTES.md (dual-audience: "For Everyone" + "For Power Users") | ✅ |
+| Website mauriciomorkun.com | ✅ |
+| 10 Stability-Fixes (kein MacBook-Freeze mehr möglich) | ✅ |
+| Uninstall-Mechanismus (sauber, vollständig, in der App) | ✅ |
+
+| Bereich | Status |
+|---------|:------:|
+| Offizieller GitHub Release (getaggt, DMG als Asset) | 🔲 |
+| Code-Signing + Notarisierung (Apple Developer ID) | 🔲 |
+| Homebrew Cask Eintrag | 🔲 |
+| AlternativeTo / MacUpdater Eintrag | 🔲 |
+| Community-Präsenz (HN, Reddit, Discussions) | 🔲 |
+| Update-Mechanismus für bestehende User (Sparkle o.ä.) | 🔲 |
+| Demo-Video / GIF | 🔲 |
+| Kompatibilitäts-Matrix (macOS-Versionen, getestete Interfaces) | 🔲 |
+
+---
+
+### 42.2 Strategische Analyse — 8-Experten-Panel
+
+*Zusammenfassung der sequenziellen Experten-Panel-Analyse (vollständig erarbeitet in dieser Session).*
+
+#### Kern-Konsens aller 8 Experten (= höchste Konfidenz)
+
+**1. Vertrauen ist der Engpass — nicht der Preis.**
+Ein Audio-Treiber mit Root-Zugriff wird nur installiert, wenn Nutzer vertrauen. Code-Signing + Notarisierung sind nicht optional. Solange das DMG unsigned ist, ist jede Distributions-Maßnahme wirkungslos bei der breiten Zielgruppe.
+
+**2. Die Kategorie heißt "Zero-Setup Multi-Output" — nicht "BlackHole-Alternative".**
+"BlackHole-Alternative" verankert das Tool im Profi-roten-Ozean. Die eigentliche unbesetzte Position ist: *"Audio auf mehrere Geräte gleichzeitig — ohne Konfigurationsaufwand"* — das spricht den unerforschten Nicht-Konsum (Home-Office, Casual-User) an, der kein Audio-Profi ist und auch keiner sein möchte.
+
+**3. Wartungslast zuerst absichern, dann skalieren.**
+Solo-Maintainer + 3 Parallel-Projekte (Alledin, AstroAnalyzer, Website). Ein viraler Launch ohne Update-Kanal = Support-Balancing-Loop die den Maintainer auffrisst. Update-Mechanismus (Sparkle) VOR dem Launch, nicht danach.
+
+**4. Konkurrenz-Achse: Nicht gegen Rogue Amoeba (Loopback 99 $, SoundSource 49 $).**
+Feature-Wettrüsten ist nicht gewinnbar. Verteidigbare Position ist die Installations-Erfahrung + Preis von null. Eine Sache exzellent, statt zehn Sachen mittelmäßig.
+
+#### Wettbewerbs-Landschaft (recherchiert Juni 2026)
+
+| Tool | Preis | kext | Restart | Multi-Output |
+|------|-------|:----:|:-------:|:------------:|
+| **AudioRouterNow** | **Kostenlos** | **Nein** | **Nein** | **Ja** |
+| BlackHole | Kostenlos | Ja (System Extension) | Ja | Nein (nativ) |
+| Loopback (Rogue Amoeba) | 99 $ | Nein | Nein | Ja (pro) |
+| SoundSource (Rogue Amoeba) | 49 $ | Nein | Nein | Nein (Per-App-Focus) |
+| Soundshine | Kostenlos/Paid | Nein | Nein | Begrenzt |
+| Aggregate Device (macOS built-in) | Kostenlos | Nein | Nein | Ja (manuell, komplex) |
+
+**Blue-Ocean-Position:** Kostenlos + MIT + kein kext + One-Click. Diese Kombination besetzt niemand.
+
+#### Flywheel (selbstverstärkende Wachstumsschleife)
+
+```
+Reibungslose Installation
+        ↓
+Begeisterte Nutzer
+        ↓
+Empfehlungen in Producer/Podcaster-Discords
+        ↓
+AlternativeTo / Homebrew-Ranking steigt
+        ↓
+Mehr organischer Such-Traffic
+        ↓
+Mehr GitHub Stars → Maintainer-Reputation
+        ↓
+Bessere Stabilität & Motivation
+        ↓
+Noch reibungslosere Installation ↩
+```
+
+Kein Paid-Kanal nötig. Jeder Punkt ist kostenlos und kompoundierend. Anstoßpunkt: **die Installations-Erfahrung makellos halten** (bereits erreicht mit Build #7).
+
+#### Modell-Entscheidung: Was ist AudioRouterNow?
+
+Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
+
+| Definition | Zweck | Metrik | Empfehlung |
+|------------|-------|--------|:----------:|
+| **Reputation-Asset** | Portfolio-Stück, Maintainer-Glaubwürdigkeit | HN-Resonanz, technische Tiefe | ⭐ Primär |
+| **Community-Utility** | Öffentliches Gut, maximale Reichweite | Aktive Nutzerbasis, Stars | ⭐ Sekundär |
+| **Funnel-Top** | Einstieg zu späterem Pro-Produkt | E-Mail-Liste, Konversionsrate | Nicht jetzt |
+
+**Entscheidung: Hybrid aus 1+2** — Reputation-Asset das nebenbei eine kleine treue Community bedient. Kein Business-Aufbau der eine zweite Vollzeit-Verpflichtung wird.
+
+---
+
+### 42.3 Phasen-Modell Post-Launch
+
+#### Phase 0 — Fundament (Voraussetzung, vor allem anderen)
+
+**Zeitraum:** Unmittelbar · **Erfolgskriterium:** Offizieller, signierter Release ist veröffentlicht
+
+| Aufgabe | Priorität | Aufwand |
+|---------|:---------:|---------|
+| Apple Developer ID beantragen ($99/Jahr) | 🔴 KRITISCH | Einmalig |
+| Code-Signing + Notarisierung ins build.sh integrieren | 🔴 KRITISCH | ~1 Tag |
+| Offizieller GitHub Release: Tag `v3.1.0`, DMG als Asset, SHA256-Checksums | 🔴 KRITISCH | 1-2h |
+| CHANGELOG.md anlegen (beginnt bei v3.1.0) | 🟡 HOCH | 30 Min |
+| Update-Mechanismus evaluieren (Sparkle Framework) | 🟡 HOCH | Recherche |
+
+> **Warum Notarisierung vor allem anderen (Taleb):** Ein Audio-Treiber ohne Apple-Signatur wird auf macOS Sequoia/Tahoe mit Gatekeeper-Blockierung oder Malware-Warnung abgelehnt. Bei einem Tool das Root-Zugriff aufs Audio-Subsystem fordert ist das ein Vertrauens-Kill-Switch. Ohne Notarisierung ist jeder Launch-Post kontraproduktiv.
+
+---
+
+#### Phase 1 — Sichtbarkeit (Woche 1–4 nach offiziellem Release)
+
+**Kernfrage:** Wer kennt das Tool noch nicht, der es kennen sollte?
+
+| Aufgabe | Kanal | Aufwand |
+|---------|-------|---------|
+| 15-Sek Demo-GIF/Video (Menü öffnen → 2 Outputs anhaken → Ton kommt aus beiden) | GitHub / überall | 2–3h |
+| Soft-Launch Post auf **r/macapps** (Origin-Story-Format) | Reddit | 30 Min |
+| **AlternativeTo**-Eintrag (BlackHole, Loopback, SoundSource als Alternativen) | AlternativeTo | 20 Min |
+| **GitHub Discussions** aktivieren + Pinned-Post | GitHub | 15 Min |
+| GitHub Releases-Seite: Screenshots, Systemvoraussetzungen, Kompatibilitäts-Hinweise | GitHub | 45 Min |
+
+**Post-Format für r/macapps (Godin: Origin-Story mit Frustration als Held):**
+> *"Ich wollte Audio gleichzeitig auf meinen Monitor-Lautsprecher und Kopfhörer routen. Die Lösungen: BlackHole (Kernel Extension + Restart + Terminal) oder Loopback (99 $). Also habe ich ein kostenloses Menu-Bar-Tool gebaut — kein kext, kein Restart, einfach anhaken und es läuft."*
+
+**Erfolgskriterien Phase 1:**
+
+| Metrik | Ziel |
+|--------|------|
+| GitHub Stars | +100 |
+| DMG-Downloads | 50–200 |
+| r/macapps-Kommentare | 5+ echte Reaktionen |
+| Issues geöffnet | 3–10 (Zeichen für Nutzung) |
+
+---
+
+#### Phase 2 — Community (Monat 2–3)
+
+**Kernfrage:** Wer nutzt das Tool, und was brauchen sie wirklich?
+
+| Aufgabe | Bereich |
+|---------|---------|
+| **Homebrew Cask** PR einreichen (`brew install --cask audiorouternow`) | Distribution |
+| **Show HN** Post — erst nach 1–2 Wochen Stabilität in freier Wildbahn | Community |
+| Systematisch auf alle Issues antworten (<48h) | Vertrauen |
+| CONTRIBUTING.md schreiben | Open-Source |
+| Kompatibilitäts-Matrix im README (getestete macOS-Versionen + Interfaces) | Doku |
+| Sparkle Framework integrieren (Update-Benachrichtigungen in der App) | Update-UX |
+| Google Alert: "AudioRouterNow" einrichten | Monitoring |
+
+**Erfolgskriterien Phase 2:**
+
+| Metrik | Ziel |
+|--------|------|
+| GitHub Stars | 250–500 |
+| Externer PR oder Fork | ≥1 |
+| Buy Me a Coffee Supporter | 3–10 |
+| Homebrew Cask live | ✅ |
+| Kompatibilitäts-Matrix | macOS 11–15 + 3+ fremde Interfaces |
+
+---
+
+#### Phase 3 — Wachstum (Monat 4–6)
+
+**Kernfrage:** Welche Features bringen echten Mehrwert — welche sind Feature-Trap?
+
+| Aufgabe | Datenquelle |
+|---------|-------------|
+| Feature-Priorität nach Issue-Upvotes auswerten | GitHub Insights |
+| Intel-Mac-Support: bestätigen oder explizit schließen | Hardware / Community-Test |
+| Phase 6.1 Stress-Tests abschließen (4h Musik, Sleep/Wake) | projekt.md |
+| Website mauriciomorkun.com — AudioRouterNow-Landingpage | Web |
+| macOS-Kompatibilitäts-Matrix vollständig schließen | projekt.md Phase 8 |
+
+**Erfolgskriterien Phase 3:**
+
+| Metrik | Ziel |
+|--------|------|
+| GitHub Stars | 500–1.000 |
+| Download-Gesamtzahl | 500+ |
+| Buy Me a Coffee Supporter | 20–50 |
+| Intel-Status | Bestätigt oder transparent geschlossen |
+
+---
+
+#### Phase 4 — Monetarisierung (ab Monat 7, optional)
+
+**Voraussetzung:** 500+ Stars, aktive Community, stabiler Maintainer — erst dann entscheiden.
+
+| Option | Modell | Aufwand | Empfehlung |
+|--------|--------|---------|:----------:|
+| Free + Buy Me a Coffee (Status quo) | Keine Änderung | Null | Primär |
+| GitHub Sponsors (wiederkehrend) | Sponsoring | Minimal | Als Ergänzung |
+| Pro-Features (Presets, Hotkeys) | Freemium | Mittel | Erst nach Community-Feedback |
+| Einmalkauf via Gumroad (~9–15 $) | Paid | Mittel + Support | Erst nach Notarisierung |
+
+> **Realistische Erwartung:** Ein Nischen-macOS-Free-Tool generiert typischerweise zweistellige bis niedrige dreistellige Euro-Beträge/Jahr via Donations. Plane null Einkommen — jede Donation ist ein Bonus, kein Geschäftsmodell.
+
+---
+
+### 42.4 Aufgaben-Backlog
+
+#### 🔴 P0 — Kritisch (Fundament, vor erstem öffentlichen Launch)
+
+| Aufgabe | Bereich |
+|---------|---------|
+| Apple Developer ID beantragen | Distribution |
+| Code-Signing + Notarisierung in build.sh integrieren | Distribution |
+| GitHub Release `v3.1.0` mit signiertem DMG + SHA256 | Distribution |
+| Demo-GIF/Video (15–30 Sek) | Marketing |
+
+#### 🟡 P1 — Diese Woche (Launch-Woche)
+
+| Aufgabe | Bereich |
+|---------|---------|
+| CHANGELOG.md anlegen | Doku |
+| GitHub Discussions aktivieren | Community |
+| r/macapps Launch-Post | Community |
+| AlternativeTo-Eintrag erstellen | Distribution |
+| Releases-Seite: Screenshots, Systemvoraussetzungen | GitHub |
+
+#### 🟢 P2 — Dieser Monat
+
+| Aufgabe | Bereich |
+|---------|---------|
+| Homebrew Cask PR | Distribution |
+| Show HN Post (nach 1–2 Wochen Stabilität) | Community |
+| Sparkle Framework Integration | Update-UX |
+| CONTRIBUTING.md | Open-Source |
+| Kompatibilitäts-Matrix README | Doku |
+| Phase 6.1 Stress-Tests | Qualität |
+
+#### 🔵 P3 — Roadmap (Zukunft nach Community-Feedback)
+
+| Aufgabe | Bereich |
+|---------|---------|
+| Routing-Presets / gespeicherte Profile | Feature |
+| Intel-Mac-Support (bestätigen oder schließen) | Architektur |
+| Per-App-Audio-Routing (Achtung: Loopback-Territorium) | Feature (risikoreich) |
+| P2-B: Dedizierter CoreAudio-Ops-Thread | Stabilität |
+| Website-Landingpage AudioRouterNow | Marketing |
+| macOS-Kompatibilitäts-Matrix vollständig | Qualität |
+
+---
+
+### 42.5 Entscheidungs-Framework
+
+#### Feature aufnehmen oder ablehnen?
+
+| Frage | Gewichtung |
+|-------|-----------|
+| Wird es von >3 unabhängigen Nutzern gefordert? | 30 % |
+| Passt es zur Kern-Positionierung (Routing, nicht Processing)? | 30 % |
+| In <2 Wochen implementierbar? | 20 % |
+| Erhöht es den dauerhaften Support-Aufwand? *(Negativ-Kriterium)* | 20 % |
+
+**Regel:** Score ≥ 60 % → aufnehmen · < 40 % → transparent ablehnen (GitHub Discussions) · 40–60 % → Backlog ohne Milestone
+
+#### Monetarisierung einführen?
+
+Erst wenn **alle drei** Bedingungen erfüllt sind:
+
+| Bedingung | Messgröße |
+|-----------|-----------|
+| Nutzerbasis vorhanden | 500+ GitHub Stars |
+| Support-Aufwand messbar | >2h/Woche für Issues |
+| Community signalisiert Zahlungsbereitschaft | ≥5 "Would pay for X" Kommentare |
+
+#### Distribution-Kanal hinzufügen?
+
+| Kanal | Aufwand | Empfehlung |
+|-------|---------|:----------:|
+| GitHub Releases | Minimal | ✅ Sofort |
+| AlternativeTo | Minimal | ✅ P1 |
+| Homebrew Cask | Niedrig (~4h) | ✅ P2 nach Notarisierung |
+| Direkte Website | Mittel | P3 |
+| Mac App Store | Hoch (Sandbox-Analyse nötig) | Nicht vor Phase 3 |
+
+---
+
+### 42.6 KPIs & Erfolgsmessung
+
+#### Primär-Metriken
+
+| Metrik | Tool | Frequenz | Ziel 3 Monate |
+|--------|------|:--------:|:-------------:|
+| GitHub Stars | GitHub | Wöchentlich | 500 |
+| DMG-Downloads | GitHub Releases API | Monatlich | 300 |
+| Offene Issues (unbeantwortet) | GitHub | Wöchentlich | <10 |
+| Antwort-Zeit auf Issues | GitHub | Manuell | <48h |
+| Buy Me a Coffee Supporter | BMAC Dashboard | Monatlich | 20 |
+
+#### Sekundär-Metriken
+
+| Metrik | Bedeutung |
+|--------|-----------|
+| Issues "bug" vs. "feature" | Stabilitäts-Indikator |
+| Externe Forks | Code-Interesse |
+| Erwähnungen in Blogs/Videos | Organische Verbreitung |
+| Homebrew-Cask-Installs | Technische Reichweite |
+
+#### Bewusst ignorieren (Anti-Metriken)
+
+- Twitter/X-Follower ohne Download-Korrelation
+- "Views" ohne aktive Nutzung
+- Stars bei Konkurrenz-Projekten als Benchmark
+
+---
+
+### 42.7 "Don't Do"-Liste
+
+Bewusste strategische Entscheidungen gegen bestimmte Maßnahmen:
+
+#### Technisch
+
+| Nicht tun | Warum |
+|-----------|-------|
+| Stilles Auto-Update | HAL-Treiber-Update erfordert Admin-Passwort — kein stilles Update möglich ohne Vertrauensbruch |
+| Telemetrie / anonyme Analytics | Widerspricht MIT-Geist und Erwartung der technischen Zielgruppe |
+| CoreAudio-Calls im RT-Pfad | Architektur-Grundsatz — gilt für immer |
+| kext reaktivieren | Bewusst abgelöst — kein Rückschritt |
+| Low-Latency-Versprechen | 170 ms Ring-Buffer-Architektur — nicht für Live-Monitoring geeignet, README ist ehrlich, so lassen |
+
+#### Produkt
+
+| Nicht tun | Warum |
+|-----------|-------|
+| Feature-Creep in Richtung Audio-Processing | AudioRouterNow ist ein Router, kein Mixer, kein EQ |
+| Windows/Linux-Portierung | CoreAudio + HAL sind macOS-spezifisch |
+| Pro-Version ankündigen vor Community-Feedback | Preemptive Monetarisierung zerstört Open-Source-Vertrauen |
+| Intel-Support versprechen ohne eigene Test-Hardware | Ungültige Versprechen schaden mehr als Schweigen |
+
+#### Distribution
+
+| Nicht tun | Warum |
+|-----------|-------|
+| Homebrew Cask vor Notarisierung | Gatekeeper-Blockierung für alle Nutzer |
+| Mac App Store ohne Sandbox-Analyse | HAL-Plugin-Installation erfordert Admin-Rechte — Sandbox-Kompatibilität unklar |
+| DMG ohne SHA256-Checksum | Minimalstandard bei Power-Usern |
+
+#### Community
+
+| Nicht tun | Warum |
+|-----------|-------|
+| Issues schließen ohne Antwort | Einmalige negative Erfahrung hinterlässt dauerhaften Eindruck |
+| Stars kaufen | Schadet Reputation bei der technisch versierten Zielgruppe dauerhaft |
+| CHANGELOG weglassen | Projekte ohne CHANGELOG gelten als nicht gepflegt |
+
+---
+
+### 42.8 Priorisierte Aktions-Sequenz (Panel-Konsens)
+
+Die wichtigste Erkenntnis: Marketing kommt nach dem Vertrauens- und Update-Fundament — nicht davor.
+
+| # | Aktion | Begründung | Prio |
+|---|--------|-----------|:----:|
+| **1** | Apple Developer ID + Code-Signing + Notarisierung | Vertrauen ist DER Engpass bei einem Audio-Treiber | 🔴 |
+| **2** | Sparkle Update-Kanal einbauen | Schließt die Feedback-Verzögerung vor Skalierung | 🔴 |
+| **3** | 15-Sek Demo-GIF (Menü → 2 Outputs → Ton läuft) | Multiplikator zwischen "interessant" und "geteilt" | 🟡 |
+| **4** | GitHub Release `v3.1.0` (getaggt, signiert, SHA256) | Fundament jeder Distribution | 🟡 |
+| **5** | AlternativeTo + r/macapps Soft-Launch | Erste organische Reichweite, Stabilitäts-Probe | 🟡 |
+| **6** | Homebrew Cask | Kompoundierender Schwungrad-Hebel, Top-ROI | 🟢 |
+| **7** | Show HN (erst nach 1–2 Wochen Stabilität) | Einmalige Chance — nicht verbrennen bevor stabil | 🟢 |
+| **8** | Positionierung: "Zero-Setup Multi-Output" statt "BlackHole-Alternative" | Kategorie selbst benennen — besetzt den Blue Ocean | 🔄 Durchgehend |
+
+---
+
+### 42.9 Offene Technische Roadmap-Punkte
+
+Diese Punkte wurden aus dem AUDIT_REPORT.md und PLAN.md übernommen:
+
+| Task | Prio | Status |
+|------|:----:|:------:|
+| P2-B: Dedizierter CoreAudio-Ops-Thread (alle CoreAudio-Calls aus Volume-Thread auslagern) | P3 | Offen |
+| Auto-Recovery-Counter statt terminalem `g_watchdog_tripped` | P3 | Offen |
+| `find_device_by_uid()` in hotplug Phase A lockfrei | P3 | Offen |
+| Phase 6.1 Stress-Tests (4h Musik, Sleep/Wake, CPU-Last) | P2 | Offen |
+| macOS 11/12/13/14/15 Kompatibilitäts-Matrix schließen | P2 | Offen |
+| Intel-Mac-Support: bestätigen oder explizit schließen | P2 | Offen |
