@@ -1609,21 +1609,39 @@ static OSStatus devices_changed_listener(AudioObjectID inObjectID,
     return noErr;
 }
 
-/* H3: Eigentliche Hot-Plug-Reaktion — läuft im Volume-Thread (nicht im Callback).
- * Findet und entfernt verschwundene Output-Devices ohne Re-Entry-Deadlock-Risiko. */
+/* H3: Eigentliche Hot-Plug-Reaktion — laeuft im Volume-Thread (nicht im Callback).
+ *
+ * P2-A FIX: AudioDeviceStop/DestroyIOProcID sind Mach-IPC zu coreaudiod.
+ * Unter g_outputs_lock aufgerufen koennen sie bei coreaudiod-Spin blockieren.
+ * Jetzt 2-Phasen-Design:
+ *   Phase A (unter Lock): Snapshot der zu entfernenden Slots, active=false setzen.
+ *   Phase B (OHNE Lock):  AudioDeviceStop/DestroyIOProcID + Kompaktierung.
+ */
 static void process_hotplug_removals(void)
 {
+    /* Phase A: Snapshot unter Lock — find_device_by_uid + deaktivieren */
+    typedef struct { AudioDeviceID dev_id; AudioDeviceIOProcID proc_id; char name[256]; } RemoveEntry;
+    RemoveEntry to_remove[MAX_OUTPUTS];
+    int n_remove = 0;
+
     pthread_mutex_lock(&g_outputs_lock);
     int i = 0;
     while (i < g_n_outputs) {
+        /* find_device_by_uid ist eine CoreAudio-Abfrage, aber kein Mach-IPC-Blocking-Call
+         * (rein property-basiert, kurz). Bleibt hier unter Lock als Phase-A-Operation. */
         AudioDeviceID found = find_device_by_uid(g_outputs[i].uid);
         if (found == kAudioDeviceUnknown) {
             fprintf(stdout, "Helper: Device verschwunden — entferne %s\n", g_outputs[i].name);
-            DeviceOutput *dev = &g_outputs[i];
-            if (dev->proc_id) {
-                AudioDeviceStop(dev->dev_id, dev->proc_id);
-                AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
-            }
+            /* Snapshot fuer Phase B */
+            to_remove[n_remove].dev_id  = g_outputs[i].dev_id;
+            to_remove[n_remove].proc_id = g_outputs[i].proc_id;
+            strncpy(to_remove[n_remove].name, g_outputs[i].name,
+                    sizeof(to_remove[n_remove].name) - 1);
+            to_remove[n_remove].name[sizeof(to_remove[n_remove].name)-1] = '\0';
+            n_remove++;
+            /* Slot sofort deaktivieren und kompaktieren (proc_id=NULL: kein Double-Stop). */
+            g_outputs[i].active  = false;
+            g_outputs[i].proc_id = NULL;
             if (i != g_n_outputs - 1) {
                 g_outputs[i] = g_outputs[g_n_outputs - 1];
             }
@@ -1635,6 +1653,14 @@ static void process_hotplug_removals(void)
         }
     }
     pthread_mutex_unlock(&g_outputs_lock);
+
+    /* Phase B: Stop/Destroy OHNE Lock */
+    for (int r = 0; r < n_remove; r++) {
+        if (to_remove[r].proc_id) {
+            AudioDeviceStop(to_remove[r].dev_id, to_remove[r].proc_id);
+            AudioDeviceDestroyIOProcID(to_remove[r].dev_id, to_remove[r].proc_id);
+        }
+    }
 }
 
 static void hotplug_register(void)
