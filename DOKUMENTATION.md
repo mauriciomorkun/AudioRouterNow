@@ -4555,5 +4555,5 @@ if not self._config.onboarding_done:
 | Progress-Bar Farbe | ✅ Türkis (#1FDDAE) via CALayer |
 | Progress-Bar Timing | ✅ Bleibt sichtbar bis Wizard erscheint |
 
-**Commit:** (folgt)
+**Commit:** `abbeb6e`
 
