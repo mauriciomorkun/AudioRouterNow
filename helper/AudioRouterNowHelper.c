@@ -1583,17 +1583,31 @@ static void sr_reinit_all_outputs(void) {
  */
 static void outputs_stop_all(void)
 {
+    /* P1 FIX: 2-Phasen-Design analog process_hotplug_removals.
+     * Phase A (unter Lock): Snapshot {dev_id, proc_id}, proc_id=NULL setzen, g_n_outputs=0.
+     * Phase B (OHNE Lock): AudioDeviceStop/DestroyIOProcID lockfrei.
+     * Verhindert Blockade im Watchdog-Pfad wenn coreaudiod spinnt oder haengt. */
+    typedef struct { AudioDeviceID dev_id; AudioDeviceIOProcID proc_id; } StopEntry;
+    StopEntry to_stop[MAX_OUTPUTS];
+    int n_stop = 0;
+
     pthread_mutex_lock(&g_outputs_lock);
-    while (g_n_outputs > 0) {
-        DeviceOutput *dev = &g_outputs[g_n_outputs - 1];
-        if (dev->proc_id) {
-            AudioDeviceStop(dev->dev_id, dev->proc_id);
-            AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
+    for (int i = 0; i < g_n_outputs; i++) {
+        if (g_outputs[i].proc_id) {
+            to_stop[n_stop].dev_id  = g_outputs[i].dev_id;
+            to_stop[n_stop].proc_id = g_outputs[i].proc_id;
+            n_stop++;
         }
-        memset(dev, 0, sizeof(DeviceOutput));
-        g_n_outputs--;
+        memset(&g_outputs[i], 0, sizeof(DeviceOutput));
     }
+    g_n_outputs = 0;
     pthread_mutex_unlock(&g_outputs_lock);
+
+    /* Phase B: Mach-IPC OHNE Lock — haengt coreaudiod, blockiert nur diesen Thread. */
+    for (int i = 0; i < n_stop; i++) {
+        AudioDeviceStop(to_stop[i].dev_id, to_stop[i].proc_id);
+        AudioDeviceDestroyIOProcID(to_stop[i].dev_id, to_stop[i].proc_id);
+    }
 }
 
 /* ── Hot-Plug Listener ──────────────────────────────────────────────────── */
