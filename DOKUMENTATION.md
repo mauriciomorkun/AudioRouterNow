@@ -48,6 +48,9 @@
 35. [v3.0 Build #3 — Progress-Bar-Feature (2. Juni 2026)](#35-v30-build-3--progress-bar-feature-2-juni-2026)
 36. [v3.0 Build #4 — Türkis-Akzentfarbe (2. Juni 2026)](#36-v30-build-4--türkis-akzentfarbe-2-juni-2026)
 37. [Bugfix — App startet nicht (tkinter fehlt) + Build #5 (2. Juni 2026)](#37-bugfix--app-startet-nicht-tkinter-fehlt--build-5-2-juni-2026)
+38. [Fix — Progress-Bar Farbe (türkis) + Timing + Build #6 (3. Juni 2026)](#38-fix--progress-bar-farbe-türkis--timing-bleibt-bis-wizard--build-6-3-juni-2026)
+39. [Stabilitäts-Fix-Batch — MacBook-Freeze Behebung (3. Juni 2026)](#39-stabilitäts-fix-batch--macbook-freeze-behebung)
+40. [Entwicklungs-Chronik — 29. Mai bis 3. Juni 2026](#40-entwicklungs-chronik--29-mai-bis-3-juni-2026)
 
 ---
 
@@ -4559,9 +4562,9 @@ if not self._config.onboarding_done:
 
 ---
 
-## Kapitel 39 — Stabilitäts-Fix-Batch: MacBook-Freeze Behebung
+## 39. Stabilitäts-Fix-Batch — MacBook-Freeze Behebung
 
-**Stand:** 3. Juni 2026 · **Commits:** `e6d8ba5` … `cd13cae`
+**Stand:** 3. Juni 2026 · **Commits:** `e6d8ba5` … `34b82e7` · **Audit-Report:** `AUDIT_REPORT.md`
 
 ### 39.1 Hintergrund: Der MacBook-Freeze
 
@@ -4754,3 +4757,200 @@ _show_coreaudiod_spin_dialog()
 
 Vollständiger Audit-Report: `AUDIT_REPORT.md`
 
+---
+
+## 40. Entwicklungs-Chronik — 29. Mai bis 3. Juni 2026
+
+Diese Sektion fasst alle fünf Arbeitstage als kompakte Chronik zusammen. Details zu jedem Thema in den jeweiligen Kapiteln.
+
+---
+
+### 40.1 Donnerstag, 29. Mai 2026
+
+**Thema:** Volume/Media-Keys + Sandbox-Compliance
+
+| Commit | Was |
+|--------|-----|
+| `2426b67` | fix(volume): Media Keys abfangen + System Output setzen für Volume-HUD |
+
+Erste Arbeit an der Lautstärkesteuerung via Keyboard — `NSEvent.addGlobalMonitorForEvents` abfängt systemweite Media-Key-Events. System Output wird auf „Audio Router" gesetzt damit die macOS Volume-HUD dem richtigen Gerät folgt.
+
+→ Details: **Kapitel 16**
+
+---
+
+### 40.2 Freitag, 30. Mai 2026
+
+**Thema:** Bugfix-Welle v2.3 / v2.4 / v2.5 — Initialisierungsreihenfolge, StartIO, Keep-Alive
+
+| Version | Commits | Was |
+|---------|---------|-----|
+| v2.3.0 | `1bc5579`, `41ea1b7`, `2d34227` | Auto-Start-Symmetrie, SR-Reinit entkoppelt, StartIO-Trigger |
+| v2.4.0 | `ed9b97e`, `faed92c`, `aa62604`, `82d6783` | macOS-26-Kompatibilitäts-Fix: permanenter StartIO-Trigger ohne Toggle |
+| v2.5.0 | `e07f2dc`, `52cc5ad` | Persistenter Keep-Alive IOProc + leichtgewichtiger Retry |
+
+**Kernproblem:** Auf macOS 26 (Tahoe) startet coreaudiod den IOProc ohne externen Trigger nicht mehr. Fix: `afplay /dev/null`-Trick → dann permanenter `AudioDeviceStart`-Aufruf als verlässlicher StartIO-Trigger. Keep-Alive-IOProc hält `gDeviceIsRunning=1` dauerhaft aufrecht.
+
+→ Details: **Kapitel 19, 20, 21**
+
+---
+
+### 40.3 Samstag, 31. Mai 2026
+
+**Thema:** Große Architektur-Session — v2.6 bis v2.8 + Sicherheits-Audit
+
+**v2.6.0 — Keep-Alive Migration Python → C:**
+
+| Commits | Was |
+|---------|-----|
+| `b84b491`, `68574fc` | Keep-Alive IOProc aus Python-ctypes in nativen C-Helper verschoben |
+
+Python-ctypes-Callbacks erzeugen Stale-Pointer in coreaudiod nach Prozess-Exit. Lösung: `keepalive_ioproc` als permanenter C-Funktionszeiger im Helper — kein GC-Risiko mehr.
+
+**v2.7.0 — Umfassender Sicherheits-Audit (31. Mai):**
+
+17 Findings in 5 Kategorien, Risk-Score von 58 auf 0 gebracht:
+
+| Kategorie | Findings | Beispiele |
+|-----------|---------|-----------|
+| Kritisch (K) | K1–K7 | Data Race `src_frac_ridx`, `gAnchorHostTime` nicht-atomar, Stall-Detection-Dauerschleife |
+| Hoch (H) | H1–H8 | Hot-Plug im CoreAudio-Callback, deferred `munmap`, `pthread_join` unter Lock |
+| Mittel (M) | M1–M10 | Acquire-Reads im Ring, JSON-Parser, Socket-Security, SRC-Overflow |
+
+**v2.8.0 — Alle 17 Audit-Findings implementiert:**
+
+| Commits | Was |
+|---------|-----|
+| `9dbf25d`, `5c82268`, `236be96`, `9992e79`, `95c6029`, `ec0222b`, `2e96007`, `618ac06`, `51955c4` | Alle K+H+M Findings behoben |
+
+→ Details: **Kapitel 22, 23, 24, 25**
+
+---
+
+### 40.4 Sonntag, 1. Juni 2026
+
+**Thema:** v2.8.1 Hotfix + Self-Healing Layer + v3.0 Plan
+
+**v2.8.1 — Hotfix Kratzen bei Multi-Output:**
+
+| Commit | Was |
+|--------|-----|
+| `651b9fb` | fix: K2-Stall-Dauerschleife + Slot-Swap-IOProc-Bug |
+
+Beim simultanen Routing auf mehrere Geräte entstanden hörbare Kratzer. Ursache: Slot-Swap nach Output-Remove ließ falschen IOProc auf falschem Device zurück. Fix: IOProc wird vor Swap gestoppt + Stall-Timeout von 300ms auf 1000ms erhöht.
+
+**Self-Healing Layer v1.0 (v2.9.0) — drei Tranchen:**
+
+| Tranche | Commits | Was |
+|---------|---------|-----|
+| A | `628b719`, `fd3d0a5` | Telemetrie: Health-Monitor, dreistufige Ampel (healthy/degraded/critical) |
+| B | `f87dfa4`, `8283ffd` | Healer: Pre-Roll, `reconnect_output`, Safe-Take-Modus |
+| C | `481c33c`, `c904a62` | PI-Regler + EWMA für adaptives SRC-Resampling (Clock-Drift-Ausgleich) |
+
+**v3.0 Plan — 15 Verbesserungen:**
+
+| Commit | Was |
+|--------|-----|
+| `97d40fd` | Vollständiger 15-Punkt Implementierungsplan (Opus 4.8, alle 11 Quelldateien gelesen) |
+
+→ Details: **Kapitel 26, 27, 28, 29**
+
+---
+
+### 40.5 Montag, 2. Juni 2026
+
+**Thema:** v3.0 — alle 15 Verbesserungen implementiert + 6 Builds
+
+**v3.0 — 15-Punkt Plan vollständig umgesetzt:**
+
+| Welle | P# | Was |
+|-------|----|-----|
+| 1 — Fundament | P4 | GetZeroTimeStamp: Frame-Counter statt Host-Clock |
+| | P11 | Lock-Datei nach `~/.audiorouter/` mit `O_NOFOLLOW` |
+| | P12 | Toten Code `output_add_locked` entfernt |
+| | P13 | CoreAudio/Foundation Frameworks einmalig laden |
+| | P14 | Korrekte Ring-Pre-Roll-Latenz an CoreAudio melden |
+| 2 — Security & IPC | P2 | set_outputs: UI/Reality-Divergenz behoben (Reconcile) |
+| | P3 | Socket Auth-Token (per-launch, 0600) |
+| | P8 | Zentraler Status-Cache statt Connect-per-Call |
+| 3 — Audio-Robustheit | P5 | Auto Sample-Rate: geräte-native Rate statt 48kHz forcieren |
+| | P6 | Hard-Stall-Detection ~300ms ohne 44.1kHz-False-Positives |
+| | P7 | CoreAudio-Calls in `output_remove` außerhalb Lock |
+| | P9 | IOProc-Stille während SR-Wechsel (kein Kratzen) |
+| 4 — UX & Qualität | P1 | Volume-Tasten: Event-driven via CoreAudio-Listener (kein osascript) |
+| | P10 | Treiber-ABI-Versionscheck beim App-Start |
+| | P15 | 5-Tap Hann-FIR Downsampler (besser als 3-Tap Box) |
+
+**Builds am 2. Juni:**
+
+| Build | Commit | Was |
+|-------|--------|-----|
+| #1 (v3.0) | `732564d` | Produktions-DMG, alle 15 P implementiert |
+| #2 | `5feba9c` | SRC-Drift-Hotfix eingebaut (Threshold 350 → 600 ppm) |
+| #3 | `d9b9b00` | Progress-Bar-Feature für Erstinstallation |
+| #4 | `e267de2` | Türkis-Akzentfarbe (#1FDDAE) für Progress-Bar |
+| #5 | `78eb819` | tkinter → AppKit-Bugfix (Homebrew Python 3.14 fehlt `_tkinter`) |
+
+**Feature: Visueller Fortschritts-Balken:**
+Während der Treiber-Installation beim First-Run wird ein AppKit-Fenster mit einem türkisfarbenen CALayer-Balken angezeigt. 6 sichtbare Schritte, Fortschritt in Echtzeit.
+
+→ Details: **Kapitel 30, 31, 32, 33, 34, 35, 36, 37**
+
+---
+
+### 40.6 Dienstag, 3. Juni 2026
+
+**Thema:** Build #6 (Progress-Bar) + Kompletter Stabilitäts-Fix-Batch
+
+**Build #6 — Final Progress-Bar:**
+
+| Commit | Was |
+|--------|-----|
+| `abbeb6e` | CALayer-Balken türkis + Timing-Fix (kein schwarzer Blink vor Wizard) |
+
+**Stabilitäts-Fix-Batch — Ursache: MacBook-Freeze:**
+
+Der kritische Auslöser: `ticksPerFrame = 1.0` Fallback in `ARN_GetZeroTimeStamp()` — Faktor ~500.000 zu klein — coreaudiod Busy-Wait → 100% CPU-Spin → Hard Reboot nötig.
+
+**10 Fixes in 7 Commits:**
+
+| Fix | Commit | Bug | Was |
+|-----|--------|-----|-----|
+| 01 | `e6d8ba5` | P0-C | GetZeroTimeStamp: Mach-Timebase Fallback statt `1.0` |
+| 02 | `13265de` | P0-B | output_add(): AudioDeviceStart OHNE g_outputs_lock |
+| 03+04 | `e68538f` | P0-A | sr_reinit_all_outputs(): komplett lockfrei (3-Phasen) |
+| 05 | `ef7fc1b` | P2-A | process_hotplug_removals(): AudioDeviceStop lockfrei |
+| 06+07 | `031b6b9` | P1-B/C | READ_TIMEOUT 10→5s + ensure_running() Lock-Scope |
+| 08 | `cd13cae` | P0-D | coreaudiod CPU-Watchdog (proc_pid_rusage, 90%/5s) |
+| 09 | `46b6d05` | P1 | outputs_stop_all() 2-Phasen (Watchdog-Pfad robust) |
+| 10 | `46b6d05` | P3 | UI-Dialog coreaudiod_spin.flag → Treiber-Reload |
+| — | `cc43dd2`+`34b82e7` | Docs | AUDIT_REPORT.md + DOKUMENTATION.md Kap. 39 |
+
+**Ergebnis:** System ist vollständig gehärtet gegen den MacBook-Freeze. Kein Hard Reboot mehr nötig. Bei unbekanntem coreaudiod-Spin: Watchdog stoppt IOProcs defensiv, UI-Dialog bietet kontrollierten Neustart an.
+
+→ Details: **Kapitel 38, 39** · Audit: `AUDIT_REPORT.md`
+
+---
+
+### 40.7 Gesamtstatistik der 5-Tage-Session
+
+| Datum | Version | Commits | Schwerpunkt |
+|-------|---------|---------|-------------|
+| 29. Mai | — | 1 | Volume/Media-Keys |
+| 30. Mai | v2.3–v2.5 | 8 | StartIO, Keep-Alive, macOS-26-Kompatibilität |
+| 31. Mai | v2.6–v2.8 | 16 | Keep-Alive Migration, Sicherheits-Audit (17 Findings) |
+| 1. Juni | v2.8.1–v2.9 | 12 | Hotfix, Self-Healing Layer (A+B+C), v3.0-Plan |
+| 2. Juni | v3.0 | 16 | 15 Verbesserungen, 5 Builds, Progress-Bar |
+| 3. Juni | v3.0+ | 11 | Build #6, 10 Stabilitäts-Fixes, Audit, Doku |
+| **Σ** | | **64** | **6 Major-Versionen, 10 Stabilitäts-Fixes, 0 Hard-Reboot-Risiko** |
+
+**Geänderter Code (gesamt):**
+- `driver/src/AudioRouterNowDriver.c` — GetZeroTimeStamp, Frame-Counter, Latenz
+- `helper/AudioRouterNowHelper.c` — Lock-Scope × 5, Keep-Alive, Watchdog, Stall-Detection
+- `engine/menu_bar_app.py` — Self-Healing UI, Status-Cache, Auth, Volume-Events, UI-Dialog
+- `engine/helper_client.py` — Auth-Token, Timeouts, ensure_running()
+- `engine/health.py` — Health-Monitor (neu)
+- `engine/healer.py` — Healer (neu)
+- `engine/first_launch.py` — Progress-Bar, AppKit-Migration
+- `helper/shared_ring.h` — ABI v4, instance_id
+- `helper/Makefile` — `-lproc` für Watchdog
