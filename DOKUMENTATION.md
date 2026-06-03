@@ -4557,3 +4557,118 @@ if not self._config.onboarding_done:
 
 **Commit:** `abbeb6e`
 
+---
+
+## Kapitel 39 — Stabilitäts-Fix-Batch: MacBook-Freeze Behebung
+
+**Stand:** 3. Juni 2026 · **Commits:** `e6d8ba5` … `cd13cae`
+
+### 39.1 Hintergrund: Der MacBook-Freeze
+
+Das System verursachte einen vollständigen MacBook-Freeze, der nur durch Hard-Reboot lösbar war:
+- `coreaudiod` bei 100% CPU (unkillbar)
+- `launchctl stop`, `killall coreaudiod` — wirkungslos (launchd respawnte sofort, Race triggerte wieder)
+- Helper-Socket nicht erreichbar → UI eingefroren
+- Einzige Lösung: Hard Reboot
+
+**Root Cause — Race in `ARN_GetZeroTimeStamp()`:**
+```
+coreaudiod ruft GetZeroTimeStamp() VOR ARN_Initialize()
+  → ticksPerFrame-Fallback = 1.0 (Faktor ~500.000 zu klein)
+  → Host-Timestamps massiv zu klein
+  → coreaudiod Busy-Wait: 100% CPU-Spin (unkillbar)
+  → Alle Mach-IPC-Calls (AudioDeviceStart/Stop) hängen ewig
+  → g_outputs_lock forever gehalten → Config-Socket tot
+  → UI eingefroren → Hard Reboot
+```
+
+**Sekundäre Deadlock-Verstärker:**
+
+| Bug | Mechanismus |
+|-----|-------------|
+| P0-A | `sr_reinit_all_outputs()` hielt `g_outputs_lock` während `usleep(200ms×5)` + `AudioDeviceStart()` |
+| P0-B | `output_add()` Phase 3 hielt Lock während `AudioDeviceStart()` + Retries |
+| P1-B | `READ_TIMEOUT=10s` → 10s UI-Freeze bei hängendem Helper |
+| P1-C | `ensure_running()` hielt `self._lock` bis zu 25s |
+| P2-A | `process_hotplug_removals()` hielt Lock während `AudioDeviceStop()` |
+
+### 39.2 Fix-01 — P0-C: GetZeroTimeStamp Fallback (driver/)
+
+**Datei:** `driver/src/AudioRouterNowDriver.c` · **Commit:** `e6d8ba5`
+
+```c
+// VORHER: ticksPerFrame = 1.0  ← verursacht coreaudiod 100% CPU-Spin
+
+// NACHHER: Mach-Timebase-basierter Fallback
+if (!(ticksPerFrame > 0.0) || !isfinite(ticksPerFrame)) {
+    struct mach_timebase_info tb_fallback;
+    mach_timebase_info(&tb_fallback);
+    Float64 nanosPerTick = (Float64)tb_fallback.numer / (Float64)tb_fallback.denom;
+    if (nanosPerTick <= 0.0) nanosPerTick = 1.0;
+    ticksPerFrame = (1.0e9 / kDefaultSampleRate) / nanosPerTick;
+    // Atomic CAS — nur schreiben wenn noch 0 (einmalig, race-safe)
+    UInt64 expected_zero = 0;
+    atomic_compare_exchange_strong_explicit(&gHostTicksPerFrameBits,
+        &expected_zero, _f64_to_u64(ticksPerFrame),
+        memory_order_relaxed, memory_order_relaxed);
+}
+```
+
+### 39.3 Fix-02 — P0-B: output_add() Lock-Scope (helper/)
+
+**Datei:** `helper/AudioRouterNowHelper.c` · **Commit:** `13265de`
+
+3-Phasen-Design: Slot-Commit unter Lock → sofort freigeben → `AudioDeviceCreateIOProcID`/`Start` OHNE Lock → kurzes Re-Lock für `active=true` mit UID-Revalidierung.
+
+### 39.4 Fix-03 + Fix-04 — P0-A: sr_reinit_all_outputs() Lock-Scope (helper/)
+
+**Datei:** `helper/AudioRouterNowHelper.c` · **Commit:** `e68538f`
+
+- Fix-03: `volume_poll_thread` hält `g_outputs_lock` NICHT mehr um `sr_reinit_all_outputs()`
+- Fix-04: Vollständiges 3-Phasen-Redesign: Snapshot → CoreAudio-Phase OHNE Lock → Commit
+
+### 39.5 Fix-05 — P2-A: process_hotplug_removals() Lock-Scope (helper/)
+
+**Datei:** `helper/AudioRouterNowHelper.c` · **Commit:** `ef7fc1b`
+
+Phase A unter Lock: Snapshot + Swap-Remove + `proc_id=NULL`. Phase B OHNE Lock: `AudioDeviceStop` + `DestroyIOProcID`.
+
+### 39.6 Fix-06 + Fix-07 — P1-B/P1-C: Python Engine (engine/)
+
+**Datei:** `engine/helper_client.py` · **Commit:** `031b6b9`
+
+- `READ_TIMEOUT`: 10s → 5s; `QUICK_TIMEOUT = 0.5s` neu
+- `get_status_quick()`: Main-Thread-sicherer Status-Poll (0.5s Timeout)
+- `ensure_running()`: `_spawn_lock` separater Guard; Wartephasen (25s) OHNE Lock
+
+### 39.7 Fix-08 — P0-D: coreaudiod CPU-Watchdog (helper/)
+
+**Datei:** `helper/AudioRouterNowHelper.c` · **Commit:** `cd13cae`
+
+CPU-Sampling via `proc_pid_rusage(RUSAGE_INFO_V4)` alle ~2s. Bei >90% CPU über >5s:
+1. Eigene IOProcs stoppen (`outputs_stop_all()`)
+2. `~/.audiorouter/coreaudiod_spin.flag` schreiben (für UI-Dialog)
+3. `g_watchdog_tripped = 1` (Einmal-Reaktion)
+
+KEIN destruktives `killall` — UI bietet bestätigten Treiber-Reload-Dialog.
+
+### 39.8 Bekannte Restkanten (Folge-Tasks)
+
+| Prio | Task |
+|------|------|
+| **P1** | `outputs_stop_all()` 2-Phasen-Design (Fix-08 Recovery-Pfad robuster) |
+| **P2** | Dedizierter CoreAudio-Ops-Thread (Command-Queue, Fix-08 P2-B) |
+| **P3** | UI-Anbindung `coreaudiod_spin.flag` → Treiber-Reload-Dialog |
+| **P3** | Watchdog Auto-Recovery-Counter (nicht terminal) |
+
+### 39.9 Build-Ergebnis
+
+| Prüfung | Ergebnis |
+|---------|:--------:|
+| `make clean && make` (helper) | ✅ 0 Warnungen |
+| Universal Binary | ✅ `x86_64 arm64` |
+| `python3 -m py_compile helper_client.py` | ✅ |
+| Vollständiger Audit | ✅ Kein Lock-Leak, keine Regression |
+
+Vollständiger Audit-Report: `AUDIT_REPORT.md`
+
