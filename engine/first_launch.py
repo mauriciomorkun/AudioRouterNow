@@ -80,6 +80,24 @@ _STEPS = [
     (100, "✓ Installation abgeschlossen"),
 ]
 
+# Modul-globales Fenster: bleibt nach install_driver(keep_open=True) offen bis
+# AudioRouterApp.__init__() es kurz vor dem Wizard-Start schließt.
+_active_progress_window = None
+
+
+def close_active_progress_window() -> None:
+    """Schließt das Treiber-Installations-Fortschrittsfenster.
+
+    Wird von AudioRouterApp.__init__() aufgerufen, bevor der Onboarding-Wizard
+    erscheint — so bleibt das Fenster während der App-Initialisierung sichtbar
+    und schließt sich erst wenn der Wizard bereit ist.
+    Kein Effekt wenn kein Fenster aktiv ist (no-op).
+    """
+    global _active_progress_window
+    if _active_progress_window is not None:
+        _active_progress_window.close()
+        _active_progress_window = None
+
 
 class _InstallProgressWindow:
     """Fortschritts-Fenster via AppKit (kein tkinter nötig).
@@ -91,8 +109,8 @@ class _InstallProgressWindow:
 
     def __init__(self) -> None:
         from AppKit import (
-            NSApplication, NSWindow, NSTextField, NSProgressIndicator,
-            NSColor, NSView, NSFont, NSTextAlignment,
+            NSApplication, NSWindow, NSTextField,
+            NSColor, NSView, NSFont,
             NSWindowStyleMaskBorderless, NSBackingStoreBuffered,
             NSFloatingWindowLevel,
         )
@@ -151,16 +169,33 @@ class _InstallProgressWindow:
             _STEPS[0][1], 24, H - 68, W - 48, 18, 11.0, color_rgb=_FG2_RGB
         )
 
-        # Fortschritts-Balken
-        self._bar = NSProgressIndicator.alloc().initWithFrame_(
-            NSMakeRect(24, 32, W - 48, 16)
+        # Fortschritts-Balken (custom: türkise CALayer-Lösung statt NSProgressIndicator)
+        _BAR_X, _BAR_Y, _BAR_W, _BAR_H = 24, 30, W - 48, 14
+        self._bar_max_w = _BAR_W
+        self._bar_h     = _BAR_H
+
+        # Dunkler Track
+        self._bar_track = NSView.alloc().initWithFrame_(
+            NSMakeRect(_BAR_X, _BAR_Y, _BAR_W, _BAR_H)
         )
-        self._bar.setStyle_(0)           # NSProgressIndicatorBarStyle
-        self._bar.setIndeterminate_(False)
-        self._bar.setMinValue_(0.0)
-        self._bar.setMaxValue_(100.0)
-        self._bar.setDoubleValue_(0.0)
-        panel.addSubview_(self._bar)
+        self._bar_track.setWantsLayer_(True)
+        self._bar_track.layer().setCornerRadius_(7.0)
+        self._bar_track.layer().setMasksToBounds_(True)
+        self._bar_track.layer().setBackgroundColor_(
+            NSColor.colorWithRed_green_blue_alpha_(0.22, 0.22, 0.22, 1.0).CGColor()
+        )
+        panel.addSubview_(self._bar_track)
+
+        # Türkise Füllung (#1FDDAE) — Breite ändert sich mit Fortschritt
+        self._bar_fill = NSView.alloc().initWithFrame_(
+            NSMakeRect(0, 0, 0, _BAR_H)
+        )
+        self._bar_fill.setWantsLayer_(True)
+        ar, ag, ab = _ACCENT_RGB
+        self._bar_fill.layer().setBackgroundColor_(
+            NSColor.colorWithRed_green_blue_alpha_(ar, ag, ab, 1.0).CGColor()
+        )
+        self._bar_track.addSubview_(self._bar_fill)
 
         # Türkise Linie unten
         accent_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, W, 3))
@@ -180,7 +215,9 @@ class _InstallProgressWindow:
         if self._closed:
             return
         try:
-            self._bar.setDoubleValue_(float(pct))
+            from Foundation import NSMakeRect
+            fill_w = (pct / 100.0) * self._bar_max_w
+            self._bar_fill.setFrame_(NSMakeRect(0, 0, fill_w, self._bar_h))
             self._step_field.setStringValue_(text)
             self._window.displayIfNeeded()
         except Exception:
@@ -232,13 +269,18 @@ def is_driver_installed() -> bool:
     return installed
 
 
-def install_driver() -> tuple[bool, str]:
+def install_driver(keep_open: bool = False) -> tuple[bool, str]:
     """
     Installs the HAL driver with administrator privileges via AppleScript.
 
     Shows a visual progress window during installation. The install shell
     script writes progress markers to a temp file; the main thread polls
     this file every 200 ms and advances the progress bar.
+
+    Args:
+        keep_open: Wenn True, bleibt das Fenster nach der Installation offen
+            (zeigt "App wird gestartet…") bis close_active_progress_window()
+            aufgerufen wird (von AudioRouterApp.__init__ vor dem Wizard).
 
     Returns:
         (True, "") on success.
@@ -372,15 +414,21 @@ def install_driver() -> tuple[bool, str]:
                     NSDate.dateWithTimeIntervalSinceNow_(0.2),
                 )
                 if _tick():
-                    # 100% kurz anzeigen, dann schließen
+                    # 100% kurz anzeigen, dann Zustand wechseln
                     _finish_ticks += 1
-                    if _finish_ticks >= 4:   # ~800ms
+                    if _finish_ticks >= 4:   # ~800ms bei 100%
+                        win.set_step(100, "App wird gestartet…")
                         _done = True
         except Exception as exc:
             logger.warning("Progress window error: %s", exc)
             install_thread.join()
 
-        win.close()
+        # Fenster schließen oder offen halten bis Wizard erscheint
+        if keep_open:
+            global _active_progress_window
+            _active_progress_window = win
+        else:
+            win.close()
     else:
         install_thread.join()
 
@@ -535,7 +583,7 @@ def check_and_install() -> bool:
     # so we use subprocess + osascript for the info dialog.
     _show_install_dialog()
 
-    success, error_msg = install_driver()
+    success, error_msg = install_driver(keep_open=True)
 
     if not success:
         _show_error_dialog(error_msg)
