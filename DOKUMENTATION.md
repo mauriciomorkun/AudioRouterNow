@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 3. Juni 2026 (Kapitel 38 — Progress-Bar Farbe + Timing-Fix + Build #6)
-**Version:** 3.0.0  
+**Stand:** 3. Juni 2026 (Kapitel 41 — Build #7 — Stability-Hardened Release)
+**Version:** 3.1.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -51,6 +51,7 @@
 38. [Fix — Progress-Bar Farbe (türkis) + Timing + Build #6 (3. Juni 2026)](#38-fix--progress-bar-farbe-türkis--timing-bleibt-bis-wizard--build-6-3-juni-2026)
 39. [Stabilitäts-Fix-Batch — MacBook-Freeze Behebung (3. Juni 2026)](#39-stabilitäts-fix-batch--macbook-freeze-behebung)
 40. [Entwicklungs-Chronik — 29. Mai bis 3. Juni 2026](#40-entwicklungs-chronik--29-mai-bis-3-juni-2026)
+41. [Build #7 — Stability-Hardened Release (3. Juni 2026)](#41-build-7--stability-hardened-release-3-juni-2026)
 
 ---
 
@@ -4959,6 +4960,88 @@ Bisher wurde der Balken auf 100% gesetzt sobald der Installationsthread fertig w
 - `engine/helper_client.py` — Auth-Token, Timeouts, ensure_running()
 - `engine/health.py` — Health-Monitor (neu)
 - `engine/healer.py` — Healer (neu)
-- `engine/first_launch.py` — Progress-Bar, AppKit-Migration
+- `engine/first_launch.py` — Progress-Bar, AppKit-Migration, event-gesteuerter Ladebalken
 - `helper/shared_ring.h` — ABI v4, instance_id
 - `helper/Makefile` — `-lproc` für Watchdog
+
+---
+
+## 41. Build #7 — Stability-Hardened Release (3. Juni 2026)
+
+**Datum:** 3. Juni 2026  
+**Commit-Range:** `e6d8ba5` … `a6f350c` (12 Commits seit Build #6)  
+**Vorheriger Build:** #6 (`abbeb6e`) — Progress-Bar CALayer + Timing-Fix  
+**DMG:** `AudioRouterNow.dmg` · 11 MB · Universal Binary (arm64 + x86_64)
+
+---
+
+### 41.1 Was ist neu gegenüber Build #6?
+
+Build #7 ist der erste Release mit dem vollständigen **Stabilitäts-Fix-Batch** — 10 Fixes die den MacBook-Freeze durch coreaudiod-CPU-Spin vollständig verhindern. Zusätzlich wurde die Installation UX verbessert.
+
+#### 🛡️ Stabilitäts-Fixes (10 Fixes, 7 Commits)
+
+| Fix | Prio | Datei | Problem → Lösung |
+|-----|------|-------|-----------------|
+| **01** | P0-C | `driver/AudioRouterNowDriver.c` | `ticksPerFrame=1.0` Fallback → Mach-Timebase-Wert (Root Cause des MacBook-Freeze) |
+| **02** | P0-B | `helper/AudioRouterNowHelper.c` | `output_add()` hielt `g_outputs_lock` während `AudioDeviceStart()` (Mach-IPC) → 3-Phasen lockfrei |
+| **03+04** | P0-A | `helper/AudioRouterNowHelper.c` | `sr_reinit_all_outputs()` hielt Lock über 1s+ `usleep` + Mach-IPC → komplett lockfrei (Snapshot→IPC→Commit) |
+| **05** | P2-A | `helper/AudioRouterNowHelper.c` | `process_hotplug_removals()` Mach-IPC unter Lock → lockfrei |
+| **06+07** | P1-B/C | `engine/helper_client.py` | `READ_TIMEOUT` 10→5s, `QUICK_TIMEOUT` 0.5s, `ensure_running()` hält keine Locks während 25s Startup |
+| **08** | P0-D | `helper/AudioRouterNowHelper.c` | Kein Watchdog → `proc_pid_rusage`-Watchdog: >90% CPU für >5s → IOProcs stoppen, Flag-Datei schreiben |
+| **09** | P1 | `helper/AudioRouterNowHelper.c` | `outputs_stop_all()` hielt Lock über `AudioDeviceStop()` → 2-Phasen lockfrei |
+| **10** | P3 | `engine/menu_bar_app.py` | Kein Recovery-UI → Dialog erkennt `coreaudiod_spin.flag`, bietet `launchctl kickstart` mit Admin-Rechten an |
+
+#### 🎨 UX-Fix — Ladebalken (1 Commit)
+
+| Commit | Was |
+|--------|-----|
+| `56390d1` | Balken zeigt 100% erst wenn Wizard bereit ist (event-gesteuert statt zeitbasiert) |
+
+**Ablauf:** 0% → 25% → 60% → 80% → 90% (hält bei "App wird gestartet…") → 100% "✓ App bereit" (600ms) → Wizard erscheint
+
+---
+
+### 41.2 Build-Prozess
+
+```
+cd installer && ./build.sh
+```
+
+| Phase | Was | Ergebnis |
+|-------|-----|----------|
+| 1 | `make -C driver clean && build` | Driver + Helper Universal Binary (arm64+x86_64), -Wall -Wextra 0 Warnungen |
+| 2 | `pyinstaller AudioRouterNow.spec` | `AudioRouterNow.app` mit embedded Driver + Python-Deps |
+| 3 | Ad-hoc Signing (Entitlements: library-validation disabled) | Kompatibel mit Homebrew Python Team-ID |
+| 4 | `dmgbuild` → Finder AppleScript → UDZO | `AudioRouterNow.dmg` mit Hintergrundbild + Icon |
+
+**Build-Warnungen (erwartet, unkritisch):**
+- PyInstaller `--deep`-Signing scheitert an embedded Driver-Binary-Pfad → Build-Script signiert manuell per 6-Schritt-Prozess. Ergebnis: korrekt signiert.
+- ctypes-Framework-Imports nicht von PyInstaller gebundelt → korrekt, da macOS-System-Frameworks zur Laufzeit verfügbar.
+
+---
+
+### 41.3 Build-Artefakte
+
+| Artefakt | Größe | Architekturen |
+|---------|-------|---------------|
+| `AudioRouterNow.dmg` | 11 MB | — |
+| `AudioRouterNow.app` | ~40 MB (entpackt) | arm64 (Bootloader) |
+| `AudioRouterNowDriver` | Universal | x86_64 arm64 |
+| `AudioRouterNowHelper` | Universal | x86_64 arm64 |
+
+---
+
+### 41.4 Gesamtbewertung
+
+Nach Build #7 ist AudioRouterNow vollständig gehärtet gegen den MacBook-Freeze-Mechanismus:
+
+| Szenario | Status |
+|----------|:------:|
+| Ursprünglicher Freeze (ticksPerFrame Race) | ✅ Beseitigt |
+| Deadlock durch Mach-IPC unter Lock | ✅ Beseitigt |
+| UI-Freeze durch blockierenden Main-Thread | ✅ Beseitigt |
+| Unbekannte coreaudiod-Spin-Ursache | ✅ Watchdog + UI-Dialog |
+| Ladebalken zeigt 100% zu früh | ✅ Behoben |
+
+**Kein Hard Reboot** durch AudioRouterNow mehr möglich.
