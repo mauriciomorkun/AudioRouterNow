@@ -4930,6 +4930,14 @@ Der kritische Auslöser: `ticksPerFrame = 1.0` Fallback in `ARN_GetZeroTimeStamp
 
 → Details: **Kapitel 38, 39** · Audit: `AUDIT_REPORT.md`
 
+**UX-Fix — Ladebalken event-gesteuert (3. Juni):**
+
+| Commit | Was |
+|--------|-----|
+| `56390d1` | Ladebalken erreicht 100% erst wenn Wizard startet (event-gesteuert statt zeitgesteuert) |
+
+Bisher wurde der Balken auf 100% gesetzt sobald der Installationsthread fertig war — der Wizard konnte aber noch Sekunden auf sich warten lassen. Neues Verhalten: Balken hält bei 90% ("App wird gestartet…"), springt auf 100% ("✓ App bereit") erst wenn `close_active_progress_window()` aufgerufen wird — exakt der Moment bevor der Wizard erscheint.
+
 ---
 
 ### 40.7 Gesamtstatistik der 5-Tage-Session
@@ -4941,8 +4949,8 @@ Der kritische Auslöser: `ticksPerFrame = 1.0` Fallback in `ARN_GetZeroTimeStamp
 | 31. Mai | v2.6–v2.8 | 16 | Keep-Alive Migration, Sicherheits-Audit (17 Findings) |
 | 1. Juni | v2.8.1–v2.9 | 12 | Hotfix, Self-Healing Layer (A+B+C), v3.0-Plan |
 | 2. Juni | v3.0 | 16 | 15 Verbesserungen, 5 Builds, Progress-Bar |
-| 3. Juni | v3.0+ | 11 | Build #6, 10 Stabilitäts-Fixes, Audit, Doku |
-| **Σ** | | **64** | **6 Major-Versionen, 10 Stabilitäts-Fixes, 0 Hard-Reboot-Risiko** |
+| 3. Juni | v3.0+ | 12 | Build #6, 10 Stabilitäts-Fixes, Audit, Doku, UX-Fix Ladebalken |
+| **Σ** | | **65** | **6 Major-Versionen, 10 Stabilitäts-Fixes, 0 Hard-Reboot-Risiko** |
 
 **Geänderter Code (gesamt):**
 - `driver/src/AudioRouterNowDriver.c` — GetZeroTimeStamp, Frame-Counter, Latenz
