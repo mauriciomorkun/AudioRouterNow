@@ -1136,7 +1136,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
         usleep(400000);  /* 400ms — USB-Devices benoetigen Zeit zum Rekonfigurieren */
     }
 
-    /* ── Phase 3: Commit unter Lock, dann IOProc-Create mit stabiler Adresse ── */
+    /* ── Phase 3a: Commit unter Lock (schnell) ── */
     pthread_mutex_lock(&g_outputs_lock);
 
     /* Race-Re-Check: kam in Phase 2 ein Duplikat rein oder ist Kapazitaet voll? */
@@ -1151,28 +1151,45 @@ static int output_add(const char *uid, uint32_t ch_offset)
         return -1;
     }
 
-    /* Slot committen (stabile Heap-Adresse) */
-    DeviceOutput *slot = &g_outputs[g_n_outputs];
+    /* Slot committen — active=false damit Volume-Thread ihn ueberspringt.
+     * proc_id wird in Phase 3b (lockfrei) gesetzt. */
+    int slot_idx = g_n_outputs;
+    DeviceOutput *slot = &g_outputs[slot_idx];
     *slot = tmp;
-    slot->active  = false;  /* noch nicht aktiv bis IOProc gestartet */
+    slot->active  = false;
+    slot->proc_id = NULL;
     g_n_outputs++;
+    pthread_mutex_unlock(&g_outputs_lock);
 
-    /* AudioDeviceCreateIOProcID + Start MIT stabiler slot-Adresse, unter Lock.
-     * Lock-Hold hier kurz (<20ms wenn Device bereit nach Settle in Phase 2). */
+    /* ── Phase 3b: CoreAudio-Calls OHNE Lock ──
+     * AudioDeviceCreateIOProcID und AudioDeviceStart sind Mach-IPC zu coreaudiod.
+     * Unter Lock ausgefuehrt koennen sie ewig blockieren wenn coreaudiod spinnt.
+     * Die Slot-Adresse ist stabil: g_outputs ist ein statisches Array, active=false
+     * verhindert dass der Volume-Thread den Slot beruehrt. */
     OSStatus err = kAudioHardwareNotRunningError;
     for (int attempt = 0; attempt < 3; attempt++) {
-        if (attempt > 0) usleep(100000);  /* 100ms Retry-Pause (kuerzer als vorher) */
+        if (attempt > 0) usleep(100000);  /* 100ms Retry-Pause, lockfrei */
         err = AudioDeviceCreateIOProcID(dev_id, device_ioproc, slot, &slot->proc_id);
         if (err == noErr) break;
         fprintf(stderr, "Helper: AudioDeviceCreateIOProcID Versuch %d/3 (OSStatus %d) fuer '%s'\n",
                 attempt + 1, (int)err, uid);
         slot->proc_id = NULL;
     }
+
     if (err != noErr) {
         fprintf(stderr, "Helper: AudioDeviceCreateIOProcID endgueltig fehlgeschlagen fuer '%s'\n", uid);
-        /* Slot zurückrollen */
-        g_n_outputs--;
-        memset(slot, 0, sizeof(DeviceOutput));
+        /* Phase 3c (Fehler): Slot zurueckrollen unter Lock. */
+        pthread_mutex_lock(&g_outputs_lock);
+        /* Re-Validierung: Slot muss noch der sein den wir committet haben. */
+        if (slot_idx < g_n_outputs && !g_outputs[slot_idx].active &&
+            strcmp(g_outputs[slot_idx].uid, uid) == 0) {
+            /* Letzten aktiven Slot in diesen Slot verschieben falls nicht schon letzter. */
+            if (slot_idx != g_n_outputs - 1) {
+                g_outputs[slot_idx] = g_outputs[g_n_outputs - 1];
+            }
+            memset(&g_outputs[g_n_outputs - 1], 0, sizeof(DeviceOutput));
+            g_n_outputs--;
+        }
         pthread_mutex_unlock(&g_outputs_lock);
         return -1;
     }
@@ -1182,17 +1199,39 @@ static int output_add(const char *uid, uint32_t ch_offset)
         fprintf(stderr, "Helper: AudioDeviceStart fehlgeschlagen (OSStatus %d) fuer '%s'\n",
                 (int)err, uid);
         AudioDeviceDestroyIOProcID(dev_id, slot->proc_id);
-        g_n_outputs--;
-        memset(slot, 0, sizeof(DeviceOutput));
+        slot->proc_id = NULL;
+        /* Phase 3c (Fehler): Slot zurueckrollen unter Lock. */
+        pthread_mutex_lock(&g_outputs_lock);
+        if (slot_idx < g_n_outputs && !g_outputs[slot_idx].active &&
+            strcmp(g_outputs[slot_idx].uid, uid) == 0) {
+            if (slot_idx != g_n_outputs - 1) {
+                g_outputs[slot_idx] = g_outputs[g_n_outputs - 1];
+            }
+            memset(&g_outputs[g_n_outputs - 1], 0, sizeof(DeviceOutput));
+            g_n_outputs--;
+        }
         pthread_mutex_unlock(&g_outputs_lock);
         return -1;
     }
 
-    slot->active = true;
+    /* ── Phase 3c: active=true unter Lock (kurz) ── */
+    pthread_mutex_lock(&g_outputs_lock);
+    /* Re-Validierung: sicherstellen Slot wurde nicht durch parallelen Swap-Remove bewegt. */
+    if (slot_idx < g_n_outputs && !g_outputs[slot_idx].active &&
+        strcmp(g_outputs[slot_idx].uid, uid) == 0) {
+        g_outputs[slot_idx].active = true;
+    } else {
+        /* Slot ist nicht mehr vorhanden oder wurde bewegt — IOProc sauber stoppen. */
+        pthread_mutex_unlock(&g_outputs_lock);
+        AudioDeviceStop(dev_id, slot->proc_id);
+        AudioDeviceDestroyIOProcID(dev_id, slot->proc_id);
+        fprintf(stderr, "Helper: output_add '%s' — Slot nach CoreAudio-Start nicht mehr gueltig\n", uid);
+        return -1;
+    }
     pthread_mutex_unlock(&g_outputs_lock);
 
     /* K1: read_idx sofort aktualisieren — neuer Consumer wird nicht erst nach
-     * bis zu 50ms vom nächsten Volume-Poll-Takt berücksichtigt. */
+     * bis zu 50ms vom naechsten Volume-Poll-Takt beruecksichtigt. */
     update_global_read_idx();
 
     fprintf(stdout, "Helper: Output hinzugefuegt: %s [Ch %u-%u] (UID: %s)\n",
