@@ -71,6 +71,9 @@ _LOCK_DIR = Path.home() / ".audiorouter"
 _LOCK_FILE = _LOCK_DIR / "audiorouter.lock"
 _lock_fd = None
 
+# P3: coreaudiod-Watchdog — Flag-Datei geschrieben vom C Helper bei CPU-Spin >90% >5s
+_SPIN_FLAG_PATH = Path.home() / ".audiorouter" / "coreaudiod_spin.flag"
+
 
 class AudioRouterApp(rumps.App):
     """Hauptanwendung — Menu-Bar UI, steuert den Helper über Socket."""
@@ -128,6 +131,7 @@ class AudioRouterApp(rumps.App):
         self._helper_alive: bool = False
         self._needs_reconfigure: bool = False  # set when set_outputs gets not_ready
         self._reconfigure_attempts: int = 0  # Fix-3: Retry-Zähler mit Backoff
+        self._coreaudiod_spin_detected: bool = False  # P3: Flag für Watchdog-Trip-Dialog
 
         # Status-Zeile: letzter (title, action_key)-Wert zum Flacker-Schutz
         self._last_status_cache = (None, None)
@@ -580,6 +584,11 @@ class AudioRouterApp(rumps.App):
         self._device_update_pending = True
 
     def _process_pending_updates(self, timer):
+        # P3: coreaudiod-Watchdog-Trip-Dialog (muss auf Main-Thread laufen).
+        if self._coreaudiod_spin_detected:
+            self._coreaudiod_spin_detected = False
+            self._show_coreaudiod_spin_dialog()
+
         # Device-Liste aktualisieren
         if self._device_update_pending:
             self._device_update_pending = False
@@ -677,6 +686,16 @@ class AudioRouterApp(rumps.App):
                 # P8: Cache invalidieren — Helper tot, alter Status ist ungueltig.
                 self._status_cache = None
                 continue
+
+            # P3: coreaudiod-Watchdog-Trip erkennen — Flag-Datei prüfen.
+            # Nur lesen wenn noch kein Trip gemeldet (Dialog läuft gerade).
+            if not self._coreaudiod_spin_detected and _SPIN_FLAG_PATH.exists():
+                try:
+                    _SPIN_FLAG_PATH.unlink()   # sofort löschen — kein Doppel-Dialog
+                except OSError:
+                    pass
+                self._coreaudiod_spin_detected = True   # Main-Thread zeigt Dialog
+
             try:
                 status = self._helper.get_status(timeout=0.15)
                 if status is None:
@@ -846,6 +865,60 @@ class AudioRouterApp(rumps.App):
             else:
                 logger.error("Manueller Helper-Neustart fehlgeschlagen")
         threading.Thread(target=_restart, name="helper-manual-restart", daemon=True).start()
+
+    def _show_coreaudiod_spin_dialog(self):
+        """P3: Zeigt Recovery-Dialog nach erkanntem coreaudiod CPU-Spin.
+
+        Der Watchdog im Helper hat coreaudiod bei >90% CPU über >5s erkannt,
+        alle eigenen IOProcs gestoppt und die Flag-Datei geschrieben.
+        Wir bieten dem Nutzer einen kontrollierten Neustart des Audio-Systems an.
+        """
+        import subprocess
+        response = rumps.alert(
+            title="AudioRouterNow — Audio System Hung",
+            message=(
+                "The audio system (coreaudiod) was detected spinning at high CPU.\n\n"
+                "AudioRouterNow has stopped its audio outputs to prevent a system freeze.\n\n"
+                "Restart the audio system to restore normal operation?"
+            ),
+            ok="Restart Audio System",
+            cancel="Dismiss",
+        )
+        if response == 1:
+            try:
+                result = subprocess.run(
+                    [
+                        "osascript", "-e",
+                        'do shell script "launchctl kickstart -k system/com.apple.audio.coreaudiod"'
+                        ' with administrator privileges',
+                    ],
+                    capture_output=True,
+                    timeout=30,
+                )
+                if result.returncode == 0:
+                    logger.info("coreaudiod erfolgreich neu gestartet via osascript")
+                    rumps.notification(
+                        title="AudioRouterNow",
+                        subtitle="",
+                        message="Audio system restarted. Reconnecting outputs…",
+                    )
+                    # Outputs nach kurzer Pause neu verbinden
+                    def _reconnect():
+                        import time as _time
+                        _time.sleep(3.0)
+                        self._auto_start_if_configured()
+                    threading.Thread(target=_reconnect, name="spin-reconnect", daemon=True).start()
+                else:
+                    err = result.stderr.decode(errors="replace").strip()
+                    logger.warning("coreaudiod-Neustart fehlgeschlagen: %s", err)
+                    rumps.alert(
+                        title="AudioRouterNow — Restart Failed",
+                        message="Could not restart the audio system.\n\n"
+                                "Please restart your Mac if the issue persists.",
+                        ok="OK",
+                    )
+            except Exception as e:
+                logger.error("coreaudiod-Neustart Exception: %s", e)
 
     def _handle_media_key(self, event):
         """
