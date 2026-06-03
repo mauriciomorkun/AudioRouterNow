@@ -4652,22 +4652,104 @@ CPU-Sampling via `proc_pid_rusage(RUSAGE_INFO_V4)` alle ~2s. Bei >90% CPU über 
 
 KEIN destruktives `killall` — UI bietet bestätigten Treiber-Reload-Dialog.
 
-### 39.8 Bekannte Restkanten (Folge-Tasks)
+### 39.8 Fix-09 — P1: `outputs_stop_all()` 2-Phasen-Design (helper/)
+
+**Datei:** `helper/AudioRouterNowHelper.c` · **Commit:** `46b6d05`
+
+Die letzte Restkante aus dem Audit: `outputs_stop_all()` hielt `g_outputs_lock` über `AudioDeviceStop()`. Im Watchdog-Recovery-Pfad (coreaudiod spinnt bereits) hätte dieser Mach-IPC-Call blockieren können — während der Mutex gehalten wird.
+
+**Fix:** Gleiches 2-Phasen-Muster wie `process_hotplug_removals()`:
+
+```c
+// VORHER: Lock über AudioDeviceStop gehalten
+pthread_mutex_lock(&g_outputs_lock);
+while (g_n_outputs > 0) {
+    AudioDeviceStop(dev->dev_id, dev->proc_id);   // ← Mach-IPC unter Lock!
+    ...
+}
+pthread_mutex_unlock(&g_outputs_lock);
+
+// NACHHER: 2-Phasen-Design
+// Phase A (unter Lock): Snapshot, Slots leeren, n_outputs=0
+pthread_mutex_lock(&g_outputs_lock);
+for (int i = 0; i < g_n_outputs; i++) {
+    to_stop[n_stop++] = { .dev_id = ..., .proc_id = ... };
+    memset(&g_outputs[i], 0, sizeof(DeviceOutput));
+}
+g_n_outputs = 0;
+pthread_mutex_unlock(&g_outputs_lock);
+
+// Phase B (OHNE Lock): Mach-IPC lockfrei
+for (int i = 0; i < n_stop; i++) {
+    AudioDeviceStop(to_stop[i].dev_id, to_stop[i].proc_id);
+    AudioDeviceDestroyIOProcID(to_stop[i].dev_id, to_stop[i].proc_id);
+}
+```
+
+Damit ist `outputs_stop_all()` vollständig robust: auch wenn coreaudiod hängt, blockiert nur der aufrufende Thread — nie mehr der `g_outputs_lock`.
+
+---
+
+### 39.9 Fix-10 — P3: coreaudiod-Spin UI-Dialog (engine/)
+
+**Datei:** `engine/menu_bar_app.py` · **Commit:** `46b6d05`
+
+Der Watchdog (Fix-08) schrieb die Flag-Datei `~/.audiorouter/coreaudiod_spin.flag` — bisher las niemand diese Datei. Jetzt reagiert die Python-Engine darauf.
+
+**Ablauf:**
+
+```
+_health_poll_loop (Daemon-Thread, 200ms)
+  → prüft _SPIN_FLAG_PATH.exists()
+  → Datei sofort löschen (kein Doppel-Dialog)
+  → self._coreaudiod_spin_detected = True
+
+_process_pending_updates (Main-Thread via rumps.Timer, 500ms)
+  → if _coreaudiod_spin_detected:
+       _show_coreaudiod_spin_dialog()
+
+_show_coreaudiod_spin_dialog()
+  → rumps.alert("Audio System Hung", ok="Restart", cancel="Dismiss")
+  → [Restart] → osascript mit Admin-Passwort-Dialog
+                → launchctl kickstart -k system/com.apple.audio.coreaudiod
+                → rumps.notification("Outputs reconnecting...")
+                → nach 3s: _auto_start_if_configured()
+  → [Dismiss]  → kein Eingriff
+```
+
+**Warum Daemon-Thread → Flag → Main-Thread?**  
+`rumps.alert()` muss zwingend auf dem macOS Main-Thread laufen. Der `_health_poll_loop` ist ein Daemon-Thread — ein direkter Aufruf würde abstürzen oder hängen. Die Flag-Variable (`bool`, GIL-atomar) ist die sichere Brücke zwischen den Threads.
+
+---
+
+### 39.10 Gesamtübersicht aller Fixes
+
+| Fix | Commit | Bug | Datei | Status |
+|-----|--------|-----|-------|:------:|
+| Fix-01 | `e6d8ba5` | P0-C: GetZeroTimeStamp ticksPerFrame | driver/ | ✅ |
+| Fix-02 | `13265de` | P0-B: output_add() Lock-Scope | helper/ | ✅ |
+| Fix-03+04 | `e68538f` | P0-A: sr_reinit_all_outputs() Lock-Scope | helper/ | ✅ |
+| Fix-05 | `ef7fc1b` | P2-A: process_hotplug_removals() Lock | helper/ | ✅ |
+| Fix-06+07 | `031b6b9` | P1-B/C: Timeouts + ensure_running() | engine/ | ✅ |
+| Fix-08 | `cd13cae` | P0-D: coreaudiod CPU-Watchdog | helper/ | ✅ |
+| Fix-09 | `46b6d05` | P1: outputs_stop_all() 2-Phasen | helper/ | ✅ |
+| Fix-10 | `46b6d05` | P3: UI-Dialog coreaudiod_spin.flag | engine/ | ✅ |
+
+**Offene Folge-Tasks (nicht kritisch):**
 
 | Prio | Task |
 |------|------|
-| **P1** | `outputs_stop_all()` 2-Phasen-Design (Fix-08 Recovery-Pfad robuster) |
-| **P2** | Dedizierter CoreAudio-Ops-Thread (Command-Queue, Fix-08 P2-B) |
-| **P3** | UI-Anbindung `coreaudiod_spin.flag` → Treiber-Reload-Dialog |
-| **P3** | Watchdog Auto-Recovery-Counter (nicht terminal) |
+| P2-B | Dedizierter CoreAudio-Ops-Thread mit Command-Queue (Architektur) |
+| P3 | Watchdog Auto-Recovery-Counter (g_watchdog_tripped nicht mehr terminal) |
 
-### 39.9 Build-Ergebnis
+### 39.11 Build-Ergebnis (Final)
 
 | Prüfung | Ergebnis |
 |---------|:--------:|
-| `make clean && make` (helper) | ✅ 0 Warnungen |
-| Universal Binary | ✅ `x86_64 arm64` |
+| `make clean && make` (helper) | ✅ 0 Warnungen, Universal `x86_64 arm64` |
 | `python3 -m py_compile helper_client.py` | ✅ |
+| `python3 -m py_compile menu_bar_app.py` | ✅ |
+| `sudo make install && sudo make reload` | ✅ Installiert, coreaudiod neu geladen |
 | Vollständiger Audit | ✅ Kein Lock-Leak, keine Regression |
 
 Vollständiger Audit-Report: `AUDIT_REPORT.md`
