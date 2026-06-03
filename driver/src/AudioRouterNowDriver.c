@@ -42,6 +42,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 
 #include <unistd.h>
 
@@ -1746,8 +1747,29 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
     Float64 ticksPerFrame = _u64_to_f64(
         atomic_load_explicit(&gHostTicksPerFrameBits, memory_order_relaxed)
     );
-    if (ticksPerFrame <= 0.0) {
-        ticksPerFrame = 1.0;
+    if (!(ticksPerFrame > 0.0) || !isfinite(ticksPerFrame)) {
+        /* P0-C FIX: gHostTicksPerFrameBits ist 0 (oder NaN/Inf), weil coreaudiod
+         * GetZeroTimeStamp VOR ARN_Initialize aufgerufen hat (Race beim Plugin-Laden
+         * unter macOS Sequoia/26). Der fruehre Fallback 1.0 ergab Host-Timestamps um
+         * Faktor ~500.000 zu klein → coreaudiod busy-wait Spin → 100% CPU → Freeze.
+         *
+         * Statt 1.0 rekonstruieren wir den physikalisch korrekten Wert aus der
+         * Mach-Timebase und der Default-Sample-Rate (identisch zur Berechnung in
+         * ARN_Initialize). mach_timebase_info ist im RT-Pfad sicher: konstant,
+         * sperrfrei, ohne Mach-IPC. */
+        struct mach_timebase_info tb_fallback;
+        mach_timebase_info(&tb_fallback);
+        Float64 nanosPerTick = (Float64)tb_fallback.numer / (Float64)tb_fallback.denom;
+        if (nanosPerTick <= 0.0) nanosPerTick = 1.0;  /* Defensive: nie /0 */
+        ticksPerFrame = (1.0e9 / kDefaultSampleRate) / nanosPerTick;
+
+        /* Den korrigierten Wert publizieren, damit nachfolgende Calls (und ein evtl.
+         * verspätetes ARN_Initialize, das ihn ueberschreibt) konsistent bleiben.
+         * Nur setzen wenn weiterhin 0 — kein Ueberschreiben eines gueltigen Werts. */
+        UInt64 expected_zero = 0;
+        atomic_compare_exchange_strong_explicit(
+            &gHostTicksPerFrameBits, &expected_zero, _f64_to_u64(ticksPerFrame),
+            memory_order_relaxed, memory_order_relaxed);
     }
 
     uint64_t frames    = atomic_load_explicit(&gFramesWritten, memory_order_relaxed);
