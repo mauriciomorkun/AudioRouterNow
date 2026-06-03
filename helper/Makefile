@@ -29,7 +29,8 @@ CFLAGS      := $(ARCHS) \
 LDFLAGS     := $(ARCHS) \
                -framework CoreAudio \
                -framework AudioToolbox \
-               -framework CoreFoundation
+               -framework CoreFoundation \
+               -lproc               # P0-D: proc_pid_rusage fuer coreaudiod-Watchdog
 
 # =============================================================================
 # Targets

@@ -44,6 +44,9 @@
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/file.h>   /* M8: flock() fuer Single-Instance-Lock */
+#include <sys/sysctl.h> /* P0-D: KERN_PROC_ALL fuer coreaudiod-PID-Suche */
+#include <sys/proc_info.h> /* P0-D: rusage_info_v4 */
+#include <libproc.h>    /* P0-D: proc_pid_rusage() fuer coreaudiod-CPU-Watchdog */
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -342,6 +345,10 @@ static atomic_int              g_auto_sample_rate   = 1;
 /* H3: Hot-Plug-Flag — Callback setzt nur dieses Flag, Volume-Thread reagiert.
  * Kein CoreAudio-Call im Property-Callback-Kontext (Re-Entry-Deadlock-Risiko). */
 static atomic_int              g_hotplug_pending    = 0;
+
+/* P0-D: coreaudiod CPU-Watchdog — gesetzt wenn Spin erkannt + reagiert wurde.
+ * Einmal gesetzt bleibt er bis zum Neustart (Einmal-Reaktion, kein Flattern). */
+static atomic_int              g_watchdog_tripped   = 0;
 
 /* Keep-Alive IOProc — hält das virtuelle "Audio Router" Device dauerhaft running.
  * Registriert in C (nicht Python) damit der Funktionszeiger für die gesamte
@@ -1609,6 +1616,131 @@ static OSStatus devices_changed_listener(AudioObjectID inObjectID,
     return noErr;
 }
 
+/* ── P0-D: coreaudiod CPU-Watchdog ──────────────────────────────────────── */
+
+/*
+ * Findet die PID von coreaudiod via sysctl-Prozessliste (kein execvp, kein popen).
+ * Gibt 0 zurueck wenn nicht gefunden.
+ */
+static pid_t find_coreaudiod_pid(void)
+{
+    int    mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
+    size_t len    = 0;
+    if (sysctl(mib, 4, NULL, &len, NULL, 0) != 0 || len == 0) return 0;
+
+    struct kinfo_proc *procs = (struct kinfo_proc *)malloc(len);
+    if (!procs) return 0;
+    if (sysctl(mib, 4, procs, &len, NULL, 0) != 0) { free(procs); return 0; }
+
+    pid_t  result = 0;
+    size_t n = len / sizeof(struct kinfo_proc);
+    for (size_t i = 0; i < n; i++) {
+        if (strncmp(procs[i].kp_proc.p_comm, "coreaudiod", 10) == 0) {
+            result = procs[i].kp_proc.p_pid;
+            break;
+        }
+    }
+    free(procs);
+    return result;
+}
+
+/*
+ * Liest die kumulierte CPU-Zeit (User+System, in Nanosekunden) von pid via libproc.
+ * Gibt true bei Erfolg, false bei Fehler (Prozess verschwunden o.ae.).
+ */
+static bool read_proc_cpu_ns(pid_t pid, uint64_t *out_cpu_ns)
+{
+    struct rusage_info_v4 ri;
+    if (proc_pid_rusage(pid, RUSAGE_INFO_V4, (rusage_info_t *)&ri) != 0) return false;
+    *out_cpu_ns = ri.ri_user_time + ri.ri_system_time;  /* bereits in ns */
+    return true;
+}
+
+/*
+ * P0-D: Watchdog-Tick — alle ~2s vom volume_poll_thread aufgerufen.
+ *
+ * Erkennt anhaltenden coreaudiod-CPU-Spin (>90% CPU ueber >5s) und reagiert
+ * defensiv: stoppt eigene IOProcs (entzieht dem Spin die Nahrung) und schreibt
+ * eine Flag-Datei fuer die Python-Engine. KEIN destruktives killall — die UI
+ * bietet dem Nutzer einen bestaetigen Treiber-Reload-Dialog an.
+ */
+static void coreaudiod_watchdog_tick(void)
+{
+    static pid_t    s_pid          = 0;
+    static uint64_t s_last_cpu_ns  = 0;
+    static uint64_t s_last_wall_ns = 0;
+    static int      s_high_streak  = 0;   /* aufeinanderfolgende High-CPU-Samples */
+
+    /* Einmal reagiert = fertig. Kein Flattern. */
+    if (atomic_load_explicit(&g_watchdog_tripped, memory_order_relaxed)) return;
+
+    /* Pruefe ob s_pid noch lebt; bei Neustart/PID-Wechsel neu suchen. */
+    if (s_pid == 0 || kill(s_pid, 0) != 0) {
+        s_pid          = find_coreaudiod_pid();
+        s_last_cpu_ns  = 0;
+        s_last_wall_ns = 0;
+        s_high_streak  = 0;
+        if (s_pid == 0) return;
+    }
+
+    uint64_t cpu_ns = 0;
+    uint64_t now_ns = get_time_ns();
+    if (!read_proc_cpu_ns(s_pid, &cpu_ns)) {
+        /* Prozess verschwunden — Suche beim naechsten Tick wiederholen. */
+        s_pid = 0;
+        return;
+    }
+
+    if (s_last_wall_ns != 0 && now_ns > s_last_wall_ns) {
+        uint64_t d_cpu  = (cpu_ns  > s_last_cpu_ns)  ? (cpu_ns  - s_last_cpu_ns)  : 0;
+        uint64_t d_wall = now_ns - s_last_wall_ns;
+        /* CPU-Anteil in Prozent. Auf Mehrkern-Systemen kann pct > 100 sein;
+         * der Spin-Fall erzeugt typischerweise 95-100+ auf einem Kern. */
+        double pct = (d_wall > 0) ? (100.0 * (double)d_cpu / (double)d_wall) : 0.0;
+
+        if (pct > 90.0) {
+            s_high_streak++;
+        } else {
+            s_high_streak = 0;
+        }
+
+        /* Tick alle ~2s → 3 konsekutive Samples >= 90% = >5s anhaltend. */
+        if (s_high_streak >= 3) {
+            fprintf(stderr,
+                "Helper: WATCHDOG — coreaudiod (pid %d) bei %.0f%% CPU ueber >5s kontinuierlich. "
+                "Stoppe eigene IOProcs, schreibe Flag-Datei fuer UI.\n",
+                (int)s_pid, pct);
+
+            /* 1. Eigene IOProcs stoppen — entzieht dem coreaudiod-Spin die Nahrung.
+             *    outputs_stop_all() haelt g_outputs_lock kurz; bei getripptem coreaudiod
+             *    koennte auch dieser Stop haengen — als P2-B-Folgearbeit dokumentiert. */
+            outputs_stop_all();
+
+            /* 2. Flag-Datei fuer Python-Engine schreiben (nicht-destruktiv).
+             *    Engine liest die Datei beim naechsten Status-Poll und bietet dem
+             *    Nutzer einen kontrollierten "Treiber neu laden"-Dialog an. */
+            const char *home = getenv("HOME");
+            if (home) {
+                char path[512];
+                snprintf(path, sizeof(path),
+                         "%s/.audiorouter/coreaudiod_spin.flag", home);
+                FILE *f = fopen(path, "w");
+                if (f) {
+                    fprintf(f, "coreaudiod_pid=%d cpu_pct=%.0f ts_ns=%llu\n",
+                            (int)s_pid, pct, (unsigned long long)now_ns);
+                    fclose(f);
+                }
+            }
+
+            /* 3. Tripped-Flag setzen — kein erneutes Triggern. */
+            atomic_store_explicit(&g_watchdog_tripped, 1, memory_order_release);
+        }
+    }
+
+    s_last_cpu_ns  = cpu_ns;
+    s_last_wall_ns = now_ns;
+}
+
 /* H3: Eigentliche Hot-Plug-Reaktion — laeuft im Volume-Thread (nicht im Callback).
  *
  * P2-A FIX: AudioDeviceStop/DestroyIOProcID sind Mach-IPC zu coreaudiod.
@@ -1947,6 +2079,16 @@ static void *volume_poll_thread(void *arg)
         /* H3: Hot-Plug-Reaktion ausserhalb des CoreAudio-Callbacks verarbeiten. */
         if (atomic_exchange_explicit(&g_hotplug_pending, 0, memory_order_acq_rel)) {
             process_hotplug_removals();
+        }
+
+        /* P0-D: coreaudiod CPU-Watchdog — alle ~2s (40 Ticks à 50ms) abtasten.
+         * Erkennt coreaudiod-Spin-Loops und stoppt defensiv eigene IOProcs. */
+        {
+            static int s_wd_counter = 0;
+            if (++s_wd_counter >= 40) {
+                s_wd_counter = 0;
+                coreaudiod_watchdog_tick();
+            }
         }
 
         usleep(VOLUME_POLL_INTERVAL_US);
