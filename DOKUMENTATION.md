@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 9. Juni 2026 (Kapitel 44 — P16 src_frac_ridx Overflow-Fix)
-**Version:** 3.1.1  
+**Stand:** 9. Juni 2026 (Kapitel 45 — Diagnostic Report Feature)
+**Version:** 3.1.2  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -55,6 +55,7 @@
 42. [Post-Launch Strategie & Roadmap](#42-post-launch-strategie--roadmap)
 - [Kapitel 43 — Kompatibilitäts-Analyse](#kapitel-43--kompatibilitäts-analyse-2026-06-04)
 - [Kapitel 44 — P16 src_frac_ridx Overflow-Fix (v3.1.1, 9. Juni 2026)](#kapitel-44--p16-src_frac_ridx-overflow-fix-v311-9-juni-2026)
+- [Kapitel 45 — Diagnostic Report Feature (v3.1.2, 9. Juni 2026)](#kapitel-45--diagnostic-report-feature-v312-9-juni-2026)
 
 ---
 
@@ -5693,3 +5694,125 @@ Commit: `ff7556e` · Branch: `main` · Universal Binary: arm64 + x86_64 · macOS
 | Dauerbetrieb | begrenzt durch 12h-Zyklus | **unbegrenzt stabil** |
 | Performance | — | kein messbarer Overhead |
 | Regressions-Risiko | — | keines (mathematisch bewiesen) |
+
+---
+
+## Kapitel 45 — Diagnostic Report Feature (v3.1.2, 9. Juni 2026)
+
+### 45.1 Motivation
+
+Wenn Nutzer Probleme melden (z.B. Audio-Aussetzer, Routing-Fehler), war bisher kein strukturierter Log-Versand möglich. Nutzer mussten manuell Log-Dateien suchen und per E-Mail anhängen — eine Hürde die die meisten Nutzer abschreckt. Das Diagnostic Report Feature löst das mit einem einzigen Menü-Klick.
+
+### 45.2 User Flow
+
+```
+Help → Save Diagnostic Report…
+     ↓
+ Generierung im Hintergrund-Thread
+ (sysctl + helper.err + helper.log + Helper-Status)
+     ↓
+ .txt-Report auf Desktop gespeichert
+     ↓
+ Mail.app öffnet sich — Empfänger vorausgefüllt,
+ Report bereits angehängt, Subject-Zeile gesetzt
+     ↓
+ User tippt Problembeschreibung → Send
+```
+
+Fallback (Mail.app nicht verfügbar oder AppleScript-Fehler): Finder-Reveal + Toast-Notification mit manueller Anweisung.
+
+### 45.3 Implementierung
+
+**`engine/diagnostic.py`** (neues Modul):
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `_system_info()` | macOS-Version, `hw.model` via sysctl, CPU-Architektur |
+| `_read_helper_err()` | Letztes 1 MB von `helper.err` (gecapped gegen crash-loop-Aufblähung) |
+| `_extract_log_events()` | 3 MB tail von `helper.log`; Polling-Blöcke via Regex entfernt, Event-Tokens extrahiert |
+| `_format_report()` | Strukturierter `.txt`-Report mit Box-Header, Statistiken, Status-JSON, Logs |
+| `generate_report(helper_client)` | Speichert auf `~/Desktop/AudioRouterNow_DiagReport_{timestamp}.txt` |
+| `open_mail_with_report(path)` | AppleScript öffnet Mail.app mit Anhang + vorausgefülltem To/Subject/Body |
+| `reveal_in_finder(path)` | Fallback: `open -R` markiert Datei im Finder |
+
+**`engine/menu_bar_app.py`** (Erweiterung):
+- `import diagnostic` nach anderen Engine-Imports
+- Help-Menü: `"Save Diagnostic Report…"` als neuer Menüpunkt (mit Separator vor "Uninstall")
+- `_save_diagnostic_report(self, sender)`: startet Daemon-Thread → Main-Thread blockiert nicht
+
+### 45.4 Log-Extraktion — Technischer Ansatz
+
+`helper.log` hat bei 14 MB typischerweise nur ~32 physische Zeilen (Polling-Einträge werden sequenziell ohne Newline geschrieben). Ein naiver zeilenbasierter Ansatz funktioniert nicht.
+
+**Zwei-Schritt-Ansatz:**
+1. **Poll-Blöcke entfernen:** `re.sub(r'Ring:\s+\d+\s+Frames\s+\|\s+Outputs:\s+\d+\s+\|\s+IOProc-Calls:[^)]+\)', ' ', content)`
+2. **Event-Tokens extrahieren:** Regex mit bekannten Präfixen (`Helper:`, `AudioRouterNow Helper`, `Warte auf SHM`, `SHM:`, `Helper laeuft`) + Längen-Constraint `{3,120}`
+
+Dieser Ansatz ist robuster als ein einzelner Regex mit Lookahead, der durch lazy Quantifizierer und `re.DOTALL`-Interaktionen leicht leere Matches produziert.
+
+### 45.5 Sicherheit & Edge Cases
+
+| Edge Case | Behandlung |
+|-----------|-----------|
+| Desktop nicht vorhanden / keine Schreibrechte | `write_text` wirft → Notification mit Fehlermeldung |
+| `helper.err` > 1 MB | Tail-Cap + Hinweis-Header im Report |
+| Helper offline | `get_status_quick()` gibt `None` → Report enthält `(Helper läuft nicht…)` |
+| Mail.app nicht installiert / AppleScript-Fehler | `open_mail_with_report()` gibt `False` → `reveal_in_finder()` + Notification |
+| osascript-Timeout | 20 Sekunden (erhöht von 10s für langsamen Mail-Kaltstart) |
+| Pfad mit Backslash (selten, via Symlinks) | `posix = str(path).replace("\\\\", "\\\\\\\\").replace('"', '\\\\"')` |
+| Main-Thread-Block | Callback startet Daemon-Thread → rumps/AppKit nie blockiert |
+
+### 45.6 Report-Format
+
+```
+╔════════════════════════════════════════════════════════╗
+║           AudioRouterNow — Diagnostic Report           ║
+╚════════════════════════════════════════════════════════╝
+
+Generated : 2026-06-09 14:32:01 CEST
+Version   : 3.1.1
+macOS     : 15.5
+Hardware  : MacBookPro18,3
+Arch      : arm64
+
+NOTE: This report contains audio device identifiers
+      (hardware model info only — no personal data).
+
+────────────────────────────────────────────────────────
+STATISTICS
+────────────────────────────────────────────────────────
+Uptime estimate : ~2.3 hours  (776,234 IOProc calls)
+HARD-STALLs     : 0  (in letzten 3 MB des Logs)
+
+────────────────────────────────────────────────────────
+CURRENT STATUS
+────────────────────────────────────────────────────────
+{ ... Helper-Status-JSON ... }
+
+────────────────────────────────────────────────────────
+ERROR LOG  (helper.err — letztes 1 MB)
+────────────────────────────────────────────────────────
+...
+
+────────────────────────────────────────────────────────
+RECENT EVENTS  (letzte 200 aus helper.log)
+────────────────────────────────────────────────────────
+...
+```
+
+### 45.7 Audit-Findings (sc:analyze) und Behobene Issues
+
+Vor dem Commit wurde ein strukturierter Audit via `sc:analyze` durchgeführt. Behobene Findings:
+
+| ID | Severity | Finding | Fix |
+|----|----------|---------|-----|
+| M1 | MEDIUM | Regex fragil — lazy Quantifizierer + DOTALL produziert Leer-Matches | Ersetzt durch Poll-Split + greedy Token-Regex |
+| M2 | MEDIUM | `helper.err` ohne Größenbeschränkung — OOM bei crash-loop | 1 MB Tail-Cap + Offset-Hinweis |
+| M4 | MEDIUM | Uptime < 1h zeigt "(nicht verfügbar)" statt Minuten | Sub-Stunden-Zweig ergänzt |
+| H2 | HIGH | Callback blockiert Main-Thread (sysctl + 3 MB Read + osascript = bis 13 s) | Daemon-Thread in `_save_diagnostic_report` |
+| L1 | LOW | Zwei separate `datetime.now()`-Aufrufe — Mitternachts-Diskrepanz möglich | Einmalige `dt = datetime.now().astimezone()` |
+| L2 | LOW | osascript-Timeout 10 s zu kurz für Mail-Kaltstart | Erhöht auf 20 s |
+
+Nicht behoben (akzeptiert): L3 (APP_VERSION hardcoded), L4 (E-Mail im Klartext — kein Risiko da GitHub-öffentlich), L5 (kein Report-Größen-Cap).
+
+Commit: `317f531` · Branch: `main`
