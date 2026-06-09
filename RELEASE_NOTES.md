@@ -9,6 +9,54 @@ Each release contains **two sections**:
 
 ---
 
+## v3.1.1 — June 9, 2026
+
+### For Everyone
+
+**Fixes a rare audio glitch that occurred every ~12.5 hours of continuous play.**
+
+If you ever heard a brief (2–3 second) high-pitched constant tone followed by normal audio resuming, this was it. It happened on a fixed timer — roughly every 12 hours and 26 minutes, regardless of what was playing. The glitch was most noticeable during live streams (like WWDC) where the audio demands attention.
+
+What's new:
+- **12.5-hour periodic stall eliminated** — the root cause was a floating-point counter in the audio engine that was never reset. After ~12 hours of continuous play, the counter exceeded the valid range for a 32-bit integer conversion, causing undefined behavior and a momentary position reset in the audio pipeline.
+- **No other changes** — this is a pure bugfix with no behavioral changes under normal conditions.
+
+**Who is affected:** Anyone who uses AudioRouterNow for extended continuous listening sessions (12+ hours). The fix is invisible during normal operation.
+
+**What you need to do:** Install the update if you experienced the periodic tone glitch.
+
+---
+
+### For Power Users
+
+**Root cause:** `src_frac_ridx` (a `double` field in `DeviceOutput`) accumulates `+= ratio` (≈1.0) for every output frame in `device_ioproc()`. At 47,872 frames/s (512 frames × 93.5 calls/s @ 48 kHz), after 2^31 / 47,872 ≈ 44,739 seconds ≈ 12h 26min, `src_frac_ridx * 2.0` exceeds `UINT32_MAX = 4,294,967,295`. The cast `(uint32_t)(src_frac_ridx * 2.0)` is then **Undefined Behavior** under C11 §6.3.1.4 — on ARM64, this typically produces 0, making `behind = widx - 0 = widx >> ARN_RING_CAPACITY`, which fires the Overflow-Guard and issues a Pending-Reset.
+
+**Log evidence:** 16 `HARD-STALL` events in `helper.err`, appearing in pairs exactly every 8,388,486–8,389,016 IOProc-calls (expected: `2^32/512 = 8,388,608`; measured deviation ±0.005%). Fully deterministic, source-independent.
+
+**Pair structure:** The stall fires twice because the Overflow-Guard resets `src_frac_ridx = widx/2`. At the overflow moment, `widx ≈ 2^32`, so `widx/2 ≈ 2^31` — immediately triggering UB again on the next IOProc calls. The second stall (376 calls ≈ 2s later) occurs when `widx` finally wraps to a small uint32_t value, making `widx/2` small and safe.
+
+**Fix (3 lines, commit `ff7556e`, `helper/AudioRouterNowHelper.c`):**
+
+```c
+dev->src_frac_ridx += ratio;   // line 896 (existing)
+
+// P16: Fold to prevent float→uint32_t UB after ~12h
+if (dev->src_frac_ridx >= (double)(1u << 31)) {
+    dev->src_frac_ridx -= (double)(1u << 31);
+}
+```
+
+**Why the fold is safe:** `2^31` is a multiple of `ARN_RING_CAPACITY = 8192 = 2^13`, so all three downstream invariants are preserved:
+- `frac_as_samp = (uint32_t)(ridx*2)`: fold changes value by `2^32 ≡ 0 (mod 2^32)` → `behind` unchanged
+- Ring index `(idx0*2) & RING_MASK`: `(2^31 * 2) mod (2 × 8192) = 2^32 mod 16384 = 0` → physical position unchanged
+- Interpolation `frac = ridx - idx0`: integer fold, fractional part invariant
+
+All invariants verified with full Python simulation: all MATCH=True.
+
+**Full technical documentation:** DOKUMENTATION.md, Kapitel 44.
+
+---
+
 ## v2.9.0 — June 1, 2026
 
 ### For Everyone
