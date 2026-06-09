@@ -53,6 +53,7 @@ from healer import Healer
 import first_launch
 from first_launch import DRIVER_INSTALL_PATH, is_driver_installed
 from helper_client import CONFIG_SOCKET, HelperClient, OutputSpec
+import diagnostic
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,8 @@ class AudioRouterApp(rumps.App):
             rumps.MenuItem("What's running in the background…", callback=self._show_background_info),
             None,
             rumps.MenuItem("Open documentation", callback=self._open_documentation),
+            None,
+            rumps.MenuItem("Save Diagnostic Report…", callback=self._save_diagnostic_report),
             None,
             rumps.MenuItem("Uninstall AudioRouterNow…", callback=self._uninstall),
         ])
@@ -528,6 +531,44 @@ class AudioRouterApp(rumps.App):
             subprocess.run(["open", str(local_doc)])
         else:
             webbrowser.open(DOCUMENTATION_URL)
+
+    def _save_diagnostic_report(self, sender):
+        """Generiert Diagnostic Report im Hintergrund und öffnet Mail.app.
+
+        Läuft in einem Thread — der Main-Thread (rumps/AppKit) blockiert nicht,
+        auch wenn sysctl, Disk-Read oder osascript langsam antworten.
+        """
+        def _run():
+            try:
+                path = diagnostic.generate_report(self._helper)
+            except Exception as exc:
+                rumps.notification(
+                    title="AudioRouterNow — Diagnostic Report",
+                    subtitle="Could not generate report",
+                    message=str(exc),
+                )
+                return
+
+            mail_ok = diagnostic.open_mail_with_report(path)
+            if mail_ok:
+                rumps.notification(
+                    title="AudioRouterNow",
+                    subtitle="Diagnostic Report ready",
+                    message="Mail is open — describe your issue and click Send.",
+                )
+            else:
+                # Fallback: Datei im Finder markieren + Notification mit Anweisung
+                diagnostic.reveal_in_finder(path)
+                rumps.notification(
+                    title="AudioRouterNow — Diagnostic Report",
+                    subtitle=f"Saved: {path.name}",
+                    message=(
+                        "Mail could not be opened. "
+                        f"Please send the file to {diagnostic.DEVELOPER_EMAIL}"
+                    ),
+                )
+
+        threading.Thread(target=_run, name="diagnostic-report", daemon=True).start()
 
     def _uninstall(self, sender):
         if not first_launch._show_uninstall_confirm():
