@@ -894,6 +894,18 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
             dev->temp_buf[f * 2 + 1] = r;
 
             dev->src_frac_ridx += ratio;
+
+            /* P16: Fold src_frac_ridx um 2^31 nach jedem Advance — verhindert
+             * float→uint32_t Cast-UB (Undefined Behavior) nach ~12h Dauerbetrieb.
+             * 2^31 ist ein Vielfaches von ARN_RING_CAPACITY (2^13), daher vollstaendig transparent:
+             *   • frac_as_samp = (uint32_t)(ridx*2): Fold aendert Wert um 2^32 ≡ 0 (mod 2^32)
+             *     → behind = widx - frac_as_samp unveraendert
+             *   • Ring-Index (idx0*2) & MASK: (2^31*2) mod (2*8192) = 2^32 mod 16384 = 0
+             *     → physikalische Ringposition unveraendert
+             *   • Interpolation frac = ridx - idx0: Integer-Fold, Fractional-Teil bleibt in [0,1) */
+            if (dev->src_frac_ridx >= (double)(1u << 31)) {
+                dev->src_frac_ridx -= (double)(1u << 31);
+            }
         }
         /* local_ridx (Sample-Index) aus Frame-Index ableiten */
         atomic_store_explicit(&dev->local_ridx, (uint32_t)(dev->src_frac_ridx * 2.0), memory_order_release);
