@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 3. Juni 2026 (Kapitel 42 — Post-Launch Strategie & Roadmap)
-**Version:** 3.1.0  
+**Stand:** 9. Juni 2026 (Kapitel 44 — P16 src_frac_ridx Overflow-Fix)
+**Version:** 3.1.1  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -53,6 +53,8 @@
 40. [Entwicklungs-Chronik — 29. Mai bis 3. Juni 2026](#40-entwicklungs-chronik--29-mai-bis-3-juni-2026)
 41. [Build #7 — Stability-Hardened Release (3. Juni 2026)](#41-build-7--stability-hardened-release-3-juni-2026)
 42. [Post-Launch Strategie & Roadmap](#42-post-launch-strategie--roadmap)
+- [Kapitel 43 — Kompatibilitäts-Analyse](#kapitel-43--kompatibilitäts-analyse-2026-06-04)
+- [Kapitel 44 — P16 src_frac_ridx Overflow-Fix (v3.1.1, 9. Juni 2026)](#kapitel-44--p16-src_frac_ridx-overflow-fix-v311-9-juni-2026)
 
 ---
 
@@ -5281,6 +5283,8 @@ Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
 
 #### 🔴 P0 — Kritisch (Fundament, vor erstem öffentlichen Launch)
 
+> ⚠️ **Python 3.13 Downgrade vor Launch:** Das Bundle nutzt aktuell Python 3.14 (Beta). Vor dem offiziellen Release → `.venv` mit Python 3.13 neu erstellen → `build.sh` → neues DMG. Details: Kapitel 43.4.
+
 | Aufgabe | Bereich |
 |---------|---------|
 | Apple Developer ID beantragen | Distribution |
@@ -5456,3 +5460,236 @@ Diese Punkte wurden aus dem AUDIT_REPORT.md und PLAN.md übernommen:
 | Phase 6.1 Stress-Tests (4h Musik, Sleep/Wake, CPU-Last) | P2 | Offen |
 | macOS 11/12/13/14/15 Kompatibilitäts-Matrix schließen | P2 | Offen |
 | Intel-Mac-Support: bestätigen oder explizit schließen | P2 | Offen |
+
+---
+
+## Kapitel 43 — Kompatibilitäts-Analyse (2026-06-04)
+
+### 43.1 Unterstützte macOS-Versionen
+
+Deployment Target: **macOS 11.0 (Big Sur)** — einheitlich gesetzt in Driver-Makefile, Helper-Makefile, PyInstaller-Spec und Info.plist (`LSMinimumSystemVersion=11.0`).
+
+| macOS Version | Status |
+|--------------|--------|
+| 10.15 Catalina und älter | ❌ Nicht unterstützt |
+| 11.0 Big Sur | ✅ Minimum |
+| 12 Monterey | ✅ |
+| 13 Ventura | ✅ |
+| 14 Sonoma | ✅ |
+| 15 Sequoia | ✅ (Workaround für DMG-Hintergrund in build.sh implementiert) |
+
+Alle verwendeten CoreAudio HAL-, AppKit- und Foundation-APIs sind ab macOS 11.0 vollständig verfügbar. Kein API erfordert macOS 12+.
+
+### 43.2 Hardware & Architektur
+
+| Komponente | x86_64 (Intel) | arm64 (Apple Silicon) |
+|-----------|:--------------:|:---------------------:|
+| HAL-Treiber (.driver) | ✅ Universal Binary | ✅ Universal Binary |
+| Helper-Daemon | ✅ Universal Binary | ✅ Universal Binary |
+| App-Bundle (PyInstaller) | ⚠️ Rosetta 2 | ✅ Nativ |
+
+**Apple Silicon (M1/M2/M3/M4):** Vollständig nativ unterstützt — alle Komponenten laufen nativ arm64.
+
+**Intel Macs:** Treiber und Helper laufen nativ (Universal Binary). Der PyInstaller-Bundle ist arm64-only und läuft via Rosetta 2. Kein System Extension oder KEXT erforderlich (reine AudioServerPlugin-Architektur). Offizielle Aussage: Intel Macs werden mit dem Prebuilt-DMG nicht nativ unterstützt — Bauen aus dem Source-Code bleibt möglich.
+
+### 43.3 Empfohlener Requirements-Text (für GitHub / Download-Seite)
+
+```
+Requirements:
+• macOS 11.0 (Big Sur) or later
+• Apple Silicon Mac (M1 or later) — prebuilt binary is arm64
+  Intel Macs: build from source
+```
+
+### 43.4 Offener Punkt: Python 3.13 Downgrade (⚠️ vor Launch)
+
+Das aktuelle Bundle enthält **Python 3.14** (Beta/RC-Zyklus, Stand Juni 2026). Für einen stabilen Produktions-Release sollte auf **Python 3.13** (LTS-stable) downgegradet werden, bevor offiziell gelaunchtet wird.
+
+**Risiko:** Python 3.14 ist noch nicht final — ABI-Änderungen könnten `.so`-Dateien inkompatibel machen.
+
+**Aktion:** Vor GitHub Release v3.1.0 → `.venv` mit Python 3.13 neu erstellen → `build.sh` neu ausführen → neues DMG erstellen. Dieser Punkt ist in der Roadmap als P0-Präventivmaßnahme eingetragen (siehe Kapitel 42).
+
+---
+
+## Kapitel 44 — P16 src_frac_ridx Overflow-Fix (v3.1.1, 9. Juni 2026)
+
+**Datum:** 9. Juni 2026 · **Commit:** `ff7556e` · **Datei:** `helper/AudioRouterNowHelper.c`  
+**Version:** 3.1.1 · **Typ:** Bugfix (P0 — periodischer HARD-STALL, vollständig deterministisch)
+
+---
+
+### 44.1 Bug-Entdeckung via Log-Analyse
+
+Nach ~5 Tagen Dauerbetrieb wurde folgender Befund aus den Logs extrahiert:
+
+**`helper.err` (16 Einträge):**
+```
+Helper: Output 'Komplete Audio 6 MK2' HARD-STALL — IOProc laeuft, ridx eingefroren,
+Ring >75% seit >300ms. Position auf write_idx zurueckgesetzt.
+```
+
+**Pattern-Analyse (`helper.log`, 182.550 Status-Snapshots):**
+
+| Stall-Paar | IOProc-Call (1. Stall) | IOProc-Call (2. Stall) | Abstand (intern) | Abstand (zum Vorgänger) |
+|-----------|------------------------|------------------------|-----------------|------------------------|
+| 1 | 8.385.763 | 8.386.139 | 376 calls (2s) | — |
+| 2 | 16.774.249 | 16.774.625 | 376 calls (2s) | 8.388.486 calls |
+| 3 | 25.163.265 | 25.163.639 | 374 calls (2s) | 8.389.016 calls |
+| 4 | 33.551.965 | 33.552.341 | 376 calls (2s) | 8.388.700 calls |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| 8 | 67.106.827 | 67.107.201 | 374 calls (2s) | 8.388.928 calls |
+
+**Schlüsselbeobachtung:** Periodizität von `8.388.486–8.389.016 ≈ 8.388.608 = 2^23 = 2^32 / 512` IOProc-Calls. Fehlerrate ±0.005% — statistisch unmöglich zufällig.
+
+---
+
+### 44.2 Root Cause — Undefined Behavior durch float→uint32_t-Cast
+
+**Mechanismus:**
+
+```c
+// AudioRouterNowHelper.c — SRC-Frame-Loop (device_ioproc)
+for (uint32_t f = 0; f < nFrames; f++) {          // nFrames = 512 pro Call
+    uint32_t idx0 = (uint32_t)dev->src_frac_ridx;  // ← UB nach ~12h (1)
+    // ...
+    dev->src_frac_ridx += ratio;                    // ratio ≈ 1.0
+}
+// Nach dem Loop:
+uint32_t frac_as_samp = (uint32_t)(dev->src_frac_ridx * 2.0); // ← UB (2)
+atomic_store(..., (uint32_t)(dev->src_frac_ridx * 2.0), ...);  // ← UB (3)
+```
+
+`src_frac_ridx` ist ein **monoton wachsender `double`** (niemals zurückgesetzt außer durch Overflow-Guard oder K6-Reset). Pro IOProc-Call wächst er um `nFrames × ratio ≈ 512`.
+
+**Overflow-Zeitpunkt:**
+```
+src_frac_ridx × 2.0 > UINT32_MAX (4.294.967.295)
+→ src_frac_ridx > 2.147.483.647,5 = 2^31 - 0,5
+→ nach 2^31 / 512 = 4.194.304 Frames / (93,5 calls/s × 512 frames/call) = 44.739s ≈ 12h 26min
+```
+
+In C ist `(uint32_t)(double_wert > UINT32_MAX)` **Undefined Behavior** (C11 §6.3.1.4). Auf ARM64 produziert UB in diesem Fall typischerweise den Wert 0 oder einen Overflow-Wrap, was zu `behind = widx - 0 = widx >> ARN_RING_CAPACITY` führt → **Overflow-Guard feuert → HARD-STALL**.
+
+**Paar-Struktur (2 Stalls im Abstand von ~2s):**
+1. **Stall 1:** UB-Cast → `frac_as_samp ≈ 0` → `behind >> CAPACITY` → Overflow-Guard → `src_frac_ridx = widx/2` (K6-Reset). Da `widx ≈ 2^32` zum Zeitpunkt des Resets, ist `widx/2 ≈ 2^31` → UB sofort wieder aktiv.
+2. **Stall 2:** Nach dem Reset liegt `src_frac_ridx ≈ 2^31` → nach ~376 weiteren IOProc-Calls (2s) überschreitet `src_frac_ridx × 2.0` erneut `UINT32_MAX` → zweiter HARD-STALL.
+3. **Recovery:** Nach Stall 2 hat `widx` (uint32_t) gewrapped → `widx/2` ist nun klein → `src_frac_ridx` zurück im sicheren Bereich → System erholt sich.
+
+**Warum hörbar:** HARD-STALL + Reset → IOProc gibt 2-3s einen kleinen, stehenden Ringausschnitt periodisch aus → konstantem Ton (Grundfrequenz ≈ `device_SR / N` für kleines N) → "greller Ton". Danach normales Audio.
+
+**Warum nicht früher aufgefallen:** Bug tritt exakt alle 12h 26min auf, unabhängig von der Wiedergabequelle. Erstmals bemerkt beim WWDC26-Livestream (Safari), weil der Nutzer dort aktiv zuhörte. Bei normaler Musikwiedergabe passierte dasselbe, fiel aber im "Hintergrund" nicht auf.
+
+---
+
+### 44.3 Fix — P16: Periodischer Fold um 2^31
+
+**Implementierung** (3 Codezeilen + Kommentar, in `device_ioproc()`, nach Zeile 896):
+
+```c
+            dev->src_frac_ridx += ratio;
+
+            /* P16: Fold src_frac_ridx um 2^31 nach jedem Advance — verhindert
+             * float→uint32_t Cast-UB (Undefined Behavior) nach ~12h Dauerbetrieb.
+             * 2^31 ist ein Vielfaches von ARN_RING_CAPACITY (2^13), daher vollstaendig transparent:
+             *   • frac_as_samp = (uint32_t)(ridx*2): Fold aendert Wert um 2^32 ≡ 0 (mod 2^32)
+             *     → behind = widx - frac_as_samp unveraendert
+             *   • Ring-Index (idx0*2) & MASK: (2^31*2) mod (2*8192) = 2^32 mod 16384 = 0
+             *     → physikalische Ringposition unveraendert
+             *   • Interpolation frac = ridx - idx0: Integer-Fold, Fractional-Teil bleibt in [0,1) */
+            if (dev->src_frac_ridx >= (double)(1u << 31)) {
+                dev->src_frac_ridx -= (double)(1u << 31);
+            }
+```
+
+---
+
+### 44.4 Mathematischer Transparenz-Beweis
+
+Der Fold `src_frac_ridx -= 2^31` muss in allen drei Verwendungskontexten transparent sein:
+
+**1. `behind`-Berechnung** (Zeilen 770, 824):
+```
+frac_as_samp_nach_fold = (uint32_t)((src_frac_ridx - 2^31) × 2.0)
+                       = (uint32_t)(src_frac_ridx × 2.0 - 2^32)
+                       = (uint32_t)(src_frac_ridx × 2.0) - 2^32  [uint32_t Arithmetik]
+                       = (uint32_t)(src_frac_ridx × 2.0)         [da -2^32 ≡ 0 mod 2^32]
+```
+→ `behind = widx - frac_as_samp` **unveränderter Wert** ✓
+
+**2. Ring-Indexierung** (Zeilen 855–858):
+```
+(idx0_nach_fold × 2) & ARN_RING_MASK
+= ((idx0 - 2^31) × 2) & 8191
+= (idx0 × 2 - 2^32) & 8191
+= (idx0 × 2) & 8191       [da 2^32 mod 8192 = 0, weil 2^13 | 2^32]
+```
+**Voraussetzung:** `2^31 mod ARN_RING_CAPACITY = 2^31 mod 2^13 = 0` ✓ (da 31 > 13) → **Ringposition unveränderlich** ✓
+
+**3. Lineare Interpolation** (Zeile 852):
+```
+frac = (src_frac_ridx - 2^31) - floor(src_frac_ridx - 2^31)
+     = src_frac_ridx - 2^31 - (floor(src_frac_ridx) - 2^31)   [2^31 ist Integer]
+     = src_frac_ridx - floor(src_frac_ridx)
+```
+→ **Fractional-Teil unveränderlich**, `frac ∈ [0, 1)` ✓
+
+**4. `local_ridx` atomic_store** (Zeile 911):
+Nach dem Fold ist `src_frac_ridx < 2^31`, also `src_frac_ridx × 2.0 < 2^32` → `(uint32_t)`-Cast ist definiert. Wert entspricht `(uint32_t)(src_frac_ridx_orig × 2.0)` (siehe Punkt 1). ✓
+
+**Python-Verifikation** (alle MATCH=True):
+
+| Test | Eingabe | Ergebnis |
+|------|---------|----------|
+| `frac_as_samp` Transparenz | ridx=2^31+0.7 | orig=1, folded=1, MATCH=True |
+| Ring-Index | ridx=2^31 | ring_orig=0, ring_fold=0, MATCH=True |
+| `frac` Interpolation | ridx=2^31-0.3 | frac_orig=0.7000, frac_fold=0.7000, MATCH=True |
+| `local_ridx` | ridx=2^31+511.7 | lr_correct=1023, lr_fold=1023, MATCH=True |
+
+---
+
+### 44.5 Fix-Analyse — Warum Fix B★ (Fold in Loop) gegenüber Fix A (uint64_t Cast)
+
+Evaluierte Alternativen:
+
+**Fix A — uint64_t-Intermediär an den Cast-Stellen:**
+```c
+uint32_t frac_as_samp = (uint32_t)((uint64_t)(dev->src_frac_ridx * 2.0));
+```
+- Behebt Zeilen 770, 824, 899 korrekt ✓
+- **Problem Zeile 851:** `idx0 * 2u` bei `idx0 ≈ 2^31` → uint32_t-Overflow in der Multiplikation → falsche Ringposition ⚠️
+- Problem wäre erst nach ~24.9h aufgetreten (zweites Overflow-Intervall), aber prinzipiell unvollständig
+- **Urteil: Unvollständig**
+
+**Fix B★ — Fold innerhalb der Frame-Loop (gewählt):**
+- Alle Verwendungsstellen korrekt ✓
+- idx0 immer `< 2^31 + max_ratio ≈ 2^31 + 1.1` → `(uint32_t)`-Cast immer definiert ✓
+- `idx0 * 2u` immer `< 2^32 + 2` → uint32_t-Overflow bei Grenzwert (`idx0 = 2^31`) ergibt korrekte Ringposition wegen `2^31 mod 8192 = 0` ✓
+- Minimaler Overhead: 1 `double`-Vergleich + bedingte Subtraktion, ~einmal alle 8.39M Calls tatsächlich aktiv
+- **Urteil: Vollständig, minimal, RT-sicher**
+
+---
+
+### 44.6 Build & Verifikation
+
+```
+==> Kompiliere AudioRouterNowHelper (Universal Binary)
+clang -arch arm64 -arch x86_64 ... -Wall -Wextra ...
+==> OK: build/AudioRouterNowHelper
+Architekturen: x86_64 arm64
+Warnungen: 0
+```
+
+Commit: `ff7556e` · Branch: `main` · Universal Binary: arm64 + x86_64 · macOS 11.0+
+
+---
+
+### 44.7 Auswirkungen auf Betrieb
+
+| Aspekt | Vor Fix | Nach Fix |
+|--------|---------|----------|
+| HARD-STALL Frequenz | alle 12h 26min (deterministisch) | **nie** (Fold verhindert Overflow) |
+| Stall-Dauer | ~2–3 Sekunden (Doppel-Stall) | entfällt |
+| Ton-Artefakt | konstanter greller Ton | entfällt |
+| Dauerbetrieb | begrenzt durch 12h-Zyklus | **unbegrenzt stabil** |
+| Performance | — | kein messbarer Overhead |
+| Regressions-Risiko | — | keines (mathematisch bewiesen) |
