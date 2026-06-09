@@ -9,6 +9,46 @@ Each release contains **two sections**:
 
 ---
 
+## v3.1.2 — June 9, 2026
+
+### For Everyone
+
+**New: Send a diagnostic report to the developer with one click.**
+
+If you're experiencing an issue — audio not routing, unexpected behaviour, anything unexpected — you can now send a detailed report directly from the app. No manual log hunting, no copy-pasting.
+
+What's new:
+- **Help → Save Diagnostic Report…** — generates a structured text file with your system info, current audio status, and recent log events. Mail.app opens automatically with the file already attached and the email pre-filled. Add a short description of your problem and click Send.
+- If Mail.app isn't available, the file is saved to your Desktop and revealed in Finder, with a notification showing where to send it.
+
+**Who is affected:** Everyone who ever wanted to report a bug but wasn't sure how to attach the logs.
+
+**What you need to do:** Nothing — the menu item appears in Help automatically.
+
+---
+
+### For Power Users
+
+**New module: `engine/diagnostic.py`**
+
+- Collects: `platform.mac_ver()`, `sysctl -n hw.model`, CPU arch, Helper status (`get_status_quick()`), last 1 MB of `helper.err`, last 3 MB of `helper.log` (event tokens only — polling blocks removed via regex)
+- Log extraction strategy: poll blocks (`Ring: N Frames | Outputs: N | IOProc-Calls: …`) removed via `re.sub`, then event tokens extracted by known prefixes (`Helper:`, `AudioRouterNow Helper`, `Warte auf SHM`, `SHM:`, `Helper laeuft`). Simpler and more reliable than a single event regex with lookahead + DOTALL.
+- `generate_report(helper_client) → Path` saves `~/Desktop/AudioRouterNow_DiagReport_{timestamp}.txt`
+- `open_mail_with_report(path) → bool` opens Mail.app via AppleScript (timeout: 20 s). Escapes backslashes and double-quotes in path.
+- `reveal_in_finder(path)` — fallback via `open -R`
+
+**`engine/menu_bar_app.py` changes:**
+- `import diagnostic` added
+- Help menu: new `"Save Diagnostic Report…"` item (separator before Uninstall)
+- `_save_diagnostic_report()` starts a daemon thread → main thread never blocked (sysctl + 3 MB read + osascript ≤ 23 s worst-case)
+- All outcome notifications via `rumps.notification` (thread-safe) rather than `rumps.alert`
+
+**Commits:** `317f531` (feature) · Branch: `main`
+
+**Full technical documentation:** DOKUMENTATION.md, Kapitel 45.
+
+---
+
 ## v3.1.1 — June 9, 2026
 
 ### For Everyone
