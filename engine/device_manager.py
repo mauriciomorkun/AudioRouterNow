@@ -280,9 +280,17 @@ class DeviceManager:
         return result
 
     def refresh(self) -> List[AudioDevice]:
+        # N4: Bei erkannter Aenderung den on_devices_changed-Callback feuern
+        # (analog zu _poll_loop) — Callback ausserhalb des Locks aufrufen.
         with self._lock:
-            self._scan_devices()
-            return list(self._known.values())
+            changed = self._scan_devices()
+            result = list(self._known.values())
+        if changed is not None and self._on_devices_changed:
+            try:
+                self._on_devices_changed(changed)
+            except Exception as e:
+                logger.error(f"Fehler im on_devices_changed-Callback: {e}")
+        return result
 
     # ------------------------------------------------------------------
     def _scan_devices(self):

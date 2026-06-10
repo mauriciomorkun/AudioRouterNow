@@ -22,6 +22,7 @@ Menu structure:
 import fcntl
 import logging
 import os
+import queue
 import sys
 import threading
 import time
@@ -45,6 +46,7 @@ from audio_device_control import (
     set_default_output_volume,
     set_muted,
     get_default_output_volume,
+    get_default_output_muted,
 )
 from config import AppConfig, CONFIG_FILE, load_config, save_config
 from device_manager import AudioDevice, DeviceManager
@@ -144,6 +146,26 @@ class AudioRouterApp(rumps.App):
         # Status-Zeile: letzter (title, action_key)-Wert zum Flacker-Schutz
         self._last_status_cache = (None, None)
 
+        # H4: Reconcile-Grace — Drift muss 3 Polls in Folge bestehen, bevor
+        # die interne Auswahl korrigiert/persistiert wird (transiente Helper-
+        # Zustaende direkt nach set_outputs sollen nicht persistieren).
+        self._reconcile_drift_count: int = 0
+
+        # N3: Bereits notifizierte Circuit-Breaker-Trips (uid, ch_offset).
+        self._notified_trips: set = set()
+
+        # M5: Health-Startup-Grace — in den ersten 3 Poll-Iterationen wird
+        # kein "critical" gemeldet (Helper/SHM brauchen beim Start kurz).
+        self._initial_health_grace: int = 3
+
+        # M4: Media-Key-Volume-Queue — serialisiert Volume-Aenderungen in
+        # EINEM Worker-Thread statt einem Thread pro Tastendruck (verhindert
+        # Races bei schnellen Key-Repeats).
+        self._volume_queue = queue.Queue()
+        self._volume_worker = threading.Thread(
+            target=self._volume_worker_loop, daemon=True, name="volume-worker")
+        self._volume_worker.start()
+
         # P8: Zentraler Status-Cache. Der health-poll-Loop (200ms) ruft ohnehin
         # regelmaessig get_status auf — andere Stellen (_compute_status,
         # _process_pending_updates) lesen den Cache statt eigene Socket-Connects
@@ -235,6 +257,13 @@ class AudioRouterApp(rumps.App):
     # Menu building
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _format_sample_rate(sr: int) -> str:
+        """N5: Einheitliche kHz-Formatierung (44.1 kHz / 48 kHz / …)."""
+        if sr % 1000 == 0:
+            return f"{sr // 1000} kHz"
+        return f"{sr / 1000:.1f} kHz"
+
     def _build_menu(self):
         self.menu.clear()
 
@@ -275,10 +304,7 @@ class AudioRouterApp(rumps.App):
         current_sr = self._config.sample_rate
         for rate in SUPPORTED_SAMPLE_RATES:
             mark = "[x]" if (not self._config.auto_sample_rate and rate == current_sr) else "[ ]"
-            if rate % 1000 == 0:
-                label = f"{mark}  {rate // 1000} kHz"
-            else:
-                label = f"{mark}  {rate / 1000:.1f} kHz"
+            label = f"{mark}  {self._format_sample_rate(rate)}"
             sr_item = rumps.MenuItem(
                 label,
                 callback=lambda sender, r=rate: self._set_sample_rate(r),
@@ -421,11 +447,27 @@ class AudioRouterApp(rumps.App):
             rates = get_device_supported_sample_rates(dev.uid)
             device_rates.append(set(rates))
         # Beste gemeinsame Rate ermitteln
-        best = 48000
+        best = None
         for rate in preferred:
             if all(rate in rates for rates in device_rates):
                 best = rate
                 break
+        if best is None:
+            # H3: Kein gemeinsamer Schnitt aller Geraete — statt blind 48 kHz
+            # die Rate mit maximaler Abdeckung waehlen (meiste Geraete
+            # unterstuetzen sie; bei Gleichstand gewinnt die hoehere Rate).
+            coverage = {
+                rate: sum(1 for rates in device_rates if rate in rates)
+                for rate in preferred
+            }
+            best = max(preferred, key=lambda r: coverage[r])
+            if coverage[best] == 0:
+                best = 48000  # Sicherheitsnetz — sollte nie eintreten
+            logger.warning(
+                "Auto Sample-Rate: keine gemeinsame Rate aller %d Geraete — "
+                "waehle %d Hz (unterstuetzt von %d/%d Geraeten)",
+                len(active), best, coverage.get(best, 0), len(active),
+            )
         # Fix 3c: Nur wenn sich die optimale SR wirklich von der aktuellen
         # Config-SR unterscheidet wird der Helper benachrichtigt. Sonst loest
         # set_sample_rate() unnoetig einen disruptiven SR-Reinit aller Outputs
@@ -481,11 +523,7 @@ class AudioRouterApp(rumps.App):
             helper_status = "Not running"
 
         # --- Audio Routing ---
-        sr_hz = self._config.sample_rate
-        if sr_hz % 1000 == 0:
-            sr_str = f"{sr_hz // 1000} kHz"
-        else:
-            sr_str = f"{sr_hz / 1000:.1f} kHz"
+        sr_str = self._format_sample_rate(self._config.sample_rate)
 
         names = sorted(self._active_device_names)
         if not names:
@@ -743,8 +781,14 @@ class AudioRouterApp(rumps.App):
         """Tranche A: Daemon-Thread für Health-Telemetrie (200ms Intervall).
         Rein observierend — kein Eingriff in den Audio-Pfad."""
         while not self._health_poll_stop.wait(0.2):
+            # M5: Startup-Grace — erste Iterationen kein "critical" melden
+            # (Helper/SHM sind beim App-Start noch nicht zwingend bereit).
+            grace = self._initial_health_grace > 0
+            if grace:
+                self._initial_health_grace -= 1
+
             if not self._helper_alive:
-                self._health_level = "critical"
+                self._health_level = "degraded" if grace else "critical"
                 # P8: Cache invalidieren — Helper tot, alter Status ist ungueltig.
                 self._status_cache = None
                 continue
@@ -768,15 +812,16 @@ class AudioRouterApp(rumps.App):
                 self._status_cache_ts = time.monotonic()
                 audio_flowing = int(status.get("ring_frames", 0)) > 0
                 sh = self._health_monitor.update(status, audio_flowing)
-                self._health_level = sh.level   # GIL-atomare Zuweisung
+                level = sh.level
+                if grace and level == "critical":
+                    level = "degraded"   # M5: Startup-Grace
+                self._health_level = level   # GIL-atomare Zuweisung
 
                 # Tranche B: Heilung anstoßen
                 prev_tripped = set(self._healer.tripped_outputs())
                 self._healer.process(sh)
                 # Tripped-Outputs → Notification (einmalig pro Trip-Ereignis)
-                # Nutze Set statt dynamische Attribute — sauberer, kein uid-als-Attributname
-                if not hasattr(self, '_notified_trips'):
-                    self._notified_trips: set = set()
+                # N3: _notified_trips wird in __init__ initialisiert.
                 # Breaker, die sich erholt haben: aus dem Notified-Set entfernen
                 current_tripped = set(self._healer.tripped_outputs())
                 recovered = prev_tripped - current_tripped
@@ -784,10 +829,10 @@ class AudioRouterApp(rumps.App):
                 # Neue Trips notifizieren
                 new_trips = current_tripped - self._notified_trips
                 for (uid, ch_off) in new_trips:
-                    dev_name = next(
-                        (o.name for o in sh.outputs if o.uid == uid and o.ch_offset == ch_off),
-                        uid
-                    )
+                    # M6: Im Breaker gespeicherten Device-Namen nutzen — der
+                    # Output kann zum Trip-Zeitpunkt bereits aus sh.outputs
+                    # verschwunden sein.
+                    dev_name = self._healer.breaker_name(uid, ch_off) or uid
                     self._notified_trips.add((uid, ch_off))
                     # K2: kein rumps.notification aus Background-Thread — enqueuen
                     self._enqueue_notification(
@@ -1008,32 +1053,51 @@ class AudioRouterApp(rumps.App):
             if key_state != 0xA:      # Nur Key-Down verarbeiten
                 return
 
-            # P1: Volume direkt via CoreAudio setzen (kein osascript-Subprozess).
-            # Im Thread, damit der Event-Handler sofort zurueckkehrt.
-            def _apply_volume(kc=key_code):
-                try:
-                    current = get_default_output_volume()  # 0.0–1.0
-                except Exception:
-                    return
-
-                STEP = 1.0 / 15.0  # ~15 Stufen wie macOS-Standard
-                if kc == 3:    # Volume Up (NX_KEYTYPE_SOUND_UP)
-                    new_vol = min(1.0, current + STEP)
-                    set_default_output_volume(new_vol)
-                elif kc == 2:  # Volume Down (NX_KEYTYPE_SOUND_DOWN)
-                    new_vol = max(0.0, current - STEP)
-                    set_default_output_volume(new_vol)
-                elif kc == 7:  # Mute (NX_KEYTYPE_MUTE) — toggeln
-                    set_muted(current > 0.0)
-                    new_vol = 0.0 if current > 0.0 else current
-                else:
-                    return
-                logger.debug("Media Key: volume %.0f%% → %.0f%%",
-                             current * 100.0, new_vol * 100.0)
-
-            threading.Thread(target=_apply_volume, name="media-key-vol", daemon=True).start()
+            # M4: Key-Code in die Volume-Queue legen — der Event-Handler kehrt
+            # sofort zurueck, der Worker-Thread serialisiert die Aenderungen
+            # (kein Thread pro Tastendruck mehr → keine Read/Write-Races bei
+            # schnellen Key-Repeats).
+            self._volume_queue.put(key_code)
         except Exception as exc:
             logger.debug(f"_handle_media_key Fehler: {exc}")
+
+    def _volume_worker_loop(self):
+        """M4: Worker-Thread — verarbeitet Media-Key-Volume-Aenderungen
+        seriell aus der Queue. None als Sentinel beendet den Loop."""
+        while True:
+            key_code = self._volume_queue.get()
+            if key_code is None:
+                break
+            try:
+                self._apply_media_key_volume(key_code)
+            except Exception as exc:
+                logger.debug("Volume-Worker Fehler: %s", exc)
+
+    @staticmethod
+    def _apply_media_key_volume(kc: int) -> None:
+        """P1/M4: Volume direkt via CoreAudio setzen (kein osascript-Subprozess)."""
+        try:
+            current = get_default_output_volume()  # 0.0–1.0
+        except Exception:
+            return
+
+        STEP = 1.0 / 15.0  # ~15 Stufen wie macOS-Standard
+        if kc == 3:    # Volume Up (NX_KEYTYPE_SOUND_UP)
+            new_vol = min(1.0, current + STEP)
+            set_default_output_volume(new_vol)
+        elif kc == 2:  # Volume Down (NX_KEYTYPE_SOUND_DOWN)
+            new_vol = max(0.0, current - STEP)
+            set_default_output_volume(new_vol)
+        elif kc == 7:  # Mute (NX_KEYTYPE_MUTE) — toggeln
+            # H1: Echten Mute-Zustand lesen statt aus der Lautstaerke zu raten —
+            # bei Volume>0 UND gemutetem Device toggelte der alte Code falsch.
+            muted_now = get_default_output_muted()
+            set_muted(not muted_now)
+            new_vol = current if muted_now else 0.0
+        else:
+            return
+        logger.debug("Media Key: volume %.0f%% → %.0f%%",
+                     current * 100.0, new_vol * 100.0)
 
     def _update_status_ui(self):
         title, action_key = self._compute_status()
@@ -1149,7 +1213,18 @@ class AudioRouterApp(rumps.App):
                 expected.add((uid, int(off)))
 
         if actual == expected:
+            self._reconcile_drift_count = 0   # H4: Uebereinstimmung — Zaehler reset
             return  # Kein Drift — nichts zu tun.
+
+        # H4: Grace-Period — Drift muss 3 Mal in Folge bestehen, bevor wir
+        # persistieren und die UI anpassen (transiente Zustaende direkt nach
+        # set_outputs/Device-Reinit sollen die Config nicht zerstoeren).
+        self._reconcile_drift_count += 1
+        if self._reconcile_drift_count < 3:
+            logger.debug("P2/H4: Output-Drift erkannt (%d/3) — warte auf Bestaetigung",
+                         self._reconcile_drift_count)
+            return
+        self._reconcile_drift_count = 0
 
         logger.info("P2: Output-Drift erkannt — erwartet=%s, tatsaechlich=%s — korrigiere",
                     sorted(expected), sorted(actual))
