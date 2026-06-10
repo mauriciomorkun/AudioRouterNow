@@ -18,7 +18,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,10 @@ TOKEN_PATH = str(Path.home() / ".audiorouter" / "helper.token")
 CONNECT_TIMEOUT = 2.0
 READ_TIMEOUT = 5.0
 QUICK_TIMEOUT = 0.5
+# H2: Kurzer Timeout für Menü-Aktionen, die synchron auf dem Main-Thread
+# senden (set_outputs, set_sample_rate, …) — ein hängender Helper darf die
+# UI nicht einfrieren.
+MENU_ACTION_TIMEOUT = 1.0
 
 # P3: Kommandos, die das Auth-Token mitschicken muessen (privilegiert).
 _PRIVILEGED_CMDS = {"shutdown", "set_outputs", "set_sample_rate",
@@ -207,6 +211,9 @@ class HelperClient:
         Wenn wir den Helper selbst gespawnt haben, warten wir auf Ende.
         Wenn launchd den Helper verwaltet, wird er ggf. neu gestartet.
         """
+        # M7: Nur der Socket-Send läuft unter self._lock — das (potenziell
+        # sekundenlange) proc.wait()/terminate() danach NICHT, damit andere
+        # Threads den Client nicht blockiert vorfinden.
         with self._lock:
             try:
                 # P3: shutdown ist privilegiert — Token mitschicken (inline, da
@@ -223,26 +230,32 @@ class HelperClient:
             except Exception as e:
                 logger.debug(f"Shutdown-Send schlug fehl: {e}")
 
+            proc = None
             if self._spawned_by_us and self._proc is not None:
-                try:
-                    self._proc.wait(timeout=3.0)
-                except subprocess.TimeoutExpired:
-                    logger.warning("Helper reagiert nicht auf shutdown — terminate()")
-                    try:
-                        self._proc.terminate()
-                        self._proc.wait(timeout=2.0)
-                    except Exception:
-                        pass
+                proc = self._proc
                 self._proc = None
                 self._spawned_by_us = False
+
+        if proc is not None:
+            try:
+                proc.wait(timeout=3.0)
+            except subprocess.TimeoutExpired:
+                logger.warning("Helper reagiert nicht auf shutdown — terminate()")
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2.0)
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # Commands
     # ------------------------------------------------------------------
 
-    def ping(self) -> bool:
+    def ping(self, timeout: Optional[float] = QUICK_TIMEOUT) -> bool:
+        """H2: Default-Timeout QUICK_TIMEOUT (0.5s) — ping wird vom UI-Timer
+        auf dem Main-Thread aufgerufen und darf nicht lange blockieren."""
         try:
-            resp = self._send({"cmd": "ping"})
+            resp = self._send({"cmd": "ping"}, timeout=timeout)
             return bool(resp.get("ok") and resp.get("pong"))
         except Exception:
             return False
@@ -274,39 +287,43 @@ class HelperClient:
         except Exception:
             return None
 
-    def set_outputs(self, outputs: List[OutputSpec]) -> Optional[dict]:
+    def set_outputs(self, outputs: List[OutputSpec],
+                    timeout: Optional[float] = MENU_ACTION_TIMEOUT) -> Optional[dict]:
         payload = {
             "cmd": "set_outputs",
             "outputs": [{"uid": o.uid, "ch_offset": int(o.ch_offset)} for o in outputs],
         }
         try:
-            return self._send_privileged(payload)
+            return self._send_privileged(payload, timeout=timeout)
         except Exception as e:
             logger.warning(f"set_outputs fehlgeschlagen: {e}")
             return None
 
-    def set_sample_rate(self, rate: int) -> Optional[dict]:
+    def set_sample_rate(self, rate: int,
+                        timeout: Optional[float] = MENU_ACTION_TIMEOUT) -> Optional[dict]:
         payload = {"cmd": "set_sample_rate", "rate": rate}
         try:
-            return self._send_privileged(payload)
+            return self._send_privileged(payload, timeout=timeout)
         except Exception as e:
             logger.warning(f"set_sample_rate fehlgeschlagen: {e}")
             return None
 
-    def reconnect_output(self, uid: str, ch_offset: int) -> Optional[dict]:
+    def reconnect_output(self, uid: str, ch_offset: int,
+                         timeout: Optional[float] = MENU_ACTION_TIMEOUT) -> Optional[dict]:
         """Sendet reconnect_output-Befehl an den Helper (Tranche B)."""
         payload = {"cmd": "reconnect_output", "uid": uid, "ch_offset": int(ch_offset)}
         try:
-            return self._send_privileged(payload)
+            return self._send_privileged(payload, timeout=timeout)
         except Exception as e:
             logger.warning(f"reconnect_output fehlgeschlagen: {e}")
             return None
 
-    def set_safe_take(self, enabled: bool) -> Optional[dict]:
+    def set_safe_take(self, enabled: bool,
+                      timeout: Optional[float] = MENU_ACTION_TIMEOUT) -> Optional[dict]:
         """Aktiviert/deaktiviert Safe-Take-Modus im Helper (Tranche B)."""
         payload = {"cmd": "set_safe_take", "enabled": 1 if enabled else 0}
         try:
-            return self._send_privileged(payload)
+            return self._send_privileged(payload, timeout=timeout)
         except Exception as e:
             logger.warning(f"set_safe_take fehlgeschlagen: {e}")
             return None
