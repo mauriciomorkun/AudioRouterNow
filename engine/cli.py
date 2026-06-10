@@ -1,7 +1,7 @@
 """
-CLI — Terminal-Interface fuer AudioRouterNow v2.0 (Diagnose und Steuerung).
+CLI — Terminal-Interface fuer AudioRouterNow (Diagnose und Steuerung).
 
-v2.0: Audio laeuft ueber den nativen C-Helper-Daemon (AudioRouterNowHelper).
+Audio laeuft ueber den nativen C-Helper-Daemon (AudioRouterNowHelper).
 Python ist nur noch fuer UI und Konfiguration via Unix-Socket zustaendig.
 sounddevice, SocketReceiver und RoutingEngine sind NICHT mehr Teil dieses CLIs.
 
@@ -194,7 +194,7 @@ def cmd_stop_helper():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="AudioRouterNow CLI v2.0 — Diagnose und Steuerung",
+        description="AudioRouterNow CLI — Diagnose und Steuerung",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Beispiele:

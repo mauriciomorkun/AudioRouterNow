@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Optional
 
 # ── Konstanten ───────────────────────────────────────────────────────────────
-APP_VERSION      = "3.1.1"
+from version import APP_VERSION
+
 DEVELOPER_EMAIL  = "m.moraisdacunha@pm.me"
 
 LOG_DIR          = Path.home() / "Library" / "Logs" / "AudioRouterNow"
