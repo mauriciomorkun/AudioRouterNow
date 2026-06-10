@@ -57,6 +57,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <stdatomic.h>
+#include <limits.h>   /* MC-9: INT_MIN/INT_MAX fuer strtol-Range-Check */
 
 /* ── Konfiguration ──────────────────────────────────────────────────────── */
 
@@ -93,8 +94,11 @@ static char g_token_path[512] = {0};
 
 /* P11/H7: Stellt sicher, dass ~/.audiorouter/ mit 0700 existiert und befuellt
  * g_config_socket_path + g_lock_path. MUSS vor helper_acquire_instance_lock()
- * laufen, damit das Verzeichnis fuer die Lock-Datei bereits existiert. */
-static void config_socket_path_init(void)
+ * laufen, damit das Verzeichnis fuer die Lock-Datei bereits existiert.
+ * MC-5: Prueft nach mkdir per lstat Owner + Permissions des Verzeichnisses —
+ * ein untergeschobenes Verzeichnis (Symlink, fremder Owner, lockere Rechte)
+ * fuehrt zum Abbruch. Rueckgabe: true = OK, false = Sicherheitsfehler. */
+static bool config_socket_path_init(void)
 {
     const char *home = getenv("HOME");
     if (!home || !home[0]) home = "/tmp";
@@ -102,12 +106,30 @@ static void config_socket_path_init(void)
     char dir[480];
     snprintf(dir, sizeof(dir), "%s/.audiorouter", home);
     mkdir(dir, 0700);  /* Fehler (existiert schon) ignorieren */
+
+    /* MC-5: Ownership/Permission-Pruefung — lstat folgt Symlinks NICHT,
+     * ein Symlink anstelle des Verzeichnisses faellt durch S_ISDIR. */
+    struct stat st;
+    if (lstat(dir, &st) != 0) {
+        fprintf(stderr, "[ARN] Sicherheitsfehler: lstat('%s') fehlgeschlagen (errno=%d)\n",
+                dir, errno);
+        return false;
+    }
+    if (!S_ISDIR(st.st_mode) || st.st_uid != getuid() || (st.st_mode & 0777) != 0700) {
+        fprintf(stderr, "[ARN] Sicherheitsfehler: %s hat falsche Owner/Permissions "
+                "(uid=%u mode=%04o, erwartet uid=%u mode=0700, dir=%d)\n",
+                dir, (unsigned)st.st_uid, (unsigned)(st.st_mode & 0777),
+                (unsigned)getuid(), S_ISDIR(st.st_mode) ? 1 : 0);
+        return false;
+    }
+
     snprintf(g_config_socket_path, sizeof(g_config_socket_path),
              "%s/.audiorouter/audiorouter.config.sock", home);
     snprintf(g_lock_path, sizeof(g_lock_path),
              "%s/.audiorouter/helper.lock", home);
     snprintf(g_token_path, sizeof(g_token_path),
              "%s/.audiorouter/helper.token", home);
+    return true;
 }
 
 /* P3: Constant-time Vergleich — verhindert Timing-Seitenkanal beim Token-Check.
@@ -311,6 +333,11 @@ static int                     g_shm_fd         = -1;
 static DeviceOutput            g_outputs[MAX_OUTPUTS];
 static int                     g_n_outputs      = 0;
 static pthread_mutex_t         g_outputs_lock   = PTHREAD_MUTEX_INITIALIZER;
+/* MC-6: Generationszaehler fuer g_outputs[] — wird in outputs_stop_all()
+ * inkrementiert. output_add() vergleicht die Generation vor/nach dem
+ * lockfreien CoreAudio-Block und bricht ab wenn der Watchdog (oder Shutdown)
+ * waehrenddessen alle Outputs gestoppt hat (Race-Schutz). */
+static _Atomic uint32_t        g_outputs_generation = 0;
 
 /* Diagnostic: wie oft wurde IRGENDEIN IOProc aufgerufen? */
 static _Atomic uint32_t        g_ioproc_calls   = 0;
@@ -327,6 +354,9 @@ static atomic_int              g_config_running   = 0;
 /* Volume-Polling Thread */
 static pthread_t               g_volume_thread;
 static atomic_int              g_volume_running   = 0;
+/* NC-1: pthread_t ist ein opaker Typ — darf nicht als Wahrheitswert genutzt
+ * werden. Explizites Flag, gesetzt nach erfolgreichem pthread_create. */
+static bool                    g_volume_thread_started = false;
 
 /* Hot-Plug-Listener flag */
 static atomic_int              g_hotplug_registered = 0;
@@ -456,6 +486,18 @@ static ARNSharedRing *shm_connect(void)
         fprintf(stderr, "Helper: SHM magic/version mismatch "
                 "(got magic=0x%08X ver=%u, expected 0x%08X ver=%u) — warte...\n",
                 ring->magic, ring->version, ARN_RING_MAGIC, ARN_RING_VERSION);
+        munmap(ptr, ARN_SHM_SIZE);
+        close(fd);
+        return NULL;
+    }
+
+    /* NC-6: Layout-Validierung — capacity/channels muessen zur kompilierten
+     * Ring-Geometrie passen. Ein abweichendes Segment (fremder/korrupter
+     * Writer) wuerde sonst zu Out-of-Bounds-Indexierung im IOProc fuehren. */
+    if (ring->capacity != ARN_RING_CAPACITY || ring->channels != 2u) {
+        fprintf(stderr, "Helper: SHM layout mismatch "
+                "(capacity=%u channels=%u, expected capacity=%u channels=2) — warte...\n",
+                ring->capacity, ring->channels, ARN_RING_CAPACITY);
         munmap(ptr, ARN_SHM_SIZE);
         close(fd);
         return NULL;
@@ -791,7 +833,11 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
     /* nFrames bestimmen — bei non-interleaved nehmen wir Buffer 0 als Referenz */
     UInt32 nFrames;
     if (nBufs >= 2) {
-        nFrames = outOutputData->mBuffers[0].mDataByteSize / sizeof(float);
+        /* MC-3: Non-interleaved Buffer koennen >1 Channel pro Buffer tragen —
+         * mNumberChannels beruecksichtigen statt 1 Kanal anzunehmen. */
+        UInt32 ch_per_buf = outOutputData->mBuffers[0].mNumberChannels;
+        if (ch_per_buf == 0) ch_per_buf = 1;
+        nFrames = outOutputData->mBuffers[0].mDataByteSize / (sizeof(float) * ch_per_buf);
     } else {
         UInt32 nCh = outOutputData->mBuffers[0].mNumberChannels;
         if (nCh == 0) return noErr;
@@ -852,13 +898,26 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
             float    frac = (float)(dev->src_frac_ridx - (double)idx0);
             float    inv  = 1.0f - frac;
 
+            /* MC-2: Stale-Read-Guard — die JITTER_TOLERANCE erlaubt, dass die
+             * letzten 1-2 Frames knapp HINTER write_idx interpolieren wuerden
+             * (= alte Ring-Daten vom vorherigen Umlauf). Fuer diese Tail-Frames
+             * Stille (0.0f) ausgeben statt stale Daten zu lesen. Die Position
+             * wird normal weiterbewegt (Timing-Verhalten unveraendert).
+             * Benoetigt: idx0 und idx0+1 vollstaendig geschrieben = 4 Samples. */
+            uint32_t samples_ahead = widx - (idx0 * 2u);  /* unsigned wrap = korrekt */
+            float l, r;
+            if (samples_ahead < 4u) {
+                l = 0.0f;
+                r = 0.0f;
+            } else {
+
             uint32_t si0 = ( idx0      * 2u    ) & ARN_RING_MASK;  /* L bei idx0   */
             uint32_t si1 = ( idx0      * 2u + 1) & ARN_RING_MASK;  /* R bei idx0   */
             uint32_t si2 = ((idx0 + 1u) * 2u    ) & ARN_RING_MASK; /* L bei idx0+1 */
             uint32_t si3 = ((idx0 + 1u) * 2u + 1) & ARN_RING_MASK; /* R bei idx0+1 */
 
-            float l = ring->samples[si0] * inv + ring->samples[si2] * frac;
-            float r = ring->samples[si1] * inv + ring->samples[si3] * frac;
+            l = ring->samples[si0] * inv + ring->samples[si2] * frac;
+            r = ring->samples[si1] * inv + ring->samples[si3] * frac;
 
             /* P15: Bei Downsampling (Ring-SR > Device-SR, ratio > 1.0) ein
              * symmetrischer 5-Tap-FIR (Hann-Fenster) zur Aliasing-Daempfung,
@@ -866,8 +925,10 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
              * staerkere Daempfung der Spiegelfrequenzen bei minimal hoeherem
              * RT-Budget (5 statt 3 MACs pro Channel). Upsampling (ratio <= 1.0)
              * bleibt reine Linear-Interpolation — dort kein Aliasing-Problem.
-             * Koeffizienten summen-normalisiert (Summe = 1.0): kein Pegelversatz. */
-            if (ratio > 1.005) {  /* threshold > 1.0 mit kleinem Epsilon fuer FP-Rauschen */
+             * Koeffizienten summen-normalisiert (Summe = 1.0): kein Pegelversatz.
+             * MC-2: FIR liest bis idx0+2 → braucht 6 gueltige Samples, sonst
+             * Fallback auf die Linear-Interpolation oben. */
+            if (ratio > 1.005 && samples_ahead >= 6u) {  /* threshold > 1.0 mit kleinem Epsilon fuer FP-Rauschen */
                 static const float kFir5[5] = {0.0625f, 0.25f, 0.375f, 0.25f, 0.0625f};
                 /* Frame-Indizes idx0-2 .. idx0+2 → Ring-Sample-Indizes (Stereo). */
                 uint32_t lL0 = ((idx0 - 2u) * 2u    ) & ARN_RING_MASK;
@@ -889,6 +950,7 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
                   + kFir5[3] * ring->samples[rR3]
                   + kFir5[4] * ring->samples[rR4];
             }
+            }  /* MC-2: Ende Stale-Read-Guard (else-Zweig) */
 
             dev->temp_buf[f * 2    ] = l;
             dev->temp_buf[f * 2 + 1] = r;
@@ -1178,6 +1240,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
     slot->active  = false;
     slot->proc_id = NULL;
     g_n_outputs++;
+    /* MC-6: Generation vor dem lockfreien CoreAudio-Block merken. */
+    uint32_t gen_at_commit = atomic_load_explicit(&g_outputs_generation,
+                                                  memory_order_acquire);
     pthread_mutex_unlock(&g_outputs_lock);
 
     /* ── Phase 3b: CoreAudio-Calls OHNE Lock ──
@@ -1235,16 +1300,23 @@ static int output_add(const char *uid, uint32_t ch_offset)
 
     /* ── Phase 3c: active=true unter Lock (kurz) ── */
     pthread_mutex_lock(&g_outputs_lock);
+    /* MC-6: Generation vergleichen — hat outputs_stop_all() (Watchdog/Shutdown)
+     * waehrend des lockfreien CoreAudio-Blocks alle Outputs weggeraeumt, ist
+     * unser committeter Slot ungueltig: IOProc aufraeumen und abbrechen. */
+    bool gen_changed = (atomic_load_explicit(&g_outputs_generation,
+                                             memory_order_acquire) != gen_at_commit);
     /* Re-Validierung: sicherstellen Slot wurde nicht durch parallelen Swap-Remove bewegt. */
-    if (slot_idx < g_n_outputs && !g_outputs[slot_idx].active &&
+    if (!gen_changed && slot_idx < g_n_outputs && !g_outputs[slot_idx].active &&
         strcmp(g_outputs[slot_idx].uid, uid) == 0) {
         g_outputs[slot_idx].active = true;
     } else {
-        /* Slot ist nicht mehr vorhanden oder wurde bewegt — IOProc sauber stoppen. */
+        /* Slot ist nicht mehr vorhanden, wurde bewegt oder per Watchdog gestoppt
+         * — IOProc sauber stoppen. */
         pthread_mutex_unlock(&g_outputs_lock);
         AudioDeviceStop(dev_id, slot->proc_id);
         AudioDeviceDestroyIOProcID(dev_id, slot->proc_id);
-        fprintf(stderr, "Helper: output_add '%s' — Slot nach CoreAudio-Start nicht mehr gueltig\n", uid);
+        fprintf(stderr, "Helper: output_add '%s' — Slot nach CoreAudio-Start nicht mehr gueltig%s\n",
+                uid, gen_changed ? " (outputs_stop_all waehrenddessen)" : "");
         return -1;
     }
     pthread_mutex_unlock(&g_outputs_lock);
@@ -1613,6 +1685,9 @@ static void outputs_stop_all(void)
         memset(&g_outputs[i], 0, sizeof(DeviceOutput));
     }
     g_n_outputs = 0;
+    /* MC-6: Generation inkrementieren — laufende output_add()-Aufrufe erkennen
+     * in Phase 3, dass ihr committeter Slot soeben weggeraeumt wurde. */
+    atomic_fetch_add_explicit(&g_outputs_generation, 1u, memory_order_release);
     pthread_mutex_unlock(&g_outputs_lock);
 
     /* Phase B: Mach-IPC OHNE Lock — haengt coreaudiod, blockiert nur diesen Thread. */
@@ -2138,6 +2213,21 @@ static int json_has_cmd(const char *line, const char *cmd)
     return (strstr(line, needle1) != NULL || strstr(line, needle2) != NULL);
 }
 
+/* MC-9: Strikte Integer-Konvertierung via strtol — ersetzt atoi, das bei
+ * ungueltiger Eingabe stillschweigend 0 liefert und Overflow nicht erkennt.
+ * Rueckgabe: true bei Erfolg (*out gesetzt), false bei Parse-/Range-Fehler. */
+static bool parse_int_strict(const char *str, int *out)
+{
+    char *end;
+    errno = 0;
+    long val_l = strtol(str, &end, 10);
+    if (errno != 0 || end == str || val_l < INT_MIN || val_l > INT_MAX) {
+        return false;
+    }
+    *out = (int)val_l;
+    return true;
+}
+
 /*
  * Parst alle (uid, ch_offset) Tupel aus dem "outputs"-Array.
  * Ein primitiver Parser — sucht "uid":"..." und "ch_offset":N Paare.
@@ -2185,7 +2275,10 @@ static int parse_outputs(const char *line,
             if (col2) {
                 col2++;
                 while (*col2 == ' ' || *col2 == '\t') col2++;
-                off = (uint32_t)atoi(col2);
+                int off_i = 0;  /* MC-9: strtol statt atoi */
+                if (parse_int_strict(col2, &off_i)) {
+                    off = (uint32_t)off_i;
+                }
             }
         }
         /* Security Fix 3c: negative oder zu grosse Werte abfangen */
@@ -2202,15 +2295,29 @@ static int parse_outputs(const char *line,
     return n;
 }
 
+/* NC-2: write() mit EINTR-Retry + Behandlung partieller Writes.
+ * Rueckgabe: 0 = alles geschrieben, -1 = Fehler. */
+static int write_full(int fd, const char *buf, size_t len)
+{
+    size_t sent = 0;
+    while (sent < len) {
+        ssize_t n = write(fd, buf + sent, len - sent);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        sent += (size_t)n;
+    }
+    return 0;
+}
+
 /* Schreibt eine vollstaendige Antwort (Newline-terminiert) auf fd. */
 static void send_line(int fd, const char *s)
 {
     size_t len = strlen(s);
-    ssize_t w = write(fd, s, len);
-    (void)w;
+    if (write_full(fd, s, len) != 0) return;
     if (len == 0 || s[len - 1] != '\n') {
-        ssize_t w2 = write(fd, "\n", 1);
-        (void)w2;
+        (void)write_full(fd, "\n", 1);
     }
 }
 
@@ -2233,13 +2340,21 @@ static void json_escape_into(char *dst, size_t dstsz, const char *src)
     dst[j] = '\0';
 }
 
-/* Baut "active":[{...},{...}] JSON-Fragment in buf. */
-static void format_active_outputs(char *buf, size_t bufsz)
+/* Baut "active":[{...},{...}] JSON-Fragment in buf.
+ * MC-7: Rueckgabe true wenn nicht alle Eintraege in den Buffer passten
+ * (truncated). Ein unvollstaendiger Eintrag wird komplett verworfen,
+ * das Array bleibt immer gueltiges JSON. */
+static bool format_active_outputs(char *buf, size_t bufsz)
 {
+    bool truncated = false;
     pthread_mutex_lock(&g_outputs_lock);
     size_t pos = 0;
     int written = snprintf(buf + pos, bufsz - pos, "[");
-    if (written < 0) { pthread_mutex_unlock(&g_outputs_lock); return; }
+    if (written < 0 || (size_t)written >= bufsz) {
+        if (bufsz >= 3) { memcpy(buf, "[]", 3); }
+        pthread_mutex_unlock(&g_outputs_lock);
+        return true;
+    }
     pos += (size_t)written;
 
     for (int i = 0; i < g_n_outputs && pos < bufsz; i++) {
@@ -2271,13 +2386,21 @@ static void format_active_outputs(char *buf, size_t bufsz)
                            "\"recovery_count\":%u}",
                            sep, safe_uid, safe_name, g_outputs[i].ch_offset,
                            src_ratio, fill_ewma, underruns, stalled, recovery_count);
-        if (written < 0) break;
+        /* MC-7: Truncation-Detection — Eintrag passt nicht vollstaendig
+         * (inkl. Platz fuer das schliessende ']'): Eintrag verwerfen. */
+        if (written < 0 || (size_t)written + 1 >= bufsz - pos) {
+            buf[pos] = '\0';
+            truncated = true;
+            break;
+        }
         pos += (size_t)written;
     }
-    if (pos < bufsz) {
-        snprintf(buf + pos, bufsz - pos, "]");
+    if (pos + 1 < bufsz) {
+        buf[pos]     = ']';
+        buf[pos + 1] = '\0';
     }
     pthread_mutex_unlock(&g_outputs_lock);
+    return truncated;
 }
 
 /*
@@ -2286,7 +2409,8 @@ static void format_active_outputs(char *buf, size_t bufsz)
  */
 static int parse_and_execute(int fd, const char *line)
 {
-    char resp[8192];
+    /* MC-7: 24KB — muss active_buf (16KB) plus Status-Felder fassen. */
+    char resp[24576];
 
     if (json_has_cmd(line, "ping")) {
         snprintf(resp, sizeof(resp), "{\"ok\":true,\"pong\":true}");
@@ -2318,8 +2442,8 @@ static int parse_and_execute(int fd, const char *line)
             send_line(fd, resp);
             return 0;
         }
-        char active_buf[4096];
-        format_active_outputs(active_buf, sizeof(active_buf));
+        char active_buf[16384];  /* MC-7: 16KB statt 4KB */
+        bool active_truncated = format_active_outputs(active_buf, sizeof(active_buf));
         ARNSharedRing *rstat = atomic_load_explicit(&g_ring, memory_order_acquire);
         uint32_t frames = rstat ? arn_ring_frames_available(rstat) : 0u;
         uint32_t calls  = atomic_load_explicit(&g_ioproc_calls, memory_order_relaxed);
@@ -2338,8 +2462,10 @@ static int parse_and_execute(int fd, const char *line)
         int safe_take = atomic_load_explicit(&g_safe_take, memory_order_acquire);
         snprintf(resp, sizeof(resp),
                  "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u,"
-                 "\"reconnect_count\":%u,\"ioproc_age_ms\":%llu,\"safe_take\":%d,\"ready\":true}",
-                 active_buf, frames, calls, reconnect_count, ioproc_age_ms, safe_take);
+                 "\"reconnect_count\":%u,\"ioproc_age_ms\":%llu,\"safe_take\":%d,"
+                 "\"truncated\":%s,\"ready\":true}",
+                 active_buf, frames, calls, reconnect_count, ioproc_age_ms, safe_take,
+                 active_truncated ? "true" : "false");
         send_line(fd, resp);
         return 0;
     }
@@ -2388,17 +2514,18 @@ static int parse_and_execute(int fd, const char *line)
                 } else { i++; }
             }
         }
-        char active_buf[4096];
+        char active_buf[16384];  /* MC-7: 16KB statt 4KB */
         pthread_mutex_unlock(&g_outputs_lock);
-        format_active_outputs(active_buf, sizeof(active_buf));
+        bool active_truncated = format_active_outputs(active_buf, sizeof(active_buf));
 
         if (failures == 0) {
             snprintf(resp, sizeof(resp),
-                     "{\"ok\":true,\"active\":%s}", active_buf);
+                     "{\"ok\":true,\"active\":%s,\"truncated\":%s}",
+                     active_buf, active_truncated ? "true" : "false");
         } else {
             snprintf(resp, sizeof(resp),
-                     "{\"ok\":false,\"error\":\"%d output(s) failed\",\"active\":%s}",
-                     failures, active_buf);
+                     "{\"ok\":false,\"error\":\"%d output(s) failed\",\"active\":%s,\"truncated\":%s}",
+                     failures, active_buf, active_truncated ? "true" : "false");
         }
         send_line(fd, resp);
         return 0;
@@ -2417,14 +2544,18 @@ static int parse_and_execute(int fd, const char *line)
             if (col) {
                 col++;
                 while (*col == ' ' || *col == '\t') col++;
-                new_sr = (uint32_t)atoi(col);
+                int sr_i = 0;  /* MC-9: strtol statt atoi */
+                if (parse_int_strict(col, &sr_i) && sr_i > 0) {
+                    new_sr = (uint32_t)sr_i;
+                }
+                /* Bei Parse-Fehler bleibt new_sr=0 → "invalid rate"-Antwort unten */
             }
         }
 
         /* Validate: muss eine der unterstuetzten Raten sein */
         static const uint32_t valid_rates[] = {44100, 48000, 88200, 96000, 176400, 192000};
         bool valid = false;
-        for (int vi = 0; vi < 6; vi++) {
+        for (size_t vi = 0; vi < sizeof(valid_rates) / sizeof(valid_rates[0]); vi++) {
             if (new_sr == valid_rates[vi]) { valid = true; break; }
         }
 
@@ -2509,7 +2640,8 @@ static int parse_and_execute(int fd, const char *line)
             if (col2) {
                 col2++;
                 while (*col2 == ' ' || *col2 == '\t') col2++;
-                int v = atoi(col2);
+                int v = 0;  /* MC-9: strtol statt atoi — Parse-Fehler → 0 */
+                if (!parse_int_strict(col2, &v)) v = 0;
                 if (v < 0 || v > 32) v = 0;  /* Clamp wie in parse_outputs */
                 ch_offset = (uint32_t)v;
             }
@@ -2551,7 +2683,10 @@ static int parse_and_execute(int fd, const char *line)
             if (col) {
                 col++;
                 while (*col == ' ' || *col == '\t') col++;
-                enabled = (uint32_t)(atoi(col) != 0);
+                int en_i = 0;  /* MC-9: strtol statt atoi — Parse-Fehler → disabled */
+                if (parse_int_strict(col, &en_i)) {
+                    enabled = (uint32_t)(en_i != 0);
+                }
             }
         }
         atomic_store_explicit(&g_safe_take, (int)enabled, memory_order_release);
@@ -2715,18 +2850,31 @@ static void set_rt_priority(void)
         .preemptible = 1
     };
 
-    thread_policy_set(mach_thread_self(),
+    /* NC-3: mach_thread_self() liefert eine Port-Referenz die deallokiert
+     * werden MUSS — sonst leakt pro Aufruf ein Mach-Port-Right. */
+    thread_port_t self_port = mach_thread_self();
+    thread_policy_set(self_port,
                       THREAD_TIME_CONSTRAINT_POLICY,
                       (thread_policy_t)&policy,
                       THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+    mach_port_deallocate(mach_task_self(), self_port);
 }
 
 /* ── Main ───────────────────────────────────────────────────────────────── */
 
 int main(int argc, char *argv[])
 {
-    signal(SIGINT,  handle_signal);
-    signal(SIGTERM, handle_signal);
+    /* NC-4: sigaction statt signal() — definierte Semantik + SA_RESTART
+     * (unterbrochene Syscalls werden automatisch neu gestartet). */
+    {
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = handle_signal;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART;
+        sigaction(SIGTERM, &sa, NULL);
+        sigaction(SIGINT,  &sa, NULL);
+    }
     signal(SIGPIPE, SIG_IGN);
 
     /* K2: Mach-Timebase für Stall-Detection initialisieren. */
@@ -2738,8 +2886,11 @@ int main(int argc, char *argv[])
 
     /* P11/H7: Verzeichnis ~/.audiorouter/ erstellen und Pfade (Socket + Lock)
      * initialisieren. MUSS vor dem Lock-Acquire laufen, da die Lock-Datei nun
-     * in diesem Verzeichnis liegt. */
-    config_socket_path_init();
+     * in diesem Verzeichnis liegt.
+     * MC-5: Bei falschem Owner/Permissions des Verzeichnisses → Abbruch. */
+    if (!config_socket_path_init()) {
+        return 1;
+    }
 
     /* M8/P11: Single-Instance-Guard — direkt nach der Pfad-Init, vor allem anderen. */
     if (helper_acquire_instance_lock() != 0) {
@@ -2779,13 +2930,19 @@ int main(int argc, char *argv[])
 
     /* 2. SHM proaktiv erstellen — der Driver-Sandbox-Prozess (_coreaudiod) kann
      *    shm_open(O_CREAT) nicht ausfuehren. Der Helper laeuft als normaler User
-     *    (mauriciomorkun) ohne Sandbox-Restriktion und erstellt das Segment mit
-     *    korrekten Permissions (0666), sodass beide Seiten darauf zugreifen koennen. */
+     *    ohne Sandbox-Restriktion und erstellt das Segment.
+     *    HC-3: 0660 + Gruppe localaccounts (gid 61) statt world-writable 0666 —
+     *    _coreaudiod ist Mitglied von localaccounts, der User ebenfalls. Damit
+     *    koennen beide Seiten zugreifen, fremde Prozesse anderer User nicht. */
     {
         shm_unlink(ARN_SHM_NAME); /* Stales Segment entfernen (Fehler ignorieren) */
-        int shm_fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0666);
+        int shm_fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0660);
         if (shm_fd >= 0) {
-            fchmod(shm_fd, 0666); /* umask umgehen */
+            fchmod(shm_fd, 0660); /* umask umgehen */
+            if (fchown(shm_fd, (uid_t)-1, 61) != 0) {  /* gid 61 = localaccounts (User + _coreaudiod) */
+                fprintf(stderr, "Helper: Warnung — fchown(localaccounts) auf SHM "
+                        "fehlgeschlagen (errno=%d)\n", errno);
+            }
             if (ftruncate(shm_fd, (off_t)ARN_SHM_SIZE) == 0) {
                 void *ptr = mmap(NULL, ARN_SHM_SIZE, PROT_READ | PROT_WRITE,
                                  MAP_SHARED, shm_fd, 0);
@@ -2798,7 +2955,7 @@ int main(int argc, char *argv[])
                     if (iid == 0) iid = 1; /* Niemals 0 (= nicht initialisiert) */
                     atomic_store_explicit(&init_ring->instance_id, iid, memory_order_release);
                     munmap(ptr, ARN_SHM_SIZE);
-                    fprintf(stdout, "Helper: SHM erstellt (%s, 0666, %zu Bytes, iid=0x%llx)\n",
+                    fprintf(stdout, "Helper: SHM erstellt (%s, 0660 gid=localaccounts, %zu Bytes, iid=0x%llx)\n",
                             ARN_SHM_NAME, ARN_SHM_SIZE, (unsigned long long)iid);
                 } else {
                     fprintf(stderr, "Helper: SHM mmap fehlgeschlagen (errno=%d)\n", errno);
@@ -2875,6 +3032,8 @@ int main(int argc, char *argv[])
     if (pthread_create(&g_volume_thread, NULL, volume_poll_thread, NULL) != 0) {
         fprintf(stderr, "Helper: Volume-Thread konnte nicht gestartet werden\n");
         atomic_store_explicit(&g_volume_running, 0, memory_order_release);
+    } else {
+        g_volume_thread_started = true;  /* NC-1 */
     }
 
     /* RT-Priorität für den main-Thread (kosmetisch — IOProcs sind eh RT) */
@@ -2910,7 +3069,7 @@ int main(int argc, char *argv[])
     atomic_store_explicit(&g_config_running, 0, memory_order_release);
     atomic_store_explicit(&g_volume_running, 0, memory_order_release);
 
-    if (g_volume_thread) {
+    if (g_volume_thread_started) {  /* NC-1: explizites Flag statt pthread_t-Truthiness */
         pthread_join(g_volume_thread, NULL);
     }
     if (g_config_listen_fd >= 0) {
