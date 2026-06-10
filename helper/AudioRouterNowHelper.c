@@ -58,6 +58,7 @@
 #include <errno.h>
 #include <stdatomic.h>
 #include <limits.h>   /* MC-9: INT_MIN/INT_MAX fuer strtol-Range-Check */
+#include <time.h>     /* KC-2: clock_gettime_nsec_np fuer Deferred-Unmap-Epoch */
 
 /* ── Konfiguration ──────────────────────────────────────────────────────── */
 
@@ -79,6 +80,11 @@ static char g_config_socket_path[512] = {0};
 #define HARD_STALL_FILL_DEN    4u
 
 #define MAX_OUTPUTS            8
+
+/* ARC-4: Pre-Roll High-Water-Mark. 2048 Frames ≈ 43ms @48kHz.
+ * (Vorher ARN_RING_CAPACITY/4 = 4096 Frames ≈ 85ms — der Kommentar "43ms"
+ * war korrekt, der Wert falsch.) */
+#define ARN_PREROLL_FRAMES (ARN_RING_CAPACITY / 8u)   /* 2048 frames ≈ 43ms @48kHz */
 
 /* P11: Lock-Datei liegt in ~/.audiorouter/ (statt im world-writable /tmp).
  * Pfad zur Laufzeit aus $HOME gebildet, geoeffnet mit O_NOFOLLOW. */
@@ -311,12 +317,16 @@ typedef struct DeviceOutput {
     _Atomic uint32_t     src_ratio_q20;    /* Q20-Ratio: base_ratio = 1<<20. Volume-Thread schreibt, IOProc liest */
     uint32_t             src_ring_target;  /* Ziel-Fuellstand in Samples (= ARN_RING_CAPACITY/2) */
     double               base_ratio;       /* ring_sr / device_sr: 1.0 bei gleicher Rate, z.B. 1.0884 bei 44100->48000 */
-    /* K6: RT-sicherer Pending-Reset fuer src_frac_ridx.
+    /* K6/KC-3: RT-sicherer Pending-Reset fuer src_frac_ridx — Generationszaehler.
      * Volume-Thread/sr_reinit darf src_frac_ridx NICHT direkt schreiben
-     * (Data Race mit IOProc). Stattdessen: Pending-Flag + Zielwert setzen.
-     * IOProc prueft das Flag am Anfang jedes Aufrufs (kein Lock noetig). */
-    _Atomic uint32_t     frac_ridx_reset_pending; /* 1 = IOProc soll reset ausfuehren */
-    _Atomic uint32_t     frac_ridx_reset_widx;    /* Ziel sample-index fuer reset      */
+     * (Data Race mit IOProc). Stattdessen: Zielwert setzen (release), dann
+     * frac_ridx_reset_gen inkrementieren (acq_rel). Der IOProc vergleicht
+     * gegen seine private frac_ridx_applied_gen und wendet den Reset an.
+     * Gen-Zaehler statt bool-Flag: das alte Flag hatte ein Lost-Update-Race
+     * (zweiter Reset-Request zwischen Flag-Load und Flag-Clear ging verloren). */
+    _Atomic uint32_t     frac_ridx_reset_gen;   /* steigt bei jedem Reset-Request    */
+    uint32_t             frac_ridx_applied_gen; /* IOProc-privat, kein Atomic noetig */
+    _Atomic uint32_t     frac_ridx_reset_widx;  /* Ziel sample-index fuer reset      */
     /* Pre-allokierter Temp-Buffer fuer De-Interleaving im IOProc (RT-safe). */
     float                temp_buf[ARN_RING_CAPACITY];
 } DeviceOutput;
@@ -523,9 +533,16 @@ static ARNSharedRing *shm_connect(void)
  * Bis dahin sind alle in-flight IOProc-Calls (<1ms) garantiert durch. */
 static ARNSharedRing *g_pending_unmap_ring = NULL;
 static int            g_pending_unmap_fd   = -1;
+/* KC-2: Epoch des Defer-Zeitpunkts (CLOCK_MONOTONIC, ns). munmap() erfolgt
+ * erst wenn seit dem Defer mindestens 150ms vergangen sind — damit ist
+ * garantiert, dass auch ein IOProc, der den alten g_ring-Pointer unmittelbar
+ * vor dem Swap geladen hat, laengst fertig ist (IOProc-Laufzeit < 1ms;
+ * jeder neue Call laedt g_ring per acquire neu und sieht NULL/neu). */
+static _Atomic uint64_t g_deferred_unmap_timestamp_ns = 0;
+#define ARN_DEFERRED_UNMAP_GRACE_NS 150000000ULL   /* 150ms */
 
-/* Gibt ggf. ausstehenden alten Ring aus dem letzten Reconnect frei. */
-static void shm_flush_pending_unmap(void)
+/* Unbedingtes Freigeben des Pending-Rests (interner Helfer). */
+static void shm_flush_pending_unmap_force(void)
 {
     if (g_pending_unmap_ring != NULL) {
         munmap(g_pending_unmap_ring, ARN_SHM_SIZE);
@@ -537,18 +554,36 @@ static void shm_flush_pending_unmap(void)
     }
 }
 
+/* Gibt ggf. ausstehenden alten Ring aus dem letzten Reconnect frei.
+ * KC-2: Nur wenn die 150ms-Grace-Period seit dem Defer abgelaufen ist. */
+static void shm_flush_pending_unmap(void)
+{
+    if (g_pending_unmap_ring == NULL && g_pending_unmap_fd < 0) return;
+    uint64_t ts  = atomic_load(&g_deferred_unmap_timestamp_ns);
+    uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC);
+    if (now - ts < ARN_DEFERRED_UNMAP_GRACE_NS) return; /* 150ms nicht abgewartet */
+    shm_flush_pending_unmap_force();
+}
+
 /* Deferred-Disconnect fuer Live-Reconnect: altes Segment merken, nicht sofort
- * unmappen. Naechster shm_flush_pending_unmap()-Call (naechster Volume-Zyklus)
- * raeumt es auf. Caller muss sicherstellen dass IOProcs vorher atomic-NULL sehen. */
+ * unmappen. Ein spaeterer shm_flush_pending_unmap()-Call (Volume-Zyklus, nach
+ * Ablauf der 150ms-Grace-Period) raeumt es auf. Caller muss sicherstellen dass
+ * IOProcs vorher atomic-NULL sehen. */
 static void shm_disconnect_deferred(void)
 {
-    /* Erst vorherigen Pending-Rest freigeben (der ist jetzt alt genug). */
-    shm_flush_pending_unmap();
+    /* Erst vorherigen Pending-Rest freigeben — hier unconditional (force):
+     * das Segment wurde bereits beim letzten Defer aus g_ring entfernt,
+     * in-flight IOProcs (<1ms) sind durch. Mit dem Epoch-Guard wuerde der
+     * Pointer sonst ueberschrieben werden → Leak. */
+    shm_flush_pending_unmap_force();
 
     ARNSharedRing *old = atomic_exchange_explicit(&g_ring, NULL, memory_order_acq_rel);
     g_pending_unmap_ring = old;
     g_pending_unmap_fd   = g_shm_fd;
     g_shm_fd = -1;
+    /* KC-2: Defer-Epoch setzen — startet die 150ms-Grace-Period. */
+    atomic_store(&g_deferred_unmap_timestamp_ns,
+                 clock_gettime_nsec_np(CLOCK_MONOTONIC));
 }
 
 static void shm_disconnect(void)
@@ -790,14 +825,21 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
      * RT-safe: nur relaxed atomic increment. */
     atomic_fetch_add_explicit(&dev->ioproc_calls, 1u, memory_order_relaxed);
 
-    /* K6: Pending-Reset fuer src_frac_ridx — RT-safe, kein Lock.
-     * Volume-Thread/sr_reinit setzt das Flag + Zielwert atomar.
-     * IOProc wendet den Reset hier an (einziger Schreiber von src_frac_ridx). */
-    if (atomic_load_explicit(&dev->frac_ridx_reset_pending, memory_order_acquire)) {
-        uint32_t target_widx = atomic_load_explicit(&dev->frac_ridx_reset_widx,
-                                                    memory_order_relaxed);
-        dev->src_frac_ridx = (double)target_widx / 2.0;
-        atomic_store_explicit(&dev->frac_ridx_reset_pending, 0u, memory_order_release);
+    /* K6/KC-3: Pending-Reset fuer src_frac_ridx — RT-safe, kein Lock.
+     * Volume-Thread/sr_reinit schreibt erst frac_ridx_reset_widx (release),
+     * dann inkrementiert er frac_ridx_reset_gen (acq_rel). Der acquire-Load
+     * auf gen macht den widx-Store sichtbar. IOProc wendet den Reset hier an
+     * (einziger Schreiber von src_frac_ridx). Gen-Vergleich statt bool-Flag:
+     * kein Lost-Update-Race mehr bei back-to-back Reset-Requests. */
+    {
+        uint32_t req_gen = atomic_load_explicit(&dev->frac_ridx_reset_gen,
+                                                memory_order_acquire);
+        if (req_gen != dev->frac_ridx_applied_gen) {
+            uint32_t target_widx = atomic_load_explicit(&dev->frac_ridx_reset_widx,
+                                                        memory_order_acquire);
+            dev->src_frac_ridx = (double)target_widx / 2.0;
+            dev->frac_ridx_applied_gen = req_gen;
+        }
     }
 
     /* P9: SR-Wechsel-Gate — VOR dem Pre-Roll-Gate pruefen. Waehrend
@@ -1202,14 +1244,15 @@ static int output_add(const char *uid, uint32_t ch_offset)
     if (nm) { strncpy(tmp.name, nm, sizeof(tmp.name) - 1); free(nm); }
     atomic_store_explicit(&tmp.local_ridx, start_widx, memory_order_relaxed);
     atomic_store_explicit(&tmp.underruns,  0u,          memory_order_relaxed);
-    atomic_store_explicit(&tmp.frac_ridx_reset_pending, 0u, memory_order_relaxed);
-    atomic_store_explicit(&tmp.frac_ridx_reset_widx,    0u, memory_order_relaxed);
+    atomic_store_explicit(&tmp.frac_ridx_reset_gen,  0u, memory_order_relaxed);
+    atomic_store_explicit(&tmp.frac_ridx_reset_widx, 0u, memory_order_relaxed);
+    tmp.frac_ridx_applied_gen = 0u;
     tmp.last_ridx_sample = start_widx;
     tmp.last_progress_ns = get_time_ns();
     atomic_store_explicit(&tmp.stalled, 0u, memory_order_relaxed);
     atomic_store_explicit(&tmp.recovery_count, 0u, memory_order_relaxed);
-    /* Tranche B: Pre-Roll — Consumer wartet auf ARN_RING_CAPACITY/4 Frames (≈43ms @48kHz) */
-    atomic_store_explicit(&tmp.preroll_target_frames, ARN_RING_CAPACITY / 4u, memory_order_relaxed);
+    /* Tranche B/ARC-4: Pre-Roll — Consumer wartet auf ARN_PREROLL_FRAMES (2048 Frames ≈ 43ms @48kHz) */
+    atomic_store_explicit(&tmp.preroll_target_frames, ARN_PREROLL_FRAMES, memory_order_relaxed);
     atomic_store_explicit(&tmp.preroll_armed, 1u, memory_order_relaxed);
 
     /* Sample-Rate-Abgleich und SRC-Initialisierung (wie in output_add_locked) */
@@ -1492,8 +1535,8 @@ static void sr_reinit_all_outputs(void) {
             uint32_t q20 = (uint32_t)(1.0 * (double)(1u << 20));
             atomic_store_explicit(&g_outputs[i].src_ratio_q20, q20, memory_order_relaxed);
             atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
-            atomic_store_explicit(&g_outputs[i].frac_ridx_reset_widx, w, memory_order_relaxed);
-            atomic_store_explicit(&g_outputs[i].frac_ridx_reset_pending, 1u, memory_order_release);
+            atomic_store_explicit(&g_outputs[i].frac_ridx_reset_widx, w, memory_order_release);
+            atomic_fetch_add_explicit(&g_outputs[i].frac_ridx_reset_gen, 1u, memory_order_acq_rel);
             g_outputs[i].fill_ewma   = (double)g_outputs[i].src_ring_target / 2.0;
             g_outputs[i].integ_error = 0.0;
             pthread_mutex_unlock(&g_outputs_lock);
@@ -1508,8 +1551,12 @@ static void sr_reinit_all_outputs(void) {
         g_n_active_outputs = recount_active_locked();
         /* Leseposition zuruecksetzen (IOProc gestoppt gleich). */
         atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
-        g_outputs[i].src_frac_ridx = (double)w / 2.0;
-        atomic_store_explicit(&g_outputs[i].frac_ridx_reset_pending, 0u, memory_order_release);
+        /* HC-4: KEIN Direktschreiben in src_frac_ridx — der IOProc koennte
+         * hier noch laufen (Stop erfolgt erst nach Lock-Release). Stattdessen
+         * Pending-Mechanismus: der alte ODER der neu erzeugte IOProc wendet
+         * den Reset RT-safe an (frac_ridx_applied_gen ueberlebt im Slot). */
+        atomic_store_explicit(&g_outputs[i].frac_ridx_reset_widx, w, memory_order_release);
+        atomic_fetch_add_explicit(&g_outputs[i].frac_ridx_reset_gen, 1u, memory_order_acq_rel);
         pthread_mutex_unlock(&g_outputs_lock);
 
         /* ── CoreAudio-Phase: OHNE Lock ── */
@@ -1602,7 +1649,7 @@ static void sr_reinit_all_outputs(void) {
                 g_outputs[i].fill_ewma   = (double)g_outputs[i].src_ring_target / 2.0;
                 g_outputs[i].integ_error = 0.0;
                 /* Pre-Roll neu scharf schalten, DANN Gate freigeben. */
-                atomic_store_explicit(&g_outputs[i].preroll_target_frames, ARN_RING_CAPACITY / 4u,
+                atomic_store_explicit(&g_outputs[i].preroll_target_frames, ARN_PREROLL_FRAMES,
                                       memory_order_relaxed);
                 atomic_store_explicit(&g_outputs[i].preroll_armed, 1u, memory_order_release);
                 atomic_store_explicit(&g_outputs[i].sr_changing, 0u, memory_order_release);
@@ -1947,9 +1994,9 @@ static void *volume_poll_thread(void *arg)
                             /* K6: Pending-Reset — IOProc koennte weiter laufen waehrend
                              * wir reconnecten. Direktschreiben in src_frac_ridx = Data Race. */
                             atomic_store_explicit(&g_outputs[i].frac_ridx_reset_widx, w,
-                                                  memory_order_relaxed);
-                            atomic_store_explicit(&g_outputs[i].frac_ridx_reset_pending, 1u,
                                                   memory_order_release);
+                            atomic_fetch_add_explicit(&g_outputs[i].frac_ridx_reset_gen, 1u,
+                                                      memory_order_acq_rel);
                             /* B1-Fix: last_ridx_sample + last_progress_ns synchronisieren —
                              * verhindert false-positive recovery_count-Inkremente nach Reconnect.
                              * Ohne Fix: cur_ridx(=w) != last_ridx_sample(=alter Wert) → sofortiger
@@ -2014,8 +2061,8 @@ static void *volume_poll_thread(void *arg)
                     } else if ((now_ns - dev->hard_stall_since_ns) > HARD_STALL_TIMEOUT_NS) {
                         /* Hard-Stall bestaetigt — gleiche Recovery wie Soft-Stall. */
                         atomic_store_explicit(&dev->stalled, 1u, memory_order_release);
-                        atomic_store_explicit(&dev->frac_ridx_reset_widx, w_now, memory_order_relaxed);
-                        atomic_store_explicit(&dev->frac_ridx_reset_pending, 1u, memory_order_release);
+                        atomic_store_explicit(&dev->frac_ridx_reset_widx, w_now, memory_order_release);
+                        atomic_fetch_add_explicit(&dev->frac_ridx_reset_gen, 1u, memory_order_acq_rel);
                         atomic_store_explicit(&dev->local_ridx, w_now, memory_order_release);
                         dev->last_ridx_sample = w_now;
                         dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
@@ -2059,8 +2106,8 @@ static void *volume_poll_thread(void *arg)
                              * und needed>0 → immer Underrun → local_ridx bewegt sich nie → Stall bleibt.
                              * Mit Reset: IOProc setzt src_frac_ridx=widx/2, naechste Calls recovern
                              * sobald write_idx genug vorgerückt ist. */
-                            atomic_store_explicit(&dev->frac_ridx_reset_widx, w_now, memory_order_relaxed);
-                            atomic_store_explicit(&dev->frac_ridx_reset_pending, 1u, memory_order_release);
+                            atomic_store_explicit(&dev->frac_ridx_reset_widx, w_now, memory_order_release);
+                            atomic_fetch_add_explicit(&dev->frac_ridx_reset_gen, 1u, memory_order_acq_rel);
                             /* local_ridx auf w_now setzen damit P-Regler nicht irrtümlich
                              * "Ring voll" meldet und Ratio aufpumpt (würde needed > increment machen). */
                             atomic_store_explicit(&dev->local_ridx, w_now, memory_order_release);
@@ -2080,6 +2127,38 @@ static void *volume_poll_thread(void *arg)
                  * fill = w_now - w_now = 0 nach dem Reset oben, ratio bleibt bei base_ratio. */
                 if (atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
                     continue;
+                }
+
+                /* ARC-5: Lag-Eviction — Output der dauerhaft >90% hinter write_idx
+                 * liegt wird force-resynct, bevor er den gesamten Ring-Headroom des
+                 * Producers auffrisst (read_idx-Aggregat = min aller Positionen).
+                 * src_frac_ridx ist IOProc-privat; der Read hier ist eine Naeherung
+                 * (64-bit aligned double-Load, auf arm64 nicht torn).
+                 * Obergrenze 2*CAPACITY als Sanity-Check: liegt die Position durch
+                 * Sampling-Skew knapp VOR w_now, ergibt die wrapped-uint32-Differenz
+                 * einen riesigen Wert — der darf keine False-Positive-Eviction
+                 * ausloesen (echter Lag ist durch den Producer auf ~CAPACITY begrenzt). */
+                {
+                    uint32_t lag_ridx = (uint32_t)(dev->src_frac_ridx * 2.0); /* ungefaehre Position */
+                    uint32_t distance = w_now - lag_ridx; /* wrapped uint32 arithmetic */
+                    if (distance > (ARN_RING_CAPACITY * 9u) / 10u &&
+                        distance <= ARN_RING_CAPACITY * 2u) {
+                        /* Output ist mehr als 90% hinter write_idx — force-resync */
+                        atomic_store_explicit(&dev->frac_ridx_reset_widx, w_now,
+                                              memory_order_release);
+                        atomic_fetch_add_explicit(&dev->frac_ridx_reset_gen, 1u,
+                                                  memory_order_acq_rel);
+                        /* Wie im Stall-Pfad: local_ridx mitziehen, damit der
+                         * PI-Regler nicht "Ring voll" sieht und aufpumpt. */
+                        atomic_store_explicit(&dev->local_ridx, w_now, memory_order_release);
+                        dev->last_ridx_sample = w_now;
+                        dev->fill_ewma   = (double)dev->src_ring_target / 2.0;
+                        dev->integ_error = 0.0;
+                        fprintf(stderr, "Helper: Output '%s' Lag-Eviction — "
+                                ">90%% hinter write_idx (distance=%u Samples), "
+                                "force-resync auf write_idx.\n", dev->name, distance);
+                        continue;
+                    }
                 }
 
                 uint32_t fill_samples  = w_now - atomic_load_explicit(&dev->local_ridx, memory_order_acquire);
