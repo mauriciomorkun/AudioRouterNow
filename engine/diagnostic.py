@@ -10,7 +10,6 @@ Verwendung:
     ok   = open_mail_with_report(path)
 """
 import json
-import os
 import platform
 import re
 import subprocess
