@@ -287,10 +287,7 @@ def open_mail_with_report(report_path: Path) -> bool:
     script = f'''
 tell application "Mail"
     set theFile to POSIX file "{posix}" as alias
-    set newMsg to make new outgoing message with properties {{\\
-        subject:"AudioRouterNow Bug Report — {date_str}", \\
-        content:"Hi Mauricio,\\n\\nI experienced an issue with AudioRouterNow. Please find the diagnostic report attached.\\n\\n[Describe your issue here]\\n\\nThanks!"\\
-    }}
+    set newMsg to make new outgoing message with properties {{subject:"AudioRouterNow Bug Report — {date_str}", content:"Hi Mauricio,\\n\\nI experienced an issue with AudioRouterNow. Please find the diagnostic report attached.\\n\\n[Describe your issue here]\\n\\nThanks!"}}
     tell newMsg
         make new to recipient with properties {{address:"{DEVELOPER_EMAIL}"}}
         make new attachment with properties {{file name:theFile}} at after last paragraph
