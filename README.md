@@ -32,7 +32,7 @@ macOS System Audio
       │  shared-memory ring buffer (lock-free, ~170 ms max latency)
       ▼
   AudioRouterNowHelper (C)      ← native daemon, reads ring, fans out audio
-      │  control: JSON socket /tmp/audiorouter.config.sock
+      │  control: JSON socket ~/.audiorouter/audiorouter.config.sock
       ├──► USB Interface (Komplete Audio 6, Focusrite, ...)
       ├──► HDMI/DisplayPort Monitor (BenQ, LG, ...)
       └──► Built-in Speakers / AirPods
@@ -114,6 +114,17 @@ AudioRouterNow uses a ~170 ms ring buffer for stability. It is not suitable for 
 **Logs:**
 - App log: `~/.audiorouter/logs/audiorouter.log`
 - Helper log: `~/Library/Logs/AudioRouterNow/`
+
+---
+
+## Known Issues
+
+- **Monitor hot-plug audio gap**: When a display with built-in audio (e.g. USB-C monitors)
+  is connected or disconnected, the system may re-initialize audio routing causing a brief
+  (~43ms) gap. This is expected behaviour due to macOS audio device enumeration.
+  Fixed in v3.2.0+ with tombstone slot architecture.
+- **macOS 14.2+ only for future versions**: The next major version (v4.0) will require
+  macOS 14.2+ due to Process Taps API usage.
 
 ---
 
