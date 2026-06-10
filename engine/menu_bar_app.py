@@ -136,6 +136,11 @@ class AudioRouterApp(rumps.App):
         self._reconfigure_attempts: int = 0  # Fix-3: Retry-Zähler mit Backoff
         self._coreaudiod_spin_detected: bool = False  # P3: Flag für Watchdog-Trip-Dialog
 
+        # K2: Thread-safe pending actions (consumed on main thread via UI timer)
+        self._pending_notifications: list = []  # list of (title, message) tuples
+        self._pending_notifications_lock = threading.Lock()
+        self._needs_reconnect_autostart: bool = False
+
         # Status-Zeile: letzter (title, action_key)-Wert zum Flacker-Schutz
         self._last_status_cache = (None, None)
 
@@ -542,30 +547,27 @@ class AudioRouterApp(rumps.App):
             try:
                 path = diagnostic.generate_report(self._helper)
             except Exception as exc:
-                rumps.notification(
-                    title="AudioRouterNow — Diagnostic Report",
-                    subtitle="Could not generate report",
-                    message=str(exc),
+                # K2: kein rumps.notification aus Background-Thread — enqueuen
+                self._enqueue_notification(
+                    "AudioRouterNow — Diagnostic Report",
+                    f"Could not generate report: {exc}",
                 )
                 return
 
             mail_ok = diagnostic.open_mail_with_report(path)
             if mail_ok:
-                rumps.notification(
-                    title="AudioRouterNow",
-                    subtitle="Diagnostic Report ready",
-                    message="Mail is open — describe your issue and click Send.",
+                self._enqueue_notification(
+                    "AudioRouterNow",
+                    "Diagnostic Report ready — Mail is open, "
+                    "describe your issue and click Send.",
                 )
             else:
                 # Fallback: Datei im Finder markieren + Notification mit Anweisung
                 diagnostic.reveal_in_finder(path)
-                rumps.notification(
-                    title="AudioRouterNow — Diagnostic Report",
-                    subtitle=f"Saved: {path.name}",
-                    message=(
-                        "Mail could not be opened. "
-                        f"Please send the file to {diagnostic.DEVELOPER_EMAIL}"
-                    ),
+                self._enqueue_notification(
+                    "AudioRouterNow — Diagnostic Report",
+                    f"Saved: {path.name} — Mail could not be opened. "
+                    f"Please send the file to {diagnostic.DEVELOPER_EMAIL}",
                 )
 
         threading.Thread(target=_run, name="diagnostic-report", daemon=True).start()
@@ -624,7 +626,26 @@ class AudioRouterApp(rumps.App):
     def _on_devices_changed(self, new_devices: list):
         self._device_update_pending = True
 
+    def _enqueue_notification(self, title: str, message: str) -> None:
+        """K2: Thread-safe — Notification für den Main-Thread einreihen.
+        Background-Threads dürfen rumps.notification nicht direkt aufrufen;
+        der UI-Timer (_process_pending_updates) konsumiert die Queue."""
+        with self._pending_notifications_lock:
+            self._pending_notifications.append((title, message))
+
     def _process_pending_updates(self, timer):
+        # K2: Pending notifications vom Main-Thread senden
+        with self._pending_notifications_lock:
+            pending = self._pending_notifications[:]
+            self._pending_notifications.clear()
+        for title, message in pending:
+            rumps.notification(title, "", message)
+
+        # K2: Pending reconnect autostart (vom spin-reconnect-Thread gesetzt)
+        if self._needs_reconnect_autostart:
+            self._needs_reconnect_autostart = False
+            self._auto_start_if_configured()
+
         # P3: coreaudiod-Watchdog-Trip-Dialog (muss auf Main-Thread laufen).
         if self._coreaudiod_spin_detected:
             self._coreaudiod_spin_detected = False
@@ -768,11 +789,11 @@ class AudioRouterApp(rumps.App):
                         uid
                     )
                     self._notified_trips.add((uid, ch_off))
-                    rumps.notification(
-                        title="AudioRouterNow — Output unreachable",
-                        subtitle="",
-                        message=f"'{dev_name}' Ch{ch_off+1}-{ch_off+2} could not be recovered. "
-                                "Reconnect the device or restart via menu.",
+                    # K2: kein rumps.notification aus Background-Thread — enqueuen
+                    self._enqueue_notification(
+                        "AudioRouterNow — Output unreachable",
+                        f"'{dev_name}' Ch{ch_off+1}-{ch_off+2} could not be recovered. "
+                        "Reconnect the device or restart via menu.",
                     )
             except Exception as e:
                 logger.debug("health_poll_loop Fehler: %s", e)
@@ -943,11 +964,13 @@ class AudioRouterApp(rumps.App):
                         subtitle="",
                         message="Audio system restarted. Reconnecting outputs…",
                     )
-                    # Outputs nach kurzer Pause neu verbinden
+                    # Outputs nach kurzer Pause neu verbinden.
+                    # K2: kein _auto_start_if_configured() aus Background-Thread —
+                    # Flag setzen, der UI-Timer ruft es auf dem Main-Thread auf.
                     def _reconnect():
                         import time as _time
                         _time.sleep(3.0)
-                        self._auto_start_if_configured()
+                        self._needs_reconnect_autostart = True
                     threading.Thread(target=_reconnect, name="spin-reconnect", daemon=True).start()
                 else:
                     err = result.stderr.decode(errors="replace").strip()
