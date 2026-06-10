@@ -26,6 +26,9 @@ CFLAGS      := $(ARCHS) \
                -std=c11 \
                -I.
 
+# Zentrale Helper-Versionsnummer (Single Source of Truth fuer den C-Banner)
+CFLAGS += -DARN_HELPER_VERSION=\"3.1.2\"
+
 LDFLAGS     := $(ARCHS) \
                -framework CoreAudio \
                -framework AudioToolbox \

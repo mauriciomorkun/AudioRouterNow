@@ -1,5 +1,5 @@
 /*
- * AudioRouterNowHelper.c — Phase 5 (Multi-Device + Config-Socket + Volume-Polling + launchd-ready)
+ * AudioRouterNowHelper.c — v3.1.2 (Multi-Device + Config-Socket + Volume-Polling + launchd-ready)
  *
  * Liest Audio-Frames aus dem POSIX-SHM-Ring (geschrieben vom HAL-Plugin)
  * und gibt sie via CoreAudio AudioDeviceIOProc an EIN ODER MEHRERE physische
@@ -2754,7 +2754,10 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    fprintf(stdout, "AudioRouterNow Helper v2.0 (Phase 5)\n");
+#ifndef ARN_HELPER_VERSION
+#define ARN_HELPER_VERSION "3.1.2"
+#endif
+    fprintf(stdout, "AudioRouterNow Helper v" ARN_HELPER_VERSION " (ABI v4)\n");
     fprintf(stdout, "SHM: %s  Ring: %u Frames ~ %.0f ms @48kHz\n",
             ARN_SHM_NAME,
             ARN_RING_CAPACITY / 2u,
