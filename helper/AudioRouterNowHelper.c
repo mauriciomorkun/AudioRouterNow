@@ -331,7 +331,16 @@ static _Atomic(ARNSharedRing *) g_ring           = NULL;
 static int                     g_shm_fd         = -1;
 
 static DeviceOutput            g_outputs[MAX_OUTPUTS];
+/* Tombstoning (Batch 9): g_n_outputs ist eine HIGH-WATER-MARK — "hoechster je
+ * belegter Slot-Index + 1". Sie waechst monoton (Reset nur in outputs_stop_all).
+ * Ein Slot ist FREI wenn active==false UND uid[0]=='\0' (Tombstone).
+ * output_remove markiert Slots nur als Tombstone, verschiebt sie NIE —
+ * dadurch bleibt &g_outputs[slot] (inClientData der IOProcs) stabil und
+ * uninvolvierte Outputs muessen bei einem Remove nicht neu gestartet werden. */
 static int                     g_n_outputs      = 0;
+/* Anzahl derzeit AKTIVER Outputs (active==true) — fuer Diagnose/Status.
+ * Wird unter g_outputs_lock via recount_active_locked() gepflegt. */
+static int                     g_n_active_outputs = 0;
 static pthread_mutex_t         g_outputs_lock   = PTHREAD_MUTEX_INITIALIZER;
 /* MC-6: Generationszaehler fuer g_outputs[] — wird in outputs_stop_all()
  * inkrementiert. output_add() vergleicht die Generation vor/nach dem
@@ -1039,12 +1048,10 @@ static void update_global_read_idx(void)
 
     pthread_mutex_lock(&g_outputs_lock);
 
-    if (g_n_outputs == 0) {
-        uint32_t w = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
-        atomic_store_explicit(&ring->read_idx, w, memory_order_release);
-        pthread_mutex_unlock(&g_outputs_lock);
-        return;
-    }
+    /* Tombstoning: kein g_n_outputs==0-Spezialfall mehr noetig — die Schleife
+     * unten liefert have_active=false wenn kein aktiver Output existiert
+     * (Tombstones werden via active-Check uebersprungen) und setzt dann
+     * read_idx == write_idx (Ring leeren). */
 
     /* Finde Minimum aller local_ridx (mit unsigned Distanz zum write_idx) */
     uint32_t w   = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
@@ -1094,6 +1101,46 @@ static int find_output_slot_locked(const char *uid, uint32_t ch_offset)
 }
 
 /*
+ * Tombstoning-Helper. Alle MUESSEN unter g_outputs_lock aufgerufen werden.
+ */
+
+/* Zaehlt aktive Outputs neu (max. 8 Iterationen — billig und robust gegen
+ * vergessene +/-1-Buchhaltung). */
+static int recount_active_locked(void)
+{
+    int n = 0;
+    for (int i = 0; i < g_n_outputs; i++) {
+        if (g_outputs[i].active) n++;
+    }
+    return n;
+}
+
+/* Findet den ersten FREIEN Slot (Tombstone oder nie benutzt):
+ * active==false && uid[0]=='\0'. Rueckgabe: Index oder -1 wenn voll.
+ * In-flight output_add-Slots (uid gesetzt, active noch false) und Slots,
+ * deren IOProc gerade gestoppt wird (Remove Phase 2, uid noch gesetzt),
+ * gelten NICHT als frei. */
+static int find_free_slot_locked(void)
+{
+    for (int i = 0; i < MAX_OUTPUTS; i++) {
+        if (!g_outputs[i].active && g_outputs[i].uid[0] == '\0') {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* true wenn KEIN Slot belegt ist (weder aktiv noch in-flight) —
+ * Tombstones zaehlen nicht als belegt. Ersetzt das alte (g_n_outputs == 0). */
+static bool no_occupied_slots_locked(void)
+{
+    for (int i = 0; i < g_n_outputs; i++) {
+        if (g_outputs[i].uid[0] != '\0') return false;
+    }
+    return true;
+}
+
+/*
  * output_add — Fügt Output-Device hinzu ohne langfristige Lock-Hold.
  *
  * H1: Drei-Phasen-Ansatz:
@@ -1113,7 +1160,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
         pthread_mutex_unlock(&g_outputs_lock);
         return 0;  /* idempotent */
     }
-    if (g_n_outputs >= MAX_OUTPUTS) {
+    /* Tombstoning: Kapazitaet = "gibt es einen freien Slot?" — nicht mehr
+     * g_n_outputs (High-Water-Mark, schrumpft nie). */
+    if (find_free_slot_locked() < 0) {
         fprintf(stderr, "Helper: MAX_OUTPUTS (%d) erreicht, kann '%s' nicht hinzufuegen\n",
                 MAX_OUTPUTS, uid);
         pthread_mutex_unlock(&g_outputs_lock);
@@ -1123,8 +1172,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
     uint32_t start_widx = ring_snap
         ? atomic_load_explicit(&ring_snap->write_idx, memory_order_acquire) : 0u;
     /* P5: Ist das der erste Output? (unter Lock gelesen) — entscheidet, ob der
-     * Ring im Auto-Modus die native SR dieses Devices uebernimmt. */
-    bool is_first_output = (g_n_outputs == 0);
+     * Ring im Auto-Modus die native SR dieses Devices uebernimmt.
+     * Tombstoning: "erster Output" = kein belegter Slot (Tombstones zaehlen nicht). */
+    bool is_first_output = no_occupied_slots_locked();
     pthread_mutex_unlock(&g_outputs_lock);
 
     /* ── Phase 2: Schwere Arbeit auf Stack-Kopie, KEIN Lock ── */
@@ -1226,7 +1276,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
         fprintf(stdout, "Helper: '%s' wurde in Phase 2 bereits hinzugefuegt\n", uid);
         return 0;
     }
-    if (g_n_outputs >= MAX_OUTPUTS) {
+    /* Tombstoning: freien Slot suchen (Race-Re-Check nach Phase 2). */
+    int slot_idx = find_free_slot_locked();
+    if (slot_idx < 0) {
         pthread_mutex_unlock(&g_outputs_lock);
         fprintf(stderr, "Helper: MAX_OUTPUTS voll nach Race in Phase 2\n");
         return -1;
@@ -1234,12 +1286,12 @@ static int output_add(const char *uid, uint32_t ch_offset)
 
     /* Slot committen — active=false damit Volume-Thread ihn ueberspringt.
      * proc_id wird in Phase 3b (lockfrei) gesetzt. */
-    int slot_idx = g_n_outputs;
     DeviceOutput *slot = &g_outputs[slot_idx];
     *slot = tmp;
     slot->active  = false;
     slot->proc_id = NULL;
-    g_n_outputs++;
+    /* High-Water-Mark anheben falls noetig (schrumpft nie). */
+    if (slot_idx + 1 > g_n_outputs) g_n_outputs = slot_idx + 1;
     /* MC-6: Generation vor dem lockfreien CoreAudio-Block merken. */
     uint32_t gen_at_commit = atomic_load_explicit(&g_outputs_generation,
                                                   memory_order_acquire);
@@ -1262,17 +1314,12 @@ static int output_add(const char *uid, uint32_t ch_offset)
 
     if (err != noErr) {
         fprintf(stderr, "Helper: AudioDeviceCreateIOProcID endgueltig fehlgeschlagen fuer '%s'\n", uid);
-        /* Phase 3c (Fehler): Slot zurueckrollen unter Lock. */
+        /* Phase 3c (Fehler): Slot als Tombstone freigeben (kein Verschieben). */
         pthread_mutex_lock(&g_outputs_lock);
         /* Re-Validierung: Slot muss noch der sein den wir committet haben. */
         if (slot_idx < g_n_outputs && !g_outputs[slot_idx].active &&
             strcmp(g_outputs[slot_idx].uid, uid) == 0) {
-            /* Letzten aktiven Slot in diesen Slot verschieben falls nicht schon letzter. */
-            if (slot_idx != g_n_outputs - 1) {
-                g_outputs[slot_idx] = g_outputs[g_n_outputs - 1];
-            }
-            memset(&g_outputs[g_n_outputs - 1], 0, sizeof(DeviceOutput));
-            g_n_outputs--;
+            memset(&g_outputs[slot_idx], 0, sizeof(DeviceOutput));
         }
         pthread_mutex_unlock(&g_outputs_lock);
         return -1;
@@ -1284,15 +1331,11 @@ static int output_add(const char *uid, uint32_t ch_offset)
                 (int)err, uid);
         AudioDeviceDestroyIOProcID(dev_id, slot->proc_id);
         slot->proc_id = NULL;
-        /* Phase 3c (Fehler): Slot zurueckrollen unter Lock. */
+        /* Phase 3c (Fehler): Slot als Tombstone freigeben (kein Verschieben). */
         pthread_mutex_lock(&g_outputs_lock);
         if (slot_idx < g_n_outputs && !g_outputs[slot_idx].active &&
             strcmp(g_outputs[slot_idx].uid, uid) == 0) {
-            if (slot_idx != g_n_outputs - 1) {
-                g_outputs[slot_idx] = g_outputs[g_n_outputs - 1];
-            }
-            memset(&g_outputs[g_n_outputs - 1], 0, sizeof(DeviceOutput));
-            g_n_outputs--;
+            memset(&g_outputs[slot_idx], 0, sizeof(DeviceOutput));
         }
         pthread_mutex_unlock(&g_outputs_lock);
         return -1;
@@ -1305,12 +1348,14 @@ static int output_add(const char *uid, uint32_t ch_offset)
      * unser committeter Slot ungueltig: IOProc aufraeumen und abbrechen. */
     bool gen_changed = (atomic_load_explicit(&g_outputs_generation,
                                              memory_order_acquire) != gen_at_commit);
-    /* Re-Validierung: sicherstellen Slot wurde nicht durch parallelen Swap-Remove bewegt. */
+    /* Re-Validierung: Slot-Indizes sind durch Tombstoning stabil, aber der Slot
+     * koennte zwischenzeitlich per Hot-Unplug getombstoned worden sein. */
     if (!gen_changed && slot_idx < g_n_outputs && !g_outputs[slot_idx].active &&
         strcmp(g_outputs[slot_idx].uid, uid) == 0) {
         g_outputs[slot_idx].active = true;
+        g_n_active_outputs = recount_active_locked();
     } else {
-        /* Slot ist nicht mehr vorhanden, wurde bewegt oder per Watchdog gestoppt
+        /* Slot ist nicht mehr vorhanden (getombstoned) oder per Watchdog gestoppt
          * — IOProc sauber stoppen. */
         pthread_mutex_unlock(&g_outputs_lock);
         AudioDeviceStop(dev_id, slot->proc_id);
@@ -1333,18 +1378,23 @@ static int output_add(const char *uid, uint32_t ch_offset)
 /*
  * Entfernt Output-Device (uid + ch_offset).
  *
- * P7: 3-Phasen-Design — die schweren CoreAudio-Calls (AudioDeviceStop/Destroy/
- * Create/Start) laufen OHNE g_outputs_lock, damit ein blockierendes CoreAudio
- * den Lock nicht ueber Dutzende Millisekunden haelt (was den volume_poll_thread
- * und andere Config-Kommandos blockieren wuerde).
+ * Tombstoning (Batch 9): Der Slot wird NICHT mehr kompaktiert (kein Swap-Remove
+ * des letzten Slots an die freie Position). Stattdessen wird nur das Ziel-Device
+ * gestoppt und der Slot als Tombstone (active=false, uid leer) markiert.
+ * Effekt: Alle anderen Outputs behalten ihre Slot-Adresse (inClientData der
+ * IOProcs) und laufen UNUNTERBROCHEN weiter — kein IOProc-Neustart, kein
+ * Pre-Roll-Re-Arm, keine 85ms+ Stille fuer uninvolvierte Devices mehr.
  *
- *   Phase 1 (Lock gehalten): Slot finden, Ziel + ggf. zu verschiebenden Output
- *            auf active=false setzen, Device-Infos in Stack-Kopien sichern,
- *            Lock freigeben.
- *   Phase 2 (KEIN Lock): Stop/Destroy fuer das Ziel; fuer den verschobenen
- *            Output Stop/Destroy/Create/Start auf der Stack-Kopie.
- *   Phase 3 (Lock wieder gehalten): verschobenen Output committen, Slot
- *            kompaktieren, Pending-Flags setzen, g_n_outputs--.
+ * P7 bleibt erhalten: Die schweren CoreAudio-Calls (AudioDeviceStop/Destroy)
+ * laufen OHNE g_outputs_lock.
+ *
+ *   Phase 1 (Lock gehalten): Slot finden, active=false + proc_id=NULL setzen,
+ *            Device-Infos in Stack-Kopien sichern. uid bleibt vorerst GESETZT —
+ *            der Slot gilt damit noch nicht als frei und kann waehrend des
+ *            lockfreien Stop-Fensters nicht von output_add() reklamiert werden.
+ *   Phase 2 (KEIN Lock): AudioDeviceStop/DestroyIOProcID fuer das Ziel.
+ *   Phase 3 (Lock wieder gehalten): Slot per memset als freien Tombstone
+ *            markieren (uid[0]='\0').
  *
  * KONTRAKT: MUSS mit gehaltenem g_outputs_lock aufgerufen werden und gibt mit
  * gehaltenem Lock zurueck (der Lock wird intern nur temporaer freigegeben).
@@ -1354,33 +1404,20 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
     int slot = find_output_slot_locked(uid, ch_offset);
     if (slot < 0) return;
 
-    /* ── Phase 1 (Lock): active=false, Stack-Kopien anlegen ── */
-    int last = g_n_outputs - 1;
-    bool need_move = (slot != last);
-
-    /* Ziel-Device-Infos sichern. */
-    AudioDeviceID       tgt_dev   = g_outputs[slot].dev_id;
-    AudioDeviceIOProcID tgt_proc  = g_outputs[slot].proc_id;
+    /* ── Phase 1 (Lock): deaktivieren + Stack-Kopien ──
+     * Hinweis: uid kann auf g_outputs[slot].uid selbst zeigen (Caller-Loops) —
+     * daher alle benoetigten Infos VOR dem Tombstonen kopieren. */
+    AudioDeviceID       tgt_dev  = g_outputs[slot].dev_id;
+    AudioDeviceIOProcID tgt_proc = g_outputs[slot].proc_id;
     char                tgt_name[256];
     snprintf(tgt_name, sizeof(tgt_name), "%s", g_outputs[slot].name);
     g_outputs[slot].active  = false;   /* volume_poll_thread ueberspringt jetzt */
     g_outputs[slot].proc_id = NULL;
-
-    /* Verschobenen Output (falls noetig) als Stack-Kopie sichern + deaktivieren. */
-    DeviceOutput moved;       /* lokale Arbeitskopie */
-    AudioDeviceID       moved_old_dev  = kAudioDeviceUnknown;
-    AudioDeviceIOProcID moved_old_proc = NULL;
-    if (need_move) {
-        moved = g_outputs[last];               /* Stack-Kopie */
-        moved_old_dev  = moved.dev_id;
-        moved_old_proc = moved.proc_id;
-        g_outputs[last].active  = false;        /* volume_poll_thread ueberspringt */
-        g_outputs[last].proc_id = NULL;
-    }
+    g_n_active_outputs = recount_active_locked();
 
     pthread_mutex_unlock(&g_outputs_lock);
 
-    /* ── Phase 2 (KEIN Lock): schwere CoreAudio-Calls ── */
+    /* ── Phase 2 (KEIN Lock): CoreAudio nur fuer das Ziel-Device ── */
     if (tgt_proc) {
         AudioDeviceStop(tgt_dev, tgt_proc);
         AudioDeviceDestroyIOProcID(tgt_dev, tgt_proc);
@@ -1388,90 +1425,16 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
     fprintf(stdout, "Helper: Output entfernt: %s [Ch %u-%u]\n",
             tgt_name, ch_offset + 1, ch_offset + 2);
 
-    bool moved_started = false;
-    uint32_t moved_reset_w = 0;
-    if (need_move) {
-        /* Alten IOProc des verschobenen Outputs stoppen/zerstoeren. */
-        if (moved_old_proc) {
-            AudioDeviceStop(moved_old_dev, moved_old_proc);
-            AudioDeviceDestroyIOProcID(moved_old_dev, moved_old_proc);
-        }
-        moved.proc_id = NULL;
-        moved.active  = false;
-
-        /* IOProc mit der STABILEN Ziel-Adresse (&g_outputs[slot]) neu anlegen.
-         * inClientData muss die endgueltige Slot-Adresse sein — der IOProc liest
-         * darueber seinen Zustand. Wir geben &g_outputs[slot] als clientData,
-         * obwohl wir den Lock nicht halten: die Adresse ist stabil (festes Array),
-         * und der IOProc startet erst nach AudioDeviceStart zu feuern; bis dahin
-         * committen wir in Phase 3 den Inhalt. */
-        if (moved.uid[0] && moved.dev_id != kAudioDeviceUnknown) {
-            DeviceOutput *target_addr = &g_outputs[slot];
-            OSStatus rerr = AudioDeviceCreateIOProcID(moved.dev_id, device_ioproc,
-                                                      target_addr, &moved.proc_id);
-            if (rerr == noErr) {
-                /* Reset-Position + Pre-Roll in der Stack-Kopie vorbereiten. */
-                ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
-                if (ring) {
-                    moved_reset_w = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
-                }
-                atomic_store_explicit(&moved.frac_ridx_reset_widx, moved_reset_w, memory_order_relaxed);
-                atomic_store_explicit(&moved.frac_ridx_reset_pending, 1u, memory_order_relaxed);
-                atomic_store_explicit(&moved.local_ridx, moved_reset_w, memory_order_relaxed);
-                moved.last_ridx_sample = moved_reset_w;
-                moved.last_progress_ns = get_time_ns();
-                atomic_store_explicit(&moved.stalled, 0u, memory_order_relaxed);
-                atomic_store_explicit(&moved.preroll_armed, 1u, memory_order_relaxed);
-
-                /* WICHTIG: Den vollstaendigen Inhalt (inkl. neuer proc_id) in den
-                 * Ziel-Slot schreiben BEVOR AudioDeviceStart feuert. Der Slot[slot]
-                 * trug bisher nur den (inaktiven, proc_id=NULL) entfernten Output;
-                 * der neue IOProc liest ueber target_addr seinen Zustand. Solange
-                 * active noch false ist, ueberspringt der volume_poll_thread den
-                 * Slot — das Schreiben ohne Lock ist hier sicher (kein paralleler
-                 * Strukturschreiber, single config-thread). */
-                moved.active = false;        /* bis Start bestaetigt ist */
-                g_outputs[slot] = moved;
-
-                rerr = AudioDeviceStart(g_outputs[slot].dev_id, g_outputs[slot].proc_id);
-                if (rerr == noErr) {
-                    moved_started = true;
-                    fprintf(stdout, "Helper: Output '%s' [Ch %u-%u] nach Slot-Verschiebung neu gestartet\n",
-                            g_outputs[slot].name, g_outputs[slot].ch_offset + 1,
-                            g_outputs[slot].ch_offset + 2);
-                } else {
-                    fprintf(stderr, "Helper: AudioDeviceStart fehlgeschlagen nach Slot-Verschiebung "
-                            "(OSStatus %d) fuer '%s'\n", (int)rerr, g_outputs[slot].name);
-                    AudioDeviceDestroyIOProcID(g_outputs[slot].dev_id, g_outputs[slot].proc_id);
-                    g_outputs[slot].proc_id = NULL;
-                }
-            } else {
-                fprintf(stderr, "Helper: AudioDeviceCreateIOProcID fehlgeschlagen nach Slot-Verschiebung "
-                        "(OSStatus %d) fuer '%s'\n", (int)rerr, moved.name);
-                moved.proc_id = NULL;
-                moved.active  = false;
-                g_outputs[slot] = moved;   /* inaktiver Slot, sauber kopiert */
-            }
-        } else {
-            /* Verschobener Output ohne gueltiges Device — als inaktiv committen. */
-            moved.active  = false;
-            moved.proc_id = NULL;
-            g_outputs[slot] = moved;
-        }
-    }
-
-    /* ── Phase 3 (Lock wieder): active committen + kompaktieren ── */
+    /* ── Phase 3 (Lock wieder): Slot als freien Tombstone markieren ── */
     pthread_mutex_lock(&g_outputs_lock);
-
-    if (need_move && moved_started) {
-        /* Jetzt erst active=true setzen — der IOProc laeuft bereits, der Slot
-         * ist vollstaendig befuellt. */
-        atomic_store_explicit(&g_outputs[slot].preroll_armed, 1u, memory_order_release);
-        g_outputs[slot].active = true;
+    /* Re-Validierung: waehrend des lockfreien Fensters koennte z.B.
+     * process_hotplug_removals den Slot bereits getombstoned haben
+     * (dev_id waere dann 0) oder outputs_stop_all alles geleert haben. */
+    if (slot < g_n_outputs && !g_outputs[slot].active &&
+        g_outputs[slot].dev_id == tgt_dev &&
+        g_outputs[slot].ch_offset == ch_offset) {
+        memset(&g_outputs[slot], 0, sizeof(DeviceOutput));
     }
-
-    memset(&g_outputs[g_n_outputs - 1], 0, sizeof(DeviceOutput));
-    g_n_outputs--;
 }
 
 /*
@@ -1542,6 +1505,7 @@ static void sr_reinit_all_outputs(void) {
         /* IOProc-Infos fuer Stop/Destroy merken, dann deaktivieren. */
         g_outputs[i].active  = false;
         g_outputs[i].proc_id = NULL;
+        g_n_active_outputs = recount_active_locked();
         /* Leseposition zuruecksetzen (IOProc gestoppt gleich). */
         atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
         g_outputs[i].src_frac_ridx = (double)w / 2.0;
@@ -1643,6 +1607,7 @@ static void sr_reinit_all_outputs(void) {
                 atomic_store_explicit(&g_outputs[i].preroll_armed, 1u, memory_order_release);
                 atomic_store_explicit(&g_outputs[i].sr_changing, 0u, memory_order_release);
                 g_outputs[i].active      = true;
+                g_n_active_outputs = recount_active_locked();
                 fprintf(stdout, "Helper: Output neu gestartet nach SR-Wechsel: %s [Ch %u-%u]\n",
                         g_outputs[i].name, g_outputs[i].ch_offset + 1,
                         g_outputs[i].ch_offset + 2);
@@ -1677,6 +1642,8 @@ static void outputs_stop_all(void)
 
     pthread_mutex_lock(&g_outputs_lock);
     for (int i = 0; i < g_n_outputs; i++) {
+        /* Tombstones haben proc_id == NULL und sind bereits genullt — der
+         * Check unten ueberspringt sie automatisch. */
         if (g_outputs[i].proc_id) {
             to_stop[n_stop].dev_id  = g_outputs[i].dev_id;
             to_stop[n_stop].proc_id = g_outputs[i].proc_id;
@@ -1684,7 +1651,9 @@ static void outputs_stop_all(void)
         }
         memset(&g_outputs[i], 0, sizeof(DeviceOutput));
     }
+    /* Einziger Ort an dem die High-Water-Mark zurueckgesetzt wird. */
     g_n_outputs = 0;
+    g_n_active_outputs = 0;
     /* MC-6: Generation inkrementieren — laufende output_add()-Aufrufe erkennen
      * in Phase 3, dass ihr committeter Slot soeben weggeraeumt wurde. */
     atomic_fetch_add_explicit(&g_outputs_generation, 1u, memory_order_release);
@@ -1847,8 +1816,9 @@ static void coreaudiod_watchdog_tick(void)
  * P2-A FIX: AudioDeviceStop/DestroyIOProcID sind Mach-IPC zu coreaudiod.
  * Unter g_outputs_lock aufgerufen koennen sie bei coreaudiod-Spin blockieren.
  * Jetzt 2-Phasen-Design:
- *   Phase A (unter Lock): Snapshot der zu entfernenden Slots, active=false setzen.
- *   Phase B (OHNE Lock):  AudioDeviceStop/DestroyIOProcID + Kompaktierung.
+ *   Phase A (unter Lock): Snapshot der zu entfernenden Slots, Slot als
+ *                         Tombstone freigeben (Batch 9: kein Kompaktieren).
+ *   Phase B (OHNE Lock):  AudioDeviceStop/DestroyIOProcID.
  */
 static void process_hotplug_removals(void)
 {
@@ -1858,8 +1828,10 @@ static void process_hotplug_removals(void)
     int n_remove = 0;
 
     pthread_mutex_lock(&g_outputs_lock);
-    int i = 0;
-    while (i < g_n_outputs) {
+    for (int i = 0; i < g_n_outputs; i++) {
+        /* Tombstones/freie Slots ueberspringen — find_device_by_uid("") wuerde
+         * sonst leere Slots als "verschwunden" melden. */
+        if (!g_outputs[i].uid[0]) continue;
         /* find_device_by_uid ist eine CoreAudio-Abfrage, aber kein Mach-IPC-Blocking-Call
          * (rein property-basiert, kurz). Bleibt hier unter Lock als Phase-A-Operation. */
         AudioDeviceID found = find_device_by_uid(g_outputs[i].uid);
@@ -1872,19 +1844,12 @@ static void process_hotplug_removals(void)
                     sizeof(to_remove[n_remove].name) - 1);
             to_remove[n_remove].name[sizeof(to_remove[n_remove].name)-1] = '\0';
             n_remove++;
-            /* Slot sofort deaktivieren und kompaktieren (proc_id=NULL: kein Double-Stop). */
-            g_outputs[i].active  = false;
-            g_outputs[i].proc_id = NULL;
-            if (i != g_n_outputs - 1) {
-                g_outputs[i] = g_outputs[g_n_outputs - 1];
-            }
-            memset(&g_outputs[g_n_outputs - 1], 0, sizeof(DeviceOutput));
-            g_n_outputs--;
-            /* i NICHT erhoehen — neuer Slot-Inhalt muss auch geprueft werden */
-        } else {
-            i++;
+            /* Tombstoning: Slot als freien Tombstone markieren — KEIN Kompaktieren.
+             * Alle anderen Outputs behalten ihre Slot-Adresse und laufen weiter. */
+            memset(&g_outputs[i], 0, sizeof(DeviceOutput));
         }
     }
+    g_n_active_outputs = recount_active_locked();
     pthread_mutex_unlock(&g_outputs_lock);
 
     /* Phase B: Stop/Destroy OHNE Lock */
@@ -1975,6 +1940,9 @@ static void *volume_poll_thread(void *arg)
                         uint32_t w = atomic_load_explicit(&reconnected->write_idx, memory_order_acquire);
                         pthread_mutex_lock(&g_outputs_lock);
                         for (int i = 0; i < g_n_outputs; i++) {
+                            /* Tombstones ueberspringen (belegte Slots — aktiv
+                             * oder in-flight output_add — werden resettet). */
+                            if (!g_outputs[i].uid[0]) continue;
                             atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
                             /* K6: Pending-Reset — IOProc koennte weiter laufen waehrend
                              * wir reconnecten. Direktschreiben in src_frac_ridx = Data Race. */
@@ -2357,8 +2325,12 @@ static bool format_active_outputs(char *buf, size_t bufsz)
     }
     pos += (size_t)written;
 
+    int n_emitted = 0;
     for (int i = 0; i < g_n_outputs && pos < bufsz; i++) {
-        const char *sep = (i == 0) ? "" : ",";
+        /* Tombstoning: nur aktive Outputs ausgeben — freie/in-flight Slots
+         * ueberspringen. */
+        if (!g_outputs[i].active) continue;
+        const char *sep = (n_emitted == 0) ? "" : ",";
         /* H6: UID und Name JSON-korrekt escapen — verhindert kaputtes JSON
          * bei Device-UIDs/Namen mit Anführungszeichen oder Backslashes. */
         char safe_name[512];
@@ -2394,6 +2366,7 @@ static bool format_active_outputs(char *buf, size_t bufsz)
             break;
         }
         pos += (size_t)written;
+        n_emitted++;
     }
     if (pos + 1 < bufsz) {
         buf[pos]     = ']';
@@ -2500,8 +2473,11 @@ static int parse_and_execute(int fd, const char *line)
             if (find_output_slot_locked(new_uids[k], new_offs[k]) >= 0) n_added_successfully++;
         }
         if (n_new == 0 || n_added_successfully > 0) {
-            int i = 0;
-            while (i < g_n_outputs) {
+            /* Tombstoning: Slot-Indizes bleiben nach einem Remove stabil —
+             * daher einfache for-Schleife. Tombstones/in-flight Slots
+             * (active=false) ueberspringen. */
+            for (int i = 0; i < g_n_outputs; i++) {
+                if (!g_outputs[i].active) continue;
                 bool keep = false;
                 for (int k = 0; k < n_new; k++) {
                     if (strcmp(g_outputs[i].uid, new_uids[k]) == 0 &&
@@ -2511,7 +2487,7 @@ static int parse_and_execute(int fd, const char *line)
                 }
                 if (!keep) {
                     output_remove_locked(g_outputs[i].uid, g_outputs[i].ch_offset);
-                } else { i++; }
+                }
             }
         }
         char active_buf[16384];  /* MC-7: 16KB statt 4KB */
@@ -3020,7 +2996,7 @@ int main(int argc, char *argv[])
         }
     }
     pthread_mutex_lock(&g_outputs_lock);
-    int n_initial = g_n_outputs;
+    int n_initial = g_n_active_outputs;
     pthread_mutex_unlock(&g_outputs_lock);
 
     if (n_initial == 0) {
@@ -3055,7 +3031,7 @@ int main(int argc, char *argv[])
             uint32_t delta  = calls - prev_calls;
             prev_calls = calls;
             pthread_mutex_lock(&g_outputs_lock);
-            int n = g_n_outputs;
+            int n = g_n_active_outputs;
             pthread_mutex_unlock(&g_outputs_lock);
             fprintf(stdout, "\rRing: %4u Frames | Outputs: %d | IOProc-Calls: +%u/2s (%u total)      ",
                     frames, n, delta, calls);
