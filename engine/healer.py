@@ -10,8 +10,8 @@ Safe-Take-Modus deaktiviert alle Heilungseingriffe.
 from __future__ import annotations
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, Tuple
 
 from health import SystemHealth, OutputHealth
 
@@ -30,6 +30,7 @@ STALL_PERSIST_SAMPLES = 3  # 3 × 200ms = 600ms
 class CircuitBreaker:
     uid: str
     ch_offset: int
+    name: str = ""             # M6: Device-Name (für Trip-Notifications)
     failures: int = 0
     open_until: float = 0.0   # monotonic; kein Versuch solange now < open_until
     tripped: bool = False      # endgültig aufgegeben
@@ -52,9 +53,28 @@ class Healer:
         self._helper = helper_client
         self._safe_take = safe_take_getter
         self._breakers: Dict[Tuple[str, int], CircuitBreaker] = {}
+        # M1: Eviction-Karenz — zählt Aufrufe in Folge, in denen ein Breaker-Key
+        # nicht mehr in health.outputs vorkam. Eviction erst ab 2.
+        self._evict_pending: Dict[Tuple[str, int], int] = {}
 
     def process(self, health: SystemHealth) -> None:
         """Verarbeitet einen SystemHealth-Snapshot und löst ggf. Heilung aus."""
+        # M1: Breaker-Eviction — Breaker entfernen, deren Output nicht mehr in
+        # health.outputs vorkommt (Karenz: erst nach 2 aufeinanderfolgenden
+        # Aufrufen ohne den Output, damit transiente Lücken nicht evicten).
+        current_keys = {(o.uid, o.ch_offset) for o in health.outputs}
+        for key in list(self._breakers.keys()):
+            if key in current_keys:
+                self._evict_pending.pop(key, None)
+                continue
+            misses = self._evict_pending.get(key, 0) + 1
+            if misses >= 2:
+                logger.debug("Healer: Breaker %s evicted (Output nicht mehr aktiv)", key)
+                self._breakers.pop(key, None)
+                self._evict_pending.pop(key, None)
+            else:
+                self._evict_pending[key] = misses
+
         if self._safe_take():
             return  # Python-seitige Safe-Take-Doppelsperre
 
@@ -63,8 +83,14 @@ class Healer:
 
     def _process_output(self, output: OutputHealth) -> None:
         key = (output.uid, output.ch_offset)
-        cb = self._breakers.setdefault(key, CircuitBreaker(
-            uid=output.uid, ch_offset=output.ch_offset))
+        cb = self._breakers.get(key)
+        if cb is None:
+            # M6: Device-Name beim ersten Anlegen merken (für Trip-Notifications).
+            cb = CircuitBreaker(uid=output.uid, ch_offset=output.ch_offset,
+                                name=output.name)
+            self._breakers[key] = cb
+        elif output.name and not cb.name:
+            cb.name = output.name
 
         if not output.stalled:
             # Output gesund — Breaker zurücksetzen
@@ -104,20 +130,24 @@ class Healer:
                     output.name, output.ch_offset + 1, cb.failures + 1, MAX_ATTEMPTS)
         try:
             resp = self._helper.reconnect_output(output.uid, output.ch_offset)
-            if resp and resp.get("ok"):
-                logger.info("Healer: reconnect_output OK für '%s' Ch%d",
-                            output.name, output.ch_offset + 1)
-                # Stall-Samples zurücksetzen — warten ob es hält
-                cb.stall_samples = 0
-            else:
-                err = resp.get("error", "unknown") if resp else "no_response"
-                logger.warning("Healer: reconnect_output fehlgeschlagen für '%s' Ch%d: %s",
-                               output.name, output.ch_offset + 1, err)
         except Exception as e:
             logger.warning("Healer: reconnect_output Exception für '%s' Ch%d: %s",
                            output.name, output.ch_offset + 1, e)
+            resp = None
 
-        # Backoff-Wartezeit setzen
+        if resp is not None and resp.get("ok") is True:
+            logger.info("Healer: reconnect_output OK für '%s' Ch%d",
+                        output.name, output.ch_offset + 1)
+            # Stall-Samples zurücksetzen — warten ob es hält
+            cb.stall_samples = 0
+            return
+
+        if resp is not None:
+            logger.warning("Healer: reconnect_output fehlgeschlagen für '%s' Ch%d: %s",
+                           output.name, output.ch_offset + 1,
+                           resp.get("error", "unknown"))
+
+        # M1: failures NUR bei Misserfolg erhöhen + Backoff-Wartezeit setzen.
         cb.failures += 1
         backoff = BACKOFF_SECONDS[min(cb.failures - 1, len(BACKOFF_SECONDS) - 1)]
         cb.open_until = now + backoff
@@ -126,3 +156,15 @@ class Healer:
     def tripped_outputs(self):
         """Gibt Liste der Trip-Breaker zurück (für Notification)."""
         return [(cb.uid, cb.ch_offset) for cb in self._breakers.values() if cb.tripped]
+
+    def breaker_name(self, uid: str, ch_offset: int) -> str:
+        """M6: Gespeicherter Device-Name eines Breakers ('' wenn unbekannt)."""
+        cb = self._breakers.get((uid, ch_offset))
+        return cb.name if cb else ""
+
+    def reset_all(self) -> None:
+        """M1: Setzt alle Circuit Breaker zurück (z.B. nach Helper-Respawn)."""
+        if self._breakers:
+            logger.info("Healer: reset_all — %d Breaker zurückgesetzt", len(self._breakers))
+        self._breakers.clear()
+        self._evict_pending.clear()

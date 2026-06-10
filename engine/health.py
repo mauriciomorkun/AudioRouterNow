@@ -8,10 +8,7 @@ Kein Eingriff in den Audio-Pfad — rein observierend.
 """
 from __future__ import annotations
 import logging
-import threading
-import time
-from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
@@ -144,27 +141,37 @@ class HealthMonitor:
             )
             outputs.append(oh)
 
-            # Gründe sammeln
+            # Gründe sammeln — M2: stabile Kategorie-Keys ohne dynamische Zahlen
+            # (title/action_key-Vergleiche im UI bleiben dadurch stabil, kein
+            # Flackern). Konkrete Werte gehen ins Debug-Log.
             if stalled:
                 reasons.append(f"Output '{name}' Ch{ch_offset+1}-{ch_offset+2}: stalled")
             if delta > 0:
-                reasons.append(f"Output '{name}' Ch{ch_offset+1}-{ch_offset+2}: {delta} new underrun(s)")
+                reasons.append(f"Output '{name}' Ch{ch_offset+1}-{ch_offset+2}: underruns detected")
+                logger.debug("Health: '%s' Ch%d: %d new underrun(s)",
+                             name, ch_offset + 1, delta)
             if abs(ppm) > 600:
-                reasons.append(f"Output '{name}': SRC drift {ppm:+.0f} ppm (near limit)")
+                reasons.append(f"Output '{name}': SRC drift elevated (near limit)")
+                logger.debug("Health: '%s' SRC drift %+.0f ppm", name, ppm)
 
         # Reconnect-Delta
         reconnect_delta = max(0, reconnect_count - self._last_reconnect_count)
         self._last_reconnect_count = reconnect_count
         if reconnect_delta > 0:
-            reasons.append(f"SHM reconnected ({reconnect_delta}x)")
+            # M2: stabiler Key — Anzahl ins Debug-Log.
+            reasons.append("SHM reconnected")
+            logger.debug("Health: SHM reconnected (%dx)", reconnect_delta)
 
         if not ioproc_alive and audio_flowing:
             reasons.append("IOProc not responding (age > 500ms)")
 
         if ring_fill < 0.10:
-            reasons.append(f"Ring buffer critically low ({ring_fill:.0%})")
+            # M2: stabiler Key — Füllstand ins Debug-Log.
+            reasons.append("Ring buffer critically low")
+            logger.debug("Health: ring fill %.0f%%", ring_fill * 100.0)
         elif ring_fill > 0.95:
-            reasons.append(f"Ring buffer nearly full ({ring_fill:.0%})")
+            reasons.append("Ring buffer nearly full")
+            logger.debug("Health: ring fill %.0f%%", ring_fill * 100.0)
 
         # ── Roh-Level-Klassifikation (vor Hysterese) ──────────────────
         any_stalled    = any(o.stalled for o in outputs)
