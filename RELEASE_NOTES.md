@@ -9,6 +9,72 @@ Each release contains **two sections**:
 
 ---
 
+## v3.2.0 — June 10, 2026
+
+### For Everyone
+
+**Stability & Security release — smoother hot-plug, tighter internals, and a cleaner codebase.**
+
+If you've ever noticed a half-second of silence on your primary audio output when *another* device was unplugged, this release eliminates that completely. All other changes are under the hood — the app should feel identical, but behave better under edge-case conditions.
+
+What's new:
+
+- **Hot-plug silence eliminated** — removing or adding any audio device no longer interrupts outputs that weren't involved. Previously, every device change could briefly restart all active IOProcs (≤85 ms silence). Now each output only restarts when it personally needs to.
+- **Pre-roll halved to 43 ms** — the brief silent buffer that fills before a new device starts playing was mistakenly calculated as 85 ms due to a samples-vs-frames mix-up. Corrected to the intended 43 ms.
+- **No more stale audio on sudden clock drift** — if a device's audio clock drifts sharply beyond tolerance, the engine now outputs clean silence instead of replaying old stale frames.
+- **Shared memory hardened** — the inter-process memory segment that carries audio data is now created with tighter OS-level access permissions. The correct Unix group (`localaccounts`, which includes both your user account and the macOS audio subsystem) is set at creation time.
+- **Lag auto-recovery** — if an output falls more than 90% of the ring buffer behind (e.g. after a system sleep or extreme CPU load), it now automatically re-syncs instead of staying stuck behind.
+- **Numerous small fixes** — mute toggle correctness, sample-rate selection, circuit breaker logic, health check startup grace period, and more (see Power Users section for full list).
+
+**Who is affected:** All users benefit. No action required.
+
+---
+
+### For Power Users
+
+**Architecture: Tombstoning replaces Swap-Remove**
+
+The most significant change is in `output_remove_locked()` in the C Helper. Previously, removing a device output used swap-remove — the last slot was moved into the freed slot. This forced all moved IOProcs to be destroyed and re-registered with their new pointer, causing every uninvolved output to re-arm its pre-roll (85 ms silence). The new approach marks the freed slot as a tombstone (`uid[0] = '\0'`), leaving all other slots in-place. IOProcs for uninvolved outputs never see any interruption.
+
+Key counters: `g_n_outputs` is now a monotone high-water-mark; `g_n_active_outputs` tracks the actual live count. This eliminates bugs KC-1, HC-1, HC-2, and ARC-2 entirely.
+
+**Full list of fixes applied in this release:**
+
+| Fix | Component | Summary |
+|-----|-----------|---------|
+| KC-1 | Helper | Swap-remove forced moved-IOProc restart → eliminated by tombstoning |
+| KC-2 | Helper | `g_deferred_unmap_timestamp_ns`: 150 ms grace before `munmap` prevents SIGBUS when IOProc holds old `g_ring` pointer |
+| KC-3 | Helper | `frac_ridx_reset_pending` (bool) → `frac_ridx_reset_gen` (uint32 generation counter) — eliminates lost-update race between volume thread and IOProc |
+| HC-1 | Helper | Tombstoning: IOProcs for uninvolved outputs never restart on device change |
+| HC-2 | Helper | `src_frac_ridx` of moved output no longer force-reset (no more move = no more reset) |
+| HC-4 | Helper | Generation counter (KC-3) closes HC-4 race variant — same fix, two races addressed |
+| H1 | Python | Mute toggle: `set_muted(current > 0.0)` → `set_muted(not get_default_output_muted())` — reads actual mute state instead of volume proxy |
+| H3 | Python | Sample-rate selection: picks the rate with maximum device coverage instead of hardcoded 48 kHz fallback |
+| H4 | Python | Drift persistence: 3 consecutive polls required before persisting (grace period eliminates transient drift false-positives) |
+| M1 | Python | Circuit breaker: `failures` counter only incremented on actual failure (was also incrementing on success); eviction after 2 consecutive misses |
+| M4 | Python | Media-key volume changes use a worker thread + queue — no more per-keypress thread spawns |
+| M5 | Python | Health monitor: 3-iteration startup grace period before emitting "critical" state |
+| M6 | Python | Trip notifications use `breaker_name(uid, ch_offset)` API instead of searching `sh.outputs` |
+| M7 | Helper | `shutdown()` — `proc.wait()/terminate()/kill()` moved outside lock; only socket send runs under lock |
+| ARC-2 | Helper | Eliminated by tombstoning (no more output moves → no more force src_frac_ridx reset) |
+| ARC-3 | Python | New device debounce: reported only after 2 consecutive scans (~4 s); removals still immediate |
+| ARC-5 | Helper | Lag-eviction: output > 90% ring capacity behind → forced re-sync via generation mechanism |
+| N2 | Python/C | Unused imports removed across `healer.py`, `health.py`, `helper_client.py`, `diagnostic.py` |
+| N3 | Python | `_notified_trips: set` initialized in `__init__` (was lazy `hasattr` init) |
+| N4 | Python | `device_manager.refresh()` now fires `on_devices_changed` callback when changes detected |
+| N5 | Python | `_format_sample_rate()` extracted as `@staticmethod` — deduplicates kHz formatting across menu |
+| Batch 6 | Helper | `write_full()` partial-write loop; `parse_int_strict()` replaces all `atoi()`; `sigaction` with SA_RESTART; `shm_connect()` validates capacity+channels |
+| Batch 7 | Helper | SHM: `shm_open(…, 0660)` + `fchmod(0660)` + `fchown(fd, -1, 61)` — gid 61 = `localaccounts` group (contains both user uid 501 and `_coreaudiod` uid 202) |
+| Batch 8 | Helper | `active_buf` 4096→16384, `resp` 8192→24576; JITTER_TOLERANCE path outputs silence not stale data; non-interleaved nFrames uses `mNumberChannels`; `g_outputs_generation` counter for watchdog-race detection |
+| Pre-roll | Helper | `ARN_PREROLL_FRAMES = ARN_RING_CAPACITY / 8u` (2048 frames = 43 ms @ 48 kHz) — was `/4u = 4096 frames = 85 ms` due to samples-vs-frames confusion |
+| Infra | Python | `engine/version.py` — single source of truth for version number; all modules import from here |
+
+**Commits:** `3206ee3` (M-fixes nachtrag) — followed by version bump commit
+
+**Full technical documentation:** DOKUMENTATION.md, Kapitel 46.
+
+---
+
 ## v3.1.2 — June 9, 2026
 
 ### For Everyone
