@@ -1,7 +1,7 @@
 # AudioRouterNow — Vollständige Projekt-Dokumentation
 
-**Stand:** 9. Juni 2026 (Kapitel 45 — Diagnostic Report Feature)
-**Version:** 3.1.2  
+**Stand:** 10. Juni 2026 (Kapitel 46 — v3.2.0 Stability & Security Release)
+**Version:** 3.2.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** MIT  
 
@@ -56,6 +56,7 @@
 - [Kapitel 43 — Kompatibilitäts-Analyse](#kapitel-43--kompatibilitäts-analyse-2026-06-04)
 - [Kapitel 44 — P16 src_frac_ridx Overflow-Fix (v3.1.1, 9. Juni 2026)](#kapitel-44--p16-src_frac_ridx-overflow-fix-v311-9-juni-2026)
 - [Kapitel 45 — Diagnostic Report Feature (v3.1.2, 9. Juni 2026)](#kapitel-45--diagnostic-report-feature-v312-9-juni-2026)
+- [Kapitel 46 — v3.2.0 Stability & Security Release](#kapitel-46--v320-stability--security-release)
 
 ---
 
@@ -722,7 +723,7 @@ sudo make install && sudo make reload
 
 - **HAL-Treiber** (`AudioRouterNowDriver.c`): Virtuelles Audio-Device "Audio Router", vollständige COM-Vtable (23 Funktionen), IO-Callback (`DoIOOperation`), Unix Socket IPC mit Connector-Thread
 - **SocketReceiver** (`socket_receiver.py`): Unix Domain Socket Server, PCM-Empfang, Float32→numpy, Reconnect-Logik
-- **RoutingEngine** (`routing_engine.py`): sounddevice OutputStreams, Frame-Verteilung via Queue
+- **RoutingEngine** (`routing_engine.py`): sounddevice OutputStreams, Frame-Verteilung via Queue *(entfernt in v2.0)*
 - **MenuBarApp** (`menu_bar_app.py`): rumps App, Basis-Menu, Device-Auswahl, System-Audio-Umschalten via CoreAudio ctypes
 
 ### Phase 2: Multi-Channel Multi-Output
@@ -911,7 +912,7 @@ macOS Finder erlaubt es **nicht**, die Textfarbe von Icon-Labels programmatisch 
 
 Apple-AudioServerPlugin-Bundles müssen in `/Library/Audio/Plug-Ins/HAL/` liegen — root-geschützt. `coreaudiod` muss danach neu gestartet werden. User wird einmalig beim ersten App-Start nach Passwort gefragt.
 
-### sounddevice-Puffertiefe
+### sounddevice-Puffertiefe (entfernt in v2.0)
 
 `QUEUE_DEPTH = 8` → maximaler Puffer: 8×512/48000 ≈ 85ms. Bei Audio-Aussetzern oder überlastetem System können Frames verworfen werden (gewolltes Non-Backpressure-Verhalten).
 
@@ -951,7 +952,7 @@ AudioRouterNow/
 │                   └── AudioRouterNowDriver    (Universal Binary arm64+x86_64)
 │
 ├── engine/
-│   ├── requirements.txt                 numpy, sounddevice, rumps, pyobjc-framework-*
+│   ├── requirements.txt                 numpy, sounddevice (entfernt in v2.0), rumps, pyobjc-framework-*
 │   ├── menu_bar_app.py                  Haupt-App (rumps), Menu, UI-Logik, Auto-Start
 │   ├── routing_engine.py                Multi-Device OutputStream, Frame-Verteilung, Vol-Cache
 │   ├── socket_receiver.py               Unix Socket Server, PCM-Empfang, Float32→numpy
@@ -1006,7 +1007,7 @@ device_name = targets[0].device_name.split(" Ch ")[0]
 ```
 `OutputTarget.device_name` enthält für Multi-Channel-Devices den formatierten String `"Gerätname Ch 1-2"`. Das Split funktioniert nur, solange kein Gerätename selbst `" Ch "` enthält (z.B. "Yamaha AG Ch Control" würde falsch gesplittet).
 
-**Fix:** Saubere Abfrage via sounddevice:
+**Fix:** Saubere Abfrage via sounddevice *(entfernt in v2.0)*:
 ```python
 try:
     device_name = sd.query_devices(device_index)["name"]
@@ -5816,3 +5817,39 @@ Vor dem Commit wurde ein strukturierter Audit via `sc:analyze` durchgeführt. Be
 Nicht behoben (akzeptiert): L3 (APP_VERSION hardcoded), L4 (E-Mail im Klartext — kein Risiko da GitHub-öffentlich), L5 (kein Report-Größen-Cap).
 
 Commit: `317f531` · Branch: `main`
+
+---
+
+## Kapitel 46 — v3.2.0 Stability & Security Release
+
+### Übersicht
+Version 3.2.0 enthält 12 Batches mit Fixes für alle in einem umfassenden Fable-5-Audit identifizierten Probleme.
+
+### Wichtigste Verbesserungen
+
+**Tombstone-Architektur (Batch 9)**
+Swap-Remove in output_remove_locked() durch stabile Slot-Adressen ersetzt.
+Uninvolvierte Outputs werden nicht mehr bei Hot-Plug-Events neu gestartet.
+Der BenQ-Monitor-Dropout-Bug ist damit behoben.
+
+**AppleScript-Fix (Batch 2, K1)**
+open_mail_with_report() hatte einen syntaktischen Fehler im AppleScript-Template.
+Das "Diagnostic Report per Mail senden"-Feature funktioniert jetzt korrekt.
+
+**UI-Thread-Safety (Batch 2, K2)**
+Drei AppKit-Mutationen aus Background-Threads wurden auf Main-Thread-Dispatch umgestellt.
+
+**SHM-Sicherheit (Batch 7, HC-3)**
+Shared Memory Permissions von 0666 auf 0660 (localaccounts-Gruppe) verschärft.
+_coreaudiod-Zugriff bleibt erhalten; fremde UIDs werden ausgeschlossen.
+
+**Zentrale Versionsnummer (Batch 1)**
+engine/version.py als Single Source of Truth für alle Versions-Strings.
+
+**Pre-Roll-Latenz (Batch 11, ARC-4)**
+Von 85ms auf 43ms halbiert — der Kommentar war korrekt, der Wert falsch.
+
+### Weitere Fixes
+Mute-Toggle, Socket-Timeouts, Sample-Rate-Auswahl, Reconcile-Grace-Period,
+Healer-Logik, Lag-Eviction, Add-Debounce, send_line-Robustheit,
+sigaction, Port-Leak, strtol-Migration, JSON-Buffer, RT-Korrektheit.

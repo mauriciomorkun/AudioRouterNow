@@ -224,6 +224,11 @@ class DeviceManager:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._known: Dict[str, AudioDevice] = {}  # uid -> AudioDevice
+        # ARC-3: Add-Debounce — neue Geraete erst nach 2 aufeinanderfolgenden
+        # Scans (~4s bei 2s Poll-Intervall) als "added" melden. Verhindert
+        # Flattern bei Geraeten, die waehrend der Enumeration kurz auftauchen.
+        # uid -> Anzahl aufeinanderfolgender Scans, in denen das Geraet neu war.
+        self._pending_new_devices: Dict[str, int] = {}
 
     def start(self):
         with self._lock:
@@ -303,18 +308,40 @@ class DeviceManager:
 
         old_uids = set(self._known.keys())
         new_uids = set(new_map.keys())
-        added = new_uids - old_uids
+        added_raw = new_uids - old_uids
         removed = old_uids - new_uids
+
+        # ARC-3: Add-Debounce — neue Geraete erst beim 2. aufeinanderfolgenden
+        # Scan (count >= 2, ~4s) wirklich als "added" melden. Removals werden
+        # weiterhin SOFORT gemeldet (kein Debounce bei Removals).
+        added = set()
+        for uid in added_raw:
+            count = self._pending_new_devices.get(uid, 0) + 1
+            if count >= 2:
+                added.add(uid)
+                self._pending_new_devices.pop(uid, None)
+            else:
+                self._pending_new_devices[uid] = count
+        # Pending-Eintraege aufraeumen, deren Geraet wieder verschwunden ist.
+        for uid in list(self._pending_new_devices.keys()):
+            if uid not in added_raw:
+                self._pending_new_devices.pop(uid, None)
+
+        # Unbestaetigte neue Geraete aus der bekannten Map zurueckhalten —
+        # sonst waeren sie beim naechsten Scan nicht mehr "neu".
+        effective_map = {
+            u: d for u, d in new_map.items() if u not in self._pending_new_devices
+        }
 
         if added or removed:
             if added:
                 logger.info("Neue Devices: %s", ", ".join(new_map[u].name for u in added))
             if removed:
                 logger.info("Devices entfernt: %s", ", ".join(self._known[u].name for u in removed))
-            self._known = new_map
-            return list(new_map.values())
+            self._known = effective_map
+            return list(effective_map.values())
 
-        self._known = new_map
+        self._known = effective_map
         return None
 
     def _poll_loop(self):
