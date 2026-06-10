@@ -49,3 +49,17 @@ DerivedData/
 
 # Compiled Python
 *.pyc
+
+# Projektinterne Dokumente die nicht ins Public-Repo gehören
+*.pdf
+AudioRouterNow_Roadmap_2026.pdf
+AudioRouterNow_Strategie_2026.pdf
+
+# Screenshots / Bildschirmfotos im Projektroot
+Bildschirmfoto*.png
+
+# Hilfsskripte
+installer/generate_pdfs.py
+
+# Diagnostic Reports (werden auf dem Desktop erstellt, nicht im Repo)
+AudioRouterNow_DiagReport_*.txt
