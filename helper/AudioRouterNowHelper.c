@@ -44,9 +44,7 @@
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/file.h>   /* M8: flock() fuer Single-Instance-Lock */
-#include <sys/sysctl.h> /* P0-D: KERN_PROC_ALL fuer coreaudiod-PID-Suche */
-#include <sys/proc_info.h> /* P0-D: rusage_info_v4 */
-#include <libproc.h>    /* P0-D: proc_pid_rusage() fuer coreaudiod-CPU-Watchdog */
+#include <grp.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -396,10 +394,6 @@ static atomic_int              g_auto_sample_rate   = 1;
 /* H3: Hot-Plug-Flag — Callback setzt nur dieses Flag, Volume-Thread reagiert.
  * Kein CoreAudio-Call im Property-Callback-Kontext (Re-Entry-Deadlock-Risiko). */
 static atomic_int              g_hotplug_pending    = 0;
-
-/* P0-D: coreaudiod CPU-Watchdog — gesetzt wenn Spin erkannt + reagiert wurde.
- * Einmal gesetzt bleibt er bis zum Neustart (Einmal-Reaktion, kein Flattern). */
-static atomic_int              g_watchdog_tripped   = 0;
 
 /* Keep-Alive IOProc — hält das virtuelle "Audio Router" Device dauerhaft running.
  * Registriert in C (nicht Python) damit der Funktionszeiger für die gesamte
@@ -1743,138 +1737,6 @@ static OSStatus devices_changed_listener(AudioObjectID inObjectID,
     return noErr;
 }
 
-/* ── P0-D: coreaudiod CPU-Watchdog ──────────────────────────────────────── */
-
-/*
- * Findet die PID von coreaudiod via sysctl-Prozessliste (kein execvp, kein popen).
- * Gibt 0 zurueck wenn nicht gefunden.
- */
-static pid_t find_coreaudiod_pid(void)
-{
-    int    mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
-    size_t len    = 0;
-    if (sysctl(mib, 4, NULL, &len, NULL, 0) != 0 || len == 0) return 0;
-
-    struct kinfo_proc *procs = (struct kinfo_proc *)malloc(len);
-    if (!procs) return 0;
-    if (sysctl(mib, 4, procs, &len, NULL, 0) != 0) { free(procs); return 0; }
-
-    pid_t  result = 0;
-    size_t n = len / sizeof(struct kinfo_proc);
-    for (size_t i = 0; i < n; i++) {
-        if (strncmp(procs[i].kp_proc.p_comm, "coreaudiod", 10) == 0) {
-            result = procs[i].kp_proc.p_pid;
-            break;
-        }
-    }
-    free(procs);
-    return result;
-}
-
-/*
- * Liest die kumulierte CPU-Zeit (User+System, in Nanosekunden) von pid via libproc.
- * Gibt true bei Erfolg, false bei Fehler (Prozess verschwunden o.ae.).
- */
-static bool read_proc_cpu_ns(pid_t pid, uint64_t *out_cpu_ns)
-{
-    struct rusage_info_v4 ri;
-    if (proc_pid_rusage(pid, RUSAGE_INFO_V4, (rusage_info_t *)&ri) != 0) return false;
-    *out_cpu_ns = ri.ri_user_time + ri.ri_system_time;  /* bereits in ns */
-    return true;
-}
-
-/* F2: outputs_stop_all in detached Thread — der Watchdog-Pfad darf nicht
- * synchron auf Mach-IPC zu einem degradierten coreaudiod blockieren. */
-static void *outputs_stop_all_thread(void *arg) { (void)arg; outputs_stop_all(); return NULL; }
-
-/*
- * P0-D: Watchdog-Tick — alle ~2s vom volume_poll_thread aufgerufen.
- *
- * Erkennt anhaltenden coreaudiod-CPU-Spin (>90% CPU ueber >5s) und reagiert
- * defensiv: stoppt eigene IOProcs (entzieht dem Spin die Nahrung) und schreibt
- * eine Flag-Datei fuer die Python-Engine. KEIN destruktives killall — die UI
- * bietet dem Nutzer einen bestaetigen Treiber-Reload-Dialog an.
- */
-__attribute__((unused)) static void coreaudiod_watchdog_tick(void)
-{
-    static pid_t    s_pid          = 0;
-    static uint64_t s_last_cpu_ns  = 0;
-    static uint64_t s_last_wall_ns = 0;
-    static int      s_high_streak  = 0;   /* aufeinanderfolgende High-CPU-Samples */
-
-    /* Einmal reagiert = fertig. Kein Flattern. */
-    if (atomic_load_explicit(&g_watchdog_tripped, memory_order_relaxed)) return;
-
-    /* Pruefe ob s_pid noch lebt; bei Neustart/PID-Wechsel neu suchen. */
-    if (s_pid == 0 || kill(s_pid, 0) != 0) {
-        s_pid          = find_coreaudiod_pid();
-        s_last_cpu_ns  = 0;
-        s_last_wall_ns = 0;
-        s_high_streak  = 0;
-        if (s_pid == 0) return;
-    }
-
-    uint64_t cpu_ns = 0;
-    uint64_t now_ns = get_time_ns();
-    if (!read_proc_cpu_ns(s_pid, &cpu_ns)) {
-        /* Prozess verschwunden — Suche beim naechsten Tick wiederholen. */
-        s_pid = 0;
-        return;
-    }
-
-    if (s_last_wall_ns != 0 && now_ns > s_last_wall_ns) {
-        uint64_t d_cpu  = (cpu_ns  > s_last_cpu_ns)  ? (cpu_ns  - s_last_cpu_ns)  : 0;
-        uint64_t d_wall = now_ns - s_last_wall_ns;
-        /* CPU-Anteil in Prozent. Auf Mehrkern-Systemen kann pct > 100 sein;
-         * der Spin-Fall erzeugt typischerweise 95-100+ auf einem Kern. */
-        double pct = (d_wall > 0) ? (100.0 * (double)d_cpu / (double)d_wall) : 0.0;
-
-        if (pct > 90.0) {
-            s_high_streak++;
-        } else {
-            s_high_streak = 0;
-        }
-
-        /* Tick alle ~2s → 3 konsekutive Samples >= 90% = >5s anhaltend. */
-        if (s_high_streak >= 3) {
-            fprintf(stderr,
-                "Helper: WATCHDOG — coreaudiod (pid %d) bei %.0f%% CPU ueber >5s kontinuierlich. "
-                "Stoppe eigene IOProcs, schreibe Flag-Datei fuer UI.\n",
-                (int)s_pid, pct);
-
-            /* F2-1. Flag-Datei ZUERST schreiben (nicht-destruktiv) — auch wenn
-             *    der Stop-Pfad haengt, sieht die Python-Engine den Spin. */
-            const char *home = getenv("HOME");
-            if (home) {
-                char path[512];
-                snprintf(path, sizeof(path),
-                         "%s/.audiorouter/coreaudiod_spin.flag", home);
-                FILE *f = fopen(path, "w");
-                if (f) {
-                    fprintf(f, "coreaudiod_pid=%d cpu_pct=%.0f ts_ns=%llu\n",
-                            (int)s_pid, pct, (unsigned long long)now_ns);
-                    fclose(f);
-                }
-            }
-
-            /* F2-2. Tripped-Flag setzen — kein erneutes Triggern. */
-            atomic_store_explicit(&g_watchdog_tripped, 1, memory_order_release);
-
-            /* F2-3. Eigene IOProcs in detached Thread stoppen — Mach-IPC zu
-             *    degradiertem coreaudiod darf den Watchdog nicht blockieren. */
-            pthread_t stopper;
-            if (pthread_create(&stopper, NULL, outputs_stop_all_thread, NULL) == 0) {
-                pthread_detach(stopper);
-            } else {
-                outputs_stop_all(); /* synchroner Fallback */
-            }
-        }
-    }
-
-    s_last_cpu_ns  = cpu_ns;
-    s_last_wall_ns = now_ns;
-}
-
 /* H3: Eigentliche Hot-Plug-Reaktion — laeuft im Volume-Thread (nicht im Callback).
  *
  * P2-A FIX: AudioDeviceStop/DestroyIOProcID sind Mach-IPC zu coreaudiod.
@@ -2973,17 +2835,18 @@ int main(int argc, char *argv[])
     /* 2. SHM proaktiv erstellen — der Driver-Sandbox-Prozess (_coreaudiod) kann
      *    shm_open(O_CREAT) nicht ausfuehren. Der Helper laeuft als normaler User
      *    ohne Sandbox-Restriktion und erstellt das Segment.
-     *    HC-3: 0660 + Gruppe localaccounts (gid 61) statt world-writable 0666 —
-     *    _coreaudiod ist Mitglied von localaccounts, der User ebenfalls. Damit
-     *    koennen beide Seiten zugreifen, fremde Prozesse anderer User nicht. */
+     *    H-2: 0660 + Gruppe _coreaudiod (gid 202) — exklusiv Owner + _coreaudiod.
+     *    getgrnam() dynamisch, Fallback 202. */
     {
         shm_unlink(ARN_SHM_NAME); /* Stales Segment entfernen (Fehler ignorieren) */
+        struct group *_cad_gr = getgrnam("_coreaudiod");
+        gid_t _cad_gid = _cad_gr ? _cad_gr->gr_gid : (gid_t)202;
         int shm_fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0660);
         if (shm_fd >= 0) {
             fchmod(shm_fd, 0660); /* umask umgehen */
-            if (fchown(shm_fd, (uid_t)-1, 61) != 0) {  /* gid 61 = localaccounts (User + _coreaudiod) */
-                fprintf(stderr, "Helper: Warnung — fchown(localaccounts) auf SHM "
-                        "fehlgeschlagen (errno=%d)\n", errno);
+            if (fchown(shm_fd, (uid_t)-1, _cad_gid) != 0) {
+                fprintf(stderr, "Helper: Warnung — fchown(_coreaudiod gid=%d) auf SHM "
+                        "fehlgeschlagen (errno=%d)\n", (int)_cad_gid, errno);
             }
             if (ftruncate(shm_fd, (off_t)ARN_SHM_SIZE) == 0) {
                 void *ptr = mmap(NULL, ARN_SHM_SIZE, PROT_READ | PROT_WRITE,
@@ -2997,8 +2860,8 @@ int main(int argc, char *argv[])
                     if (iid == 0) iid = 1; /* Niemals 0 (= nicht initialisiert) */
                     atomic_store_explicit(&init_ring->instance_id, iid, memory_order_release);
                     munmap(ptr, ARN_SHM_SIZE);
-                    fprintf(stdout, "Helper: SHM erstellt (%s, 0660 gid=localaccounts, %zu Bytes, iid=0x%llx)\n",
-                            ARN_SHM_NAME, ARN_SHM_SIZE, (unsigned long long)iid);
+                    fprintf(stdout, "Helper: SHM erstellt (%s, 0660 gid=_coreaudiod(%d), %zu Bytes, iid=0x%llx)\n",
+                            ARN_SHM_NAME, (int)_cad_gid, ARN_SHM_SIZE, (unsigned long long)iid);
                 } else {
                     fprintf(stderr, "Helper: SHM mmap fehlgeschlagen (errno=%d)\n", errno);
                 }
