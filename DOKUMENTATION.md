@@ -6044,3 +6044,102 @@ AudioRouterNow ist ein technisch reifes Projekt mit überdurchschnittlicher C-Co
 ✅ PyInstaller-Quirks gut behandelt
 ✅ DMG-Workflow (UDRW→UDZO) korrekt
 ✅ ABI-Version-Datei als Kompatibilitäts-Guard
+
+---
+
+## Kapitel 50 — Backlog: C-2 / H-9 / H-10 / H-11 (zurückgestellt, Stand: 2026-06-11)
+
+Diese vier Punkte wurden im tiefen Audit (Kapitel 49) identifiziert. Sie betreffen ausschliesslich
+Distribution/Signing und haben keinen Einfluss auf die Kernfunktionalität. Werden in einem späteren
+Sprint gemeinsam angegangen.
+
+| ID | Problem | Auswirkung |
+|----|---------|------------|
+| **C-2** | App-Bundle nur arm64 (kein Universal Binary) | Intel-Macs laufen nur via Rosetta |
+| **H-9** | Nur ad-hoc signiert, kein Developer Certificate | Gatekeeper-Block auf Fremd-Macs |
+| **H-10** | Entitlements / Hardened Runtime unvollständig | Notarisierung nicht möglich |
+| **H-11** | Keine Apple-Notarisierung | Pflicht für App Store / breite Verteilung |
+
+**Reihenfolge wenn angegangen**: H-9 (Developer Account + Signing) → H-10 (Entitlements) → H-11 (Notarisierung) → C-2 (Universal Binary).
+
+---
+
+## Kapitel 51 — v3.3.1 Fixes: H-1, H-2, H-4/H-5, H-6 (2026-06-11)
+
+### H-1: Toten Watchdog-Code entfernt
+
+**Problem**: `coreaudiod_watchdog_tick()` in `helper/AudioRouterNowHelper.c` hatte seit dem F6-Fix
+(v3.3.0: CPU-Poll aus `volume_poll_thread` entfernt) keinen Aufrufpunkt mehr. Die Funktion war mit
+`__attribute__((unused))` markiert und wurde nie ausgeführt.
+
+**Mitentfernt** (ausschliesslich vom Watchdog genutzt):
+- `find_coreaudiod_pid()` — sysctl-basierte PID-Suche
+- `read_proc_cpu_ns()` — proc_pid_rusage-Wrapper
+- `outputs_stop_all_thread()` — detached-Thread-Wrapper
+- Drei Includes: `<sys/sysctl.h>`, `<sys/proc_info.h>`, `<libproc.h>`
+
+`get_time_ns()` wurde NICHT entfernt — wird weiterhin an 6+ Stellen für Stall-Detection genutzt.
+
+### H-2: POSIX SHM Permissions gehärtet
+
+**Problem**: Das POSIX Shared Memory Ring-Buffer-Segment wurde mit `0660 + gid 61` (localaccounts)
+erstellt. Da `localaccounts` (gid 61) alle lokalen Benutzerkonten umfasst, konnte theoretisch jede
+App eines anderen lokalen Users den Audio-Datenstrom lesen oder manipulieren.
+
+**Fix**: `getgrnam("_coreaudiod")` ermittelt die GID der `_coreaudiod`-Gruppe dynamisch zur Laufzeit
+(Standard-macOS: 202, Fallback falls `getgrnam` fehlschlägt). Mit `0660 + gid _coreaudiod` haben
+ausschliesslich der Owner-Prozess (Helper, läuft als eingeloggter User) und der `_coreaudiod`-Prozess
+(HAL-Driver) Zugriff. Kein anderer lokaler Account kann das SHM öffnen.
+
+```c
+struct group *_cad_gr = getgrnam("_coreaudiod");
+gid_t _cad_gid = _cad_gr ? _cad_gr->gr_gid : (gid_t)202;
+// ...
+if (fchown(shm_fd, (uid_t)-1, _cad_gid) != 0) { ... }
+```
+
+### H-4/H-5: GetZeroTimeStamp Timeline-Seed
+
+**Problem**: `ARN_GetZeroTimeStamp()` lieferte immer `*outSeed = 1`. Laut macOS HAL-Spec soll
+`outSeed` sich ändern, wenn die Device-Timeline eine Diskontinuität erfährt (IO-Start, SR-Wechsel).
+macOS nutzt diesen Wert für die Synchronisation mehrerer Audio-Geräte.
+
+**Fix**: Neue atomare Variable `gTimelineSeed` (atomic_uint, Startwert 1). Wird inkrementiert bei:
+- `ARN_StartIO()` wenn erster Client IO startet (`gIORunningCount == 0` → 1)
+- `ARN_PerformDeviceConfigurationChange()` nach jedem Sample-Rate-Wechsel
+
+`GetZeroTimeStamp` liest den Seed atomar (`memory_order_relaxed` — keine Ordnungsgarantie nötig):
+```c
+*outSeed = (UInt64)atomic_load_explicit(&gTimelineSeed, memory_order_relaxed);
+```
+
+### H-6: Healer Thread-Safety
+
+**Problem**: `Healer.process()` läuft alle 200 ms im health-poll-Thread. `Healer.reset_all()` wird
+vom UI-Timer-Thread (`_process_pending_updates`, alle 500 ms) aufgerufen. Beide modifizieren
+`self._breakers` und `self._evict_pending` ohne Synchronisation — klassische Race Condition.
+
+**Fix**: `threading.Lock` in allen public Methoden:
+
+```python
+self._lock = threading.Lock()
+
+def process(self, health):
+    with self._lock:
+        # ... gesamter bisheriger Inhalt ...
+
+def reset_all(self):
+    with self._lock:
+        # ...
+
+def tripped_outputs(self):
+    with self._lock:
+        return [...]
+
+def breaker_name(self, uid, ch_offset):
+    with self._lock:
+        # ...
+```
+
+Lock-Contention ist minimal: beide Threads laufen mit 200 ms / 500 ms Intervall, die kritischen
+Abschnitte dauern < 1 ms. Kein Deadlock-Risiko (einziger Lock im Healer, kein verschachtelter Lock).

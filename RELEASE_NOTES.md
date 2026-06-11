@@ -9,6 +9,25 @@ Each release contains **two sections**:
 
 ---
 
+## v3.3.1 — June 11, 2026
+
+### For Everyone
+
+- **Better security**: The audio data channel between AudioRouterNow's components is now strictly private — other user accounts on the same Mac can no longer access it.
+- **Stability**: Fixed a theoretical race condition in the self-healing module that could have caused crashes under very specific timing conditions.
+- No action required. Update normally.
+
+### For Power Users
+
+| Fix | Component | Description |
+|-----|-----------|-------------|
+| **H-1** | Helper (C) | Removed dead `coreaudiod_watchdog_tick()` function — unreachable since F6 removed the call site in v3.3.0. Also removed `find_coreaudiod_pid()`, `read_proc_cpu_ns()`, `outputs_stop_all_thread()` and three unused includes (`sys/sysctl.h`, `sys/proc_info.h`, `libproc.h`). |
+| **H-2** | Helper (C) | POSIX SHM now uses `0660 + gid _coreaudiod` (resolved dynamically via `getgrnam()`, fallback 202) instead of `gid 61` (localaccounts). Only the owner process and `_coreaudiod` can access the audio ring buffer. |
+| **H-4/H-5** | Driver (C) | `GetZeroTimeStamp outSeed` now uses an atomic counter `gTimelineSeed` (incremented on `StartIO` and `PerformDeviceConfigurationChange`) instead of a hardcoded `1`. Correct per macOS HAL spec for multi-device timeline sync. |
+| **H-6** | Engine (Python) | `Healer` class now uses `threading.Lock` in all public methods. Fixes a race condition between `process()` (health-poll thread, 200 ms) and `reset_all()` (UI timer thread, 500 ms). |
+
+---
+
 ## v3.3.0 — June 11, 2026
 
 ### For Everyone
