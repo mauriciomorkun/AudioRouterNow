@@ -148,6 +148,9 @@ static atomic_ullong                    gNumberTimeStamps   = 0;
  * Host-Clock — so bleibt die Sample-Zeit konsistent mit dem Ring-Fortschritt,
  * auch wenn IOProc-Calls zeitlich driften. RT-sicher: nur atomic_fetch_add. */
 static atomic_ullong                    gFramesWritten      = 0;
+/* H-4/H-5: Timeline-Seed — inkrementiert bei IO-Start + SR-Wechsel.
+ * macOS nutzt outSeed zur Erkennung von Timeline-Diskontinuitaeten. */
+static atomic_uint                      gTimelineSeed       = 1;
 /*
  * gHostTicksPerFrame: wird nur von nicht-RT-Pfaden geschrieben (Initialize,
  * StartIO). Von GetZeroTimeStamp atomar gelesen — kein Mutex noetig.
@@ -753,6 +756,7 @@ static OSStatus ARN_PerformDeviceConfigurationChange(AudioServerPlugInDriverRef 
             arn_ring_set_sample_rate(ring, (uint32_t)newRate);
         }
         pthread_mutex_unlock(&gStateMutex);
+        atomic_fetch_add_explicit(&gTimelineSeed, 1u, memory_order_release);
         os_log(gLog, "AudioRouterNow: SampleRate -> %.0f", newRate);
         return kAudioHardwareNoError;
     }
@@ -1718,6 +1722,7 @@ static OSStatus ARN_StartIO(AudioServerPlugInDriverRef inDriver,
         atomic_store_explicit(&gAnchorHostTime, mach_absolute_time(), memory_order_release);
         atomic_store(&gNumberTimeStamps, 0);
         atomic_store(&gFramesWritten, 0);  /* P4: Frame-Zaehler beim Start zuruecksetzen. */
+        atomic_fetch_add_explicit(&gTimelineSeed, 1u, memory_order_release);
         atomic_store(&gDeviceIsRunning, 1);
         os_log(gLog, "AudioRouterNow: StartIO — Device laeuft");
     }
@@ -1763,7 +1768,7 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
     if (atomic_load_explicit(&gFramesWritten, memory_order_relaxed) == 0) {
         *outHostTime = mach_absolute_time();
         *outSampleTime = 0.0;
-        *outSeed = 1;
+        *outSeed = (UInt64)atomic_load_explicit(&gTimelineSeed, memory_order_relaxed);
         return kAudioHardwareNoError;
     }
 
@@ -1818,7 +1823,7 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
 
     *outSampleTime = (Float64)(completed * kZeroTimeStampPeriod);
     *outHostTime   = anchor + (UInt64)((Float64)(completed * kZeroTimeStampPeriod) * ticksPerFrame);
-    *outSeed       = 1; /* Format aendert sich nie waehrend IO */
+    *outSeed       = (UInt64)atomic_load_explicit(&gTimelineSeed, memory_order_relaxed); /* H-4/H-5 */
 
     /* F3: Hybrid-Clock-Guard — der gemeldete Host-Timestamp darf nie weiter
      * als eine kZeroTimeStampPeriod in der Vergangenheit liegen. Sonst
