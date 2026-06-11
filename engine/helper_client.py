@@ -152,13 +152,17 @@ class HelperClient:
                 log_dir.mkdir(parents=True, exist_ok=True)
                 log_out = open(log_dir / "helper.log", "ab", buffering=0)
                 log_err = open(log_dir / "helper.err", "ab", buffering=0)
-                proc = subprocess.Popen(
-                    [str(binary)],
-                    stdout=log_out,
-                    stderr=log_err,
-                    stdin=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
+                try:
+                    proc = subprocess.Popen(
+                        [str(binary)],
+                        stdout=log_out,
+                        stderr=log_err,
+                        stdin=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                finally:
+                    log_out.close()
+                    log_err.close()
                 with self._lock:
                     self._proc = proc
                     self._spawned_by_us = True
@@ -244,6 +248,13 @@ class HelperClient:
                 try:
                     proc.terminate()
                     proc.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    logger.warning("Helper ignoriert SIGTERM — sende SIGKILL")
+                    proc.kill()
+                    try:
+                        proc.wait(timeout=2.0)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
