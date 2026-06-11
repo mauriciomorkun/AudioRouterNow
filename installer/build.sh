@@ -104,6 +104,14 @@ APP_PATH="$DIST_DIR/${APP_NAME}.app"
 [[ -d "$APP_PATH" ]] || fail ".app wurde nicht erstellt. Siehe PyInstaller-Ausgabe oben."
 ok "${APP_NAME}.app gebaut: $APP_PATH"
 
+# H6: PyInstaller 6.x benennt .driver → __dot__driver in Contents/Frameworks/
+# Suche ohne Pfad-Pattern — es gibt genau eine AudioRouterNowHelper Binary im Bundle.
+HELPER_DST="$(find "$APP_PATH" -type f -name "AudioRouterNowHelper" 2>/dev/null | head -1)"
+if [[ -z "$HELPER_DST" ]]; then
+    fail "AudioRouterNowHelper nicht im App-Bundle gefunden — PyInstaller-Layout unerwartet."
+fi
+ok "Helper-Binary gefunden: $HELPER_DST"
+
 # --- Code-Signierung (ad-hoc + Entitlements) ---------------------------------
 # PyInstaller bündelt Homebrew-Python (andere Team-ID als unsere ad-hoc App).
 # macOS Sequoia+ verweigert das Laden bei Team-ID-Konflikt.

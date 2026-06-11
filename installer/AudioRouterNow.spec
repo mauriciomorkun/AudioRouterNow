@@ -70,7 +70,7 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
-    target_arch="arm64",
+    target_arch=None,
     codesign_identity=None,
     entitlements_file=str(Path(SPECPATH) / "entitlements.plist"),
 )
