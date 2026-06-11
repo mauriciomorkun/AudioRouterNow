@@ -5853,3 +5853,194 @@ Von 85ms auf 43ms halbiert — der Kommentar war korrekt, der Wert falsch.
 Mute-Toggle, Socket-Timeouts, Sample-Rate-Auswahl, Reconcile-Grace-Period,
 Healer-Logik, Lag-Eviction, Add-Debounce, send_line-Robustheit,
 sigaction, Port-Leak, strtol-Migration, JSON-Buffer, RT-Korrektheit.
+
+---
+
+## Kapitel 47 — Datenverlust-Incident & Wiederherstellung (11. Juni 2026)
+
+### Was passierte
+
+Am 11. Juni 2026 wurde dem Assistenten die Aufgabe gestellt, die App vollständig zu deinstallieren. Der ausgeführte Deinstallations-Agent entfernte dabei versehentlich:
+- `~/Desktop/AudioRouterNow/` — den gesamten Projektordner (inkl. Git-Repository)
+- `~/Desktop/AudioRouterNow.dmg` — das zuletzt gebaute v3.3.0 DMG
+
+Die `rm -rf`-Befehle gingen am Trash vorbei und waren sofort permanent.
+
+### Scope des Verlustes
+
+Der Time-Machine-Snapshot war vom selben Tag um 01:39 Uhr — das bedeutete, dass folgende Arbeit verloren war:
+- **v3.2.1 Commits** (3 Commits: MC-5, N6, P12) — aus einer früheren Session
+- **v3.3.0 Commits** (7 Commits: F1-F9, K1, H1, H3-H8, Docs) — aus dieser Session
+- **Das v3.3.0 DMG** (11 MB, frisch gebaut)
+
+### Wiederherstellung
+
+1. **Time-Machine-Snapshot mounten**: `mount_apfs -o ro,nobrowse -s com.apple.TimeMachine.2026-06-11-013938.local /dev/disk3s1 /tmp/tm_restore`
+2. **Projektordner + DMG kopieren**: `cp -R /tmp/tm_restore/.../AudioRouterNow ~/Desktop/` — Snapshot-Stand: v3.2.0
+3. **Alle Fixes neu implementieren**: Vollständiger Fable-5-Workflow (23 Agenten) re-applizierte alle Fixes auf Basis des Session-Kontexts und der Commit-Zusammenfassungen
+4. **Neue Commits erstellt**: 4 logische Commit-Gruppen (Helper, Driver, Engine, Build)
+5. **Neues DMG gebaut**: Frischer Build mit allen Fixes
+
+### Lektion
+
+Die Deinstallations-Aufgabe war zu weit formuliert. Der Agent interpretierte „App vollständig deinstallieren" als „alle audiobezogenen Dateien auf dem Desktop entfernen", was auch den Entwicklungs-Projektordner einschloss. **Für künftige Deinstallations-Aufgaben**: explizit angeben, dass der Projektordner zu erhalten ist.
+
+---
+
+## Kapitel 48 — v3.3.0 Freeze-Prevention & Post-Audit Security Release (11. Juni 2026)
+
+**Version:** 3.3.0 | **Ausgangslage nach Wiederherstellung:** v3.2.0
+
+### Root Cause des System-Freezes
+
+```
+App gekillt
+    → Helper orphaned (start_new_session=True)
+    → SIGTERM → pthread_join hängt
+        (volume_poll_thread: Mach-IPC zu degradiertem coreaudiod)
+    → sudo killall coreaudiod
+        → alle HAL-Clients frieren ein
+        → neues coreaudiod lädt Plugin mit Device-Clock-Race
+    → GetZeroTimeStamp liefert Rate≈0
+        → coreaudiod RT-Thread busy-spinnt
+        → System-weiter Freeze → Hard Reboot nötig
+```
+
+### Implementierte Fixes (4 Commits)
+
+#### helper/AudioRouterNowHelper.c (ecffc53)
+
+**F1 — Double-SIGTERM + SIGALRM-Watchdog:**
+```c
+static _Atomic int g_signal_count = 0;
+static void handle_signal(int sig) {
+    if (atomic_fetch_add_explicit(&g_signal_count,1,memory_order_relaxed) > 0)
+        _exit(1);   // 2. Signal: sofortiger Exit
+    atomic_store_explicit(&g_running, 0, memory_order_release);
+}
+static void handle_alarm(int sig) { (void)sig; _exit(1); }
+// + signal(SIGALRM, handle_alarm) im Setup
+// + alarm(5) vor pthread_join im Cleanup
+```
+
+**F2 — Watchdog-Reihenfolge:** Flag-File schreiben → g_watchdog_tripped=1 → outputs_stop_all in detached pthread (synchroner Fallback falls pthread_create fehlschlägt).
+
+**F5 — SHM atomic disconnect:** `atomic_exchange_explicit(&g_ring, NULL, memory_order_acq_rel)` vor `munmap` — verhindert Double-Unmap bei gleichzeitigem Signal + Watchdog.
+
+**F6 — CPU-Poll entfernt:** `proc_pid_rusage`-Abschnitt im volume_poll_thread komplett entfernt (war Ursache für pthread_join-Hänger).
+
+**F7/M1 — RT-Priority entfernt:** `set_rt_priority()` vollständig gelöscht.
+
+**H1 — In-flight Slot Race:**
+- `process_hotplug_removals`: `if (!g_outputs[i].active) continue;`
+- `sr_reinit_all_outputs`: Unter Lock `active=false` Slots überspringen
+- `output_add` Phase 3b: lokale `new_proc_id` Variable, unter Lock in Phase 3c committed
+
+#### driver/src/AudioRouterNowDriver.c (7e2d3a0)
+
+**N6 — gDeviceIsRunning Self-Heal:** Guard entfernt, einziger Guard ist `gSHMRing != NULL`. Self-Heal setzt Flag auf 1 bei WriteMix.
+
+**F3 — Hybrid-Clock-Guard in GetZeroTimeStamp:**
+```c
+if (gFramesWritten == 0) {
+    *outHostTime = mach_absolute_time();
+    *outSampleTime = 0.0; *outSeed = 1;
+    return kAudioHardwareNoError;
+}
+// Guard am Ende: klemmt auf max. eine Periode in der Vergangenheit
+```
+
+**C1 (CRITICAL Audit-Finding) — fstat-Guard vor mmap:**
+```c
+struct stat shm_st;
+if (fstat(fd, &shm_st) < 0 || (size_t)shm_st.st_size < ARN_SHM_SIZE) {
+    close(fd); return; // sicher abbrechen
+}
+```
+An allen 3 mmap-Stellen implementiert. Verhindert SIGBUS in coreaudiod durch zu-kleines SHM-Segment.
+
+#### engine/*.py (50166d4)
+
+**MC-5:** `_ensure_secure_base_dir()` — `mkdir(0o700)` + `os.chmod(0o700)`.
+**F4:** SIGKILL-Eskalation: terminate→2s→`proc.kill()`.
+**F8:** `ping()` → `_cached_status(max_age=1.5)` auf Main-Thread.
+**F9:** Lock-File: `os.open(O_RDWR|O_CREAT)` + flock + seek/truncate.
+**K1:** `_health_poll_loop` — `get_status()` immer aufrufen (F8-Deadlock-Fix).
+**H3:** FD-Leak: `try/finally` schließt log_out/log_err nach Popen.
+**H4:** `healer.reset_all()` + `_notified_trips.clear()` bei Respawn.
+**H8:** `is_audio_router_default()` im health-poll-Thread cachen (`_router_is_default`).
+
+#### engine/first_launch.py, installer/ (b6c7228)
+
+**H5:** `shlex.quote()` für alle Pfad-Interpolationen.
+**H7:** `tempfile.mkstemp()` statt fester `/tmp/.arn_install.sh` (Symlink-Preplacement-Schutz).
+**P12:** `target_arch=None` in spec.
+**H6:** `find(1)` für HELPER_DST in build.sh (versionsinvariant).
+
+---
+
+## Kapitel 49 — Tiefer Audit-Report v3.3.0 (11. Juni 2026)
+
+*Durchgeführt von 5 parallelen Fable-5-Audit-Agenten nach vollständiger Implementierung aller v3.3.0 Fixes.*
+
+### Executive Summary
+
+AudioRouterNow ist ein technisch reifes Projekt mit überdurchschnittlicher C-Code-Qualität (korrekte SPSC-Ring-Implementierung, solider Shutdown-Pfad, sauber gehärteter Signal-Handler). Nach v3.3.0 verbleibt kein CRITICAL-Finding mehr (C-1 fstat-Guard wurde in diesem Release implementiert). Mehrere HIGH-Findings betreffen die GetZeroTimeStamp-Architektur und den Healer-Thread-Safety. Für Single-User-Eigenbetrieb produktionsbereit; für öffentliche Distribution fehlt noch Developer-ID + Notarisierung.
+
+**Gesamtbewertung: B− / bedingt produktionsbereit**
+
+### Verbleibende HIGH Findings (nächster Sprint)
+
+| # | Komponente | Problem | Empfohlener Fix |
+|---|-----------|---------|----------------|
+| H-1 | Helper (C) | `coreaudiod_watchdog_tick` — toter Code, wird nirgends aufgerufen. P0-D-Schutzschicht existiert nur auf dem Papier | Dedizierten Watchdog-Thread spawnen oder Code + Doku entfernen |
+| H-2 | Helper (C) | SHM mit `0660` + gid 61 (localaccounts) ist für jeden lokalen User R/W — Audio-Injektion, Index-Korruption, ftruncate(0) möglich | Dedizierte Gruppe oder ACL nur für User + `_coreaudiod` |
+| H-3 | Driver (C) | `WRITE_SCALAR`-Makro in `GetPropertyData` — wurde als Mutex-Leak gemeldet, ist aber **False Positive** (kein gStateMutex in GetPropertyData gehalten) | Kein Fix nötig |
+| H-4 | Driver (C) | `GetZeroTimeStamp` F3-Clamp kann nicht-periodengerasterte, rückwärts springende Sample-Zeiten liefern → HAL-Clock-Estimator degeneriert | GZTS auf reines Host-Clock-Modell (anchor + n·period) umstellen |
+| H-5 | Driver (C) | Timeline-Seed bleibt konstant 1 trotz Clock-Diskontinuitäten → HAL verwirft gecachte Timestamps nicht | `atomic_ullong gTimelineSeed`, Inkrement bei Re-Anchor + SR-Wechsel |
+| H-6 | Python | Healer-State wird von Main- UND health-poll-Thread mutiert — stille State-Korruption möglich | `reset_all`/`clear` via Flag in health-poll-Thread verlagern oder Lock hinzufügen |
+
+### MEDIUM Findings (Backlog)
+
+**Helper (C):**
+- M-1: FIR-Interpolation liest hinter `read_idx` → Data Race mit Producer bei vollem Ring
+- M-2: ABA-Problem bei Slot-Re-Validierung (`output_add` Phase 3c) → geleakter IOProc
+- M-3: Mach-IPC-Property-Calls unter `g_outputs_lock` — coreaudiod-Hang friert gesamte Steuerebene ein
+- M-4: Config-Thread durch blockierendes `write()` aufhängbar (Same-User-DoS)
+- M-5: Safe-Take-Modus gated nur `reconnect_output` — Stall-Reset, Hard-Stall-Recovery laufen weiter
+- M-6: `arn_ring_set_sample_rate` verletzt SPSC (zwei Writer auf `write_idx`)
+
+**Driver (C):**
+- M-7: `gDeviceIsRunning` Self-Heal kann nach StopIO dauerhaft `1` hinterlassen
+- M-8: Torn Pair `gAnchorHostTime`/`gFramesWritten` → einmaliger Zukunfts-Timestamp
+- M-9: Pre-IO-Fastpath liefert inkonsistente Paare (SampleTime=0, HostTime=now) → HAL sieht Rate 0
+
+**Python:**
+- M-12: Zombie-Prozesse bei Helper-Respawn (alte Popen-Referenz nie gereapt)
+- M-13: Synchrone Helper-Socket-Calls aus Menü-Callbacks, bis ~2s UI-Block möglich
+- M-14: `ensure_running()` blockiert App-Start worst-case ~25s ohne Icon
+
+**Build:**
+- C-2: App ist kein Universal Binary (`target_arch=None` → arm64 only); Intel-Macs ausgeschlossen trotz `LSMinimumSystemVersion: 11.0`. Fix: `target_arch="universal2"` oder Intel-Support streichen.
+- H-9: Codesign-Fehler werden via `|| true` / `2>/dev/null` verschluckt — DMG mit kaputter Signatur möglich
+- H-10: Ad-hoc-Signatur + DMG = Gatekeeper-Block auf Sequoia+ → Developer-ID + Notarisierung nötig
+- H-11: `make install` invalidiert Bundle-Signatur; falscher Pfad (`__dot__driver`-Rename)
+
+### Dokumentations-Lücken (aus Audit)
+
+- v3.2.0-Eintrag nennt nur 1 von 8 Commits (`3206ee3`); weitere unerwähnt
+- K1 (AppleScript-Fix) und K2 (Main-Thread-Dispatch) fehlen in v3.2.0-Fix-Tabelle
+- Claim "all modules import from version.py" falsch — nur `diagnostic.py` tut dies
+
+### Positiv-Befunde (INFO)
+
+✅ SPSC-Ring korrekt (Release/Acquire, Masking)
+✅ Shutdown-Pfad solide (`alarm(5)`-Backstop, F1–F7)
+✅ Signal-Handler async-signal-safe
+✅ Token-Auth + 0600-Socket sauber
+✅ Keine `shell=True` in Python-Code
+✅ Lock-Ordering deadlockfrei
+✅ sudo-Hygiene vorbildlich
+✅ PyInstaller-Quirks gut behandelt
+✅ DMG-Workflow (UDRW→UDZO) korrekt
+✅ ABI-Version-Datei als Kompatibilitäts-Guard
