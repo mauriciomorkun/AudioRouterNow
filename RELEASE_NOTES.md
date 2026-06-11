@@ -9,6 +9,85 @@ Each release contains **two sections**:
 
 ---
 
+## v3.3.0 — June 11, 2026
+
+### For Everyone
+
+**Freeze-Prevention & Security release — prevents system freezes, fixes an audio startup deadlock, and hardens the app against malformed shared memory.**
+
+After a hard reboot caused by the app freezing the entire system during teardown, a full root-cause analysis identified 15 issues. All are fixed.
+
+What changed for you:
+
+- **System freeze on force-quit no longer possible** — killing the app while audio was routing could cause the audio subsystem to spin at 100% CPU, freezing the entire machine. The audio helper now has a hard 5-second exit deadline with a guaranteed kill path.
+- **Audio starts reliably after launch** — a logic error introduced in the previous patch caused the health monitor to silently never contact the Helper on startup, leaving all auto-recovery inactive from the first second.
+- **Menu bar never freezes when Helper is unresponsive** — the 0.5s UI timer now reads from a background cache instead of making live system calls.
+- **Installation is safer on multi-user Macs** — the driver install script now uses a unique temp file name (no predictable path an attacker could pre-create).
+- **SHM size validation** — the audio driver now validates the shared memory segment size before mapping it. A malformed or too-small segment previously could cause a system-wide audio crash (coreaudiod SIGBUS). Now the driver safely skips invalid segments.
+
+**Who is affected:** All users. Update by reinstalling from the new DMG.
+
+---
+
+### For Power Users
+
+**Root Cause of the System Freeze (11. Juni 2026):**
+1. Python app killed → Helper orphaned (`start_new_session=True`)
+2. SIGTERM → `pthread_join` hung: `volume_poll_thread` blocked in Mach-IPC to degraded coreaudiod
+3. Additional kills had no effect (handler only set `g_running=0`)
+4. `sudo killall coreaudiod` → HAL clients froze; new coreaudiod loaded plugin with device-clock race
+5. `GetZeroTimeStamp` returned rate≈0 → coreaudiod RT-thread busy-spun → system freeze
+
+| Fix | Component | Root Cause | Resolution |
+|-----|-----------|-----------|-----------|
+| F1 | Helper (C) | No kill-path for stuck pthread_join | Double-SIGTERM → `_exit(1)`; `SIGALRM` + `alarm(5)` as hard 5s backstop |
+| F2 | Helper (C) | `outputs_stop_all()` called before flag-file → Watchdog never fired | Flag-file → `g_watchdog_tripped=1` → `outputs_stop_all` in detached pthread |
+| F3 | Driver (C) | `GetZeroTimeStamp` returned rate≈0 when no IO → coreaudiod RT busy-spin | Fallback to `mach_absolute_time()` when `gFramesWritten=0`; hybrid-clock clamp |
+| F4 | Python | Helper survived after SIGTERM timeout | SIGKILL escalation: terminate→2s→`proc.kill()` |
+| F5 | Helper (C) | Double-`munmap` race between signal handler and watchdog | `atomic_exchange(&g_ring, NULL)` before `munmap` |
+| F6 | Helper (C) | `proc_pid_rusage()` in volume_poll_thread could block → `pthread_join` hung | Entire coreaudiod CPU-poll section removed |
+| F7/M1 | Helper (C) | `set_rt_priority()` Mach-IPC call could hang | Function removed entirely |
+| F8 | Python | `ping()` on rumps main thread → 5s freeze when Helper unresponsive | Replaced with `_cached_status(max_age=1.5)` |
+| F9 | Python | Lock file open had TOCTOU race | `os.open(O_RDWR\|O_CREAT)` + `os.fdopen` + seek/truncate |
+| N6 | Driver (C) | `gDeviceIsRunning` stuck at 0 after Zombie-Helper StopIO | Guard removed; `gSHMRing != NULL` is sole guard; self-heal on WriteMix |
+| MC-5 | Python | `~/.audiorouter` created with mode 0755; C-Helper requires 0700 | `_ensure_secure_base_dir()`: `mkdir(0o700)` + `os.chmod(0o700)` |
+| K1 | Python | `_health_poll_loop` guard prevented `get_status()` when `alive=False` → permanent deadlock | Loop restructured: `get_status()` always called first |
+| H1 | Helper (C) | `process_hotplug_removals` / `sr_reinit_all_outputs` raced with in-flight `output_add` | Both skip `active=false` slots; local `new_proc_id` committed under lock |
+| H3 | Python | `log_out`/`log_err` FDs never closed after `Popen()` | `try/finally` closes parent FDs immediately after spawn |
+| H4 | Python | Healer + trip notifications not reset on Helper respawn | `healer.reset_all()` + `_notified_trips.clear()` on alive `False→True` |
+| H5 | Python | Shell-injection in install/uninstall paths | All path interpolations replaced with `shlex.quote()` |
+| H6 | Build | `HELPER_DST` hardcoded to `Contents/Frameworks/` (wrong for PyInstaller 6.x) | `find(1)` locates binary dynamically |
+| H7 | Python | Install script at predictable `/tmp/.arn_install.sh` without `O_EXCL` | `tempfile.mkstemp()` — unique temp file, `O_CREAT\|O_EXCL` internally |
+| H8 | Python | `is_audio_router_default()` (CoreAudio Mach-IPC) on 0.5s UI timer tick | Cached in health-poll thread (`_router_is_default`); timer reads cache |
+| C1 | Driver (C) | `mmap` without `fstat` size check → SIGBUS in coreaudiod if SHM too small | `fstat` guard at all 3 mmap sites; close+skip if `st_size < ARN_SHM_SIZE` |
+| P12 | Build | PyInstaller 6.x corrupts FAT→arm64 thinning (magic `0xCF→0xAA`) | `target_arch=None` in spec; `lipo -thin arm64` post-process guard |
+
+**Commits:** `ecffc53` `7e2d3a0` `50166d4` `b6c7228`
+
+---
+
+## v3.2.1 — June 11, 2026
+
+### For Everyone
+
+**Post-release hotfix — fixes installation failure and no-audio on first launch.**
+
+- **First-launch "Helper Error" fixed** — `~/.audiorouter` permissions 0755 vs required 0700
+- **No audio on first use fixed** — `gDeviceIsRunning` race after kill-9
+- **Installation wizard no longer hangs at 95%** — PyInstaller FAT-binary corruption
+
+---
+
+### For Power Users
+
+| Fix | Component | Root Cause | Resolution |
+|-----|-----------|-----------|-----------|
+| MC-5 | Python | `~/.audiorouter` created 0755 by umask; Helper requires 0700 | `_ensure_secure_base_dir()` |
+| N6 | Driver | `gDeviceIsRunning` stuck at 0 after Zombie-StopIO | Guard removed, self-heal added |
+| P12 | Build | PyInstaller 6.20.0 corrupts arm64 magic byte | `target_arch=None` + `lipo` post-process |
+
+---
+
 ## v3.2.0 — June 10, 2026
 
 ### For Everyone
