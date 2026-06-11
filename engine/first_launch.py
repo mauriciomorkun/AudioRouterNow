@@ -10,6 +10,7 @@ and restarts coreaudiod so Core Audio recognises the new device.
 
 import logging
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -318,24 +319,39 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
     # ------------------------------------------------------------------
     # Temp-Dateien für Progress-Kommunikation
     # ------------------------------------------------------------------
-    progress_file = Path("/tmp/.arn_install_progress")
-    script_file   = Path("/tmp/.arn_install.sh")
-
+    # H-7: tempfile.mkstemp() statt fester /tmp-Pfade — verhindert
+    # Symlink-Preplacement-Angriff (O_CREAT|O_EXCL intern, kein O_FOLLOW).
+    import tempfile as _tempfile
     try:
+        _pfd, _ppath = _tempfile.mkstemp(prefix='.arn_progress_', dir='/tmp')
+        os.close(_pfd)
+        progress_file = Path(_ppath)
         progress_file.write_text("0")
     except OSError:
-        pass
+        progress_file = Path("/tmp/.arn_install_progress")
+        try:
+            progress_file.write_text("0")
+        except OSError:
+            pass
+
+    script_file: "Path | None" = None  # type: ignore[assignment]
 
     # Shell-Script: schreibt 1→2→3 in progress_file als Steps
+    q_progress = shlex.quote(str(progress_file))
+    q_source   = shlex.quote(str(source))
+    q_dst      = shlex.quote(str(DRIVER_INSTALL_PATH))
     shell_script = (
         f"#!/bin/bash\n"
-        f"echo 1 > '{progress_file}'\n"                   # Kopiere…
-        f"cp -rf '{source}' '{DRIVER_INSTALL_PATH}'\n"
-        f"echo 2 > '{progress_file}'\n"                   # Neustart…
+        f"echo 1 > {q_progress}\n"                        # Kopiere…
+        f"cp -rf {q_source} {q_dst}\n"
+        f"echo 2 > {q_progress}\n"                        # Neustart…
         f"killall coreaudiod || true\n"
-        f"echo 3 > '{progress_file}'\n"                   # Script done
+        f"echo 3 > {q_progress}\n"                        # Script done
     )
     try:
+        _sfd, _spath = _tempfile.mkstemp(prefix='.arn_install_', suffix='.sh', dir='/tmp')
+        os.close(_sfd)
+        script_file = Path(_spath)
         script_file.write_text(shell_script)
         script_file.chmod(0o755)
     except OSError as exc:
@@ -346,10 +362,10 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
     # AppleScript-Befehl
     # ------------------------------------------------------------------
     if script_file is not None:
-        shell_cmd = f"/bin/bash '{script_file}'"
+        shell_cmd = f"/bin/bash {shlex.quote(str(script_file))}"
     else:
         shell_cmd = (
-            f"cp -rf '{source}' '{DRIVER_INSTALL_PATH}' "
+            f"cp -rf {shlex.quote(str(source))} {shlex.quote(str(DRIVER_INSTALL_PATH))} "
             f"&& killall coreaudiod || true"
         )
 
@@ -737,7 +753,7 @@ def uninstall_all() -> tuple[bool, str]:
     # --- Step 4: Remove HAL driver (requires admin) -------------------------
     if DRIVER_INSTALL_PATH.exists():
         shell_cmd = (
-            f"rm -rf '{DRIVER_INSTALL_PATH}' "
+            f"rm -rf {shlex.quote(str(DRIVER_INSTALL_PATH))} "
             f"&& killall coreaudiod || true"
         )
         applescript = (
