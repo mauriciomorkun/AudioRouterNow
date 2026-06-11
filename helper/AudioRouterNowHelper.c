@@ -334,6 +334,8 @@ typedef struct DeviceOutput {
 /* ── Globaler Zustand ───────────────────────────────────────────────────── */
 
 static atomic_int              g_running        = 1;
+/* F1: Signal-Zaehler — zweites SIGTERM/SIGINT erzwingt sofortiges _exit(1). */
+static _Atomic int             g_signal_count   = 0;
 /* H2: g_ring als atomarer Pointer — IOProc lädt ihn einmal per acquire
  * am Call-Anfang; Reconnect-Code kann ihn sicher per release-Store tauschen
  * ohne SIGBUS-Risiko für laufende IOProcs. */
@@ -423,8 +425,12 @@ static void  update_global_read_idx(void);
 static void handle_signal(int sig)
 {
     (void)sig;
+    if (atomic_fetch_add_explicit(&g_signal_count, 1, memory_order_relaxed) > 0) {
+        _exit(1);
+    }
     atomic_store_explicit(&g_running, 0, memory_order_release);
 }
+static void handle_alarm(int sig) { (void)sig; _exit(1); }
 
 /* ── Keep-Alive IOProc ──────────────────────────────────────────────────── */
 
@@ -588,10 +594,11 @@ static void shm_disconnect_deferred(void)
 
 static void shm_disconnect(void)
 {
-    ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
-    if (ring != NULL) {
-        munmap(ring, ARN_SHM_SIZE);
-        atomic_store_explicit(&g_ring, NULL, memory_order_release);
+    /* F5: atomarer Exchange statt load+store — kein Fenster, in dem ein
+     * IOProc den alten Pointer nach munmap noch laden koennte. */
+    ARNSharedRing *old_ring = atomic_exchange_explicit(&g_ring, NULL, memory_order_acq_rel);
+    if (old_ring != NULL) {
+        munmap(old_ring, ARN_SHM_SIZE);
     }
     if (g_shm_fd >= 0) {
         close(g_shm_fd);
@@ -1345,14 +1352,15 @@ static int output_add(const char *uid, uint32_t ch_offset)
      * Unter Lock ausgefuehrt koennen sie ewig blockieren wenn coreaudiod spinnt.
      * Die Slot-Adresse ist stabil: g_outputs ist ein statisches Array, active=false
      * verhindert dass der Volume-Thread den Slot beruehrt. */
+    AudioDeviceIOProcID new_proc_id = NULL;  /* H1: lokal — erst in Phase 3c unter Lock committen */
     OSStatus err = kAudioHardwareNotRunningError;
     for (int attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) usleep(100000);  /* 100ms Retry-Pause, lockfrei */
-        err = AudioDeviceCreateIOProcID(dev_id, device_ioproc, slot, &slot->proc_id);
+        err = AudioDeviceCreateIOProcID(dev_id, device_ioproc, slot, &new_proc_id);
         if (err == noErr) break;
         fprintf(stderr, "Helper: AudioDeviceCreateIOProcID Versuch %d/3 (OSStatus %d) fuer '%s'\n",
                 attempt + 1, (int)err, uid);
-        slot->proc_id = NULL;
+        new_proc_id = NULL;
     }
 
     if (err != noErr) {
@@ -1368,12 +1376,12 @@ static int output_add(const char *uid, uint32_t ch_offset)
         return -1;
     }
 
-    err = AudioDeviceStart(dev_id, slot->proc_id);
+    err = AudioDeviceStart(dev_id, new_proc_id);
     if (err != noErr) {
         fprintf(stderr, "Helper: AudioDeviceStart fehlgeschlagen (OSStatus %d) fuer '%s'\n",
                 (int)err, uid);
-        AudioDeviceDestroyIOProcID(dev_id, slot->proc_id);
-        slot->proc_id = NULL;
+        AudioDeviceDestroyIOProcID(dev_id, new_proc_id);
+        new_proc_id = NULL;
         /* Phase 3c (Fehler): Slot als Tombstone freigeben (kein Verschieben). */
         pthread_mutex_lock(&g_outputs_lock);
         if (slot_idx < g_n_outputs && !g_outputs[slot_idx].active &&
@@ -1395,14 +1403,15 @@ static int output_add(const char *uid, uint32_t ch_offset)
      * koennte zwischenzeitlich per Hot-Unplug getombstoned worden sein. */
     if (!gen_changed && slot_idx < g_n_outputs && !g_outputs[slot_idx].active &&
         strcmp(g_outputs[slot_idx].uid, uid) == 0) {
-        g_outputs[slot_idx].active = true;
+        g_outputs[slot_idx].proc_id = new_proc_id;  /* H1: erst jetzt, unter Lock, committen */
+        g_outputs[slot_idx].active  = true;
         g_n_active_outputs = recount_active_locked();
     } else {
         /* Slot ist nicht mehr vorhanden (getombstoned) oder per Watchdog gestoppt
          * — IOProc sauber stoppen. */
         pthread_mutex_unlock(&g_outputs_lock);
-        AudioDeviceStop(dev_id, slot->proc_id);
-        AudioDeviceDestroyIOProcID(dev_id, slot->proc_id);
+        AudioDeviceStop(dev_id, new_proc_id);
+        AudioDeviceDestroyIOProcID(dev_id, new_proc_id);
         fprintf(stderr, "Helper: output_add '%s' — Slot nach CoreAudio-Start nicht mehr gueltig%s\n",
                 uid, gen_changed ? " (outputs_stop_all waehrenddessen)" : "");
         return -1;
@@ -1517,6 +1526,7 @@ static void sr_reinit_all_outputs(void) {
             pthread_mutex_unlock(&g_outputs_lock);
             continue;
         }
+        if (!g_outputs[i].active) { pthread_mutex_unlock(&g_outputs_lock); continue; } /* H1: in-flight Slot */
         AudioDeviceID   dev_id   = g_outputs[i].dev_id;
         AudioDeviceIOProcID old_proc = g_outputs[i].proc_id;
         bool            was_active  = g_outputs[i].active;
@@ -1773,6 +1783,10 @@ static bool read_proc_cpu_ns(pid_t pid, uint64_t *out_cpu_ns)
     return true;
 }
 
+/* F2: outputs_stop_all in detached Thread — der Watchdog-Pfad darf nicht
+ * synchron auf Mach-IPC zu einem degradierten coreaudiod blockieren. */
+static void *outputs_stop_all_thread(void *arg) { (void)arg; outputs_stop_all(); return NULL; }
+
 /*
  * P0-D: Watchdog-Tick — alle ~2s vom volume_poll_thread aufgerufen.
  *
@@ -1781,7 +1795,7 @@ static bool read_proc_cpu_ns(pid_t pid, uint64_t *out_cpu_ns)
  * eine Flag-Datei fuer die Python-Engine. KEIN destruktives killall — die UI
  * bietet dem Nutzer einen bestaetigen Treiber-Reload-Dialog an.
  */
-static void coreaudiod_watchdog_tick(void)
+__attribute__((unused)) static void coreaudiod_watchdog_tick(void)
 {
     static pid_t    s_pid          = 0;
     static uint64_t s_last_cpu_ns  = 0;
@@ -1828,14 +1842,8 @@ static void coreaudiod_watchdog_tick(void)
                 "Stoppe eigene IOProcs, schreibe Flag-Datei fuer UI.\n",
                 (int)s_pid, pct);
 
-            /* 1. Eigene IOProcs stoppen — entzieht dem coreaudiod-Spin die Nahrung.
-             *    outputs_stop_all() haelt g_outputs_lock kurz; bei getripptem coreaudiod
-             *    koennte auch dieser Stop haengen — als P2-B-Folgearbeit dokumentiert. */
-            outputs_stop_all();
-
-            /* 2. Flag-Datei fuer Python-Engine schreiben (nicht-destruktiv).
-             *    Engine liest die Datei beim naechsten Status-Poll und bietet dem
-             *    Nutzer einen kontrollierten "Treiber neu laden"-Dialog an. */
+            /* F2-1. Flag-Datei ZUERST schreiben (nicht-destruktiv) — auch wenn
+             *    der Stop-Pfad haengt, sieht die Python-Engine den Spin. */
             const char *home = getenv("HOME");
             if (home) {
                 char path[512];
@@ -1849,8 +1857,17 @@ static void coreaudiod_watchdog_tick(void)
                 }
             }
 
-            /* 3. Tripped-Flag setzen — kein erneutes Triggern. */
+            /* F2-2. Tripped-Flag setzen — kein erneutes Triggern. */
             atomic_store_explicit(&g_watchdog_tripped, 1, memory_order_release);
+
+            /* F2-3. Eigene IOProcs in detached Thread stoppen — Mach-IPC zu
+             *    degradiertem coreaudiod darf den Watchdog nicht blockieren. */
+            pthread_t stopper;
+            if (pthread_create(&stopper, NULL, outputs_stop_all_thread, NULL) == 0) {
+                pthread_detach(stopper);
+            } else {
+                outputs_stop_all(); /* synchroner Fallback */
+            }
         }
     }
 
@@ -1879,6 +1896,7 @@ static void process_hotplug_removals(void)
         /* Tombstones/freie Slots ueberspringen — find_device_by_uid("") wuerde
          * sonst leere Slots als "verschwunden" melden. */
         if (!g_outputs[i].uid[0]) continue;
+        if (!g_outputs[i].active) continue; /* H1: in-flight/removing slot überspringen */
         /* find_device_by_uid ist eine CoreAudio-Abfrage, aber kein Mach-IPC-Blocking-Call
          * (rein property-basiert, kurz). Bleibt hier unter Lock als Phase-A-Operation. */
         AudioDeviceID found = find_device_by_uid(g_outputs[i].uid);
@@ -2229,15 +2247,8 @@ static void *volume_poll_thread(void *arg)
             process_hotplug_removals();
         }
 
-        /* P0-D: coreaudiod CPU-Watchdog — alle ~2s (40 Ticks à 50ms) abtasten.
-         * Erkennt coreaudiod-Spin-Loops und stoppt defensiv eigene IOProcs. */
-        {
-            static int s_wd_counter = 0;
-            if (++s_wd_counter >= 40) {
-                s_wd_counter = 0;
-                coreaudiod_watchdog_tick();
-            }
-        }
+        /* F6: coreaudiod CPU-Poll entfernt — proc_pid_rusage/Mach-IPC kann bei
+         * degradiertem coreaudiod blockieren und den Volume-Thread haengen. */
 
         usleep(VOLUME_POLL_INTERVAL_US);
     }
@@ -2887,33 +2898,8 @@ static void *config_thread_main(void *arg)
     return NULL;
 }
 
-/* ── RT-Thread-Prioritaet setzen ────────────────────────────────────────── */
-
-static void set_rt_priority(void)
-{
-    struct mach_timebase_info tb;
-    mach_timebase_info(&tb);
-    double nanos_per_tick = (double)tb.numer / (double)tb.denom;
-
-    uint32_t period_ticks  = (uint32_t)(10000000.0 / nanos_per_tick);
-    uint32_t compute_ticks = (uint32_t)(2000000.0  / nanos_per_tick);
-
-    thread_time_constraint_policy_data_t policy = {
-        .period      = period_ticks,
-        .computation = compute_ticks,
-        .constraint  = period_ticks,
-        .preemptible = 1
-    };
-
-    /* NC-3: mach_thread_self() liefert eine Port-Referenz die deallokiert
-     * werden MUSS — sonst leakt pro Aufruf ein Mach-Port-Right. */
-    thread_port_t self_port = mach_thread_self();
-    thread_policy_set(self_port,
-                      THREAD_TIME_CONSTRAINT_POLICY,
-                      (thread_policy_t)&policy,
-                      THREAD_TIME_CONSTRAINT_POLICY_COUNT);
-    mach_port_deallocate(mach_task_self(), self_port);
-}
+/* RT-Priority-Erhöhung entfernt (F7): mach_thread_self() Mach-IPC kann bei
+   degradiertem coreaudiod hängen und pthread_join blockieren. */
 
 /* ── Main ───────────────────────────────────────────────────────────────── */
 
@@ -2931,6 +2917,7 @@ int main(int argc, char *argv[])
         sigaction(SIGINT,  &sa, NULL);
     }
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGALRM, handle_alarm);  /* F1: SIGALRM-Watchdog — _exit(1) wenn Cleanup haengt */
 
     /* K2: Mach-Timebase für Stall-Detection initialisieren. */
     {
@@ -3091,8 +3078,8 @@ int main(int argc, char *argv[])
         g_volume_thread_started = true;  /* NC-1 */
     }
 
-    /* RT-Priorität für den main-Thread (kosmetisch — IOProcs sind eh RT) */
-    set_rt_priority();
+    /* RT-Priority-Erhöhung entfernt (F7): mach_thread_self() Mach-IPC kann bei
+       degradiertem coreaudiod hängen und pthread_join blockieren. */
 
     fprintf(stdout, "Helper laeuft — Routing aktiv. Ctrl+C zum Beenden.\n");
     fflush(stdout);
@@ -3123,6 +3110,9 @@ int main(int argc, char *argv[])
 
     atomic_store_explicit(&g_config_running, 0, memory_order_release);
     atomic_store_explicit(&g_volume_running, 0, memory_order_release);
+
+    alarm(5);  /* F1: haengt ein pthread_join (z.B. Mach-IPC zu degradiertem
+                * coreaudiod), erzwingt SIGALRM nach 5s ein _exit(1). */
 
     if (g_volume_thread_started) {  /* NC-1: explizites Flag statt pthread_t-Truthiness */
         pthread_join(g_volume_thread, NULL);
