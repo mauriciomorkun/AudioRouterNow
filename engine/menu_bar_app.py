@@ -173,6 +173,11 @@ class AudioRouterApp(rumps.App):
         self._status_cache: dict | None = None
         self._status_cache_ts: float = 0.0
 
+        # H-8: is_audio_router_default() (synchroner CoreAudio-Call) wird vom
+        # health-poll-Thread (200ms, NICHT Main-Thread) gecacht. _compute_status()
+        # liest nur den Cache — kein Mach-IPC auf dem 0.5s-UI-Timer-Tick.
+        self._router_is_default: bool = False
+
         # Main-thread UI-Timer
         self._ui_timer = rumps.Timer(self._process_pending_updates, 0.5)
         self._ui_timer.start()
@@ -694,8 +699,9 @@ class AudioRouterApp(rumps.App):
             self._device_update_pending = False
             self._build_menu()
 
-        # Status-Update via Helper-Ping
-        alive_now = self._helper.ping()
+        # F8: Status-Update via Status-Cache statt blockierendem Socket-Ping
+        # auf dem Main-Thread — der health-poll-Loop (200ms) befuellt den Cache.
+        alive_now = self._cached_status(max_age=1.5) is not None
         if alive_now != self._helper_alive:
             old_alive = self._helper_alive
             self._helper_alive = alive_now
@@ -703,6 +709,10 @@ class AudioRouterApp(rumps.App):
             # Helper went from dead → alive (e.g., slow start, or respawn succeeded)
             if alive_now and not old_alive:
                 logger.info("Helper jetzt erreichbar — Outputs neu konfigurieren")
+                # H4: Healer-Zustand + Trip-Notifications zuruecksetzen — der
+                # neue Helper-Prozess kennt die alten Breaker-Trips nicht.
+                self._healer.reset_all()
+                self._notified_trips.clear()
                 self._auto_start_if_configured()
             # Helper went from alive → dead → try to respawn
             elif not alive_now and old_alive:
@@ -787,13 +797,8 @@ class AudioRouterApp(rumps.App):
             if grace:
                 self._initial_health_grace -= 1
 
-            if not self._helper_alive:
-                self._health_level = "degraded" if grace else "critical"
-                # P8: Cache invalidieren — Helper tot, alter Status ist ungueltig.
-                self._status_cache = None
-                continue
-
-            # P3: coreaudiod-Watchdog-Trip erkennen — Flag-Datei prüfen.
+            # P3/K1: coreaudiod-Watchdog-Trip ZUERST erkennen — Flag-Datei
+            # prüfen, VOR get_status (der Helper kann bei Spin haengen).
             # Nur lesen wenn noch kein Trip gemeldet (Dialog läuft gerade).
             if not self._coreaudiod_spin_detected and _SPIN_FLAG_PATH.exists():
                 try:
@@ -802,22 +807,50 @@ class AudioRouterApp(rumps.App):
                     pass
                 self._coreaudiod_spin_detected = True   # Main-Thread zeigt Dialog
 
+            # K1: get_status IMMER aufrufen — kein _helper_alive-Guard davor.
+            # Der alte Guard verhinderte, dass der Cache je befuellt wurde,
+            # wenn alive=False war (Deadlock: alive haengt am Cache, F8).
             try:
                 status = self._helper.get_status(timeout=0.15)
-                if status is None:
-                    continue
-                # P8: Frischen Status zentral cachen fuer _compute_status /
-                # _process_pending_updates (vermeidet zusaetzliche Socket-Connects).
-                self._status_cache = status
-                self._status_cache_ts = time.monotonic()
+            except Exception as e:
+                logger.debug("health_poll_loop get_status Fehler: %s", e)
+                status = None
+
+            if status is None:
+                # P8: Cache invalidieren — Helper antwortet nicht.
+                self._status_cache = None
+                self._health_level = "degraded" if grace else "critical"
+                continue
+
+            # P8: Frischen Status zentral cachen fuer _compute_status /
+            # _process_pending_updates (vermeidet zusaetzliche Socket-Connects).
+            self._status_cache = status
+            self._status_cache_ts = time.monotonic()
+
+            # H-8: is_audio_router_default() hier im Background-Thread cachen —
+            # CoreAudio-Syscall nie auf dem 0.5s-UI-Timer-Tick.
+            try:
+                self._router_is_default = is_audio_router_default()
+            except Exception:
+                pass
+
+            # K1: Exception-Guard um health_monitor.update()
+            sh = None
+            try:
                 audio_flowing = int(status.get("ring_frames", 0)) > 0
                 sh = self._health_monitor.update(status, audio_flowing)
                 level = sh.level
                 if grace and level == "critical":
                     level = "degraded"   # M5: Startup-Grace
                 self._health_level = level   # GIL-atomare Zuweisung
+            except Exception as e:
+                logger.debug("health_poll_loop health_monitor Fehler: %s", e)
 
-                # Tranche B: Heilung anstoßen
+            if sh is None:
+                continue
+
+            # Tranche B: Heilung anstoßen — K1: eigener Exception-Guard
+            try:
                 prev_tripped = set(self._healer.tripped_outputs())
                 self._healer.process(sh)
                 # Tripped-Outputs → Notification (einmalig pro Trip-Ereignis)
@@ -841,7 +874,7 @@ class AudioRouterApp(rumps.App):
                         "Reconnect the device or restart via menu.",
                     )
             except Exception as e:
-                logger.debug("health_poll_loop Fehler: %s", e)
+                logger.debug("health_poll_loop healer Fehler: %s", e)
 
     def _cached_status(self, max_age: float = 1.0) -> dict | None:
         """P8: Liefert den vom health-poll-Loop befuellten Status-Cache, sofern
@@ -883,8 +916,9 @@ class AudioRouterApp(rumps.App):
         if not outputs_selected:
             return ("🔴  No output selected — pick a device below", None)
 
-        # 3. routed_here pruefen (System-Default == Audio Router)
-        routed_here = is_audio_router_default()
+        # 3. routed_here pruefen — H-8: Cache aus health-poll-Thread, kein
+        #    synchroner CoreAudio-Call auf dem Main-Thread (0.5s-UI-Tick).
+        routed_here = self._router_is_default
         if not routed_here:
             return ("🟡  System audio not routed here — click to fix", "switch_audio")
 
@@ -1331,12 +1365,23 @@ class AudioRouterApp(rumps.App):
         self._build_menu()
 
 
+def _ensure_secure_base_dir() -> None:
+    """MC-5/P11: ~/.audiorouter MUSS mode=0700 haben — C-Helper prüft das."""
+    _LOCK_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(_LOCK_DIR, 0o700)
+
+
 def _acquire_instance_lock() -> None:
     global _lock_fd
-    _LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_secure_base_dir()
     try:
-        _lock_fd = open(_LOCK_FILE, "w")
+        # F9: Lock-File via os.open() + O_CREAT mit mode=0600 — kein "w"-Open,
+        # das das Lock-File einer laufenden Instanz vor dem flock leeren würde.
+        fd = os.open(str(_LOCK_FILE), os.O_RDWR | os.O_CREAT, 0o600)
+        _lock_fd = os.fdopen(fd, "r+")
         fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_fd.seek(0)
+        _lock_fd.truncate()
         _lock_fd.write(str(os.getpid()))
         _lock_fd.flush()
     except IOError:
@@ -1348,6 +1393,7 @@ def _acquire_instance_lock() -> None:
 
 
 def _setup_file_logging() -> None:
+    _ensure_secure_base_dir()
     log_dir = Path.home() / ".audiorouter" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     file_handler = RotatingFileHandler(
