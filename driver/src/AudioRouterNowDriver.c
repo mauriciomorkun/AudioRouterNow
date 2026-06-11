@@ -225,6 +225,19 @@ static void arn_shm_init(void)
         return;
     }
 
+    /* C-1: fstat-Guard vor mmap — verhindert SIGBUS wenn ein anderer Prozess
+     * das Segment zu klein angelegt hat (oder Helper noch nicht ftruncated hat).
+     * Jeder unprivilegierte lokale Prozess könnte sonst coreaudiod crashen. */
+    {
+        struct stat shm_st;
+        if (fstat(fd, &shm_st) < 0 || (size_t)shm_st.st_size < ARN_SHM_SIZE) {
+            os_log_error(gLog, "SHM: Segment zu klein (%lld < %zu) — warte",
+                         (long long)(shm_st.st_size), ARN_SHM_SIZE);
+            close(fd);
+            return;
+        }
+    }
+
     void *ptr = mmap(NULL, ARN_SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (ptr == MAP_FAILED) {
         os_log_error(gLog, "SHM: mmap fehlgeschlagen (errno=%d)", errno);
@@ -325,6 +338,15 @@ static void *arn_shm_watch_thread(void *arg)
          * False-Negatives fuehrt (neues Segment wird als altes erkannt).
          * Die instance_id wird vom Helper bei jeder SHM-Erstellung auf einen
          * eindeutigen Wert gesetzt (mach_absolute_time XOR pid). */
+        /* C-1: fstat-Guard (Watch-Thread, erster mmap) */
+        {
+            struct stat shm_st;
+            if (fstat(check_fd, &shm_st) < 0 || (size_t)shm_st.st_size < ARN_SHM_SIZE) {
+                close(check_fd);
+                continue;
+            }
+        }
+
         bool is_new_segment = false;
         void *chk_ptr = mmap(NULL, ARN_SHM_SIZE, PROT_READ | PROT_WRITE,
                               MAP_SHARED, check_fd, 0);
@@ -346,6 +368,15 @@ static void *arn_shm_watch_thread(void *arg)
         if (!is_new_segment) {
             close(check_fd);
             continue;
+        }
+
+        /* C-1: fstat-Guard (Watch-Thread, zweiter mmap — nach is_new_segment-Check) */
+        {
+            struct stat shm_st2;
+            if (fstat(check_fd, &shm_st2) < 0 || (size_t)shm_st2.st_size < ARN_SHM_SIZE) {
+                close(check_fd);
+                continue;
+            }
         }
 
         /* Neues Segment mappen und validieren. */
@@ -1726,6 +1757,16 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
         return kAudioHardwareIllegalOperationError;
     }
 
+    /* F3: Hybrid-Clock-Guard — kein IO aktiv (noch keine Frames geschrieben):
+     * sofort einen neutralen "Jetzt"-Timestamp liefern statt eine veraltete
+     * frame-basierte Zeit zu berechnen. */
+    if (atomic_load_explicit(&gFramesWritten, memory_order_relaxed) == 0) {
+        *outHostTime = mach_absolute_time();
+        *outSampleTime = 0.0;
+        *outSeed = 1;
+        return kAudioHardwareNoError;
+    }
+
     /*
      * P4: Sample-Zeit aus den TATSAECHLICH geschriebenen Frames ableiten.
      * Frueher wurde die verstrichene Zeit aus der Host-Clock geschaetzt, was
@@ -1778,6 +1819,19 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
     *outSampleTime = (Float64)(completed * kZeroTimeStampPeriod);
     *outHostTime   = anchor + (UInt64)((Float64)(completed * kZeroTimeStampPeriod) * ticksPerFrame);
     *outSeed       = 1; /* Format aendert sich nie waehrend IO */
+
+    /* F3: Hybrid-Clock-Guard — der gemeldete Host-Timestamp darf nie weiter
+     * als eine kZeroTimeStampPeriod in der Vergangenheit liegen. Sonst
+     * interpretiert coreaudiod die Clock als stehengeblieben (z.B. wenn
+     * IOProc-Calls pausierten und gFramesWritten nicht fortschritt). */
+    {
+        UInt64 host_now = mach_absolute_time();
+        UInt64 one_period_ticks = (UInt64)((Float64)kZeroTimeStampPeriod * ticksPerFrame);
+        if (one_period_ticks > 0 && host_now > *outHostTime + one_period_ticks) {
+            *outHostTime = host_now - one_period_ticks;
+            *outSampleTime = (Float64)(*outHostTime - anchor) / ticksPerFrame;
+        }
+    }
 
     atomic_store(&gNumberTimeStamps, completed);
     return kAudioHardwareNoError;
@@ -1861,42 +1915,38 @@ static OSStatus ARN_DoIOOperation(AudioServerPlugInDriverRef inDriver,
          * neu gemappt wird. */
         atomic_fetch_add_explicit(&gFramesWritten, inIOBufferFrameSize, memory_order_relaxed);
 
+        /* N6: DoIOOperation wird nur aufgerufen wenn IO läuft — gDeviceIsRunning
+         * war redundant und race-anfällig. Self-Heal: falls der Zustand noch
+         * 0 ist (z.B. Race mit StartIO), auf 1 setzen. */
+        if (atomic_load_explicit(&gDeviceIsRunning, memory_order_relaxed) == 0) {
+            atomic_store_explicit(&gDeviceIsRunning, 1, memory_order_relaxed);
+        }
+
         /* Mute beruecksichtigen: stilles Signal trotzdem als Frame senden,
          * damit die Python-Engine ihren Takt behaelt. Volume wird in der
          * Engine angewandt, hier nur Mute-Gate. */
-        if (atomic_load_explicit(&gDeviceIsRunning, memory_order_relaxed)) {
-            /* gVolume und gMute atomar lesen (memory_order_relaxed genuegt im RT-Pfad). */
-            float vol  = atomic_load_explicit(&gVolume, memory_order_relaxed);
-            bool  mute = atomic_load_explicit(&gMute,   memory_order_relaxed);
+        /* gVolume und gMute atomar lesen (memory_order_relaxed genuegt im RT-Pfad). */
+        float vol  = atomic_load_explicit(&gVolume, memory_order_relaxed);
+        bool  mute = atomic_load_explicit(&gMute,   memory_order_relaxed);
 
-            if (mute || vol <= 0.0f) {
-                /* Stilles Signal senden — Helper haelt ihren Takt. */
-                memset(ioMainBuffer, 0, byteCount);
-            }
-            // Volume-Scaling wurde in Helper delegiert (via ring->volume_q16).
-            // Doppelte Skalierung entfernt — Fix M3.
-            //
-            // else if (vol < 0.999f) {
-            //     /* Volume-Scaling in-place (Float32-Samples). */
-            //     float  *samples  = (float *)ioMainBuffer;
-            //     size_t  nSamples = byteCount / sizeof(float);
-            //     for (size_t i = 0; i < nSamples; i++) {
-            //         samples[i] *= vol;
-            //     }
-            // }
-            /* Samples unveraendert an Helper weitergeben — dieser skaliert via volume_q16. */
-            /* v2.0: SHM-Ring statt Unix Socket — kein Syscall, RT-safe.
-             * gSHMRing EINMAL atomar laden; der Watch-Thread kann den Pointer
-             * jederzeit austauschen, das alte Segment bleibt aber bis zum
-             * naechsten Watch-Zyklus gemappt (kein use-after-munmap). */
-            ARNSharedRing *ring =
-                atomic_load_explicit(&gSHMRing, memory_order_acquire);
-            if (ring != NULL) {
-                uint32_t nSamples = (uint32_t)(byteCount / sizeof(float));
-                arn_ring_write(ring,
-                               (const float *)ioMainBuffer,
-                               nSamples);
-            }
+        if (mute || vol <= 0.0f) {
+            /* Stilles Signal senden — Helper haelt ihren Takt. */
+            memset(ioMainBuffer, 0, byteCount);
+        }
+        // Volume-Scaling wurde in Helper delegiert (via ring->volume_q16).
+        // Doppelte Skalierung entfernt — Fix M3.
+        /* Samples unveraendert an Helper weitergeben — dieser skaliert via volume_q16. */
+        /* v2.0: SHM-Ring statt Unix Socket — kein Syscall, RT-safe.
+         * gSHMRing EINMAL atomar laden; der Watch-Thread kann den Pointer
+         * jederzeit austauschen, das alte Segment bleibt aber bis zum
+         * naechsten Watch-Zyklus gemappt (kein use-after-munmap). */
+        ARNSharedRing *ring =
+            atomic_load_explicit(&gSHMRing, memory_order_acquire);
+        if (ring != NULL) {
+            uint32_t nSamples = (uint32_t)(byteCount / sizeof(float));
+            arn_ring_write(ring,
+                           (const float *)ioMainBuffer,
+                           nSamples);
         }
 
         /*
