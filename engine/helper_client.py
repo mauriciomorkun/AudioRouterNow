@@ -37,6 +37,19 @@ MENU_ACTION_TIMEOUT = 1.0
 _PRIVILEGED_CMDS = {"shutdown", "set_outputs", "set_sample_rate",
                     "reconnect_output", "set_safe_take"}
 
+# I-4: Priorität: 1. HAL-Pfad (immer aktuell), 2. App-Bundle (Fallback).
+# Der HAL-Pfad wird bei Binary-Updates (sudo cp) direkt aktualisiert — das
+# App-Bundle nur bei vollständigem Rebuild. Wird der Helper aus dem App-Bundle
+# gespawnt, kann nach einem HAL-Update ein veralteter Helper laufen
+# ("Zombie-Helper" Split-Brain: alter Helper liest altes SHM-Segment,
+# neuer Driver schreibt in neues Segment → kein Audio).
+HAL_HELPER = "/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver/Contents/MacOS/AudioRouterNowHelper"
+
+# I-5: Mindest-Version des Helpers. Läuft ein älterer Helper (oder einer,
+# dessen get_status kein "version"-Feld liefert), wird er per shutdown
+# beendet und neu gespawnt.
+MIN_HELPER_VERSION = "3.3.0"
+
 
 @dataclass
 class OutputSpec:
@@ -48,19 +61,22 @@ class OutputSpec:
 def _find_helper_binary() -> Optional[Path]:
     """
     Sucht das Helper-Binary an plausiblen Pfaden:
-      1. PyInstaller-Bundle:       <Resources>/AudioRouterNow.driver/Contents/MacOS/AudioRouterNowHelper
-      2. Installierter HAL-Pfad:   /Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver/Contents/MacOS/...
+      1. Installierter HAL-Pfad:   /Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver/Contents/MacOS/...
+         (I-4: HAL-Pfad hat Priorität — wird bei sudo-Binary-Updates sofort aktualisiert,
+          das App-Bundle nur bei vollständigem Rebuild. Bundle-first führte zum
+          "Zombie-Helper" Split-Brain: alter Helper liest altes SHM-Segment.)
+      2. PyInstaller-Bundle:       <Resources>/AudioRouterNow.driver/Contents/MacOS/AudioRouterNowHelper
       3. Development:              <project>/helper/build/AudioRouterNowHelper
     """
     candidates: List[Path] = []
 
-    # PyInstaller: Bundle ist in sys._MEIPASS/AudioRouterNow.driver/
+    # I-4: HAL-Pfad zuerst — immer aktuell, auch nach sudo-Binary-Updates
+    candidates.append(Path(HAL_HELPER))
+
+    # PyInstaller: Bundle ist in sys._MEIPASS/AudioRouterNow.driver/ (Fallback)
     if getattr(sys, "frozen", False):
         meipass = Path(getattr(sys, "_MEIPASS"))  # type: ignore[attr-defined]
         candidates.append(meipass / "AudioRouterNow.driver" / "Contents" / "MacOS" / "AudioRouterNowHelper")
-
-    # Standard-Installation
-    candidates.append(Path("/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver/Contents/MacOS/AudioRouterNowHelper"))
 
     # Development
     engine_dir = Path(__file__).resolve().parent
@@ -68,6 +84,7 @@ def _find_helper_binary() -> Optional[Path]:
 
     for c in candidates:
         if c.exists() and os.access(c, os.X_OK):
+            logger.debug(f"Helper-Binary gefunden: {c}")
             return c
     return None
 
@@ -125,11 +142,27 @@ class HelperClient:
         """
         # Schneller Check ohne langen Lock
         if self._is_socket_alive():
-            logger.info("Helper Socket erreichbar — warte auf SHM-Bereitschaft")
-            if self._wait_for_ready():
+            # I-5: Version-Check — Zombie-Helper (zu alt) abschießen
+            if not self._check_helper_version():
+                logger.warning(
+                    f"I-5: Laufender Helper ist älter als MIN_HELPER_VERSION={MIN_HELPER_VERSION}"
+                    " — shutdown und Neustart"
+                )
+                try:
+                    self._send_no_lock({"cmd": "shutdown"})
+                except Exception:
+                    pass
+                # Kurz warten bis der alte Prozess weg ist
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline and self._is_socket_alive():
+                    time.sleep(0.2)
+                # Jetzt regulären Spawn-Pfad nehmen (Socket ist tot)
+            else:
+                logger.info("Helper Socket erreichbar — warte auf SHM-Bereitschaft")
+                if self._wait_for_ready():
+                    return True
+                logger.warning("Helper Socket erreichbar, SHM-Timeout — App retries via Timer")
                 return True
-            logger.warning("Helper Socket erreichbar, SHM-Timeout — App retries via Timer")
-            return True
 
         # Helper muss gespawnt werden — _spawn_lock verhindert Doppel-Spawn
         with self._spawn_lock:
@@ -188,6 +221,40 @@ class HelperClient:
 
             logger.warning("Helper Socket OK, SHM-Timeout — App retries via Timer")
             return True
+
+    def _check_helper_version(self) -> bool:
+        """
+        I-5: Prüft ob der laufende Helper mindestens MIN_HELPER_VERSION hat.
+
+        Gibt True zurück wenn:
+          - get_status liefert ein "version"-Feld ≥ MIN_HELPER_VERSION
+        Gibt False zurück wenn:
+          - get_status kein "version"-Feld hat (alter Helper)
+          - version < MIN_HELPER_VERSION
+          - get_status schlägt fehl (Helper antwortet nicht)
+        """
+        try:
+            status = self._send_no_lock({"cmd": "get_status"})
+            version_str = status.get("version", "")
+            if not version_str:
+                logger.warning("I-5: Helper meldet keine version — gilt als veraltet")
+                return False
+            # Vergleich als Tupel: "3.3.1" → (3, 3, 1)
+            try:
+                running = tuple(int(x) for x in version_str.split("."))
+                minimum = tuple(int(x) for x in MIN_HELPER_VERSION.split("."))
+                ok = running >= minimum
+                if not ok:
+                    logger.warning(f"I-5: Helper v{version_str} < MIN {MIN_HELPER_VERSION}")
+                else:
+                    logger.debug(f"I-5: Helper v{version_str} ≥ MIN {MIN_HELPER_VERSION} — OK")
+                return ok
+            except ValueError:
+                logger.warning(f"I-5: Unparsierbare Helper-Version: '{version_str}'")
+                return False
+        except Exception as e:
+            logger.warning(f"I-5: get_status schlug fehl: {e}")
+            return False
 
     def _wait_for_ready(self, timeout: float = 10.0) -> bool:
         """
