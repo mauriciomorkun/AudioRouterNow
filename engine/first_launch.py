@@ -802,23 +802,35 @@ def uninstall_all() -> tuple[bool, str]:
     except Exception as exc:
         logger.warning("Uninstall step 6: logs dir removal failed: %s", exc)
 
-    # --- Step 7: Remove helper log ------------------------------------------
+    # --- Step 7: Remove /tmp leftovers (helper log + socket + debug files) ---
+    # The socket lives inside CONFIG_DIR (~/.audiorouter/) which step 5 already
+    # removed. Step 7 additionally cleans any /tmp/audiorouter* remnants left
+    # by older versions or debugging sessions (e.g. patched .c files, .log,
+    # config.sock symlinks).
+    import glob as _glob
     try:
-        helper_log = Path("/tmp/audiorouter.helper.log")
-        if helper_log.exists():
-            helper_log.unlink()
-            logger.info("Uninstall step 7: helper log removed.")
+        patterns = [
+            "/tmp/audiorouter*",          # legacy socket / log paths
+            "/tmp/AudioRouterNow*",       # debug / patched source files
+        ]
+        removed_tmp = []
+        for pattern in patterns:
+            for path in _glob.glob(pattern):
+                try:
+                    p = Path(path)
+                    if p.is_dir():
+                        shutil.rmtree(p, ignore_errors=True)
+                    else:
+                        p.unlink(missing_ok=True)
+                    removed_tmp.append(path)
+                except Exception:
+                    pass
+        if removed_tmp:
+            logger.info("Uninstall step 7: /tmp leftovers removed: %s", removed_tmp)
+        else:
+            logger.info("Uninstall step 7: no /tmp leftovers found.")
     except Exception as exc:
-        logger.warning("Uninstall step 7: helper log removal failed: %s", exc)
-
-    # --- Step 8: Remove control socket --------------------------------------
-    try:
-        socket_path = Path(CONFIG_SOCKET)
-        if socket_path.exists():
-            socket_path.unlink()
-            logger.info("Uninstall step 8: control socket removed (%s).", socket_path)
-    except Exception as exc:
-        logger.warning("Uninstall step 8: control socket removal failed: %s", exc)
+        logger.warning("Uninstall step 7: /tmp cleanup failed: %s", exc)
 
     logger.info("Uninstall complete.")
     return True, "All AudioRouterNow components removed."
