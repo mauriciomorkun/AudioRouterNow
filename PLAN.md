@@ -3,12 +3,18 @@
 | Feld | Wert |
 |------|------|
 | **Projekt** | AudioRouterNow (macOS CoreAudio HAL-Plugin + Helper-Daemon + Python-Engine) |
-| **Datum** | 2026-06-03 |
-| **Version** | Plan v1.0 |
-| **Kritikalität** | **P0 — Hard Reboot / System Freeze.** Nutzer-MacBooks frieren bis zum erzwungenen Neustart ein. |
+| **Datum** | 2026-06-03 (erstellt) · 2026-06-12 (abgeschlossen) |
+| **Version** | Plan v1.0 → **v1.1 (Abschluss-Update)** |
+| **Status** | ✅ **ABGESCHLOSSEN** — alle P0/P1/P2-Fixes implementiert, v3.4.0 live und per Runtime-Audit verifiziert |
+| **Kritikalität** | ~~P0 — Hard Reboot / System Freeze~~ → behoben seit v3.4.0 |
 | **Betroffene Plattform** | macOS Sequoia (15.x) / macOS 26, Apple Silicon + Intel (Universal Binary) |
 | **Scope** | `driver/src/AudioRouterNowDriver.c`, `helper/AudioRouterNowHelper.c`, `engine/helper_client.py` |
 | **Verbindlich** | Fix-Reihenfolge ist FIXIERT. Nicht umsortieren. Checkpoint nach Fix-04 ist Pflicht. |
+
+> **Abschluss-Hinweis (12.06.2026):** Fix-08 (coreaudiod CPU-Watchdog) wurde **gestrichen** —
+> siehe §3 Fix-08 für Begründung. Alle anderen Fixes sind implementiert und durch einen
+> Fable-Agent Runtime-Audit auf dem Live-System bestätigt (0 Zombies, 0 Underruns, SHM 0666,
+> IOProc-Clock stabil, version=3.4.0). PLAN.md dient ab jetzt als historisches Referenzdokument.
 
 ---
 
@@ -43,6 +49,10 @@ ist kausal verkettet, nicht zufällig:
 Pfad auflösen (Fix-02 bis Fix-05), dann die Python-Seite entkoppeln (Fix-06, Fix-07), und
 schließlich ein Safety-Net (Watchdog, Fix-08) einziehen, das selbst bei Restdefekten einen
 Hard Reboot verhindert.
+
+> **Update 12.06.2026:** Fix-08 wurde **nicht implementiert und gestrichen** (siehe §3
+> Fix-08). P0-D ist stattdessen durch I-2 (frei laufende `mach_absolute_time()`-Clock in
+> `GetZeroTimeStamp`) strukturell gelöst — der CPU-Spin kann nicht mehr entstehen.
 
 ---
 
@@ -87,8 +97,8 @@ Hard Reboot verhindert.
                                          ▼
         ┌─────────────────────────────────────────────────────────────────┐
         │   Fix-08  P0-D  coreaudiod CPU-Watchdog im Helper                │
-        │   Safety-Net — fängt jeden Restdefekt ab, verhindert Reboot      │
-        │   Profitiert von Fix-01..05 (weniger False Positives)            │
+        │   ✗ GESTRICHEN — superseded durch I-2 (Clock-Fix)               │
+        │   proc_pid_rusage selbst blockiert bei degradiertem coreaudiod   │
         └───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -686,9 +696,9 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 
 **Build (siehe §6 für Details):**
 ```bash
-cd /Users/mauriciomorkun/Desktop/AudioRouterNow/helper && make clean && make
-cd /Users/mauriciomorkun/Desktop/AudioRouterNow/driver && make clean && make
-cd /Users/mauriciomorkun/Desktop/AudioRouterNow/driver && sudo make install && sudo make reload
+cd /Users/mauriciomorkun/AudioRouterNow/helper && make clean && make
+cd /Users/mauriciomorkun/AudioRouterNow/driver && make clean && make
+cd /Users/mauriciomorkun/AudioRouterNow/driver && sudo make install && sudo make reload
 ```
 
 **Smoke-Test-Checkliste:**
@@ -1137,35 +1147,37 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 
 ---
 
-### Fix-08 — P0-D: `coreaudiod` CPU-Watchdog im Helper
+### Fix-08 — P0-D: `coreaudiod` CPU-Watchdog im Helper — ✗ GESTRICHEN
 
-**Priorität:** P0 (Safety-Net)
-**Datei:** `helper/AudioRouterNowHelper.c`
-**Einbau:** neue Funktion + Integration in `volume_poll_thread` (nahe Zeile 1848)
+> **Status: Gestrichen (12.06.2026) — nie implementiert, nicht mehr erforderlich.**
 
-**Problem:**
-Es gibt keinen Mechanismus, der einen `coreaudiod`-CPU-Spin erkennt und reagiert. Selbst
-nach Fix-01..05 ist ein Restdefekt (anderer Treiber, OS-Bug) denkbar. Der Watchdog ist das
-letzte Sicherheitsnetz, das einen Hard Reboot verhindert.
+**Warum gestrichen:**
 
-**Lösung:**
-Im Volume-Thread (läuft alle 50 ms) periodisch (z.B. alle 2 s) die CPU-Auslastung von
-`coreaudiod` über `libproc` (`proc_pid_rusage` / `proc_pidinfo`) abtasten. Übersteigt sie
-über ein anhaltendes Fenster (z.B. > 90 % CPU für > 5 s zusammenhängend) einen Schwellwert,
-**ohne** dass der Helper selbst Last erzeugt, dann:
-1. Laut ins Helper-Log + `os_log`-äquivalent (`fprintf(stderr)`) schreiben.
-2. Defensive Reaktion: alle eigenen IOProcs stoppen (`outputs_stop_all()`-Pfad lockfrei),
-   damit der Helper aufhört, den Driver/coreaudiod zu füttern.
-3. Optional (konservativ, **standardmäßig nur Logging + Stop**, kein `killall`): eine
-   Flag-Datei `~/.audiorouter/coreaudiod_spin.flag` schreiben, die die Python-Engine liest
-   und dem Nutzer einen kontrollierten „Treiber neu laden"-Dialog anbietet — **statt**
-   automatisch `coreaudiod` zu killen (das wäre destruktiv und systemweit).
+Fix-08 wurde in zwei Schritten aufgegeben:
 
-> **Designentscheidung:** Der Watchdog tötet `coreaudiod` NICHT automatisch. Ein
-> `killall coreaudiod` ist eine systemweite, destruktive Operation (alle Audio-Apps verlieren
-> Output). Stattdessen: Helper stoppt eigene IOProcs (entzieht dem Spin die Nahrung) und
-> signalisiert der UI, die dem Nutzer eine bestätigte Aktion anbietet. Das entspricht der
-> Projektregel „keine destruktiven Operationen ohne Bestätigung".
+1. **v3.3.0 / F6:** Der `proc_pid_rusage()`-Call-Site im `volume_poll_thread` wurde entfernt,
+   bevor Fix-08 überhaupt fertiggestellt war. Begründung (`AudioRouterNowHelper.c`, Kommentar
+   bei der Entfernungsstelle): `proc_pid_rusage`/Mach-IPC kann bei degradiertem `coreaudiod`
+   selbst blockieren und damit den `volume_poll_thread` hängen — Fix-08 hätte exakt den Bug
+   reproduziert, den es heilen sollte.
+
+2. **v3.3.1 / H-1:** Die daraus resultierenden Dead-Code-Funktionen (`coreaudiod_watchdog_tick`,
+   `find_coreaudiod_pid`, `read_proc_cpu_ns`, `outputs_stop_all_thread`) wurden vollständig
+   aus dem Source entfernt.
+
+**Warum P0-D trotzdem gelöst ist:**
+
+P0-D (kein Watchdog gegen CPU-Spin) war ein Symptom des eigentlichen Root Cause P0-C
+(`GetZeroTimeStamp` lieferte falschen `ticksPerFrame`). Dieser wurde durch **I-2** (v3.4.0)
+strukturell behoben: Die Clock läuft jetzt frei via `mach_absolute_time()` — der Deadlock
+zwischen HAL-Takt und `WriteMix` kann nicht mehr entstehen. Damit ist auch P0-D strukturell
+gelöst; ein externer Watchdog ist überflüssig.
+
+**Ursprüngliche Problembeschreibung (historisch):**
+Es gab keinen Mechanismus, der einen `coreaudiod`-CPU-Spin erkennt und reagiert. Die geplante
+Lösung war ein periodisches `proc_pid_rusage`-Sampling im `volume_poll_thread` mit defensivem
+IOProc-Stop und Flag-Datei für die Python-Engine. Diese Lösung war konzeptuell korrekt, aber
+auf macOS nicht sicher implementierbar ohne das identische Block-Risiko einzugehen.
 
 **Neuer Include (oben, bei den anderen `#include`):**
 ```c
@@ -1367,15 +1379,15 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 
 | Fix | Bug | Datei | Zeilen (Ausgang) | Art | Prio |
 |-----|-----|-------|------------------|-----|------|
-| Fix-01 | P0-C | driver/src/AudioRouterNowDriver.c | 1746–1751 | RT-Pfad-Korrektur | P0 |
-| Fix-02 | P0-B | helper/AudioRouterNowHelper.c | 1139–1192 | Lock-Scope | P0 |
-| Fix-03 | P0-A.1 | helper/AudioRouterNowHelper.c | 1841–1844 | Lock-Scope (Caller) | P0 |
-| Fix-04 | P0-A.2 | helper/AudioRouterNowHelper.c | 1354–1497 | Lock-Scope (Inneres) | P0 |
-| — | CHECKPOINT | — | — | Build + Smoke | — |
-| Fix-05 | P2-A | helper/AudioRouterNowHelper.c | 1539–1563 | Lock-Scope | P2 |
-| Fix-06 | P1-B | engine/helper_client.py | 29, 233–246 | Timeout | P1 |
-| Fix-07 | P1-C | engine/helper_client.py | 80–87, 108–168 | Lock-Scope | P1 |
-| Fix-08 | P0-D | helper/AudioRouterNowHelper.c | neu + ~1848 | Watchdog | P0 |
+| Fix-01 | P0-C | driver/src/AudioRouterNowDriver.c | 1746–1751 | RT-Pfad-Korrektur | P0 | ✅ v3.4.0 |
+| Fix-02 | P0-B | helper/AudioRouterNowHelper.c | 1139–1192 | Lock-Scope | P0 | ✅ v3.4.0 |
+| Fix-03 | P0-A.1 | helper/AudioRouterNowHelper.c | 1841–1844 | Lock-Scope (Caller) | P0 | ✅ v3.4.0 |
+| Fix-04 | P0-A.2 | helper/AudioRouterNowHelper.c | 1354–1497 | Lock-Scope (Inneres) | P0 | ✅ v3.4.0 |
+| — | CHECKPOINT | — | — | Build + Smoke | — | ✅ |
+| Fix-05 | P2-A | helper/AudioRouterNowHelper.c | 1539–1563 | Lock-Scope | P2 | ✅ v3.4.0 |
+| Fix-06 | P1-B | engine/helper_client.py | 29, 233–246 | Timeout | P1 | ✅ v3.4.0 |
+| Fix-07 | P1-C | engine/helper_client.py | 80–87, 108–168 | Lock-Scope | P1 | ✅ v3.4.0 |
+| Fix-08 | P0-D | helper/AudioRouterNowHelper.c | — | Watchdog | P0 | ✗ GESTRICHEN (superseded durch I-2) |
 
 ---
 
@@ -1383,7 +1395,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 
 **Helper allein bauen (für Fix-02..05, Fix-08):**
 ```bash
-cd /Users/mauriciomorkun/Desktop/AudioRouterNow/helper
+cd /Users/mauriciomorkun/AudioRouterNow/helper
 make clean
 make
 # Ergebnis: build/AudioRouterNowHelper (Universal arm64 + x86_64, ad-hoc signiert)
@@ -1392,7 +1404,7 @@ make
 
 **Driver-Bundle bauen (für Fix-01; bündelt auch das Helper-Binary):**
 ```bash
-cd /Users/mauriciomorkun/Desktop/AudioRouterNow/driver
+cd /Users/mauriciomorkun/AudioRouterNow/driver
 make clean
 make
 # Ergebnis: build/AudioRouterNow.driver/  (inkl. eingebettetem Helper)
@@ -1400,14 +1412,14 @@ make
 
 **Installieren + coreaudiod neu laden (benötigt sudo):**
 ```bash
-cd /Users/mauriciomorkun/Desktop/AudioRouterNow/driver
+cd /Users/mauriciomorkun/AudioRouterNow/driver
 sudo make install     # → /Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver
 sudo make reload      # startet coreaudiod neu → Treiber wird geladen
 ```
 
 **Optional — ThreadSanitizer-Build des Helpers (für Fix-02/04/05 Race-Verifikation):**
 ```bash
-cd /Users/mauriciomorkun/Desktop/AudioRouterNow/helper
+cd /Users/mauriciomorkun/AudioRouterNow/helper
 clang -arch arm64 -mmacosx-version-min=11.0 -O1 -g -fsanitize=thread \
       -std=c11 -I. -Wall -Wextra \
       -framework CoreAudio -framework AudioToolbox -framework CoreFoundation \
@@ -1418,7 +1430,7 @@ clang -arch arm64 -mmacosx-version-min=11.0 -O1 -g -fsanitize=thread \
 
 **Python-Engine (Fix-06, Fix-07) — kein Build, nur Syntax-Check:**
 ```bash
-cd /Users/mauriciomorkun/Desktop/AudioRouterNow/engine
+cd /Users/mauriciomorkun/AudioRouterNow/engine
 python3 -m py_compile helper_client.py && echo "helper_client.py OK"
 ```
 
@@ -1444,8 +1456,8 @@ python3 -m py_compile helper_client.py && echo "helper_client.py OK"
 - ☐ Fix-06: `STATUS_POLL_TIMEOUT=1.0`, `READ_TIMEOUT=5.0`, `get_status` nutzt `effective`.
 - ☐ Fix-07: `_spawn_lock` eingeführt, `self._proc` unter kurzem `self._lock` gesetzt,
   Wartephasen lockfrei, Double-Spawn-Re-Check vorhanden.
-- ☐ Fix-08: `find_coreaudiod_pid` via sysctl, `proc_pid_rusage`-Sampling, 90%/5s-Filter,
-  `kill(pid,0)`-Liveness, kein `killall`, Flag-Datei nicht-destruktiv.
+- ~~☐ Fix-08: `find_coreaudiod_pid` via sysctl, `proc_pid_rusage`-Sampling, 90%/5s-Filter,
+  `kill(pid,0)`-Liveness, kein `killall`, Flag-Datei nicht-destruktiv.~~ **GESTRICHEN.**
 - ☐ Jeder geänderte Lock-Pfad hat auf **jedem** Return-Pfad ein passendes `unlock`
   (kein Lock-Leak). Manuell pro Funktion durchzählen.
 
@@ -1460,7 +1472,7 @@ python3 -m py_compile helper_client.py && echo "helper_client.py OK"
 - ☐ Fix-05: USB-Gerät abziehen während Audio → sauber entfernt, UI responsiv.
 - ☐ Fix-06: Helper `kill -STOP` → `get_status` < 1 s, UI klickbar.
 - ☐ Fix-07: paralleles `ensure_running` + `get_status` → kein 25-s-Hänger, kein Doppel-Spawn.
-- ☐ Fix-08: Watchdog-Logik mit gesenktem Schwellwert verifiziert, danach zurückgesetzt.
+- ~~☐ Fix-08: Watchdog-Logik mit gesenktem Schwellwert verifiziert, danach zurückgesetzt.~~ **GESTRICHEN.**
 
 **D. Regression / Stabilität:**
 - ☐ 30 Min Dauerbetrieb mit Quell-/SR-/Geräte-Wechseln → kein Freeze, kein Crash, `coreaudiod`
