@@ -2809,7 +2809,7 @@ int main(int argc, char *argv[])
     }
 
 #ifndef ARN_HELPER_VERSION
-#define ARN_HELPER_VERSION "3.1.2"
+#define ARN_HELPER_VERSION "3.3.1"
 #endif
     fprintf(stdout, "AudioRouterNow Helper v" ARN_HELPER_VERSION " (ABI v4)\n");
     fprintf(stdout, "SHM: %s  Ring: %u Frames ~ %.0f ms @48kHz\n",
