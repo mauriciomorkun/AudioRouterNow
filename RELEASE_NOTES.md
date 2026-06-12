@@ -31,6 +31,21 @@ After a fresh install from the DMG, AudioRouterNow appeared to run correctly (gr
 | **I-3** | Helper (C) | `Makefile` set `ARN_HELPER_VERSION "3.2.0"`; fallback `#define` was `"3.1.2"`. Neither matched `APP_VERSION = "3.3.1"`. | Both updated to `"3.3.1"`. |
 | **I-4** | Engine (Python) | `_find_helper_binary()` tried PyInstaller bundle before HAL path. After a `sudo cp` binary update the bundle still held the old binary → split-brain: old helper read stale SHM segment, new driver wrote to new segment → no audio. | HAL path (`/Library/Audio/Plug-Ins/HAL/…`) now has priority. Bundle is fallback only. `HAL_HELPER` constant introduced. |
 | **I-5** | Engine (Python) / Helper (C) | No version negotiation between app and helper. Old helpers had no `version` field in `get_status` — running a stale helper after an update was undetectable. | `ensure_running()` calls `_check_helper_version()` before accepting a live helper. `get_status` now always includes `"version": ARN_HELPER_VERSION` (both ready/not-ready branches). Helpers below `MIN_HELPER_VERSION = "3.3.0"` are shut down and re-spawned. `g_helper_version[]` constant and `#ifndef ARN_HELPER_VERSION` fallback moved to compile-unit start so the build succeeds without `-D` flag (e.g. Driver Makefile path). |
+| **I-6** | All components | First DMG build shipped all binaries still reporting `3.3.1` (Helper, App `CFBundleShortVersionString`) and `1.0.0` (Driver `Info.plist`). Version was never bumped before the build. Verified by post-install runtime audit (Fable agent, Jun 12). | Version bumped to `3.4.0` in all four canonical sources: `helper/Makefile` (`-DARN_HELPER_VERSION`), `helper/AudioRouterNowHelper.c` (both `#ifndef` fallback and legacy define), `driver/resources/Info.plist` (`CFBundleShortVersionString` + `CFBundleVersion`), `installer/AudioRouterNow.spec` (`version`, `CFBundleVersion`, `CFBundleShortVersionString`). I-5 zombie-detection now unambiguously distinguishes v3.3.x from v3.4.0 at runtime. |
+
+### Post-Install Verification (Jun 12, 2026)
+
+Runtime audit performed after fresh DMG install confirmed all fixes active:
+
+| Component | Verified |
+|-----------|---------|
+| SHM permissions | `0666 world-rw` — I-1 confirmed |
+| IOProc clock | 33 k+ stable calls, `ioproc_age_ms: 8`, zero deadlock — I-2 confirmed |
+| Helper spawn path | HAL path used, SHA-256 HAL = Bundle — I-4 confirmed |
+| Version negotiation | Socket returns `"version": "3.4.0"` ≥ MIN — I-5 confirmed |
+| Zombie processes | None (Z-status check clean) |
+| Error logs | `helper.err` 0 bytes, `helper.log` clean |
+| Audio routing | 2 active routes (Komplete Audio 6 MK2 Ch1-2 + Ch3-4), `underruns: 0`, `stalls: 0` |
 
 ---
 
