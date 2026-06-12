@@ -59,6 +59,15 @@
 
 /* ── Konfiguration ──────────────────────────────────────────────────────── */
 
+/* I-5: Versions-Fallback — wenn kein -DARN_HELPER_VERSION via Compiler-Flag
+ * übergeben wird (z.B. beim Build über den Driver-Makefile), greift dieser
+ * Fallback. g_helper_version ist die einzige Quelle für die version-Ausgabe
+ * in get_status — kein Makro-String-Concat nötig. */
+#ifndef ARN_HELPER_VERSION
+#define ARN_HELPER_VERSION "3.3.1"
+#endif
+static const char g_helper_version[] = ARN_HELPER_VERSION;
+
 #define OUR_DEVICE_UID         "com.audiorouter.now.device"   /* virtuelles Device ausschliessen */
 #define SHM_RETRY_INTERVAL_US  500000                          /* 500ms zwischen shm_open-Versuchen */
 /* H7: Socket in user-privatem Verzeichnis statt world-writable /tmp.
@@ -2361,11 +2370,14 @@ static int parse_and_execute(int fd, const char *line)
     }
 
     if (json_has_cmd(line, "get_status")) {
+        /* I-5: version via %s — kein Makro-String-Concat, da ARN_HELPER_VERSION
+         * erst spaeter im File als #ifndef-Fallback definiert wird. Wird beim
+         * Build ohne -DARN_HELPER_VERSION-Flag (z.B. Driver-Makefile) korrekt
+         * aufgeloest, weil g_helper_version[] am Datei-Anfang steht. */
         if (!atomic_load_explicit(&g_shm_ready, memory_order_acquire)) {
-            /* I-5: version-Feld immer mitsenden — Python kann Zombie-Helper erkennen */
             snprintf(resp, sizeof(resp),
                      "{\"ok\":true,\"active\":[],\"ring_frames\":0,\"ioproc_calls\":0,"
-                     "\"ready\":false,\"version\":\"" ARN_HELPER_VERSION "\"}");
+                     "\"ready\":false,\"version\":\"%s\"}", g_helper_version);
             send_line(fd, resp);
             return 0;
         }
@@ -2387,13 +2399,13 @@ static int parse_and_execute(int fd, const char *line)
         }
         /* Tranche B: Safe-Take-State exponieren — Python kann aktuellen Modus lesen. */
         int safe_take = atomic_load_explicit(&g_safe_take, memory_order_acquire);
-        /* I-5: version immer mitsenden — Python erkennt veraltete Helper sofort */
+        /* I-5: version via %s — keine Makro-Concatenation nötig */
         snprintf(resp, sizeof(resp),
                  "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u,"
                  "\"reconnect_count\":%u,\"ioproc_age_ms\":%llu,\"safe_take\":%d,"
-                 "\"truncated\":%s,\"ready\":true,\"version\":\"" ARN_HELPER_VERSION "\"}",
+                 "\"truncated\":%s,\"ready\":true,\"version\":\"%s\"}",
                  active_buf, frames, calls, reconnect_count, ioproc_age_ms, safe_take,
-                 active_truncated ? "true" : "false");
+                 active_truncated ? "true" : "false", g_helper_version);
         send_line(fd, resp);
         return 0;
     }
