@@ -15,11 +15,12 @@ Each release contains **two sections**:
 
 **Critical fix: No audio after fresh installation.**
 
-After a fresh install from the DMG, AudioRouterNow appeared to run correctly (green icon, output device selected, system audio set to Audio Router) but produced no sound. This release fixes the root cause.
+After a fresh install from the DMG, AudioRouterNow appeared to run correctly (green icon, output device selected, system audio set to Audio Router) but produced no sound. This release fixes the root cause, and also prevents "zombie helper" processes (leftover old helper binaries from previous installations) from silently blocking audio on update.
 
 - **Audio now works after fresh installation** — A macOS-specific limitation made it impossible for the audio driver to access the shared memory channel that carries audio between components. The driver was silently dropping all audio frames.
 - **Audio clock deadlock resolved** — Even after the access issue, a circular dependency in the audio timing mechanism prevented audio from flowing. The clock now runs freely, as recommended by Apple's CoreAudio documentation.
-- No action required beyond updating. The fix is automatic on first launch.
+- **Zombie helper prevention** — If an old helper process from a previous version is still running after an update, the app now detects it, shuts it down, and starts a fresh one automatically.
+- No action required beyond updating. All fixes are automatic on first launch.
 
 ### For Power Users
 
@@ -28,6 +29,8 @@ After a fresh install from the DMG, AudioRouterNow appeared to run correctly (gr
 | **I-1** | Helper (C) | `fchown()`/`fchmod()` on POSIX SHM FDs return EINVAL on macOS — SHM kept `gid=staff/0660`. Driver host (`_coreaudiod`) not in `staff` group → `shm_open(O_RDWR)` EACCES → `gSHMRing=NULL` → all frames dropped silently. | `umask(0)` + `shm_open(O_CREAT, 0666)`. `fchown`/`fchmod`/`getgrnam` removed. Security preserved by `magic`/`version`/`size` ring integrity checks (C-1). |
 | **I-2** | Driver (C) | `GetZeroTimeStamp` derived `sampleTime` from `gFramesWritten`. Circular deadlock: HAL won't call WriteMix until clock advances; clock only advances when WriteMix writes frames. | Freely running `mach_absolute_time()` clock from `gAnchorHostTime` (set at `StartIO`). Matches Apple NullAudio reference. P0-C ticksPerFrame fallback and H-4/H-5 timeline seed preserved. |
 | **I-3** | Helper (C) | `Makefile` set `ARN_HELPER_VERSION "3.2.0"`; fallback `#define` was `"3.1.2"`. Neither matched `APP_VERSION = "3.3.1"`. | Both updated to `"3.3.1"`. |
+| **I-4** | Engine (Python) | `_find_helper_binary()` tried PyInstaller bundle before HAL path. After a `sudo cp` binary update the bundle still held the old binary → split-brain: old helper read stale SHM segment, new driver wrote to new segment → no audio. | HAL path (`/Library/Audio/Plug-Ins/HAL/…`) now has priority. Bundle is fallback only. `HAL_HELPER` constant introduced. |
+| **I-5** | Engine (Python) / Helper (C) | No version negotiation between app and helper. Old helpers had no `version` field in `get_status` — running a stale helper after an update was undetectable. | `ensure_running()` calls `_check_helper_version()` before accepting a live helper. `get_status` now always includes `"version": ARN_HELPER_VERSION` (both ready/not-ready branches). Helpers below `MIN_HELPER_VERSION = "3.3.0"` are shut down and re-spawned. `g_helper_version[]` constant and `#ifndef ARN_HELPER_VERSION` fallback moved to compile-unit start so the build succeeds without `-D` flag (e.g. Driver Makefile path). |
 
 ---
 
