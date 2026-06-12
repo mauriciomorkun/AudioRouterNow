@@ -6143,3 +6143,74 @@ def breaker_name(self, uid, ch_offset):
 
 Lock-Contention ist minimal: beide Threads laufen mit 200 ms / 500 ms Intervall, die kritischen
 Abschnitte dauern < 1 ms. Kein Deadlock-Risiko (einziger Lock im Healer, kein verschachtelter Lock).
+
+## Kapitel 52 — v3.4.0 Fixes: I-1, I-2, I-3 (2026-06-12)
+
+Diese drei Fixes beheben die Ursache dafür, dass nach einer Neuinstallation
+kein Ton aus Apple Music oder anderen System-Audio-Quellen hörbar war, obwohl
+das System-Ausgabegerät korrekt auf "Audio Router" gesetzt war.
+
+Root-Cause-Analyse durchgeführt mit Claude Fable 5 (Fable-Modell).
+
+### I-1: SHM-Permissions — fchown/fchmod unwirksam auf macOS
+
+**Problem**: Fix H-2 (v3.3.1) versuchte das POSIX-SHM-Segment per `fchown()`
+auf `gid _coreaudiod` zu setzen. `fchown()` und `fchmod()` sind auf POSIX-SHM-
+Dateideskriptoren unter macOS **nicht implementiert** — beide schlagen mit
+`EINVAL (errno=22)` fehl. Das Segment blieb daher bei `uid=user, gid=staff(20),
+mode=0660`. Da `_coreaudiod` keine Mitgliedschaft in der `staff`-Gruppe hat,
+scheiterte `shm_open(O_RDWR)` im Driver-Host mit `EACCES`. `gSHMRing` blieb
+dauerhaft `NULL`; alle WriteMix-Frames wurden verworfen.
+
+**Fix**: `umask(0)` vor `shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0666)`.
+Die `umask(0)`-Maske stellt sicher, dass das mode-Argument ungefiltert
+übernommen wird. `0666` (world-rw) ist auf macOS die einzige Möglichkeit,
+einen POSIX-SHM-Deskriptor für einen anderen System-User ohne gemeinsame
+Gruppe zugänglich zu machen. Sicherheit: Integritätsprüfung via
+`magic`/`version`/`size`-Felder in `ARNSharedRing` (C-1) verhindert, dass
+ein fremder Prozess das Segment korrumpiert und ein Absturz folgt.
+
+Entfernt: `getgrnam("_coreaudiod")`, `fchown()`, `fchmod()`, `gid`-Berechnung.
+
+### I-2: GetZeroTimeStamp — Deadlock durch frame-gespeiste Clock
+
+**Problem**: Die P4-Implementierung in `ARN_GetZeroTimeStamp` leitete
+`*outSampleTime` aus `gFramesWritten` ab:
+```c
+uint64_t completed = gFramesWritten / kZeroTimeStampPeriod;
+*outSampleTime = (Float64)(completed * kZeroTimeStampPeriod);
+```
+`gFramesWritten` wird ausschließlich in `ARN_DoIOOperation` (WriteMix)
+inkrementiert. WriteMix wird vom HAL aber nur aufgerufen, wenn der HAL die
+Device-Clock als laufend erkennt — was er aus `outSampleTime` ableitet.
+Zirkulärer Deadlock:
+
+```
+Clock liefert sampleTime=0 (gFramesWritten=0)
+  → HAL sieht stehende Clock
+  → HAL ruft WriteMix nicht auf
+  → gFramesWritten wächst nie
+  → Clock liefert weiterhin sampleTime=0
+```
+
+**Fix**: Frei laufende Host-Clock basierend auf `mach_absolute_time()` und
+`gAnchorHostTime` (gesetzt bei `StartIO`):
+```c
+UInt64 periods = (UInt64)((Float64)(now - anchor) / ticksPerPeriod);
+*outSampleTime = (Float64)(periods * kZeroTimeStampPeriod);
+*outHostTime   = anchor + (UInt64)((Float64)periods * ticksPerPeriod);
+```
+Diese Implementierung entspricht Apples `NullAudio`-Referenz-Plugin. Die
+Clock läuft ab dem ersten `StartIO` kontinuierlich, unabhängig davon ob
+WriteMix aufgerufen wurde. Der P0-C-Fallback für `ticksPerFrame` (Race-
+Schutz bei frühem `GetZeroTimeStamp` vor `Initialize`) und der H-4/H-5
+`gTimelineSeed` bleiben erhalten.
+
+### I-3: ARN_HELPER_VERSION-Inkonsistenz
+
+**Problem**: `helper/Makefile` setzte `ARN_HELPER_VERSION "3.2.0"` per
+`-D`-Flag; das Fallback-`#define` im Quellcode lautete `"3.1.2"`. Beides
+stimmte nicht mit `APP_VERSION = "3.3.1"` (engine/version.py) überein.
+Der Helper meldete sich beim Start als `v3.2.0` statt `v3.3.1`.
+
+**Fix**: Beide auf `"3.3.1"` gesetzt.

@@ -9,6 +9,28 @@ Each release contains **two sections**:
 
 ---
 
+## v3.4.0 — June 12, 2026
+
+### For Everyone
+
+**Critical fix: No audio after fresh installation.**
+
+After a fresh install from the DMG, AudioRouterNow appeared to run correctly (green icon, output device selected, system audio set to Audio Router) but produced no sound. This release fixes the root cause.
+
+- **Audio now works after fresh installation** — A macOS-specific limitation made it impossible for the audio driver to access the shared memory channel that carries audio between components. The driver was silently dropping all audio frames.
+- **Audio clock deadlock resolved** — Even after the access issue, a circular dependency in the audio timing mechanism prevented audio from flowing. The clock now runs freely, as recommended by Apple's CoreAudio documentation.
+- No action required beyond updating. The fix is automatic on first launch.
+
+### For Power Users
+
+| Fix | Component | Root Cause | Resolution |
+|-----|-----------|-----------|-----------|
+| **I-1** | Helper (C) | `fchown()`/`fchmod()` on POSIX SHM FDs return EINVAL on macOS — SHM kept `gid=staff/0660`. Driver host (`_coreaudiod`) not in `staff` group → `shm_open(O_RDWR)` EACCES → `gSHMRing=NULL` → all frames dropped silently. | `umask(0)` + `shm_open(O_CREAT, 0666)`. `fchown`/`fchmod`/`getgrnam` removed. Security preserved by `magic`/`version`/`size` ring integrity checks (C-1). |
+| **I-2** | Driver (C) | `GetZeroTimeStamp` derived `sampleTime` from `gFramesWritten`. Circular deadlock: HAL won't call WriteMix until clock advances; clock only advances when WriteMix writes frames. | Freely running `mach_absolute_time()` clock from `gAnchorHostTime` (set at `StartIO`). Matches Apple NullAudio reference. P0-C ticksPerFrame fallback and H-4/H-5 timeline seed preserved. |
+| **I-3** | Helper (C) | `Makefile` set `ARN_HELPER_VERSION "3.2.0"`; fallback `#define` was `"3.1.2"`. Neither matched `APP_VERSION = "3.3.1"`. | Both updated to `"3.3.1"`. |
+
+---
+
 ## v3.3.1 — June 11, 2026
 
 ### For Everyone
