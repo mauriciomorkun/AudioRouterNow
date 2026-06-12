@@ -1762,83 +1762,46 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
         return kAudioHardwareIllegalOperationError;
     }
 
-    /* F3: Hybrid-Clock-Guard — kein IO aktiv (noch keine Frames geschrieben):
-     * sofort einen neutralen "Jetzt"-Timestamp liefern statt eine veraltete
-     * frame-basierte Zeit zu berechnen. */
-    if (atomic_load_explicit(&gFramesWritten, memory_order_relaxed) == 0) {
-        *outHostTime = mach_absolute_time();
-        *outSampleTime = 0.0;
-        *outSeed = (UInt64)atomic_load_explicit(&gTimelineSeed, memory_order_relaxed);
-        return kAudioHardwareNoError;
-    }
-
-    /*
-     * P4: Sample-Zeit aus den TATSAECHLICH geschriebenen Frames ableiten.
-     * Frueher wurde die verstrichene Zeit aus der Host-Clock geschaetzt, was
-     * bei zeitlich driftenden IOProc-Calls zu einer Sample-Zeit fuehren konnte,
-     * die nicht zum Ring-Fortschritt passt. Jetzt zaehlt ARN_DoIOOperation die
-     * verarbeiteten Frames in gFramesWritten, und wir runden auf die letzte
-     * voll abgeschlossene kZeroTimeStampPeriod-Grenze.
-     */
-    UInt64 anchor   = (UInt64)atomic_load_explicit(&gAnchorHostTime, memory_order_acquire);
-
-    /* Fix macOS 26: Vor dem ersten StartIO ist gAnchorHostTime = 0.
-     * Das ergibt einen unsinnigen Host-Timestamp → coreaudiod ruft StartIO
-     * nie auf. Lösung: vor StartIO den aktuellen Zeitpunkt als Anker nutzen. */
-    if (anchor == 0) {
-        anchor = mach_absolute_time();
-    }
-
-    /* Kein Mutex im RT-Pfad — atomic_load verhindert Priority-Inversion. */
+    /* P0-C FIX: ticksPerFrame aus gHostTicksPerFrameBits laden.
+     * Falls 0 (Race: coreaudiod ruft GetZeroTimeStamp vor ARN_Initialize auf),
+     * rekonstruieren wir den korrekten Wert aus der Mach-Timebase. */
     Float64 ticksPerFrame = _u64_to_f64(
         atomic_load_explicit(&gHostTicksPerFrameBits, memory_order_relaxed)
     );
     if (!(ticksPerFrame > 0.0) || !isfinite(ticksPerFrame)) {
-        /* P0-C FIX: gHostTicksPerFrameBits ist 0 (oder NaN/Inf), weil coreaudiod
-         * GetZeroTimeStamp VOR ARN_Initialize aufgerufen hat (Race beim Plugin-Laden
-         * unter macOS Sequoia/26). Der fruehre Fallback 1.0 ergab Host-Timestamps um
-         * Faktor ~500.000 zu klein → coreaudiod busy-wait Spin → 100% CPU → Freeze.
-         *
-         * Statt 1.0 rekonstruieren wir den physikalisch korrekten Wert aus der
-         * Mach-Timebase und der Default-Sample-Rate (identisch zur Berechnung in
-         * ARN_Initialize). mach_timebase_info ist im RT-Pfad sicher: konstant,
-         * sperrfrei, ohne Mach-IPC. */
         struct mach_timebase_info tb_fallback;
         mach_timebase_info(&tb_fallback);
         Float64 nanosPerTick = (Float64)tb_fallback.numer / (Float64)tb_fallback.denom;
-        if (nanosPerTick <= 0.0) nanosPerTick = 1.0;  /* Defensive: nie /0 */
+        if (nanosPerTick <= 0.0) nanosPerTick = 1.0;
         ticksPerFrame = (1.0e9 / kDefaultSampleRate) / nanosPerTick;
-
-        /* Den korrigierten Wert publizieren, damit nachfolgende Calls (und ein evtl.
-         * verspätetes ARN_Initialize, das ihn ueberschreibt) konsistent bleiben.
-         * Nur setzen wenn weiterhin 0 — kein Ueberschreiben eines gueltigen Werts. */
         UInt64 expected_zero = 0;
         atomic_compare_exchange_strong_explicit(
             &gHostTicksPerFrameBits, &expected_zero, _f64_to_u64(ticksPerFrame),
             memory_order_relaxed, memory_order_relaxed);
     }
 
-    uint64_t frames    = atomic_load_explicit(&gFramesWritten, memory_order_relaxed);
-    uint64_t completed = frames / kZeroTimeStampPeriod;
+    /* Frei laufende Host-Clock — unabhaengig von gFramesWritten.
+     *
+     * Die fruehre frame-zaehlerbasierte Implementierung (P4) erzeugte einen
+     * Deadlock: WriteMix wird nur aufgerufen wenn die Clock laeuft, aber die
+     * Clock lief nur wenn WriteMix Frames geschrieben hatte. Looesung: die Clock
+     * laeuft ab dem ersten StartIO (gAnchorHostTime) kontinuierlich in
+     * mach_absolute_time() — exakt wie Apples NullAudio-Referenzimplementierung.
+     */
+    UInt64 anchor = (UInt64)atomic_load_explicit(&gAnchorHostTime, memory_order_acquire);
+    UInt64 now    = mach_absolute_time();
+    if (anchor == 0 || anchor > now) anchor = now;
 
-    *outSampleTime = (Float64)(completed * kZeroTimeStampPeriod);
-    *outHostTime   = anchor + (UInt64)((Float64)(completed * kZeroTimeStampPeriod) * ticksPerFrame);
-    *outSeed       = (UInt64)atomic_load_explicit(&gTimelineSeed, memory_order_relaxed); /* H-4/H-5 */
+    Float64 ticksPerPeriod = ticksPerFrame * (Float64)kZeroTimeStampPeriod;
+    UInt64  periods = (ticksPerPeriod > 0.0)
+                    ? (UInt64)((Float64)(now - anchor) / ticksPerPeriod)
+                    : 0;
 
-    /* F3: Hybrid-Clock-Guard — der gemeldete Host-Timestamp darf nie weiter
-     * als eine kZeroTimeStampPeriod in der Vergangenheit liegen. Sonst
-     * interpretiert coreaudiod die Clock als stehengeblieben (z.B. wenn
-     * IOProc-Calls pausierten und gFramesWritten nicht fortschritt). */
-    {
-        UInt64 host_now = mach_absolute_time();
-        UInt64 one_period_ticks = (UInt64)((Float64)kZeroTimeStampPeriod * ticksPerFrame);
-        if (one_period_ticks > 0 && host_now > *outHostTime + one_period_ticks) {
-            *outHostTime = host_now - one_period_ticks;
-            *outSampleTime = (Float64)(*outHostTime - anchor) / ticksPerFrame;
-        }
-    }
+    *outSampleTime = (Float64)(periods * (UInt64)kZeroTimeStampPeriod);
+    *outHostTime   = anchor + (UInt64)((Float64)periods * ticksPerPeriod);
+    *outSeed       = (UInt64)atomic_load_explicit(&gTimelineSeed, memory_order_relaxed);
 
-    atomic_store(&gNumberTimeStamps, completed);
+    atomic_store(&gNumberTimeStamps, periods);
     return kAudioHardwareNoError;
 }
 
