@@ -2362,7 +2362,10 @@ static int parse_and_execute(int fd, const char *line)
 
     if (json_has_cmd(line, "get_status")) {
         if (!atomic_load_explicit(&g_shm_ready, memory_order_acquire)) {
-            snprintf(resp, sizeof(resp), "{\"ok\":true,\"active\":[],\"ring_frames\":0,\"ioproc_calls\":0,\"ready\":false}");
+            /* I-5: version-Feld immer mitsenden — Python kann Zombie-Helper erkennen */
+            snprintf(resp, sizeof(resp),
+                     "{\"ok\":true,\"active\":[],\"ring_frames\":0,\"ioproc_calls\":0,"
+                     "\"ready\":false,\"version\":\"" ARN_HELPER_VERSION "\"}");
             send_line(fd, resp);
             return 0;
         }
@@ -2384,10 +2387,11 @@ static int parse_and_execute(int fd, const char *line)
         }
         /* Tranche B: Safe-Take-State exponieren — Python kann aktuellen Modus lesen. */
         int safe_take = atomic_load_explicit(&g_safe_take, memory_order_acquire);
+        /* I-5: version immer mitsenden — Python erkennt veraltete Helper sofort */
         snprintf(resp, sizeof(resp),
                  "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u,"
                  "\"reconnect_count\":%u,\"ioproc_age_ms\":%llu,\"safe_take\":%d,"
-                 "\"truncated\":%s,\"ready\":true}",
+                 "\"truncated\":%s,\"ready\":true,\"version\":\"" ARN_HELPER_VERSION "\"}",
                  active_buf, frames, calls, reconnect_count, ioproc_age_ms, safe_take,
                  active_truncated ? "true" : "false");
         send_line(fd, resp);
