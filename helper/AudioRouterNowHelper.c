@@ -44,7 +44,6 @@
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/file.h>   /* M8: flock() fuer Single-Instance-Lock */
-#include <grp.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -2835,19 +2834,19 @@ int main(int argc, char *argv[])
     /* 2. SHM proaktiv erstellen — der Driver-Sandbox-Prozess (_coreaudiod) kann
      *    shm_open(O_CREAT) nicht ausfuehren. Der Helper laeuft als normaler User
      *    ohne Sandbox-Restriktion und erstellt das Segment.
-     *    H-2: 0660 + Gruppe _coreaudiod (gid 202) — exklusiv Owner + _coreaudiod.
-     *    getgrnam() dynamisch, Fallback 202. */
+     *
+     *    HINWEIS: fchown()/fchmod() sind auf POSIX-SHM-FDs unter macOS nicht
+     *    implementiert und schlagen mit EINVAL fehl — Permissions koennen
+     *    ausschliesslich ueber das mode-Argument von shm_open(O_CREAT) gesetzt
+     *    werden (gefiltert durch umask). Da _coreaudiod keine gemeinsame Gruppe
+     *    mit dem eingeloggten User teilt, ist 0666 zwingend erforderlich.
+     *    Integritaet wird durch magic/version/size-Checks (C-1) sichergestellt. */
     {
         shm_unlink(ARN_SHM_NAME); /* Stales Segment entfernen (Fehler ignorieren) */
-        struct group *_cad_gr = getgrnam("_coreaudiod");
-        gid_t _cad_gid = _cad_gr ? _cad_gr->gr_gid : (gid_t)202;
-        int shm_fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0660);
+        mode_t shm_old_umask = umask(0);
+        int shm_fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0666);
+        umask(shm_old_umask);
         if (shm_fd >= 0) {
-            fchmod(shm_fd, 0660); /* umask umgehen */
-            if (fchown(shm_fd, (uid_t)-1, _cad_gid) != 0) {
-                fprintf(stderr, "Helper: Warnung — fchown(_coreaudiod gid=%d) auf SHM "
-                        "fehlgeschlagen (errno=%d)\n", (int)_cad_gid, errno);
-            }
             if (ftruncate(shm_fd, (off_t)ARN_SHM_SIZE) == 0) {
                 void *ptr = mmap(NULL, ARN_SHM_SIZE, PROT_READ | PROT_WRITE,
                                  MAP_SHARED, shm_fd, 0);
@@ -2860,8 +2859,8 @@ int main(int argc, char *argv[])
                     if (iid == 0) iid = 1; /* Niemals 0 (= nicht initialisiert) */
                     atomic_store_explicit(&init_ring->instance_id, iid, memory_order_release);
                     munmap(ptr, ARN_SHM_SIZE);
-                    fprintf(stdout, "Helper: SHM erstellt (%s, 0660 gid=_coreaudiod(%d), %zu Bytes, iid=0x%llx)\n",
-                            ARN_SHM_NAME, (int)_cad_gid, ARN_SHM_SIZE, (unsigned long long)iid);
+                    fprintf(stdout, "Helper: SHM erstellt (%s, 0666 (world-rw), %zu Bytes, iid=0x%llx)\n",
+                            ARN_SHM_NAME, ARN_SHM_SIZE, (unsigned long long)iid);
                 } else {
                     fprintf(stderr, "Helper: SHM mmap fehlgeschlagen (errno=%d)\n", errno);
                 }
