@@ -13,6 +13,7 @@
 | **Sparkle Auto-Updates** | 🔴 **OFFEN — Mauricio entscheidet** | A) Jetzt (komplex, Python/PyInstaller) · B) v3.5 schieben · C) Swift-Wrapper |
 | **Homebrew Cask** | ✅ Beschlossen: **JA, zum Launch** | Sobald Notarisierung + GitHub Release steht — Claude macht alles |
 | **Landing Page URL** | ✅ `audiorouternow.mauriciomorkun.com` | |
+| **Landing Page** | 🟡 **Placeholder live** | https://audiorouternow.mauriciomorkun.com ✅ · DNS + nginx + SSL fertig · Inhalt noch zu bauen |
 | **Lizenz** | ✅ GPL-3.0 | |
 | **Donations** | ✅ Buy Me a Coffee | |
 
@@ -26,6 +27,11 @@
 **Status:** ⏳ Notarisierung läuft (Apple-seitig)
 
 #### Abgeschlossene Schritte:
+
+**[13.06.2026 ~21:20 CEST] Landing Page Subdomain — live**
+- **Was:** `audiorouternow.mauriciomorkun.com` eingerichtet — DNS (Namecheap A-Record), nginx vhost, Let's Encrypt SSL, HTTP→HTTPS Redirect
+- **Ergebnis:** https://audiorouternow.mauriciomorkun.com antwortet mit 200 OK · SSL gültig bis 11.09.2026 (auto-renewal) · Placeholder "Coming Soon" live
+- **Offen:** Eigentliche Landing Page (Texte, Design) — vor Launch zu bauen
 
 **[13.06.2026 ~21:00 CEST] Phase 3 — Community Files + Lizenz-Fix**
 - **Was:** RELEASE_NOTES.md finalisiert (Datum 12→13.06., DOKUMENTATION.md-Referenz entfernt), Bundle-ID/Version-Konsistenzcheck aller 5 Quellen (alle ✅ `3.4.0`), Community Files erstellt, Lizenz MIT→GPL-3.0 gefixt
