@@ -27,6 +27,12 @@
 
 #### Abgeschlossene Schritte:
 
+**[13.06.2026 ~21:00 CEST] Phase 3 — Community Files + Lizenz-Fix**
+- **Was:** RELEASE_NOTES.md finalisiert (Datum 12→13.06., DOKUMENTATION.md-Referenz entfernt), Bundle-ID/Version-Konsistenzcheck aller 5 Quellen (alle ✅ `3.4.0`), Community Files erstellt, Lizenz MIT→GPL-3.0 gefixt
+- **Erstellt:** `CONTRIBUTING.md`, `SECURITY.md`, `.github/FUNDING.yml`, `.github/ISSUE_TEMPLATE/bug_report.md`, `.github/ISSUE_TEMPLATE/feature_request.md`
+- **Gefixt:** `LICENSE` (MIT→GPL-3.0 via curl gnu.org), `README.md` (Lizenz-Referenzen), `RELEASE_NOTES.md` (Datum + Footer)
+- **Ergebnis:** Repo ist bereit für öffentliche Contributor (Issues, PRs, Security Reporting, Buy-Me-a-Coffee-Button) ✅
+
 **[13.06.2026 ~17:19 CEST] Build 8 — Erste erfolgreiche Developer ID Signierung**
 - **Problem:** PyInstaller 6.x erstellt in `Contents/Frameworks/` zwei Symlinks (`AudioRouterNow.driver` → `__dot__driver/`, `com.audiorouter.now.helper.plist` → `../Resources/...`) die codesign auf macOS 26 als unsigned nested bundles/non-code ablehnt. 6 fehlgeschlagene Builds davor.
 - **Fix 1 — `installer/build.sh`:** Vollständige Symlink-Auflösung: `__dot__driver` → `AudioRouterNow.driver` umbenennen (echter Directory), Frameworks/-Symlinks entfernen, Symlinks im driver-Bundle auflösen, Storage-Bundle entfernen. Bottom-Up Developer ID Signing implementiert (Helper → Driver-Binary → .driver-Bundle → Executable → outer .app). Notarization + Stapling.
