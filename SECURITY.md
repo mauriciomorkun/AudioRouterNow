@@ -13,7 +13,7 @@ Only the latest release receives security fixes.
 
 **Please do not report security vulnerabilities as public GitHub Issues.**
 
-Send a description to **m.moraisdacunha@pm.me** with:
+Send a description to **dev@mauriciomorkun.com** with:
 
 - A description of the vulnerability
 - Steps to reproduce
