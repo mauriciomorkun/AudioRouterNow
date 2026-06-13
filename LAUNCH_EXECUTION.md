@@ -6,6 +6,20 @@
 
 ---
 
+## 🔔 Offene Entscheidungen (blockieren oder beeinflussen den Launch)
+
+| Thema | Status | Entscheidung |
+|-------|--------|--------------|
+| **Sparkle Auto-Updates** | 🔴 **OFFEN — Mauricio entscheidet** | A) Jetzt (komplex, Python/PyInstaller) · B) v3.5 schieben · C) Swift-Wrapper |
+| **Homebrew Cask** | ✅ Beschlossen: **JA, zum Launch** | Sobald Notarisierung + GitHub Release steht — Claude macht alles |
+| **Landing Page URL** | ✅ `audiorouternow.mauriciomorkun.com` | |
+| **Lizenz** | ✅ GPL-3.0 | |
+| **Donations** | ✅ Buy Me a Coffee | |
+
+> 🔔 **Sparkle-Entscheidung nicht vergessen!** Bei jeder Session nachfragen bis entschieden.
+
+---
+
 ## 📋 Fortschritts-Log
 
 ### 13.06.2026 — Phase 1: Developer ID Signing Pipeline

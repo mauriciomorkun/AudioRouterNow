@@ -30,6 +30,24 @@ Das gilt insbesondere für:
 2. Keine Entscheidungen mit Lock-in alleine treffen — User fragen
 3. Nach jeder Phase: kurzes Audit ob alles konsistent ist
 
+## 🔔 Offene Entscheidungen — bei Session-Start IMMER erinnern
+
+### Sparkle (Auto-Updates) — ENTSCHEIDUNG AUSSTEHEND 🔴
+Mauricio muss entscheiden ob Sparkle zum Launch v3.4.0 oder erst v3.5.
+**Bei jeder neuen Session aktiv fragen:** "Hast du dich wegen Sparkle entschieden?"
+Optionen:
+- A) Sparkle jetzt → komplex (Python/PyInstaller, kein nativer Cocoa-App-Wrapper)
+- B) Sparkle auf v3.5 schieben → v3.4.0 launcht ohne Auto-Update ("Check GitHub")
+- C) Minimaler Swift-Wrapper nur für Updates → mittlerer Aufwand
+
+### Homebrew — BEREIT sobald Notarisierung + GitHub Release steht ✅ beschlossen
+Nächste Schritte (in Reihenfolge, Claude kann alles außer dem letzten Schritt):
+1. Notarisierung abwarten + Stapling ⏳
+2. GitHub Release v3.4.0 erstellen (DMG + SHA256)
+3. `homebrew-tap` Repo anlegen
+4. Cask-Formula schreiben + testen
+5. 👤 `brew install --cask` auf sauberem Mac verifizieren
+
 ## Auto-Commit-Regel (PFLICHT)
 Nach jedem abgeschlossenen Arbeitsschritt oder Arbeitspunkt IMMER automatisch:
 
