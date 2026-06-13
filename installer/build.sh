@@ -36,6 +36,8 @@ DIST_DIR="$SCRIPT_DIR/dist"
 APP_NAME="AudioRouterNow"
 DMG_OUTPUT="$HOME/Desktop/${APP_NAME}.dmg"
 STAGING_DIR="/tmp/${APP_NAME}_dmg_staging"
+SIGN_IDENTITY="Developer ID Application: MAURICIO MORAIS DA CUNHA (5D52U34B3W)"
+NOTARIZE_PROFILE="AudioRouterNow-Notarization"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════╗${NC}"
@@ -61,7 +63,7 @@ make -C "$DRIVER_DIR" clean 2>/dev/null || true
 make -C "$DRIVER_DIR" build || fail "Driver/Helper Build fehlgeschlagen. Siehe Ausgabe oben."
 [[ -f "$DRIVER_BUILD/Contents/MacOS/AudioRouterNowDriver" ]] || fail "Driver-Binary fehlt nach Build."
 [[ -f "$DRIVER_BUILD/Contents/MacOS/AudioRouterNowHelper" ]] || fail "Helper-Binary fehlt nach Build."
-ok "Driver + Helper gebaut und ad-hoc signiert"
+ok "Driver + Helper gebaut (werden in App-Bundle neu signiert)"
 
 # --- Python venv -------------------------------------------------------------
 log "Richte Python-Umgebung ein..."
@@ -104,56 +106,196 @@ APP_PATH="$DIST_DIR/${APP_NAME}.app"
 [[ -d "$APP_PATH" ]] || fail ".app wurde nicht erstellt. Siehe PyInstaller-Ausgabe oben."
 ok "${APP_NAME}.app gebaut: $APP_PATH"
 
-# H6: PyInstaller 6.x benennt .driver → __dot__driver in Contents/Frameworks/
-# Suche ohne Pfad-Pattern — es gibt genau eine AudioRouterNowHelper Binary im Bundle.
-HELPER_DST="$(find "$APP_PATH" -type f -name "AudioRouterNowHelper" 2>/dev/null | head -1)"
-if [[ -z "$HELPER_DST" ]]; then
-    fail "AudioRouterNowHelper nicht im App-Bundle gefunden — PyInstaller-Layout unerwartet."
+# --- Frameworks/-Level: PyInstaller-Symlinks auflösen & Bundle umbenennen ----
+# PyInstaller 6.x erstellt in Frameworks/ u.a. diese Symlinks:
+#
+#   AudioRouterNow.driver → AudioRouterNow__dot__driver/
+#     KRITISCH: codesign erkennt .driver-Erweiterung, behandelt den Symlink
+#     als unsignierten nested bundle → "code object is not signed at all"
+#
+#   com.audiorouter.now.helper.plist → ../Resources/com.audiorouter.now.helper.plist
+#     KRITISCH: plist-Symlink in Frameworks/ führt zu "code object is not signed" Fehler
+#
+# Fix:
+#   (a) plist-Symlink durch echte Datei ersetzen
+#   (b) driver-Symlink entfernen, __dot__driver → AudioRouterNow.driver umbenennen
+#       → codesign sieht echtes .driver-Verzeichnis, erkennt es als pre-signiertes
+#         nested bundle und versiegelt es korrekt
+#   (c) sys._MEIPASS + "/AudioRouterNow.driver" der Python-App funktioniert weiterhin
+
+FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
+
+# Echtes __dot__driver-Verzeichnis finden (real dir, kein Symlink)
+DOTDRIVER_BUNDLE="$(find "$FRAMEWORKS_DIR" -maxdepth 1 -type d -name "*__dot__driver" 2>/dev/null | head -1)"
+
+# (a) com.audiorouter.now.helper.plist Symlink → echte Datei
+PLIST_SYMLINK="$FRAMEWORKS_DIR/com.audiorouter.now.helper.plist"
+if [[ -L "$PLIST_SYMLINK" ]]; then
+    PLIST_REAL="$("$VENV_PY" -c "import os; print(os.path.realpath('$PLIST_SYMLINK'))")"
+    rm "$PLIST_SYMLINK"
+    cp -f "$PLIST_REAL" "$PLIST_SYMLINK"
+    ok "Plist-Symlink in Frameworks/ aufgelöst: com.audiorouter.now.helper.plist"
 fi
+
+# (b) AudioRouterNow.driver Symlink entfernen + __dot__driver umbenennen
+DRIVER_SYMLINK="$FRAMEWORKS_DIR/AudioRouterNow.driver"
+if [[ -L "$DRIVER_SYMLINK" ]]; then
+    rm "$DRIVER_SYMLINK"
+    ok "AudioRouterNow.driver-Symlink aus Frameworks/ entfernt"
+fi
+
+if [[ -n "$DOTDRIVER_BUNDLE" ]] && [[ -d "$DOTDRIVER_BUNDLE" ]]; then
+    NEW_BUNDLE_PATH="$FRAMEWORKS_DIR/AudioRouterNow.driver"
+    mv "$DOTDRIVER_BUNDLE" "$NEW_BUNDLE_PATH"
+    DOTDRIVER_BUNDLE="$NEW_BUNDLE_PATH"
+    ok "__dot__driver → AudioRouterNow.driver umbenannt (echtes Verzeichnis)"
+fi
+
+# H6: Helper-Binary im (nun umbenannten) Bundle-Pfad finden
+HELPER_DST=""
+if [[ -n "$DOTDRIVER_BUNDLE" ]] && [[ -d "$DOTDRIVER_BUNDLE" ]]; then
+    HELPER_DST="$DOTDRIVER_BUNDLE/Contents/MacOS/AudioRouterNowHelper"
+fi
+if [[ -z "$HELPER_DST" ]] || [[ ! -f "$HELPER_DST" ]]; then
+    # Fallback: Suche im gesamten Bundle (z.B. falls Layout abweicht)
+    HELPER_DST="$(find "$APP_PATH" -type f -name "AudioRouterNowHelper" 2>/dev/null | head -1)"
+fi
+[[ -n "$HELPER_DST" ]] || fail "AudioRouterNowHelper nicht im App-Bundle gefunden — PyInstaller-Layout unerwartet."
 ok "Helper-Binary gefunden: $HELPER_DST"
 
-# --- Code-Signierung (ad-hoc + Entitlements) ---------------------------------
-# PyInstaller bündelt Homebrew-Python (andere Team-ID als unsere ad-hoc App).
+# --- Symlinks IM driver-Bundle (Contents/Info.plist, Contents/Resources) auflösen ---
+# PyInstaller erstellt __dot__driver/Contents/Info.plist und Resources/ als Symlinks
+# auf das Storage-Bundle in Contents/Resources/AudioRouterNow.driver/.
+# Nach Umbenennung zu AudioRouterNow.driver bleiben diese internen Symlinks bestehen.
+# codesign verweigert Signieren wenn Info.plist ein Symlink ist.
+if [[ -n "$DOTDRIVER_BUNDLE" ]] && [[ -d "$DOTDRIVER_BUNDLE" ]]; then
+    log "Löse Symlinks in driver-Bundle auf: $(basename "$DOTDRIVER_BUNDLE")..."
+    plist_link="$DOTDRIVER_BUNDLE/Contents/Info.plist"
+    res_link="$DOTDRIVER_BUNDLE/Contents/Resources"
+
+    if [[ -L "$plist_link" ]]; then
+        real_plist="$("$VENV_PY" -c "import os; print(os.path.realpath('$plist_link'))")"
+        cp -f "$real_plist" "${plist_link}.new" && mv "${plist_link}.new" "$plist_link"
+        ok "Info.plist-Symlink aufgelöst"
+    else
+        ok "Info.plist ist bereits eine reguläre Datei"
+    fi
+
+    if [[ -L "$res_link" ]]; then
+        real_res="$("$VENV_PY" -c "import os; print(os.path.realpath('$res_link'))")"
+        rm "$res_link"
+        cp -r "$real_res" "$res_link"
+        ok "Resources-Symlink aufgelöst"
+    else
+        ok "Resources ist bereits ein reguläres Verzeichnis"
+    fi
+else
+    warn "driver-Bundle nicht in Frameworks/ gefunden — Symlink-Fix übersprungen"
+fi
+
+# --- PyInstaller Driver-Storage aus Resources/ entfernen ---------------------
+# PyInstaller lagert Nicht-Binary-Inhalte (Info.plist, Resources/) der .driver-Bundles
+# in Contents/Resources/AudioRouterNow.driver/ aus. Nach Symlink-Auflösung ist
+# Frameworks/AudioRouterNow.driver/ self-contained. Das Storage-Bundle MUSS weg:
+# codesign scannt Contents/Resources/ und findet es als unsigniertes Bundle mit
+# Info.plist (CFBundleExecutable=AudioRouterNowDriver) aber leerer MacOS/ → Signing-Fehler.
+STORAGE_BUNDLE="$APP_PATH/Contents/Resources/AudioRouterNow.driver"
+if [[ -d "$STORAGE_BUNDLE" ]]; then
+    rm -rf "$STORAGE_BUNDLE"
+    ok "Storage-Bundle entfernt: Contents/Resources/AudioRouterNow.driver"
+else
+    ok "Storage-Bundle nicht vorhanden (bereits bereinigt)"
+fi
+
+# --- Code-Signierung (Developer ID + Hardened Runtime) -----------------------
+# PyInstaller bündelt Homebrew-Python (andere Team-ID als unsere App).
 # macOS Sequoia+ verweigert das Laden bei Team-ID-Konflikt.
 # Lösung: Entitlements mit disable-library-validation + manuelles Bottom-Up-Signing.
 # Kein --deep (scheitert an dist-info-Verzeichnissen von pip-Paketen).
-log "Signiere .app (ad-hoc + Entitlements)..."
+# --timestamp ist Pflicht für Developer ID (Apple RFC 3161 Timestamp Server).
+log "Signiere .app (Developer ID + Hardened Runtime)..."
 
 ENTITLEMENTS="$SCRIPT_DIR/entitlements.plist"
 
 # Schritt 1: Extended Attributes entfernen
 xattr -cr "$APP_PATH" 2>/dev/null || true
 
-# Schritt 2: Alle .dylib Dateien signieren
+# Schritt 2: Alle .dylib Dateien signieren (inkl. HAL-Treiber-dylib)
 find "$APP_PATH" -name "*.dylib" | while read lib; do
-    codesign --force --sign - "$lib" 2>/dev/null || true
+    codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$lib" 2>/dev/null || true
 done
 
-# Schritt 3: Alle .so Dateien signieren
+# Schritt 3: Alle .so Dateien signieren (Python-Extensions)
 find "$APP_PATH" -name "*.so" | while read lib; do
-    codesign --force --sign - "$lib" 2>/dev/null || true
+    codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$lib" 2>/dev/null || true
 done
 
 # Schritt 4: Python Shared Library signieren (überschreibt Homebrew-Team-ID)
-codesign --force --sign - "$APP_PATH/Contents/Frameworks/Python" 2>/dev/null || true
+codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp \
+    "$APP_PATH/Contents/Frameworks/Python" 2>/dev/null || true
+
+# Schritt 4b: Helper-Binary signieren — MUSS vor Bundle-Signing (Schritt 4d) erfolgen!
+# AudioRouterNowHelper hat KEINE .dylib/.so-Endung → wird von find *.dylib nicht erfasst.
+if [[ -n "$HELPER_DST" ]]; then
+    codesign \
+        --force \
+        --sign "$SIGN_IDENTITY" \
+        --options runtime \
+        --timestamp \
+        "$HELPER_DST" || warn "Helper-Binary Signierung fehlgeschlagen"
+fi
+
+# Schritt 4c: Driver-Binary explizit signieren — MUSS vor Bundle-Signing (Schritt 4d) erfolgen!
+# AudioRouterNowDriver ist eine dynamiclib OHNE .dylib-Endung → ebenfalls nicht in find *.dylib.
+# Wird erst hier separat signiert; sonst hat die __dot__driver-Bundle-Signatur ein unsigned Binary.
+DRIVER_BIN="$(find "$APP_PATH" -type f -name "AudioRouterNowDriver" 2>/dev/null | head -1)"
+if [[ -n "$DRIVER_BIN" ]]; then
+    codesign \
+        --force \
+        --sign "$SIGN_IDENTITY" \
+        --options runtime \
+        --timestamp \
+        "$DRIVER_BIN" || warn "Driver-Binary Signierung fehlgeschlagen"
+    ok "Driver-Binary signiert: $DRIVER_BIN"
+else
+    warn "AudioRouterNowDriver nicht gefunden — Bundle-Signierung könnte fehlschlagen"
+fi
+
+# Schritt 4d: __dot__driver Bundle signieren (NUR das reale Bundle in Frameworks/)
+# Direkte Variable statt find-Schleife — vermeidet das Storage-Bundle in Resources/.
+# _CodeSignature ggf. zuerst entfernen (PyInstaller hinterlässt partielle Signaturen).
+if [[ -n "$DOTDRIVER_BUNDLE" ]]; then
+    rm -rf "$DOTDRIVER_BUNDLE/Contents/_CodeSignature" 2>/dev/null || true
+    codesign \
+        --force \
+        --sign "$SIGN_IDENTITY" \
+        --options runtime \
+        --timestamp \
+        "$DOTDRIVER_BUNDLE" || fail "Driver-Bundle Signierung fehlgeschlagen: $DOTDRIVER_BUNDLE"
+    ok "Driver-Bundle signiert: $(basename "$DOTDRIVER_BUNDLE")"
+else
+    warn "__dot__driver Bundle nicht gefunden — Schritt 4d übersprungen"
+fi
 
 # Schritt 5: App-Executable signieren
 codesign \
     --force \
-    --sign - \
+    --sign "$SIGN_IDENTITY" \
     --options runtime \
+    --timestamp \
     --entitlements "$ENTITLEMENTS" \
-    "$APP_PATH/Contents/MacOS/AudioRouterNow" 2>/dev/null || true
+    "$APP_PATH/Contents/MacOS/AudioRouterNow" || fail "Executable-Signierung fehlgeschlagen"
 
 # Schritt 6: Gesamten Bundle signieren (KEIN --deep, um dist-info-Fehler zu vermeiden)
 codesign \
     --force \
-    --sign - \
+    --sign "$SIGN_IDENTITY" \
     --options runtime \
+    --timestamp \
     --entitlements "$ENTITLEMENTS" \
-    "$APP_PATH" 2>/dev/null || warn "Bundle-Signierung mit Warnung abgeschlossen"
+    "$APP_PATH" || fail "Bundle-Signierung fehlgeschlagen"
 
-ok "Ad-hoc signiert (Entitlements: library-validation deaktiviert)"
+ok "Developer ID signiert (Hardened Runtime + Timestamp)"
 
 # --- DMG-Grafiken generieren -------------------------------------------------
 # Hintergrundbild enthaelt den weissen Pfeil direkt eingezeichnet.
@@ -166,7 +308,13 @@ BACKGROUND_PNG="$SCRIPT_DIR/dmg_background.png"
 log "Erstelle DMG mit dmgbuild..."
 
 # Alte Artefakte aufraumen
-[[ -f "$DMG_OUTPUT" ]] && rm -f "$DMG_OUTPUT"
+# macOS schützt DMG-Dateien die zuvor gemountet waren mit com.apple.macl.
+# rm -f schlägt dann mit "Operation not permitted" fehl → Finder-Fallback.
+if [[ -f "$DMG_OUTPUT" ]]; then
+    rm -f "$DMG_OUTPUT" 2>/dev/null || \
+        osascript -e "tell application \"Finder\" to delete POSIX file \"$DMG_OUTPUT\"" 2>/dev/null || \
+        fail "Alte DMG kann nicht gelöscht werden: $DMG_OUTPUT"
+fi
 
 "$VENV_DIR/bin/dmgbuild" \
     -s "$SCRIPT_DIR/dmg_settings.py" \
@@ -295,6 +443,40 @@ if [[ -f "$DMG_ICON" ]]; then
 else
     warn "AudioRouterNow_dmg.icns nicht gefunden — Standard-Icon bleibt"
 fi
+
+# --- DMG signieren -----------------------------------------------------------
+log "Signiere DMG mit Developer ID..."
+codesign \
+    --force \
+    --sign "$SIGN_IDENTITY" \
+    --timestamp \
+    "$DMG_OUTPUT" || fail "DMG-Signierung fehlgeschlagen"
+ok "DMG signiert: $DMG_OUTPUT"
+
+# --- Notarisierung (Apple Notary Service) ------------------------------------
+log "Sende DMG zur Apple-Notarisierung (kann 2-5 Minuten dauern)..."
+NOTARY_OUTPUT=$(xcrun notarytool submit "$DMG_OUTPUT" \
+    --keychain-profile "$NOTARIZE_PROFILE" \
+    --wait \
+    2>&1)
+echo "$NOTARY_OUTPUT"
+
+if echo "$NOTARY_OUTPUT" | grep -q "status: Accepted"; then
+    ok "Notarisierung erfolgreich!"
+elif echo "$NOTARY_OUTPUT" | grep -q "status: Invalid"; then
+    SUBMISSION_ID=$(echo "$NOTARY_OUTPUT" | grep -E "^\s*id:" | head -1 | awk '{print $2}')
+    warn "Notarisierung ABGELEHNT — lade Log..."
+    [[ -n "$SUBMISSION_ID" ]] && xcrun notarytool log "$SUBMISSION_ID" \
+        --keychain-profile "$NOTARIZE_PROFILE" || true
+    fail "Notarisierung fehlgeschlagen. Siehe Log oben."
+else
+    warn "Notarisierung-Status unklar — prüfe Ausgabe oben"
+fi
+
+# --- Stapling ----------------------------------------------------------------
+log "Staple Notarization Ticket in DMG..."
+xcrun stapler staple "$DMG_OUTPUT" || fail "Stapling fehlgeschlagen"
+ok "Notarization Ticket gestapelt ✓"
 
 # --- Fertig ------------------------------------------------------------------
 echo ""

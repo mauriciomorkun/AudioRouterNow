@@ -20,11 +20,10 @@ a = Analysis(
     pathex=[str(ENGINE_DIR)],
     binaries=[],
     datas=[
-        # HAL-Treiber Bundle einbetten (enthaelt jetzt auch das Helper-Binary).
+        # HAL-Treiber Bundle einbetten (enthaelt auch Helper-Binary + launchd plist).
         # Zugriff zur Laufzeit: os.path.join(sys._MEIPASS, "AudioRouterNow.driver")
+        # launchd plist ist im Treiber-Bundle: AudioRouterNow.driver/Contents/Resources/
         (str(DRIVER_BUILD), "AudioRouterNow.driver"),
-        # launchd plist (wird beim Erststart nach ~/Library/LaunchAgents/ kopiert)
-        (str(HELPER_PLIST), "."),
     ],
     hiddenimports=[
         "rumps",
