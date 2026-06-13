@@ -4,6 +4,26 @@
 > Hier: konkrete Reihenfolge, Abhängigkeiten, Parallelisierung, Wartezeiten, Risiken.
 > Solo-Dev + Claude. Stand: 13.06.2026
 
+---
+
+## 📋 Fortschritts-Log
+
+### 13.06.2026 — Phase 1: Developer ID Signing Pipeline
+**Status:** ⏳ Notarisierung läuft (Apple-seitig)
+
+#### Abgeschlossene Schritte:
+
+**[13.06.2026 ~17:19 CEST] Build 8 — Erste erfolgreiche Developer ID Signierung**
+- **Problem:** PyInstaller 6.x erstellt in `Contents/Frameworks/` zwei Symlinks (`AudioRouterNow.driver` → `__dot__driver/`, `com.audiorouter.now.helper.plist` → `../Resources/...`) die codesign auf macOS 26 als unsigned nested bundles/non-code ablehnt. 6 fehlgeschlagene Builds davor.
+- **Fix 1 — `installer/build.sh`:** Vollständige Symlink-Auflösung: `__dot__driver` → `AudioRouterNow.driver` umbenennen (echter Directory), Frameworks/-Symlinks entfernen, Symlinks im driver-Bundle auflösen, Storage-Bundle entfernen. Bottom-Up Developer ID Signing implementiert (Helper → Driver-Binary → .driver-Bundle → Executable → outer .app). Notarization + Stapling.
+- **Fix 2 — `installer/AudioRouterNow.spec`:** Redundanten `(HELPER_PLIST, ".")` Eintrag aus `datas` entfernt — plist war bereits im driver-Bundle, der separate Eintrag erzeugte die problematische Datei in `Frameworks/`.
+- **Ergebnis:** Signing ✅ · DMG erstellt (12MB) ✅ · DMG signiert ✅ · Bei Apple eingereicht ✅
+- **Submission ID:** `ebd256de-71ed-4df3-ae11-5f4941e5369b`
+- **Status Apple:** `In Progress` (seit 15:19 UTC, ungewöhnlich lang — HAL-Treiber + sensitive Entitlements = wahrscheinlich manueller Review)
+- **Commits:** `9012bba`, `f001254`
+
+---
+
 **Legende:**
 `→ braucht X` = harte Abhängigkeit (blockiert) · `⟳ parallel` = kann gleichzeitig laufen · `⏳` = externe Wartezeit · `🔴` = Risiko/Showstopper · `🤖` = Claude kann's machen · `👤` = nur du (Account/Geld/Entscheidung)
 
@@ -40,13 +60,13 @@ Apple Dev Account ──► Notarization-Setup ──► erster notarisierter DM
 **Ziel:** Ein DMG, das auf einem fremden Mac ohne "App ist beschädigt"-Dialog öffnet.
 **→ braucht Phase 0 (Account + Team ID + App-specific PW). Zeit: ~1 Tag (viel Trial & Error).**
 
-- [ ] 👤 **Developer ID Application Certificate** erzeugen & in Keychain installieren (für App/Helper-Signing außerhalb App Store)
-- [ ] 👤 **Developer ID Installer Certificate** (falls `.pkg`-Komponenten im Installer) → prüfen ob `installer/` ein pkg baut
-- [ ] 🤖 **`installer/build.sh` auf Developer-ID-Signing umstellen** — `driver/README.md` sagt aktuell *ad-hoc-Signing*. 🔴 **Knackpunkt:** HAL-Plugin **und** privilegierter Helper müssen **beide** mit Hardened Runtime signiert sein, sonst scheitert Notarization.
-- [ ] 🤖 **`installer/entitlements.plist` für Hardened Runtime prüfen** (existiert bereits) — Audio-Entitlements + ggf. `com.apple.security.cs.*`
-- [ ] 🤖 **Signing-Reihenfolge im Build:** inner-out (Driver → Helper → App → DMG), jede Binary einzeln signieren, dann DMG
-- [ ] 🤖 **Notarization-Submit-Script** (`xcrun notarytool submit --wait`) ⏳ Apple Notarization-Service: **5–30 Min** pro Submit (kein Mensch, automatisch)
-- [ ] 🤖 **Stapling** (`xcrun stapler staple`) auf App **und** DMG
+- [x] 👤 **Developer ID Application Certificate** — ✅ `MAURICIO MORAIS DA CUNHA (5D52U34B3W)` in Keychain
+- [x] 👤 **Developer ID Installer Certificate** — nicht nötig, kein `.pkg` im Build
+- [x] 🤖 **`installer/build.sh` auf Developer-ID-Signing umstellen** — ✅ Build 8 (13.06.2026). HAL-Driver + Helper + App mit Hardened Runtime + Timestamp signiert. PyInstaller-Symlink-Fix erforderlich.
+- [x] 🤖 **`installer/entitlements.plist` für Hardened Runtime** — ✅ `allow-jit` + `allow-unsigned-executable-memory` + `disable-library-validation`
+- [x] 🤖 **Signing-Reihenfolge im Build:** ✅ Bottom-Up: Helper → Driver-Binary → .driver-Bundle → Executable → outer .app → DMG
+- [ ] 🤖 **Notarization-Submit-Script** — ⏳ `xcrun notarytool submit --wait` läuft seit 15:19 UTC. Submission `ebd256de` bei Apple **In Progress**.
+- [ ] 🤖 **Stapling** (`xcrun stapler staple`) — ⏳ wartet auf Notarization-Ergebnis
 - [ ] 👤 **🔴 GATING-TEST: DMG auf einem ZWEITEN Mac** (oder frischem User-Account) öffnen, installieren, Audio routen. → Das ist der Moment, der "Launch-ready" definiert. Erst wenn das clean durchläuft, ist Phase 1 fertig.
 
 > **Risiko:** Notarization scheitert oft an Kleinigkeiten (fehlendes `--options runtime`, nicht-signierte Nested-Binaries, Python-Engine als unsignierter Inhalt). Plane **Puffer von 1–2 Iterationen** ein. Jede Iteration = ⏳ 5–30 Min Apple-Roundtrip.
