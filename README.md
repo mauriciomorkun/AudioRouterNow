@@ -4,7 +4,7 @@
 
 AudioRouterNow is a free, open-source macOS menu bar app that lets you send your system audio to any combination of output devices at the same time — no restarts, no Terminal, no external tools required.
 
-> Built by [Mauricio Morkun](https://mauriciomorkun.com) · Free forever · [Support via ☕](https://www.buymeacoffee.com/mauriciomorkun)
+> Built by [Mauricio Morkun](https://audiorouternow.mauriciomorkun.com) · Free forever · [Support via ☕](https://www.buymeacoffee.com/mauriciomorkun)
 
 ![AudioRouterNow menu showing two active outputs simultaneously](docs/screenshot.png)
 
