@@ -6,6 +6,8 @@ AudioRouterNow is a free, open-source macOS menu bar app that lets you send your
 
 > Built by [Mauricio Morkun](https://mauriciomorkun.com) · Free forever · [Support via ☕](https://www.buymeacoffee.com/mauriciomorkun)
 
+![AudioRouterNow menu showing two active outputs simultaneously](docs/screenshot.png)
+
 ---
 
 ## What it does
