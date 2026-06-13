@@ -20,7 +20,7 @@ from typing import Optional
 # ── Konstanten ───────────────────────────────────────────────────────────────
 from version import APP_VERSION
 
-DEVELOPER_EMAIL  = "m.moraisdacunha@pm.me"
+DEVELOPER_EMAIL  = "dev@mauriciomorkun.com"
 
 LOG_DIR          = Path.home() / "Library" / "Logs" / "AudioRouterNow"
 HELPER_LOG       = LOG_DIR / "helper.log"
