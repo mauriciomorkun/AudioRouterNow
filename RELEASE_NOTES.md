@@ -9,7 +9,7 @@ Each release contains **two sections**:
 
 ---
 
-## v3.4.0 — June 12, 2026
+## v3.4.0 — June 13, 2026
 
 ### For Everyone
 
@@ -606,4 +606,4 @@ Complete rewrite of the audio routing engine. Replaced the Python socket-based a
 
 ---
 
-*For full technical documentation, architecture diagrams, and implementation details, see `DOKUMENTATION.md`.*
+*For architecture diagrams and detailed implementation notes, see the project's internal documentation.*

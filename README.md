@@ -138,11 +138,11 @@ This removes: HAL driver, helper binary, config files, and logs. You'll need to 
 
 ## Coming from BlackHole?
 
-AudioRouterNow was built as a complete, license-free replacement:
+AudioRouterNow was built as a free, open-source alternative:
 
 | | BlackHole | AudioRouterNow |
 |---|---|---|
-| License | GPL-3.0 | MIT |
+| License | GPL-3.0 | **GPL-3.0** |
 | Kernel Extension | Yes | **No** |
 | Security approval | Yes, manual | **No** |
 | System restart | Yes | **No** |
@@ -223,4 +223,4 @@ If it saves you time, you can [buy me a coffee ☕](https://www.buymeacoffee.com
 
 ## License
 
-MIT License — see [LICENSE](LICENSE)
+GPL-3.0 License — see [LICENSE](LICENSE)
