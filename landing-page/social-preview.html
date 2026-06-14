@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1280">
+  <title>AudioRouterNow — Social Preview</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg:      #0a0a0a;
+      --surface: #111111;
+      --border:  #1e1e1e;
+      --text:    #ffffff;
+      --muted:   #888888;
+      --accent:  #40DCA5;
+    }
+
+    html, body {
+      width: 1280px;
+      height: 640px;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ── LAYOUT ROOT ── */
+    .card {
+      position: relative;
+      width: 1280px;
+      height: 640px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 88px 0 96px;
+      overflow: hidden;
+    }
+
+    /* ── LEFT ACCENT BAR ── */
+    .card::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 4px;
+      height: 100%;
+      background: linear-gradient(
+        180deg,
+        transparent 0%,
+        var(--accent) 30%,
+        var(--accent) 70%,
+        transparent 100%
+      );
+    }
+
+    /* ── AMBIENT GLOW ── */
+    .glow {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-58%, -50%);
+      width: 900px;
+      height: 600px;
+      background: radial-gradient(
+        ellipse 60% 55% at 38% 50%,
+        rgba(64, 220, 165, 0.055) 0%,
+        transparent 70%
+      );
+      pointer-events: none;
+    }
+
+    /* ── GRID PATTERN ── */
+    .grid-bg {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(ellipse 85% 75% at 35% 50%, rgba(0,0,0,0.5) 0%, transparent 80%);
+      -webkit-mask-image: radial-gradient(ellipse 85% 75% at 35% 50%, rgba(0,0,0,0.5) 0%, transparent 80%);
+      pointer-events: none;
+    }
+
+    /* ── CONTENT AREA ── */
+    .content {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 56px;
+    }
+
+    /* ── APP ICON ── */
+    .app-icon {
+      flex-shrink: 0;
+      width: 96px;
+      height: 96px;
+      border-radius: 22px;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.07),
+        0 0 40px rgba(64, 220, 165, 0.18),
+        0 16px 48px rgba(0,0,0,0.6);
+    }
+
+    /* ── TEXT BLOCK ── */
+    .text-block {
+      flex: 1;
+    }
+
+    .label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 14px;
+    }
+
+    .label-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+    }
+
+    h1 {
+      font-size: 58px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      line-height: 1.0;
+      color: var(--text);
+      margin-bottom: 18px;
+    }
+
+    .tagline {
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--muted);
+      line-height: 1.5;
+      max-width: 560px;
+      margin-bottom: 40px;
+    }
+
+    .tagline strong {
+      color: #d0d0d0;
+      font-weight: 500;
+    }
+
+    /* ── FEATURES ── */
+    .features {
+      display: flex;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .feature {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .feature-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      background: rgba(64, 220, 165, 0.1);
+      border: 1px solid rgba(64, 220, 165, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .feature-icon svg {
+      width: 14px;
+      height: 14px;
+      stroke: var(--accent);
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .feature-text {
+      font-size: 14px;
+      font-weight: 500;
+      color: #c0c0c0;
+      white-space: nowrap;
+    }
+
+    .feature-divider {
+      width: 1px;
+      height: 20px;
+      background: var(--border);
+    }
+
+    /* ── BOTTOM BAR ── */
+    .bottom-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 52px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 88px 0 96px;
+      z-index: 10;
+    }
+
+    .github-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+    }
+
+    .github-badge svg {
+      width: 17px;
+      height: 17px;
+      fill: var(--muted);
+    }
+
+    .github-badge .badge-pill {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    .star-icon {
+      width: 12px;
+      height: 12px;
+      fill: #f0c040;
+    }
+
+    .gpl-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .gpl-tag {
+      background: rgba(64, 220, 165, 0.08);
+      border: 1px solid rgba(64, 220, 165, 0.2);
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 0.04em;
+    }
+
+    .url {
+      font-size: 13px;
+      font-weight: 400;
+      color: #555;
+      letter-spacing: 0.01em;
+    }
+
+    .url span {
+      color: #888;
+    }
+
+    /* ── RIGHT VISUAL — audio wave decoration ── */
+    .wave-deco {
+      position: absolute;
+      right: -20px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 5;
+      opacity: 0.12;
+      pointer-events: none;
+    }
+
+    .wave-deco svg {
+      width: 320px;
+      height: 320px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <!-- Background layers -->
+    <div class="grid-bg"></div>
+    <div class="glow"></div>
+
+    <!-- Right wave decoration -->
+    <div class="wave-deco">
+      <svg viewBox="0 0 320 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="160" cy="160" r="130" stroke="#40DCA5" stroke-width="1.5"/>
+        <circle cx="160" cy="160" r="100" stroke="#40DCA5" stroke-width="1.5"/>
+        <circle cx="160" cy="160" r="70" stroke="#40DCA5" stroke-width="1.5"/>
+        <circle cx="160" cy="160" r="42" stroke="#40DCA5" stroke-width="1.5"/>
+        <!-- Audio bars -->
+        <rect x="144" y="128" width="6" height="64" rx="3" fill="#40DCA5"/>
+        <rect x="156" y="112" width="6" height="96" rx="3" fill="#40DCA5"/>
+        <rect x="168" y="136" width="6" height="48" rx="3" fill="#40DCA5"/>
+      </svg>
+    </div>
+
+    <!-- Main content -->
+    <div class="content">
+      <img
+        class="app-icon"
+        src="file:///Users/mauriciomorkun/AudioRouterNow/landing-page/icon.png"
+        alt="AudioRouterNow icon"
+      >
+
+      <div class="text-block">
+        <div class="label">
+          <span class="label-dot"></span>
+          Free macOS App
+        </div>
+
+        <h1>AudioRouterNow</h1>
+
+        <p class="tagline">
+          Send system audio to <strong>multiple outputs</strong> at once —<br>
+          no cost, no limits.
+        </p>
+
+        <div class="features">
+          <div class="feature">
+            <div class="feature-icon">
+              <!-- Split/fork icon -->
+              <svg viewBox="0 0 24 24">
+                <path d="M16 3h5v5"/>
+                <path d="M21 3l-7 7"/>
+                <path d="M3 21l7-7"/>
+                <path d="M3 3l18 18" opacity="0"/>
+                <path d="M8 3H3v5"/>
+                <path d="M3 3l7 7"/>
+                <path d="M12 12v6"/>
+                <path d="M9 21h6"/>
+              </svg>
+            </div>
+            <span class="feature-text">Multiple outputs simultaneously</span>
+          </div>
+
+          <div class="feature-divider"></div>
+
+          <div class="feature">
+            <div class="feature-icon">
+              <!-- Shield / no kext icon -->
+              <svg viewBox="0 0 24 24">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                <path d="M9 12l2 2 4-4"/>
+              </svg>
+            </div>
+            <span class="feature-text">No kernel extension</span>
+          </div>
+
+          <div class="feature-divider"></div>
+
+          <div class="feature">
+            <div class="feature-icon">
+              <!-- Heart / forever free icon -->
+              <svg viewBox="0 0 24 24">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+              </svg>
+            </div>
+            <span class="feature-text">Free forever</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom bar -->
+    <div class="bottom-bar">
+      <div class="github-badge">
+        <!-- GitHub logo -->
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+        </svg>
+        <span>GitHub</span>
+        <div class="badge-pill">
+          <svg class="star-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+          </svg>
+          Star
+        </div>
+        <span class="gpl-tag">GPL-3.0</span>
+      </div>
+
+      <span class="url">audiorouternow.<span>mauriciomorkun.com</span></span>
+    </div>
+  </div>
+</body>
+</html>
