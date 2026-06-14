@@ -75,6 +75,14 @@ macOS System Audio
 
 ## Installation
 
+**Option A — Homebrew (recommended)**
+
+```sh
+brew install --cask mauriciomorkun/tap/audiorouternow
+```
+
+**Option B — Direct download**
+
 1. Download `AudioRouterNow.dmg` from [Releases](../../releases)
 2. Open the DMG and drag the app to Applications
 3. Launch the app — macOS will ask for your password once to install the audio driver
