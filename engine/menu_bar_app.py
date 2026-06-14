@@ -16,6 +16,16 @@ Menu structure:
     [ ] MacBook Pro Speakers — 2ch
     ...
   ─────────────────────────
+  Help ▶
+    What's running in the background…
+    ─────────────────────────
+    Open documentation
+    Check for Updates…          ← öffnet github.com/…/releases (Sparkle kommt in v3.5)
+    ─────────────────────────
+    Save Diagnostic Report…
+    ─────────────────────────
+    Uninstall AudioRouterNow…
+  ─────────────────────────
   Quit
 """
 
@@ -69,6 +79,9 @@ DONATION_HINT_DELAY = 15
 # Documentation
 DOCUMENTATION_URL = "https://github.com/mauriciomorkun/AudioRouterNow#readme"
 
+# Updates
+RELEASES_URL = "https://github.com/mauriciomorkun/AudioRouterNow/releases"
+
 # Single-instance lock
 _LOCK_DIR = Path.home() / ".audiorouter"
 _LOCK_FILE = _LOCK_DIR / "audiorouter.lock"
@@ -116,6 +129,7 @@ class AudioRouterApp(rumps.App):
             rumps.MenuItem("What's running in the background…", callback=self._show_background_info),
             None,
             rumps.MenuItem("Open documentation", callback=self._open_documentation),
+            rumps.MenuItem("Check for Updates…", callback=self._check_for_updates),
             None,
             rumps.MenuItem("Save Diagnostic Report…", callback=self._save_diagnostic_report),
             None,
@@ -579,6 +593,25 @@ class AudioRouterApp(rumps.App):
             subprocess.run(["open", str(local_doc)])
         else:
             webbrowser.open(DOCUMENTATION_URL)
+
+    def _check_for_updates(self, sender):
+        """Öffnet die GitHub-Releases-Seite im Browser.
+
+        Sparkle auto-updates sind für v3.5 geplant. Bis dahin manuelle Prüfung.
+        rumps.alert() gibt 1 zurück wenn OK geklickt, 0 bei Cancel.
+        """
+        from version import APP_VERSION
+        response = rumps.alert(
+            title="Check for Updates",
+            message=(
+                f"You are running AudioRouterNow v{APP_VERSION}.\n\n"
+                "Click OK to open the GitHub Releases page and check for a newer version."
+            ),
+            ok="Open GitHub Releases",
+            cancel="Cancel",
+        )
+        if response:
+            webbrowser.open(RELEASES_URL)
 
     def _save_diagnostic_report(self, sender):
         """Generiert Diagnostic Report im Hintergrund und öffnet Mail.app.
