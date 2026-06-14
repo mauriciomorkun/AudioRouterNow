@@ -24,7 +24,7 @@
 ## 📋 Fortschritts-Log
 
 ### 13.06.2026 — Phase 1: Developer ID Signing Pipeline
-**Status:** ⏳ Notarisierung läuft (Apple-seitig)
+**Status:** ✅ Abgeschlossen
 
 #### Abgeschlossene Schritte:
 
@@ -46,7 +46,10 @@
 - **Fix 2 — `installer/AudioRouterNow.spec`:** Redundanten `(HELPER_PLIST, ".")` Eintrag aus `datas` entfernt — plist war bereits im driver-Bundle, der separate Eintrag erzeugte die problematische Datei in `Frameworks/`.
 - **Ergebnis:** Signing ✅ · DMG erstellt (12MB) ✅ · DMG signiert ✅ · Bei Apple eingereicht ✅
 - **Submission ID:** `ebd256de-71ed-4df3-ae11-5f4941e5369b`
-- **Status Apple:** `In Progress` (seit 15:19 UTC, ungewöhnlich lang — HAL-Treiber + sensitive Entitlements = wahrscheinlich manueller Review)
+- **Status Apple:** ✅ `Accepted` (14.06.2026 ~09:00 CEST — nach ~18h, vermutlich manueller Review wegen HAL-Treiber + Entitlements)
+- **Stapling:** ✅ `xcrun stapler staple` erfolgreich — Ticket in DMG eingebettet
+- **Validierung:** ✅ `spctl` → `accepted` / `source=Notarized Developer ID`
+- **DMG:** `~/Desktop/AudioRouterNow.dmg` — bereit für GitHub Release
 - **Commits:** `9012bba`, `f001254`
 
 ---
