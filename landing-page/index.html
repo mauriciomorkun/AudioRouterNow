@@ -20,6 +20,8 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192x192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512x512.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://audiorouternow.mauriciomorkun.com">
+  <link rel="sitemap" type="application/xml" href="/sitemap.xml">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -255,7 +257,10 @@
 
   <!-- HERO -->
   <section class="hero">
-    <img class="app-icon" src="icon.png" alt="AudioRouterNow">
+    <picture>
+      <source srcset="icon.webp" type="image/webp">
+      <img class="app-icon" src="icon.png" alt="AudioRouterNow" width="64" height="64">
+    </picture>
     <h1>AudioRouterNow</h1>
     <p class="tagline">
       Send system audio to <strong>multiple outputs at once</strong> —<br>
@@ -280,8 +285,12 @@
 
   <!-- SCREENSHOT -->
   <div class="screenshot-wrap">
-    <img src="screenshot.png"
-         alt="AudioRouterNow menu bar showing two active audio routes simultaneously">
+    <picture>
+      <source srcset="screenshot.webp" type="image/webp">
+      <img src="screenshot.png"
+           alt="AudioRouterNow menu bar showing two active audio routes simultaneously"
+           width="1200" height="1073" loading="lazy" decoding="async">
+    </picture>
   </div>
 
   <hr class="section-divider">
@@ -350,7 +359,10 @@
 
   <!-- MM Logo -->
   <a class="mm-logo" href="https://mauriciomorkun.com" target="_blank" rel="noopener" aria-label="Mauricio Morkun">
-    <img src="mm-logo.png" alt="Mauricio Morkun">
+    <picture>
+      <source srcset="mm-logo.webp" type="image/webp">
+      <img src="mm-logo.png" alt="Mauricio Morkun" width="1294" height="357" loading="lazy" decoding="async">
+    </picture>
   </a>
 
   <!-- BMC Widget -->
