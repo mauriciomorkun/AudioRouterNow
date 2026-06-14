@@ -220,10 +220,27 @@ AudioRouterNow/
 
 ---
 
+## Privacy
+
+AudioRouterNow collects **no data** about you or your system:
+
+- No telemetry, no analytics, no crash reporting
+- No network connections of any kind
+- Configuration is stored locally in `~/.audiorouter/` — never transmitted
+- The app bundle includes OpenSSL libraries as an indirect Python runtime dependency — they are **not used for any network communication**
+
+---
+
 ## Support
 
 AudioRouterNow is free and will stay free.  
 If it saves you time, you can [buy me a coffee ☕](https://www.buymeacoffee.com/mauriciomorkun) — entirely optional.
+
+---
+
+## Third-party licenses
+
+Bundled open-source components and their licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 ---
 

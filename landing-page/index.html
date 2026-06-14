@@ -5,11 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AudioRouterNow — Coming Soon</title>
   <style>
-    body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-    .container{text-align:center;padding:2rem}
+    body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0}
+    .container{text-align:center;padding:2rem;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center}
     img.icon{width:80px;height:80px;border-radius:18px;margin-bottom:1rem}
     h1{font-size:2.5rem;font-weight:700;margin:0 0 .5rem}
     p{color:#888;font-size:1.1rem;margin:0}
+    footer{width:100%;text-align:center;padding:1.5rem 1rem;border-top:1px solid #1a1a1a}
+    footer p{font-size:.75rem;color:#444;margin:.25rem 0}
+    footer a{color:#555;text-decoration:none}
+    footer a:hover{color:#777}
   </style>
 </head>
 <body>
@@ -19,7 +23,16 @@
     <p>Coming soon &mdash; free, open-source macOS audio routing.</p>
   </div>
 
-  <!-- Buy Me a Coffee Widget — position wird beim Landing Page Build finalisiert -->
+  <footer>
+    <p><strong>Impressum</strong></p>
+    <p>Mauricio Morkun &mdash; <a href="mailto:dev@mauriciomorkun.com">dev@mauriciomorkun.com</a></p>
+    <p style="font-size:.7rem;color:#333;margin-top:.5rem">
+      <!-- Pflichtangabe nach §5 TMG: Bitte füge deine ladungsfähige Anschrift hier ein. -->
+      <!-- Required by §5 TMG (German Telemedia Act): Add your postal address here. -->
+    </p>
+    <p style="margin-top:.75rem"><a href="https://github.com/mauriciomorkun/AudioRouterNow">GitHub</a> &middot; <a href="https://github.com/mauriciomorkun/AudioRouterNow/blob/main/THIRD_PARTY_NOTICES.md">Third-party notices</a></p>
+  </footer>
+
   <script data-name="BMC-Widget" data-cfasync="false"
     src="https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js"
     data-id="mauriciomorkun"
