@@ -250,7 +250,15 @@
       .btn-primary, .btn-ghost { width: 100%; justify-content: center; }
       .cta-row { flex-direction: column; width: 100%; max-width: 320px; }
       .requirements { flex-direction: column; gap: 1rem; }
+      /* Mobile: tagline <br> weglassen — verhindert orphan dash */
+      .hero .tagline br { display: none; }
+      /* Mobile: mehr Platz für fixed MM-Logo + BMC-Button unten */
+      footer { padding-bottom: 6.5rem; }
+      .mm-logo img { height: 36px; }
     }
+
+    /* BMC Widget: Auto-Popup-Bubble unterdrücken — nur Round-Button sichtbar */
+    #bmc-wbtn > div:not(#bmc-wbtn-container) { display: none !important; }
   </style>
 </head>
 <body>
