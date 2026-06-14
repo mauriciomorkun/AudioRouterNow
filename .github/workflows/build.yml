@@ -1,0 +1,48 @@
+name: Build Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-driver:
+    name: Build HAL Driver
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build HAL driver
+        run: |
+          cd driver
+          make
+          ls -la AudioRouterNow.driver/
+
+  build-helper:
+    name: Build C Helper
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build helper
+        run: |
+          cd helper
+          make
+          ls -la AudioRouterNowHelper
+
+  lint-python:
+    name: Lint Python Engine
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Check Python syntax
+        run: |
+          python -m py_compile engine/*.py
+          echo "Python syntax OK"
