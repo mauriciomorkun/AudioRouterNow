@@ -3,7 +3,7 @@
 **Stand:** 10. Juni 2026 (Kapitel 46 — v3.2.0 Stability & Security Release)
 **Version:** 3.2.0  
 **Autor:** Mauricio Morkun  
-**Lizenz:** MIT  
+**Lizenz:** GPL-3.0  
 
 > **Schnelle Versions-Übersicht:** Siehe [`RELEASE_NOTES.md`](RELEASE_NOTES.md) — zweigeteilt in "For Everyone" (Klartext) und "For Power Users" (technische Details). Diese Datei enthält die vollständige Architektur- und Implementierungsdokumentation.
 
