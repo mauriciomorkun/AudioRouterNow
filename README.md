@@ -142,6 +142,11 @@ AudioRouterNow uses a ~170 ms ring buffer for stability. It is not suitable for 
   is connected or disconnected, the system may re-initialize audio routing causing a brief
   (~43ms) gap. This is expected behaviour due to macOS audio device enumeration.
   Fixed in v3.2.0+ with tombstone slot architecture.
+- **Bluetooth output sync**: When routing to both Bluetooth (e.g. AirPods) and wired outputs
+  simultaneously, the two streams may not be perfectly time-aligned due to Bluetooth codec
+  latency (~150–200 ms). For music-only listening this is generally not noticeable. For
+  video playback, lip sync may be slightly off. Per-device latency compensation using
+  CoreAudio's `kAudioDevicePropertyLatency` API is planned for v3.5.
 - **macOS 14.2+ only for future versions**: The next major version (v4.0) will require
   macOS 14.2+ due to Process Taps API usage.
 
