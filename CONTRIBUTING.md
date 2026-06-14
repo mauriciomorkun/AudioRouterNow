@@ -38,6 +38,10 @@ The project has three components that interact closely:
 
 Changes to the shared-memory ring buffer (`helper/shared_ring.h`) or IPC protocol affect all three — please open an issue first to discuss before touching those.
 
+## Development tooling
+
+Development uses AI tooling (Claude Code by Anthropic) for code review, documentation, and implementation support.
+
 ## License
 
 By submitting a pull request, you agree that your contribution will be licensed under the **GPL-3.0 License** that covers this project.

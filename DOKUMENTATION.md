@@ -934,7 +934,7 @@ Der Treiber ist auf **48000 Hz** fixiert. `GetPropertyData` für `kAudioDevicePr
 
 ```
 AudioRouterNow/
-├── LICENSE                              MIT License
+├── LICENSE                              GPL-3.0 License
 ├── README.md                            Kurz-Dokumentation (GitHub)
 ├── DOKUMENTATION.md                     Diese vollständige Dokumentation
 │
@@ -5086,7 +5086,7 @@ Build #7 wurde vom Entwickler auf dem eigenen Mac vollständig getestet:
 |---------|:------:|
 | GitHub Repository mit poliertem README (BlackHole-Vergleich, Architektur) | ✅ |
 | Buy Me a Coffee Link (`buymeacoffee.com/mauriciomorkun`) | ✅ |
-| MIT License (maximale Optionalität für Community und Forks) | ✅ |
+| GPL-3.0 License (Open Source, Community-Forks möglich) | ✅ |
 | Professionelles DMG (no-Terminal, one-click, First-Run-Wizard) | ✅ |
 | RELEASE_NOTES.md (dual-audience: "For Everyone" + "For Power Users") | ✅ |
 | Website mauriciomorkun.com | ✅ |

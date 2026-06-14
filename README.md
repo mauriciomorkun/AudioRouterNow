@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon-512.png" width="128" alt="AudioRouterNow">
+</p>
+
 # AudioRouterNow
 
 **Route macOS system audio to multiple audio interfaces simultaneously.**
