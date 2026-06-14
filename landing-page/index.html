@@ -5,17 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AudioRouterNow — Coming Soon</title>
   <style>
+    *{box-sizing:border-box}
     body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0}
-    .container{text-align:center;padding:2rem;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center}
-    img.icon{width:80px;height:80px;border-radius:18px;margin-bottom:1rem}
-    h1{font-size:2.5rem;font-weight:700;margin:0 0 .5rem}
-    p{color:#888;font-size:1.1rem;margin:0}
-    footer{width:100%;text-align:center;padding:1.5rem 1rem;border-top:1px solid #1a1a1a}
+    .container{box-sizing:border-box;width:100%;max-width:600px;text-align:center;padding:2rem clamp(1.25rem,5vw,2rem);flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center}
+    img.icon{width:clamp(64px,18vw,80px);height:clamp(64px,18vw,80px);border-radius:18px;margin-bottom:1rem}
+    h1{font-size:clamp(1.75rem,7vw,2.5rem);font-weight:700;margin:0 0 .5rem;line-height:1.15}
+    p{color:#888;font-size:clamp(.95rem,3.5vw,1.1rem);margin:0}
+    footer{width:100%;text-align:center;padding:1.5rem 1rem 5.5rem;border-top:1px solid #1a1a1a}
     footer p{font-size:.75rem;color:#444;margin:.25rem 0}
     footer a{color:#555;text-decoration:none}
     footer a:hover{color:#777}
     .mm-logo{position:fixed;bottom:18px;left:18px;z-index:999}
-    .mm-logo img{height:50px;display:block}
+    .mm-logo img{height:clamp(36px,9vw,50px);display:block}
+    @media(max-width:400px){
+      .container{padding:1.5rem 1.25rem}
+      footer{padding:1.25rem 1rem 5.5rem}
+    }
   </style>
 </head>
 <body>
