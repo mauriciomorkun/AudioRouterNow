@@ -55,8 +55,23 @@ DerivedData/
 AudioRouterNow_Roadmap_2026.pdf
 AudioRouterNow_Strategie_2026.pdf
 
+# Strategie & interne Planung — privat
+LAUNCH_PLAN.md
+LAUNCH_EXECUTION.md
+AUDIT_REPORT.md
+BACKLOG.md
+PLAN.md
+projekt.md
+v4-appstore/
+
+# Claude-Konfiguration (interne Anweisungen)
+.claude/
+
 # Screenshots / Bildschirmfotos im Projektroot
 Bildschirmfoto*.png
+
+# Kompilierte Binaries (werden per make gebaut, gehören nicht ins Repo)
+helper/AudioRouterNowHelper
 
 # Hilfsskripte
 installer/generate_pdfs.py
