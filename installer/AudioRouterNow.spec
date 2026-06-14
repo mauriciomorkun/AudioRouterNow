@@ -31,6 +31,7 @@ a = Analysis(
         "Foundation",
         "objc",
         "config",
+        "version",
         "device_manager",
         "helper_client",
         "first_launch",

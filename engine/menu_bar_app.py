@@ -600,7 +600,7 @@ class AudioRouterApp(rumps.App):
         Sparkle auto-updates sind für v3.5 geplant. Bis dahin manuelle Prüfung.
         rumps.alert() gibt 1 zurück wenn OK geklickt, 0 bei Cancel.
         """
-        from version import APP_VERSION
+        from version import APP_VERSION  # noqa: PLC0415 (lazy import — version.py in hiddenimports)
         response = rumps.alert(
             title="Check for Updates",
             message=(
@@ -611,7 +611,17 @@ class AudioRouterApp(rumps.App):
             cancel="Cancel",
         )
         if response:
-            webbrowser.open(RELEASES_URL)
+            try:
+                webbrowser.open(RELEASES_URL)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not open browser for updates: %s", exc)
+                rumps.alert(
+                    title="Could not open browser",
+                    message=(
+                        f"Please visit manually:\n{RELEASES_URL}"
+                    ),
+                    ok="OK",
+                )
 
     def _save_diagnostic_report(self, sender):
         """Generiert Diagnostic Report im Hintergrund und öffnet Mail.app.

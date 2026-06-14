@@ -150,6 +150,27 @@ Full license: https://www.bytereef.org/mpdecimal/license.html
 
 ---
 
+## ds_store 1.3.1
+
+- **License:** BSD 3-Clause License
+- **Source:** https://github.com/al45tair/ds_store
+- **Copyright:** Copyright © 2014 Alastair Houghton
+
+Bundled as an indirect dependency of PyInstaller (used during `.app` bundle creation).
+Full license: https://github.com/al45tair/ds_store/blob/master/LICENSE
+
+---
+
+## mac_alias 2.2.0
+
+- **License:** MIT License
+- **Source:** https://github.com/al45tair/mac_alias
+- **Copyright:** Copyright © 2014 Alastair Houghton
+
+Bundled as an indirect dependency of PyInstaller. License text identical to PyObjC above (MIT).
+
+---
+
 ## Apple Frameworks
 
 AudioRouterNow links against the following Apple system frameworks which are
