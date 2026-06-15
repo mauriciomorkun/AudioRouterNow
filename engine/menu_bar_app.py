@@ -20,7 +20,7 @@ Menu structure:
     What's running in the background…
     ─────────────────────────
     Open documentation
-    Check for Updates…          ← öffnet github.com/…/releases (Sparkle kommt in v3.5)
+    Check for Updates…          ← Sparkle 2.9.3 (gebautes Bundle) / Browser-Fallback (Dev-Mode)
     ─────────────────────────
     Save Diagnostic Report…
     ─────────────────────────
@@ -604,10 +604,12 @@ class AudioRouterApp(rumps.App):
             webbrowser.open(DOCUMENTATION_URL)
 
     def _check_for_updates(self, sender):
-        """Öffnet die GitHub-Releases-Seite im Browser.
+        """Update-Prüfung via Sparkle 2.9.3 (gebautes Bundle) oder Browser-Fallback.
 
-        Sparkle auto-updates sind für v3.5 geplant. Bis dahin manuelle Prüfung.
-        rumps.alert() gibt 1 zurück wenn OK geklickt, 0 bei Cancel.
+        Im gebauten .app-Bundle: Sparkle zeigt native Update-UI (Versionsvergleich,
+        Release-Notes, Ein-Klick-Install). Im Dev-Mode (kein Sparkle.framework):
+        Browser-Fallback auf GitHub-Releases. rumps.alert() gibt 1 zurück wenn
+        OK geklickt, 0 bei Cancel.
         """
         # Sparkle-Pfad (gebautes Bundle): native Update-UI
         updater_obj = getattr(self, "_updater", None)

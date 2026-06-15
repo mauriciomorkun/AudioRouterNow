@@ -117,7 +117,15 @@ class SparkleUpdater:
             return True
         try:
             updater = self._controller.updater()
-            updater.startUpdater()
+            # Sparkle 2.x API: startUpdater:(NSError**)error — gibt (BOOL, NSError) zurück.
+            # PyObjC-Mangling: startUpdater_ mit None als Error-Pointer.
+            ok, err = updater.startUpdater_(None)
+            if not ok:
+                logger.error(
+                    "Sparkle startUpdater fehlgeschlagen: %s",
+                    err.localizedDescription() if err else "unbekannter Fehler",
+                )
+                return False
             self._started = True
             logger.info("Sparkle-Updater gestartet (automatische Checks aktiv)")
             return True
