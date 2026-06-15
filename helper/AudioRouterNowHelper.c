@@ -92,6 +92,23 @@ static char g_config_socket_path[512] = {0};
  * war korrekt, der Wert falsch.) */
 #define ARN_PREROLL_FRAMES (ARN_RING_CAPACITY / 8u)   /* 2048 frames ≈ 43ms @48kHz */
 
+/* ── Bluetooth Latency Compensation ─────────────────────────────────────────
+ * Wenn gleichzeitig an ein Bluetooth-Device (Codec-Latenz ~150-200ms) und ein
+ * Wired-Device (~5ms) geroutet wird, hoert der User einen Echo: derselbe Ton,
+ * ~200ms versetzt. Loesung: Wired-Devices schreiben ihr Audio in einen
+ * Circular-Delay-Buffer und lesen es comp_samples versetzt zurueck → der
+ * Wired-Ton kommt zeitgleich mit dem (verzoegerten) BT-Ton beim User an.
+ *
+ * Der Delay-Buffer ist als FIXES Array in DeviceOutput eingebettet (analog
+ * temp_buf), NICHT heap-alloziert: damit ist er RT-trivial sicher (kein
+ * malloc/free im IOProc), kann von den Slot-Teardown-memset()s nicht geleakt
+ * werden und braucht keinen NULL-Check im IOProc. */
+#define BT_COMP_DEFAULT_MS   200u         /* ms Delay fuer Wired-Devices wenn BT aktiv */
+#define DELAY_BUF_FRAMES     65536u       /* Power-of-2: ~1.36s @48kHz — Mask = 65535 */
+#define DELAY_BUF_MASK       (DELAY_BUF_FRAMES - 1u)
+#define DELAY_BUF_SAMPLES    (DELAY_BUF_FRAMES * 2u)  /* stereo (interleaved L,R) */
+#define DELAY_BUF_SMASK      (DELAY_BUF_SAMPLES - 1u) /* Sample-Index-Maske (Power-of-2) */
+
 /* P11: Lock-Datei liegt in ~/.audiorouter/ (statt im world-writable /tmp).
  * Pfad zur Laufzeit aus $HOME gebildet, geoeffnet mit O_NOFOLLOW. */
 static char g_lock_path[512] = {0};
@@ -335,6 +352,13 @@ typedef struct DeviceOutput {
     _Atomic uint32_t     frac_ridx_reset_widx;  /* Ziel sample-index fuer reset      */
     /* Pre-allokierter Temp-Buffer fuer De-Interleaving im IOProc (RT-safe). */
     float                temp_buf[ARN_RING_CAPACITY];
+    /* ── Bluetooth Latency Compensation ──
+     * Eingebetteter Circular-Delay-Buffer (kein Heap → RT-safe, kein Leak ueber
+     * die Slot-Teardown-memset()s, kein NULL-Check im IOProc noetig). */
+    bool             is_bluetooth;         /* kAudioDeviceTransportTypeBluetooth(LE) */
+    uint32_t         delay_write_pos;      /* Write-Head (Stereo-Sample-Index), IOProc-privat, kein Atomic */
+    _Atomic uint32_t comp_samples;         /* Delay in Stereo-Samples (0=kein Delay), gesetzt vom non-RT Thread */
+    float            delay_buf[DELAY_BUF_SAMPLES];  /* interleaved stereo circular buffer */
 } DeviceOutput;
 
 /* ── Globaler Zustand ───────────────────────────────────────────────────── */
@@ -796,6 +820,81 @@ static AudioDeviceID find_default_output_device(void)
     return result;
 }
 
+/* ── Bluetooth Latency Compensation — Hilfsfunktionen (non-RT) ───────────── */
+
+/*
+ * detect_is_bluetooth — true wenn das Device ueber Bluetooth (Classic oder LE)
+ * angebunden ist. Bluetooth-Audio-Codecs (SBC/AAC/aptX/LDAC) fuegen 150-200ms
+ * Latenz hinzu — diese Devices sind die Referenz, an die Wired-Devices via
+ * Delay-Buffer angeglichen werden. Non-RT: nur beim output_add aufgerufen.
+ */
+static bool detect_is_bluetooth(AudioDeviceID dev_id) {
+    UInt32 transport = 0;
+    UInt32 sz = sizeof(transport);
+    AudioObjectPropertyAddress a = {
+        kAudioDevicePropertyTransportType,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    if (AudioObjectGetPropertyData(dev_id, &a, 0, NULL, &sz, &transport) != noErr) {
+        return false;
+    }
+    return transport == kAudioDeviceTransportTypeBluetooth
+        || transport == kAudioDeviceTransportTypeBluetoothLE;
+}
+
+/*
+ * recalculate_compensation — bestimmt fuer JEDEN aktiven Output den noetigen
+ * Delay (comp_samples) und schreibt ihn atomar in den Slot.
+ *
+ * Regel: Ist mindestens ein aktives Device Bluetooth, bekommen alle aktiven
+ * NICHT-Bluetooth-Devices einen Delay von BT_COMP_DEFAULT_MS; BT-Devices und
+ * der Fall "kein BT aktiv" bekommen comp=0. Der IOProc liest comp_samples
+ * per acquire-load — wechselt comp von >0 auf 0 (oder umgekehrt), passt sich
+ * die Wiedergabe ohne Reallokation an (der eingebettete Buffer bleibt bestehen).
+ *
+ * KONTRAKT: MUSS unter g_outputs_lock aufgerufen werden (liest g_outputs[].active
+ * und .is_bluetooth, schreibt .comp_samples). Non-RT.
+ */
+static void recalculate_compensation(void) {
+    /* Prüfe ob irgendein aktives Device Bluetooth ist */
+    bool any_bt = false;
+    for (int i = 0; i < g_n_outputs; i++) {
+        if (g_outputs[i].active && g_outputs[i].is_bluetooth) { any_bt = true; break; }
+    }
+
+    /* Sample Rate aus dem Ring lesen (sample_rate ist _Atomic uint32_t). */
+    ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
+    uint32_t sr_u = ring ? atomic_load_explicit(&ring->sample_rate, memory_order_acquire) : 0u;
+    double sr = (sr_u > 0u) ? (double)sr_u : 48000.0;
+
+    /* Compensation in Stereo-Samples (*2 = stereo interleaved).
+     * Clamp auf DELAY_BUF_SAMPLES-2: comp darf den Buffer nie ganz umrunden,
+     * sonst wuerde der Read-Head den Write-Head ueberholen. Bei 200ms / 48kHz
+     * sind das ~19200 Stereo-Samples — weit unter 131072, der Clamp ist reine
+     * Absicherung gegen extreme SR. */
+    uint32_t comp = 0u;
+    if (any_bt) {
+        double comp_d = sr * (double)BT_COMP_DEFAULT_MS / 1000.0;  /* Frames */
+        uint32_t comp_frames = (uint32_t)comp_d;
+        comp = comp_frames * 2u;                                  /* → Stereo-Samples */
+        if (comp > DELAY_BUF_SAMPLES - 2u) comp = DELAY_BUF_SAMPLES - 2u;
+    }
+
+    for (int i = 0; i < g_n_outputs; i++) {
+        if (!g_outputs[i].active) continue;
+        uint32_t dev_comp = (!g_outputs[i].is_bluetooth && any_bt) ? comp : 0u;
+        atomic_store_explicit(&g_outputs[i].comp_samples, dev_comp, memory_order_release);
+    }
+
+    if (any_bt && comp > 0u) {
+        fprintf(stdout, "Helper: BT Compensation aktiv — Wired-Delay %u ms (%.0f Hz)\n",
+                BT_COMP_DEFAULT_MS, sr);
+    } else {
+        fprintf(stdout, "Helper: BT Compensation deaktiviert (kein BT-Device aktiv)\n");
+    }
+}
+
 /* ── CoreAudio IOProc — pro Device ──────────────────────────────────────── */
 
 /*
@@ -1033,6 +1132,33 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
         atomic_store_explicit(&dev->local_ridx, (uint32_t)(dev->src_frac_ridx * 2.0), memory_order_release);
     }
 
+    /* ── Bluetooth Latency Compensation ──────────────────────────────────────
+     * Wenn fuer dieses (Wired-)Device ein Delay aktiv ist, das aktuelle
+     * temp_buf in den Circular-Delay-Buffer schreiben und comp Stereo-Samples
+     * versetzt zuruecklesen. Dadurch kommt der Wired-Ton zeitgleich mit dem
+     * (Codec-verzoegerten) Bluetooth-Ton beim User an — kein Echo mehr.
+     *
+     * RT-safe: nur ein acquire-load, Lesen/Schreiben aus eingebettetem Array,
+     * keine Allokation, kein Lock, kein printf. Bei Underrun ist temp_buf bereits
+     * Stille — die wird hier korrekt mit-verzoegert (kein Sonderfall noetig). */
+    {
+        uint32_t comp = atomic_load_explicit(&dev->comp_samples, memory_order_acquire);
+        if (comp > 0u) {
+            /* Schritt 1: aktuelle Samples in den Delay-Buffer schreiben */
+            uint32_t wp = dev->delay_write_pos;
+            for (uint32_t i = 0; i < nSamplesStereo; i++) {
+                dev->delay_buf[(wp + i) & DELAY_BUF_SMASK] = dev->temp_buf[i];
+            }
+            /* Schritt 2: comp Stereo-Samples zurueck zuruecklesen */
+            uint32_t rp = (wp + DELAY_BUF_SAMPLES - comp) & DELAY_BUF_SMASK;
+            for (uint32_t i = 0; i < nSamplesStereo; i++) {
+                dev->temp_buf[i] = dev->delay_buf[(rp + i) & DELAY_BUF_SMASK];
+            }
+            /* Schritt 3: Write-Head vorruecken */
+            dev->delay_write_pos = (wp + nSamplesStereo) & DELAY_BUF_SMASK;
+        }
+    }
+
     /* ── In Output-Buffer schreiben mit Channel-Mapping ── */
     uint32_t ch_off = dev->ch_offset;
 
@@ -1253,6 +1379,12 @@ static int output_add(const char *uid, uint32_t ch_offset)
     if (nm) { strncpy(tmp.name, nm, sizeof(tmp.name) - 1); free(nm); }
     atomic_store_explicit(&tmp.local_ridx, start_widx, memory_order_relaxed);
     atomic_store_explicit(&tmp.underruns,  0u,          memory_order_relaxed);
+    /* BT Latency Compensation: Transport-Typ erkennen. delay_buf/delay_write_pos/
+     * comp_samples sind durch das memset(&tmp,0,...) bereits zero-initialisiert.
+     * comp_samples wird nach Slot-Commit von recalculate_compensation() gesetzt. */
+    tmp.is_bluetooth = detect_is_bluetooth(dev_id);
+    tmp.delay_write_pos = 0u;
+    atomic_store_explicit(&tmp.comp_samples, 0u, memory_order_relaxed);
     atomic_store_explicit(&tmp.frac_ridx_reset_gen,  0u, memory_order_relaxed);
     atomic_store_explicit(&tmp.frac_ridx_reset_widx, 0u, memory_order_relaxed);
     tmp.frac_ridx_applied_gen = 0u;
@@ -1408,6 +1540,10 @@ static int output_add(const char *uid, uint32_t ch_offset)
         g_outputs[slot_idx].proc_id = new_proc_id;  /* H1: erst jetzt, unter Lock, committen */
         g_outputs[slot_idx].active  = true;
         g_n_active_outputs = recount_active_locked();
+        /* BT Latency Compensation neu berechnen: neuer Output koennte ein
+         * BT-Device sein (→ Wired-Outputs bekommen Delay) ODER ein Wired-Output
+         * der jetzt selbst Delay braucht weil bereits ein BT-Device aktiv ist. */
+        recalculate_compensation();
     } else {
         /* Slot ist nicht mehr vorhanden (getombstoned) oder per Watchdog gestoppt
          * — IOProc sauber stoppen. */
@@ -1489,6 +1625,9 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
         g_outputs[slot].ch_offset == ch_offset) {
         memset(&g_outputs[slot], 0, sizeof(DeviceOutput));
     }
+    /* BT Latency Compensation neu berechnen: wurde das entfernte Device das
+     * letzte (oder einzige) BT-Device, fallen die Wired-Delays jetzt weg. */
+    recalculate_compensation();
 }
 
 /*
@@ -1667,6 +1806,9 @@ static void sr_reinit_all_outputs(void) {
                 atomic_store_explicit(&g_outputs[i].sr_changing, 0u, memory_order_release);
                 g_outputs[i].active      = true;
                 g_n_active_outputs = recount_active_locked();
+                /* BT Compensation ist SR-abhaengig (comp_samples = ms * sr / 1000 * 2)
+                 * — nach jedem SR-Wechsel neu berechnen. */
+                recalculate_compensation();
                 fprintf(stdout, "Helper: Output neu gestartet nach SR-Wechsel: %s [Ch %u-%u]\n",
                         g_outputs[i].name, g_outputs[i].ch_offset + 1,
                         g_outputs[i].ch_offset + 2);
@@ -1785,6 +1927,10 @@ static void process_hotplug_removals(void)
         }
     }
     g_n_active_outputs = recount_active_locked();
+    /* BT Latency Compensation neu berechnen: ein physisch entferntes BT-Device
+     * muss die Wired-Delays der verbleibenden Outputs aufheben. Nur wenn
+     * tatsaechlich etwas entfernt wurde (sonst unnoetiges Logging). */
+    if (n_remove > 0) recalculate_compensation();
     pthread_mutex_unlock(&g_outputs_lock);
 
     /* Phase B: Stop/Destroy OHNE Lock */
