@@ -24,10 +24,10 @@ AudioRouterNow is a free, open-source macOS menu bar app that lets you send your
 macOS only routes system audio to one output at a time. AudioRouterNow breaks that limitation:
 
 - Send system audio to **Out 1/2 and Out 3/4 simultaneously** on a multi-output interface
-- Route to **multiple interfaces at once** — e.g. a USB interface + AirPods at the same time
+- Route to **multiple interfaces at once** — e.g. a USB interface + built-in speakers at the same time
 - Auto-detects all connected audio interfaces and their channel counts
 - Hot-plug: plug in a new interface → it appears in the menu instantly
-- Works with USB, Thunderbolt, Bluetooth, HDMI, and internal audio
+- Works with USB, Thunderbolt, HDMI, and internal audio
 
 ---
 
@@ -46,7 +46,7 @@ macOS System Audio
       │  control: JSON socket ~/.audiorouter/audiorouter.config.sock
       ├──► USB Interface (Komplete Audio 6, Focusrite, ...)
       ├──► HDMI/DisplayPort Monitor (BenQ, LG, ...)
-      └──► Built-in Speakers / AirPods
+      └──► Built-in Speakers
 
   Menu bar app (Python/rumps) ──── controls ────► Helper socket
 ```
