@@ -309,8 +309,11 @@ if [[ -d "$SPARKLE_DST" ]]; then
     # (3) Updater.app (Executable zuerst, dann Bundle)
     if [[ -d "$SPK_B/Updater.app" ]]; then
         UPDATER_EXE="$SPK_B/Updater.app/Contents/MacOS/Updater"
-        [[ -f "$UPDATER_EXE" ]] && codesign --force --sign "$SIGN_IDENTITY" \
-            --options runtime --timestamp "$UPDATER_EXE"
+        if [[ -f "$UPDATER_EXE" ]]; then
+            codesign --force --sign "$SIGN_IDENTITY" \
+                --options runtime --timestamp "$UPDATER_EXE" \
+                || fail "Updater.app/MacOS/Updater-Signing fehlgeschlagen"
+        fi
         codesign --force --sign "$SIGN_IDENTITY" \
             --options runtime --timestamp "$SPK_B/Updater.app" \
             || fail "Updater.app-Signing fehlgeschlagen"
@@ -354,8 +357,8 @@ ok "Developer ID signiert (Hardened Runtime + Timestamp)"
 log "Signing-Gate: Prüfe alle Bundle-Signaturen..."
 codesign --verify --deep --strict --verbose=2 "$APP_PATH" \
     || fail "Bundle-Verifikation fehlgeschlagen — Signing unvollständig"
-[[ -d "$SPARKLE_DST" ]] && codesign --verify --deep --strict "$SPARKLE_DST" \
-    || true
+[[ -d "$SPARKLE_DST" ]] && { codesign --verify --deep --strict "$SPARKLE_DST" \
+    || fail "Sparkle.framework-Verifikation fehlgeschlagen — Signing prüfen"; }
 ok "Signing-Gate bestanden ✓"
 
 # --- DMG-Grafiken generieren -------------------------------------------------
