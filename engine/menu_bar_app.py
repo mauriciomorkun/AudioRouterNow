@@ -66,6 +66,7 @@ import first_launch
 from first_launch import DRIVER_INSTALL_PATH, is_driver_installed
 from helper_client import CONFIG_SOCKET, HelperClient, OutputSpec
 import diagnostic
+import updater  # Sparkle 2.9.3 Auto-Updates
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +233,14 @@ class AudioRouterApp(rumps.App):
         except Exception as e:
             logger.debug("ABI-Check fehlgeschlagen: %s", e)
             self._driver_abi_ok = True  # fail-open: keine Falsch-Alarme
+
+        # Sparkle Auto-Updater (degradiert im Dev-Mode sauber).
+        # Starke Referenz als self._updater halten — sonst GC-Absturz.
+        self._updater = updater.SparkleUpdater()
+        if self._updater.start():
+            logger.info("Sparkle Auto-Updater aktiv")
+        else:
+            logger.info("Sparkle nicht aktiv — Browser-Fallback fuer Updates")
 
         # Komponenten starten
         self._device_manager.start()
@@ -600,6 +609,11 @@ class AudioRouterApp(rumps.App):
         Sparkle auto-updates sind für v3.5 geplant. Bis dahin manuelle Prüfung.
         rumps.alert() gibt 1 zurück wenn OK geklickt, 0 bei Cancel.
         """
+        # Sparkle-Pfad (gebautes Bundle): native Update-UI
+        updater_obj = getattr(self, "_updater", None)
+        if updater_obj is not None and updater_obj.check_for_updates():
+            return
+        # Browser-Fallback (Dev-Mode oder Sparkle nicht verfuegbar)
         from version import APP_VERSION  # noqa: PLC0415 (lazy import — version.py in hiddenimports)
         response = rumps.alert(
             title="Check for Updates",
