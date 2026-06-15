@@ -55,7 +55,7 @@ DerivedData/
 AudioRouterNow_Roadmap_2026.pdf
 AudioRouterNow_Strategie_2026.pdf
 
-# Strategie & interne Planung — privat
+# Strategie & interne Planung — privat (NIEMALS in GitHub)
 LAUNCH_PLAN.md
 LAUNCH_EXECUTION.md
 AUDIT_REPORT.md
@@ -63,6 +63,8 @@ BACKLOG.md
 PLAN.md
 projekt.md
 v4-appstore/
+MARKETING.md
+MARKETING_*.md
 
 # Claude-Konfiguration (interne Anweisungen)
 .claude/
