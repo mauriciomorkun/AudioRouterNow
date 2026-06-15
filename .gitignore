@@ -78,3 +78,13 @@ installer/generate_pdfs.py
 
 # Diagnostic Reports (werden auf dem Desktop erstellt, nicht im Repo)
 AudioRouterNow_DiagReport_*.txt
+
+# Sparkle EdDSA private key — NIEMALS committen
+*private_key*
+*_BACKUP.txt
+sparkle_priv*
+*.pem
+
+# Sparkle test app (nicht nötig im Repo)
+vendor/Sparkle/Sparkle\ Test\ App.app/
+vendor/Sparkle/Symbols/

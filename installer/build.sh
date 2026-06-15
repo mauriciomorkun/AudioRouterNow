@@ -207,6 +207,16 @@ else
     ok "Storage-Bundle nicht vorhanden (bereits bereinigt)"
 fi
 
+# --- Sparkle.framework ins Bundle einbetten ---------------------------------
+# cp -R erhält Framework-Symlinks + Nested-Bundles (PyInstaller-datas würde sie zerstören).
+SPARKLE_SRC="$PROJECT_ROOT/vendor/Sparkle/Sparkle.framework"
+SPARKLE_DST="$FRAMEWORKS_DIR/Sparkle.framework"
+[[ -d "$SPARKLE_SRC" ]] || fail "Sparkle.framework nicht gefunden: $SPARKLE_SRC"
+rm -rf "$SPARKLE_DST"
+cp -R "$SPARKLE_SRC" "$SPARKLE_DST"
+xattr -cr "$SPARKLE_DST" 2>/dev/null || true
+ok "Sparkle.framework eingebettet → $SPARKLE_DST"
+
 # --- Code-Signierung (Developer ID + Hardened Runtime) -----------------------
 # PyInstaller bündelt Homebrew-Python (andere Team-ID als unsere App).
 # macOS Sequoia+ verweigert das Laden bei Team-ID-Konflikt.
@@ -277,6 +287,49 @@ else
     warn "__dot__driver Bundle nicht gefunden — Schritt 4d übersprungen"
 fi
 
+# Schritt 4e: Sparkle.framework Bottom-Up-Signing (5 Komponenten, innen→außen)
+if [[ -d "$SPARKLE_DST" ]]; then
+    log "Signiere Sparkle.framework (5 Komponenten, Bottom-Up)..."
+    SPK_B="$SPARKLE_DST/Versions/B"
+
+    # (1) XPC-Services
+    for xpc in "$SPK_B/XPCServices/Downloader.xpc" "$SPK_B/XPCServices/Installer.xpc"; do
+        [[ -d "$xpc" ]] && codesign --force --sign "$SIGN_IDENTITY" \
+            --options runtime --timestamp "$xpc" \
+            || fail "XPC-Signing fehlgeschlagen: $(basename $xpc)"
+        ok "Signiert: $(basename $xpc)"
+    done
+
+    # (2) Autoupdate-Executable
+    [[ -f "$SPK_B/Autoupdate" ]] && codesign --force --sign "$SIGN_IDENTITY" \
+        --options runtime --timestamp "$SPK_B/Autoupdate" \
+        || fail "Autoupdate-Signing fehlgeschlagen"
+    ok "Signiert: Autoupdate"
+
+    # (3) Updater.app (Executable zuerst, dann Bundle)
+    if [[ -d "$SPK_B/Updater.app" ]]; then
+        UPDATER_EXE="$SPK_B/Updater.app/Contents/MacOS/Updater"
+        [[ -f "$UPDATER_EXE" ]] && codesign --force --sign "$SIGN_IDENTITY" \
+            --options runtime --timestamp "$UPDATER_EXE"
+        codesign --force --sign "$SIGN_IDENTITY" \
+            --options runtime --timestamp "$SPK_B/Updater.app" \
+            || fail "Updater.app-Signing fehlgeschlagen"
+        ok "Signiert: Updater.app"
+    fi
+
+    # (4) Framework-Binary
+    [[ -f "$SPK_B/Sparkle" ]] && codesign --force --sign "$SIGN_IDENTITY" \
+        --options runtime --timestamp "$SPK_B/Sparkle" \
+        || fail "Sparkle-Binary-Signing fehlgeschlagen"
+    ok "Signiert: Sparkle (Binary)"
+
+    # (5) Gesamtes Framework versiegeln
+    codesign --force --sign "$SIGN_IDENTITY" \
+        --options runtime --timestamp "$SPARKLE_DST" \
+        || fail "Sparkle.framework-Bundle-Signing fehlgeschlagen"
+    ok "Sparkle.framework vollständig signiert (Bottom-Up) ✓"
+fi
+
 # Schritt 5: App-Executable signieren
 codesign \
     --force \
@@ -296,6 +349,14 @@ codesign \
     "$APP_PATH" || fail "Bundle-Signierung fehlgeschlagen"
 
 ok "Developer ID signiert (Hardened Runtime + Timestamp)"
+
+# --- Signing-Verifikation Gate (vor Notarisierung) --------------------------
+log "Signing-Gate: Prüfe alle Bundle-Signaturen..."
+codesign --verify --deep --strict --verbose=2 "$APP_PATH" \
+    || fail "Bundle-Verifikation fehlgeschlagen — Signing unvollständig"
+[[ -d "$SPARKLE_DST" ]] && codesign --verify --deep --strict "$SPARKLE_DST" \
+    || true
+ok "Signing-Gate bestanden ✓"
 
 # --- DMG-Grafiken generieren -------------------------------------------------
 # Hintergrundbild enthaelt den weissen Pfeil direkt eingezeichnet.

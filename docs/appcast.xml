@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"
+     xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
+     xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>AudioRouterNow Updates</title>
+    <link>https://mauriciomorkun.github.io/AudioRouterNow/appcast.xml</link>
+    <description>Most recent updates to AudioRouterNow</description>
+    <language>en</language>
+    <!-- Items werden nach jedem Release via vendor/Sparkle/bin/generate_appcast ergänzt.
+         Beispiel-Release-Workflow (pro Release):
+         1. Version in engine/version.py + installer/AudioRouterNow.spec bumpen
+         2. ./installer/build.sh → ~/Desktop/AudioRouterNow.dmg
+         3. DMG signieren: ./vendor/Sparkle/bin/sign_update ~/Desktop/AudioRouterNow.dmg
+         4. appcast.xml mit generate_appcast aktualisieren
+         5. GitHub Release + DMG hochladen
+         6. docs/appcast.xml committen + pushen (GitHub Pages publiziert automatisch)
+    -->
+  </channel>
+</rss>

@@ -40,6 +40,7 @@ a = Analysis(
         "diagnostic",
         "health",
         "healer",
+        "updater",
     ],
     hookspath=[],
     hooksconfig={},
@@ -101,5 +102,11 @@ app = BUNDLE(
         "LSUIElement":                True,
         "NSHumanReadableCopyright":   "AudioRouterNow",
         "LSMinimumSystemVersion":     "11.0",
+        # Sparkle 2.9.3 Auto-Updates
+        "SUFeedURL":               "https://mauriciomorkun.github.io/AudioRouterNow/appcast.xml",
+        "SUPublicEDKey":           "uvHAgZWxrdMVo0ASrFMrWsRhOciUEUU301MZ1gQH/Jk=",
+        "SUEnableAutomaticChecks": True,
+        "SUScheduledCheckInterval": 86400,
+        "SUAutomaticallyUpdate":   False,
     },
 )
