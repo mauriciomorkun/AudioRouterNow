@@ -77,6 +77,7 @@ helper/AudioRouterNowHelper
 
 # Hilfsskripte
 installer/generate_pdfs.py
+collect_weekly.py
 
 # Diagnostic Reports (werden auf dem Desktop erstellt, nicht im Repo)
 AudioRouterNow_DiagReport_*.txt
