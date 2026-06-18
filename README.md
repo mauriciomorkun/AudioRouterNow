@@ -256,6 +256,11 @@ AudioRouterNow collects **no data** about you or your system:
 AudioRouterNow is free and will stay free.  
 If it saves you time, you can [buy me a coffee ☕](https://www.buymeacoffee.com/mauriciomorkun) — entirely optional.
 
+**Crypto donations:**  
+`BTC` bc1qaa58vwf5d70rve7fp6svlygupkx6tf37g2qujt  
+`ETH` 0x72BEd7d6db5ffEDbd306196f3300FCDaa44a207f *(Base / Arbitrum preferred)*  
+`SOL` E93EUW1XoUsqjR3ifvydJv93dkc7SoRt2UBdkGbfMTMN
+
 ---
 
 ## Third-party licenses
