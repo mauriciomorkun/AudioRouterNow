@@ -82,6 +82,10 @@ collect_weekly.py
 # Insights-Tracker (Excel liegt in iCloud, Script bleibt lokal)
 tracking/
 
+# Dashboard — interne Strategie-Doku & Code (privates Online-Dashboard)
+ARN_DASHBOARD_CONCEPT.md
+dashboard/
+
 # Diagnostic Reports (werden auf dem Desktop erstellt, nicht im Repo)
 AudioRouterNow_DiagReport_*.txt
 
