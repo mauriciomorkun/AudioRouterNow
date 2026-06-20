@@ -238,6 +238,64 @@
     .footer-links { margin-top: .75rem; }
     .footer-links a { margin: 0 .5rem; }
 
+    /* ── CRYPTO DONATIONS ── */
+    .crypto-donations {
+      margin-top: 1.5rem;
+      display: inline-flex;
+      flex-direction: column;
+      gap: .45rem;
+      text-align: left;
+    }
+    .crypto-label {
+      font-size: .7rem;
+      color: var(--faint);
+      text-align: center;
+      letter-spacing: .04em;
+      margin-bottom: .15rem;
+    }
+    .crypto-row {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      font-size: .72rem;
+      font-family: monospace;
+    }
+    .crypto-coin {
+      color: #555;
+      font-weight: 600;
+      min-width: 2.2rem;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      font-size: .68rem;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .crypto-addr {
+      color: #444;
+      letter-spacing: .01em;
+    }
+    .crypto-hint {
+      color: #333;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      font-size: .65rem;
+      font-style: italic;
+    }
+    .copy-btn {
+      background: none;
+      border: 1px solid #222;
+      color: #333;
+      font-size: .6rem;
+      padding: .15rem .4rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      letter-spacing: .02em;
+      transition: color .15s, border-color .15s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .copy-btn:hover { color: #555; border-color: #333; }
+    .copy-btn.copied { color: var(--accent); border-color: var(--accent); }
+
     /* ── MM LOGO ── */
     .mm-logo {
       position: fixed;
@@ -372,12 +430,46 @@
       <a href="https://github.com/mauriciomorkun/AudioRouterNow/blob/main/THIRD_PARTY_NOTICES.md">Third-party notices</a>
       <a href="https://www.buymeacoffee.com/mauriciomorkun">Buy me a coffee ☕</a>
     </div>
+
+    <div class="crypto-donations">
+      <p class="crypto-label">or donate crypto</p>
+      <div class="crypto-row">
+        <span class="crypto-coin">BTC</span>
+        <span class="crypto-addr">bc1qaa58vwf5d70rve7fp6svlygupkx6tf37g2qujt</span>
+        <button class="copy-btn" onclick="copyAddr(this,'bc1qaa58vwf5d70rve7fp6svlygupkx6tf37g2qujt')">copy</button>
+      </div>
+      <div class="crypto-row">
+        <span class="crypto-coin">ETH</span>
+        <span class="crypto-addr">0x72BEd7d6db5ffEDbd306196f3300FCDaa44a207f</span>
+        <span class="crypto-hint">(Base / Arbitrum preferred)</span>
+        <button class="copy-btn" onclick="copyAddr(this,'0x72BEd7d6db5ffEDbd306196f3300FCDaa44a207f')">copy</button>
+      </div>
+      <div class="crypto-row">
+        <span class="crypto-coin">SOL</span>
+        <span class="crypto-addr">E93EUW1XoUsqjR3ifvydJv93dkc7SoRt2UBdkGbfMTMN</span>
+        <button class="copy-btn" onclick="copyAddr(this,'E93EUW1XoUsqjR3ifvydJv93dkc7SoRt2UBdkGbfMTMN')">copy</button>
+      </div>
+    </div>
   </footer>
 
   <!-- MM Logo -->
   <a class="mm-logo" href="https://mauriciomorkun.com" target="_blank" rel="noopener" aria-label="Mauricio Morkun">
     <img src="mm-logo.png" alt="Mauricio Morkun" width="1294" height="357" loading="lazy" decoding="async">
   </a>
+
+  <!-- Crypto copy-to-clipboard -->
+  <script>
+    function copyAddr(btn, addr) {
+      navigator.clipboard.writeText(addr).then(function() {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(function() {
+          btn.textContent = 'copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      });
+    }
+  </script>
 
   <!-- BMC Widget -->
   <script data-name="BMC-Widget" data-cfasync="false"
