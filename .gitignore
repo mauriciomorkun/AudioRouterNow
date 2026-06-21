@@ -82,6 +82,12 @@ collect_weekly.py
 # Insights-Tracker (Excel liegt in iCloud, Script bleibt lokal)
 tracking/
 
+# Export-Ordner: Grosse Binaries ausschliessen (HTML-Quellen werden committed)
+export/*.gif
+export/*.zip
+AudioRouterNow-Animation/
+AudioRouterNow\ App-Animation.zip
+
 # Dashboard — interne Strategie-Doku & Code (privates Online-Dashboard)
 ARN_DASHBOARD_CONCEPT.md
 dashboard/
