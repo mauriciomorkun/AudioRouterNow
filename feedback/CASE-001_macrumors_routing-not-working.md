@@ -15,7 +15,7 @@
 | **App-Version** | **Unbekannt — beim User erfragen** |
 | **Betriebssystem** | macOS Sequoia 15.7.7 |
 | **Hardware** | Mac mini (laut Symptom "Ton aus Mac-mini-Speaker") |
-| **Status** | In Analyse — **H1/H1-Wurzel falsifiziert für Normal-Install** (2026-06-25), neue Hypothesen H5–H7, siehe §12 |
+| **Status** | In Analyse — Virtuelle Schicht bestätigt OK; **Fan-out-Schicht ungeklärt**; Helper-Log angefordert (2026-06-25). H1/H1-Wurzel falsifiziert, H2 bestätigt (P0), H5/H7 offen. Siehe §12 + §13 |
 | **Schweregrad** | **Kritisch** (App-Kernfunktion betroffen — kein Routing) |
 
 ---
@@ -350,12 +350,191 @@ Thanks again — this report directly shapes the next release.
 
 ---
 
+## 13. Thread-Fortsetzung 2026-06-25 — Posts #7–#9, Diagnose-Daten & Interpretation
+
+### 13.1 Thread-Verlauf (Posts #7, #8, #9)
+
+Der MacRumors-Thread mit bogdanw wurde über drei weitere Posts fortgeführt. Dieser
+Abschnitt protokolliert den vollständigen Austausch, der zu den in §12 begonnenen
+Hypothesen die entscheidenden Diagnose-Daten geliefert hat.
+
+#### Post #7 — MauricioMorkun (2026-06-24, 21:33 Uhr)
+
+Antwort auf bogdanws ersten Post (#6). Inhalt:
+
+- **Falsche Haupthypothese vertreten:** Vermutung, der *"installer re-signs the driver
+  in a way macOS Sequoia rejects"* — also die H1-Wurzel (Ad-hoc-Resign zerstört die
+  Signatur). Diese Annahme stellte sich später (Post #9) als Sackgasse heraus.
+- **Status-Bug bestätigt:** Der Befund #2 (Status-Anzeige "Routing active — 3 devices"
+  trotz nicht angehaktem BlackHole) wurde als **echter Bug** anerkannt (H2).
+- **3 Diagnose-Commands angefordert:**
+  - `system_profiler SPAudioDataType …` (Treiber-Präsenz in CoreAudio)
+  - `codesign -dv --verbose=4 …` (Signatur-Status des installierten `.driver`)
+  - `sudo log show … process == "coreaudiod"` (Plugin-Load / Reject)
+- **Rückfragen:** DMG- oder Homebrew-Installation? Wurde das Admin-Passwort eingegeben?
+- **Alle 4 Sekundär-Kritikpunkte bestätigt** (i18n DE/EN, README-Homebrew-Widerspruch,
+  osascript-Admin-Prompt, Sparkle ohne Opt-out) und Fixes zugesagt.
+
+#### Post #8 — bogdanw (2026-06-25, 06:09 Uhr)
+
+Entscheidende Klarstellung und Lieferung der angeforderten Daten:
+
+- **Fehlermeldung-Kontext präzisiert:** Die Meldung *"Switch Failed / 'Audio Router'
+  nicht in CoreAudio gefunden"* trat **ausschließlich** beim **manuellen Kopieren**
+  des Treibers auf:
+  `/Applications/AudioRouterNow.app/Contents/Frameworks/AudioRouterNow.driver`
+  → `/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver`
+- Wörtlich: **"No error is displayed when the driver is installed by the app."**
+  → Bei normaler Installation tritt der Fehler **nicht** auf.
+- **Diagnose-Daten geliefert** (vollständig protokolliert in §13.2).
+- **Install-Weg geklärt:** DMG via Drag&Drop, Admin-Passwort eingegeben — die DMG
+  wurde vom User sogar vorab via **VirusTotal** geprüft.
+
+#### Post #9 — MauricioMorkun (2026-06-25, ~13:00 Uhr)
+
+Gesendete Antwort (Volltext, wie versandt):
+
+```text
+Thanks for the detailed follow-up, and for running everything — that data is exactly what we needed.
+
+First, an honest correction: my last reply was partly wrong. I latched onto that "Switch Failed" dialog and built a theory around the driver not loading. But you've now clarified that error only showed up when you manually copied the .driver into /Library/Audio/Plug-Ins/HAL/ — not during the normal app install. That changes the picture completely, and it means my "installer re-signs the driver in a way Sequoia rejects" hypothesis was a dead end. Apologies for sending you down that path.
+
+What your output actually tells us is good news for the driver:
+- system_profiler shows Audio Router present, and it's both Default Output and System Output.
+- codesign is a clean Developer ID chain (5D52U34B3W), valid timestamp. No signing problem.
+- In the coreaudiod log, the driver loads, activates, becomes default, and the helper's keepalive IOProc starts and stays running. The one IOProc that stops after ~1s exits with "error 0" — that's noErr, a clean client stop (some app played a short sound and released the device), not a crash.
+
+So the virtual device itself is healthy. The problem is downstream: the fan-out to your three physical outputs (Mac mini Speakers, Pebble V3, U3277WB). And here's the catch — the log you pulled was filtered with grep -i audiorouter, so it only shows the virtual device's own IOContext. The fan-out IOProcs run under each physical device's context and simply don't appear in that filtered slice. That's the one blind spot we have left.
+
+On the faint sound specifically: this is most likely a volume freeze. Once "Audio Router" becomes the System Output, your volume keys control the virtual router's level, not the Mac mini speaker's hardware level directly. If that speaker was turned down before you switched, it stays down, and the keys no longer reach it. Worth a quick test: open Audio MIDI Setup, bump the Mac mini Speakers' output volume to max while AudioRouterNow is active, and see if the level jumps.
+
+One thing left that would close this out — the helper's own log, which shows whether it actually started IOProcs on the three physical devices:
+  log show --last 1h --predicate 'process == "AudioRouterNowHelper"' --info
+
+That should tell us definitively whether the fan-out IOProcs are starting and failing, or not starting at all. Thanks again for the patience — and for VirusTotal-ing the DMG, that made me smile.
+```
+
+---
+
+### 13.2 Diagnose-Daten von bogdanw (vollständig)
+
+Die vom User in Post #8 gelieferten Rohdaten, unverändert protokolliert.
+
+**`system_profiler SPAudioDataType | grep -A3 -i router`:**
+
+```text
+Audio Router:
+  Default Output Device: Yes
+  Default System Output Device: Yes
+  Manufacturer: AudioRouterNow
+  Output Channels: 2
+  Current SampleRate: 48000
+  Transport: Virtual
+```
+
+**`codesign -dv --verbose=4 /Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver`:**
+
+```text
+Authority=Developer ID Application: MAURICIO MORAIS DA CUNHA (5D52U34B3W)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=15 Jun 2026 at 11:35:55
+Identifier=com.audiorouter.now.driver
+Format=bundle with Mach-O thin (arm64)
+CodeDirectory v=20500 size=390 flags=0x10000(runtime)
+Runtime Version=26.5.0
+```
+
+**`sudo log show --last 30m --predicate 'process == "coreaudiod"' | grep -i audiorouter`:**
+
+```text
+06:54:24 HALS_RemotePlugInRegistrar.mm:237 Attempting to load: AudioRouterNow.driver
+06:54:24 HALS_RemotePlugInRegistrar.mm:421 Creating remote driver service: "AudioRouterNow.driver", pid: 2447
+06:54:24 HALS_Device.cpp:162 HALS_Device::Activate: activating device 60: com.audiorouter.now.device
+06:54:24 HALS_DefaultDeviceManager.cpp:1706 FindPreferredDefaultDevice: 'sOut' | found preferred[0] 60
+06:54:25 HALS_IOContext_Legacy_Impl.cpp:1707 IOWorkLoopInit: 284 com.audiorouter.now.device: starting  [PID 2453]
+06:54:25 HALB_PowerAssertion.cpp:115 taking power assertion ID 33879 on behalf of 2453
+06:55:51 HALS_DefaultDeviceManager.cpp:1068 SetDefaultDevice: 'dOut' | 60: 'com.audiorouter.now.device'
+06:55:51 HALS_DefaultDeviceManager.cpp:1068 SetDefaultDevice: 'sOut' | 60: 'com.audiorouter.now.device'
+06:55:51 IOWorkLoopInit: 171 com.audiorouter.now.device: starting  [PID 586]
+06:56:07 IOWorkLoopInit: 172 com.audiorouter.now.device: starting  [PID 692]
+06:56:08 IOWorkLoopDeinit: 172 com.audiorouter.now.device: stopping with error 0
+06:56:08 HALB_PowerAssertion.cpp:153 releasing power assertion ID 33659 ... for 0.973746 seconds
+```
+
+> **Hinweis zu den drei physischen Outputs:** bogdanw nennt in diesem Thread drei
+> Ziel-Geräte — **Mac mini Speakers**, **Pebble V3** und **U3277WB** (Dell-Monitor).
+> Diese ersetzen die zuvor angenommene Beispiel-Trias (BlackHole/Interface) als
+> reale Fan-out-Ziele dieses Falls.
+
+---
+
+### 13.3 Interpretation der Diagnose-Daten
+
+#### Was bestätigt ist (virtuelle Schicht = gesund)
+
+| Befund | Beleg im Log/Output | Aussage |
+|---|---|---|
+| **Treiber lädt korrekt** | `HALS_RemotePlugInRegistrar: Attempting to load …` → `Creating remote driver service … pid 2447` | Plugin wird gefunden und der Plugin-Host gestartet |
+| **Virtuelles Device aktiv** | `HALS_Device::Activate: activating device 60: com.audiorouter.now.device` | Device 60 ist enumeriert und aktiv |
+| **System-Default korrekt gesetzt** | `SetDefaultDevice 'dOut' → 60` + `'sOut' → 60` | Sowohl Output- als auch System-Output-Default zeigen auf den Router |
+| **Helper-Keepalive persistent** | `IOWorkLoopInit: 284 … [PID 2453]` + Power-Assertion auf 2453, **kein Deinit** | PID 2453 / Context 284 = persistenter Keepalive-IOProc des Helpers → läuft dauerhaft |
+| **"error 0" ist kein Fehler** | `IOWorkLoopDeinit: 172 … stopping with error 0` | `error 0 == noErr` = sauberer, vom Client gewollter Stop (kein Crash) |
+| **H1 + H1-Wurzel falsifiziert** | gesamte obige Kette | Für die **Normal-Installation** vollständig widerlegt |
+| **Signatur intakt** | `Developer ID Application … (5D52U34B3W)` → `Apple Root CA`, gültiger Timestamp | Sauberer Developer-ID-Chain, **kein** Ad-hoc-Resign |
+
+#### Was die Logs NICHT zeigen (die verbleibende Blindstelle)
+
+- Die **Fan-out-IOProcs** auf den physischen Devices (Mac mini Speakers, Pebble V3,
+  U3277WB) laufen unter **deren eigenen IOContexts** — nicht unter dem des virtuellen
+  Devices.
+- Der gelieferte Log-Auszug war mit `grep -i audiorouter` gefiltert → es ist
+  **ausschließlich das virtuelle Device** sichtbar.
+- Ob die physischen IOProcs überhaupt gestartet wurden, ist aus diesem Auszug
+  **nicht** erkennbar. Das ist die zentrale offene Frage dieses Falls.
+
+#### Hypothesen-Status nach §13
+
+| Hypothese | Status | Begründung |
+|---|---|---|
+| **H1 + H1-Wurzel** (Treiber nicht geladen / Resign zerstört Signatur) | ❌ **Falsifiziert** für Normal-Install | system_profiler + codesign + coreaudiod-Log eindeutig sauber |
+| **H2** (Status-UI "lügt") | ✅ **Bestätigt — P0** | Anzeige spiegelt gespeicherte Auswahl, nicht den realen Pfad |
+| **H5** (Stale Config / stille Skip) | ⚠️ **Weiterhin möglich** | Erklärt die Stille auf Pebble V3 + U3277WB |
+| **H7** (Lautstärken-Entkopplung) | ⚠️ **Wahrscheinlichste Erklärung** für "faint" am Mac-mini-Speaker | Volume-Keys steuern Router, nicht die HW-Lautstärke des Speakers |
+| **Manueller Kopier-Sonderfall** | 📄 **Dokumentiert** in §12.5 | Erklärt die ursprünglich gemeldete Fehlermeldung |
+
+#### Zentrale offene Frage
+
+> **Wurden die Fan-out-IOProcs auf Mac mini Speakers, Pebble V3 und U3277WB
+> tatsächlich gestartet?**
+>
+> → Angefordert via Helper-Log (Post #9):
+> ```sh
+> log show --last 1h --predicate 'process == "AudioRouterNowHelper"' --info
+> ```
+> Dieses Log zeigt definitiv, ob die physischen IOProcs **starten und fehlschlagen**
+> (→ H5) oder **gar nicht erst starten** — und entscheidet damit zwischen H5 und H7
+> (bzw. beidem).
+
+---
+
+### 13.4 Status-Update
+
+| Feld | Wert |
+|---|---|
+| **Status** | In Analyse — Virtuelle Schicht bestätigt OK; Fan-out-Schicht ungeklärt; Helper-Log angefordert |
+| **Schweregrad** | **Kritisch** (Kern-Routing nicht hörbar) |
+| **Nächster Schritt** | bogdanw liefert Helper-Log → Entscheidung ob **H5** oder **H7** oder **beides** |
+
+---
+
 ## 11. Änderungs-Log
 
 | Datum | Was |
 |-------|-----|
 | 2026-06-24 | Case angelegt. Root-Cause-Analyse (H1–H4 + Wurzelverdacht), Sekundärbefunde, Verifikations-/Diagnoseplan, Fix-Backlog und User-Antwort-Entwurf dokumentiert. Datei:Zeile-Belege gegen die Quelldateien verifiziert. |
 | 2026-06-25 | **Revision auf Basis neuer User-Diagnosedaten (bogdanw, MacRumors).** H1 + H1-Wurzel **falsifiziert für die normale App-Installation** (codesign = gültige Developer ID, system_profiler = Device präsent + Default, coreaudiod-Logs = erfolgreicher Load + Keepalive-IOProc). Die "nicht in CoreAudio gefunden"-Meldung trat **nur** im manuellen Kopier-Sonderfall auf. coreaudiod-Logs neu interpretiert ("error 0" = sauberer Stop, kein Fehler). Neue Hypothesen H5–H7 formuliert. Siehe §12. |
+| 2026-06-25 | §13 hinzugefügt: Thread-Fortsetzung Posts #7-#9, vollständige Diagnose-Daten, Interpretation, Status-Update |
 
 ---
 
