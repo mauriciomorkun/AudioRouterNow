@@ -670,3 +670,70 @@ Geringes Risiko, kein Audio-Pfad-Eingriff, keine Signing-Änderung.
   tendiert zu opt-out mit klarer Consent-Anzeige; Privacy-Marketing („no network") tendiert
   zu opt-in. **User-Entscheidung nötig** (Lock-in-nah, vgl. CLAUDE.md §„keine Lock-in-
   Entscheidungen allein").
+
+---
+
+## Update 2026-06-25 — Neue Erkenntnisse aus bogdanw-Thread (Posts #7–#9)
+
+### Revidierte Analyse-Grundlage
+
+Nach vollständiger Diagnose-Auswertung (system_profiler, codesign, coreaudiod-Logs):
+
+**Falsifiziert:**
+- H1 (Treiber nicht geladen): Treiber lädt korrekt via normaler App-Installation
+- H1-Wurzel (Ad-hoc-Resign): Signatur ist Developer ID (5D52U34B3W), nicht Ad-hoc
+- "error 0" im IOWorkLoopDeinit = noErr = sauberer Client-Stop, kein Crash
+
+**Bestätigt / verschärft:**
+- H2 (Status-UI lügt): P0 — Ist der sichtbarste Bug. Fix: `_active_device_names` → `status['active']`
+- H7 (Lautstärken-Entkopplung): Wahrscheinlichste Erklärung für "faint". Konkret: Hardware-Volume des Mac-mini-Speakers bleibt beim Routing-Start eingefroren. Test: Audio MIDI Setup → Mac mini Speakers Volume auf Max während Routing aktiv.
+- H5 (Stale Config): Kandidat für Pebble V3 + U3277WB komplett stumm
+
+**Neue Erkenntnis — Fan-out-Blind-Spot:**
+Die coreaudiod-Logs zeigen NUR das virtuelle Device (com.audiorouter.now.device) weil mit `grep -i audiorouter` gefiltert. Fan-out-IOProcs auf physischen Devices erscheinen unter deren eigenen Contexts. Wir haben KEINE Sichtbarkeit darauf ohne:
+a) Ungefilterte coreaudiod-Logs ODER
+b) Helper-eigene Logs
+
+**Ausstehend:**
+- Helper-Log von bogdanw angefordert: `log show --last 1h --predicate 'process == "AudioRouterNowHelper"' --info`
+
+### Brainstorming-Ergänzungen
+
+#### H7-Fix — Volume-Freeze beim Routing-Start (Konkretisierung)
+
+**Problem:** Wenn "Audio Router" System-Default wird, steuern Lautstärketasten die virtuelle Router-Lautstärke (volume_q16 in shared_ring.h:96). Hardware-Volume des physischen Speakers bleibt auf altem Wert.
+
+**Ansatz A (Sofortmaßnahme, v3.4.1):**
+Beim Routing-Start die aktuelle Hardware-Lautstärke des bisherigen System-Defaults auslesen und als Ausgangspunkt für die virtuelle Lautstärke setzen. Code: `AudioObjectGetPropertyData(kAudioHardwarePropertyDefaultOutputDevice, kAudioDevicePropertyVolumeScalar)` → Wert in Shared Memory schreiben.
+
+**Ansatz B (UX-Hinweis, minimal-invasiv):**
+Beim ersten Routing-Start einen einmaligen Hinweis zeigen: "Volume keys now control the router, not your speakers directly." Mit Link zur Erklärung.
+
+**Ansatz C (v4, bidirektional):**
+Pro-Output-Volume mit Hardware-Passthrough. ABI-Breaking Change → v4.
+
+**Empfehlung:** A für v3.4.1 (verhindert genau das "faint"-Symptom), B als Fallback wenn A komplex ist.
+
+#### Diagnostic.py — Fan-out-Sichtbarkeit (neue P1-Anforderung)
+
+**Problem:** Der aktuelle Diagnostic-Report ist blind für Fan-out-Failures. Er prüft nicht:
+- Ob physische Device-IOProcs gestartet wurden
+- Welche Devices der Helper tatsächlich bedient
+- ring_frames-Fortschritt (fließt Audio?)
+
+**Konkrete Ergänzungen:**
+1. `get_status` aus Helper auswerten → `active[]`, `ring_frames`, `ioproc_calls`
+2. Für jedes aktive Device: `AudioDeviceStart` Status-Check
+3. Ausgabe: "Fan-out zu N/M Devices aktiv: [Device-Liste]"
+4. Helper-Log-Pfad ausgeben und letzten Fehler anzeigen
+
+**Warum jetzt P1 (war P1, bleibt P1 aber mit mehr Klarheit):**
+Ohne diese Sichtbarkeit können weder wir noch der User einen Fan-out-Bug ohne Terminal-Expertise diagnostizieren. bogdanw musste 3 manuelle Commands ausführen, um uns die Infos zu geben, die die App automatisch melden sollte.
+
+#### Manueller-Kopier-Sonderfall — UX-Warning (neue P2-Anforderung)
+
+**Problem:** bogdanw hat den Treiber manuell kopiert (vermutlich experimentell), bekam dabei die "nicht gefunden"-Fehlermeldung, und wir haben 24 Stunden auf die falsche Hypothese gesetzt.
+
+**Fix:** Beim App-Start prüfen ob /Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver existiert aber NICHT dem erwarteten Install-Pfad / Bundle entspricht (z.B. andere Signatur-Timestamp als eigene Build-Timestamp). Wenn ja: Warnung "The driver seems to have been installed outside of the app. Please reinstall via the app to ensure correct operation."
+
+**Alternativ:** In README und FAQ explizit: "Do not manually copy the driver bundle. Only the app installer correctly handles permissions, coreaudiod restart, and setup."
