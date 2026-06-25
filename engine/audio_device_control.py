@@ -177,7 +177,7 @@ def set_default_output_device(device_name: str) -> tuple[bool, str]:
         )
         count = sz.value // 4
         if count == 0:
-            return False, "Keine Audio-Devices in CoreAudio gefunden."
+            return False, "No audio devices found in CoreAudio."
 
         ids = (ctypes.c_uint32 * count)()
         CA.AudioObjectGetPropertyData(
@@ -221,9 +221,9 @@ def set_default_output_device(device_name: str) -> tuple[bool, str]:
 
         if target_id is None:
             return False, (
-                f"'{device_name}' nicht in CoreAudio gefunden.\n"
-                "Ist der HAL-Treiber installiert und aktiv?\n"
-                "Starte AudioRouterNow neu und versuche es erneut."
+                f"'{device_name}' not found in CoreAudio.\n"
+                "Is the HAL driver installed and active?\n"
+                "Please restart AudioRouterNow and try again."
             )
 
         # Als Standard-Ausgabe setzen
@@ -274,7 +274,7 @@ def set_default_system_output_device(device_name: str) -> tuple[bool, str]:
         )
         count = sz.value // 4
         if count == 0:
-            return False, "Keine Audio-Devices gefunden."
+            return False, "No audio devices found."
 
         ids = (ctypes.c_uint32 * count)()
         CA.AudioObjectGetPropertyData(
@@ -305,7 +305,7 @@ def set_default_system_output_device(device_name: str) -> tuple[bool, str]:
                 break
 
         if target_id is None:
-            return False, f"'{device_name}' nicht gefunden."
+            return False, f"'{device_name}' not found."
 
         set_addr = _AudioObjectPropertyAddress(
             _kAudioHardwarePropertyDefaultSystemOutputDevice,

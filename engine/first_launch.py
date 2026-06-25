@@ -74,11 +74,11 @@ _FG_RGB      = (0.941, 0.941, 0.941)   # #F0F0F0
 _FG2_RGB     = (0.533, 0.533, 0.533)   # #888888
 
 _STEPS = [
-    (0,   "Warte auf Passwort-Bestätigung…"),
-    (25,  "Kopiere Treiber…"),
-    (60,  "Starte Audio-Dienst neu…"),
-    (80,  "Signiere Treiber…"),
-    (100, "✓ Installation abgeschlossen"),
+    (0,   "Waiting for password confirmation…"),
+    (25,  "Copying driver…"),
+    (60,  "Restarting audio service…"),
+    (80,  "Signing driver…"),
+    (100, "✓ Installation complete"),
 ]
 
 # Modul-globales Fenster: bleibt nach install_driver(keep_open=True) offen bis
@@ -161,7 +161,7 @@ class _InstallProgressWindow:
             return f
 
         # Titel
-        _label("AudioRouterNow — Treiber-Installation",
+        _label("AudioRouterNow — Driver Installation",
                24, H - 44, W - 48, 22, 13.0, bold=True)
 
         # Schritt-Text (dynamisch)
@@ -242,7 +242,7 @@ class _InstallProgressWindow:
             return
         try:
             from Foundation import NSRunLoop, NSDate, NSDefaultRunLoopMode
-            self.set_step(100, "✓ App bereit")
+            self.set_step(100, "✓ App ready")
             for _ in range(3):   # 3 × 200 ms = 600 ms sichtbar bei 100 %
                 NSRunLoop.mainRunLoop().runMode_beforeDate_(
                     NSDefaultRunLoopMode,
@@ -431,7 +431,7 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
                     return False               # noch eine Runde warten
                 # keep_open: 100% wird erst in complete_then_close() gezeigt (= Wizard bereit)
                 if keep_open:
-                    win.set_step(90, "✓ Installation abgeschlossen")
+                    win.set_step(90, "✓ Installation complete")
                 else:
                     win.set_step(*_STEPS[4])   # 100% — Fertig
                 return True
@@ -459,9 +459,9 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
                         # keep_open: Balken bleibt bei 90% bis close_active_progress_window()
                         # aufgerufen wird (= Wizard bereit → dann 100%)
                         if keep_open:
-                            win.set_step(90, "App wird gestartet…")
+                            win.set_step(90, "Starting app…")
                         else:
-                            win.set_step(100, "App wird gestartet…")
+                            win.set_step(100, "Starting app…")
                         _done = True
         except Exception as exc:
             logger.warning("Progress window error: %s", exc)
