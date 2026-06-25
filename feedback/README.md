@@ -13,7 +13,7 @@ Eintrag in der Tabelle unten.
 
 | Case-ID | Datum | Quelle | Titel | Status | Schweregrad |
 |---------|-------|--------|-------|--------|-------------|
-| [CASE-001](./CASE-001_macrumors_routing-not-working.md) | 2026-06-24 | MacRumors-Forum | Routing funktioniert nicht — "Audio Router nicht in CoreAudio gefunden", nur leiser Ton aus Mac-mini-Speaker | In Analyse — Ursache identifiziert, Beweis ausstehend | Kritisch |
+| [CASE-001](./CASE-001_macrumors_routing-not-working.md) | 2026-06-24 | MacRumors-Forum | Routing funktioniert nicht — "Audio Router nicht in CoreAudio gefunden", nur leiser Ton aus Mac-mini-Speaker | Fix in Arbeit — Wave-1-Fixes (H2, H5, i18n) in v3.4.1 implementiert; H7 ausstehend | Kritisch |
 
 ---
 

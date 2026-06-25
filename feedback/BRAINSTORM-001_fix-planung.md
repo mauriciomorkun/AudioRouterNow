@@ -598,18 +598,37 @@ Risiko bezieht sich v.a. auf Audio-Pfad-/Install-/Signing-Regressionen.
 
 ## 5. Empfohlene Fix-Reihenfolge (Roadmap-Entwurf)
 
-### Welle 1 — „Die App sagt die Wahrheit" (v3.4.1, Bugfix-Release)
+### Welle 1 — „Die App sagt die Wahrheit" (v3.4.1, Bugfix-Release) — ✅ ABGESCHLOSSEN (2026-06-25)
 **Ziel:** Der gemeldete Kern (Status lügt, Routing tut scheinbar nichts) ist behoben.
 Geringes Risiko, kein Audio-Pfad-Eingriff, keine Signing-Änderung.
+Dual-auditiert (2 Iterationen), alle Befunde behoben, 4 Commits.
 
-1. **#1 H2** — Status-Cluster: `_compute_status` liest `active[]` + `ioproc_calls` +
-   `router_default`. (Optional Refactor in `RoutingState`-Dataclass → zahlt auf #5/#11 ein.)
-2. **#2 H5** — Stale-Config sichtbar: `_restore_saved_outputs`-Diff, „N of M", fehlende
-   Geräte als „unavailable" im Menü, erste Reconcile sofort.
-3. **#4 i18n** — user-sichtbare deutsche Strings → Englisch.
-4. **#7 README** — Homebrew-Widerspruch + „No network"-Präzisierung.
+1. ✅ **ERLEDIGT — #1 H2** — Status-Cluster: `_compute_status` liest realen Zustand aus
+   `status['active']` (7-Zustands-Matrix), nicht mehr `_active_device_names`. Commit `7521f0b`.
+2. ✅ **ERLEDIGT — #2 H5** — Stale-Config sichtbar: `_unavailable_devices`-Set, fehlende
+   Geräte als „⚠ unavailable" im Menü, Status-Counter „N of M", Hot-Plug-Recompute,
+   Reconcile-Hardening. Commit `7521f0b`.
+3. ✅ **ERLEDIGT — #4 i18n** — user-sichtbare deutsche Strings → Englisch
+   (`audio_device_control.py`, `first_launch.py`, `diagnostic.py`). Commit `a7265bd`.
+4. ✅ **ERLEDIGT — #7 README** — Homebrew „recommended" → „optional",
+   Runtime-Dependency-Klarstellung. Commit `7115a60`.
+5. ✅ **ERLEDIGT (vorgezogen aus Welle 2) — #5 Diagnostic Fan-out** — neue Sektionen
+   SYSTEM AUDIO STATE + FAN-OUT im Diagnostic-Report. Commit `68ec5ec`.
 
 → **Validator-Prüfung Welle 1:** siehe §6.
+
+#### Audit-Erkenntnisse (Dual-Audit, 2 Iterationen)
+
+Die zwei unabhängigen Opus-Audit-Durchläufe haben drei Befunde aufgedeckt, die vor
+Release behoben wurden:
+
+- **Import-Pfad-Bug:** Ein Import im neuen Status-/Diagnose-Pfad zeigte auf den falschen
+  Modulpfad → bei isoliertem Aufruf `ImportError`. Korrigiert.
+- **Reconcile-Inkonsistenz:** `_reconcile_active_outputs` konnte gespeicherte Namen auf
+  Geräte anwenden, die nicht im aktuellen Scan waren → reconciled Set jetzt auf
+  `new_names & scanned` eingeschränkt (keine stale UIDs mehr).
+- **max_age-Drift:** Der Status-Cache-`max_age` driftete gegen das Health-Poll-Intervall
+  (200 ms) → angeglichen, damit „active"-Übergänge nicht durch veralteten Cache flackern.
 
 ### Welle 2 — „Selbstdiagnose + Vertrauen" (v3.4.2 / v3.5)
 5. **#5 Diagnostic** „arn doctor" mit Pass/Fail-Ampel (deckt H1-Fall, der für Normal-
@@ -627,6 +646,20 @@ Geringes Risiko, kein Audio-Pfad-Eingriff, keine Signing-Änderung.
 
 ### Welle 4 — v4 / Swift-Rewrite (Backlog)
 13. **#13** Per-Output-Volume (ABI-Bruch), **#14** SMJobBless, **#15** echtes i18n-Framework.
+
+### Offene Punkte nach Wave 1
+
+Nach Abschluss von Welle 1 bleibt als wichtigster ungelöster User-sichtbarer Befund:
+
+| # | Punkt | Priorität | Hypothese | Status |
+|---|-------|-----------|-----------|--------|
+| 1 | **Volume-Freeze beim Routing-Start** — Wenn „Audio Router" System-Default wird, steuern die Lautstärketasten das virtuelle Router-Volume; die Hardware-Lautstärke des physischen Geräts (Mac-mini-Speaker) bleibt eingefroren → dauerhaft leiser Ton. Wahrscheinlichste Erklärung für bogdanws „faint sound". | **P1** | H7 | Offen → Wave 2 |
+| 2 | **Bogdanw Helper-Log** — `log show … process == AudioRouterNowHelper` ausstehend; abschließende Bestätigung dass Fan-out-IOProcs starten (oder nicht). | P1 | H5/H7 | Ausstehend |
+| 3 | **Bogdanw Info-Stand** — Über v3.4.1 noch nicht informiert; nächster Forum-Post geplant. | P2 | — | Ausstehend |
+
+**Empfohlener Wave-2-Einstieg:** H7-Ansatz B (Hardware-Volume beim Umschalten als
+Startwert übernehmen, §1 H7 Ansatz B) — Sofortmaßnahme, niedriges Risiko, verhindert
+exakt das CASE-001-Symptom.
 
 ---
 
