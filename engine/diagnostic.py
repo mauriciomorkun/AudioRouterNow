@@ -65,7 +65,7 @@ def _system_info() -> dict:
 def _read_helper_err() -> str:
     """Letzten ERR_READ_TAIL Bytes von helper.err (gegen crash-loop-Aufblähung gecapped)."""
     if not HELPER_ERR.exists():
-        return "(helper.err nicht gefunden)"
+        return "(helper.err not found)"
     try:
         file_size = HELPER_ERR.stat().st_size
         read_from = max(0, file_size - ERR_READ_TAIL)
@@ -75,12 +75,12 @@ def _read_helper_err() -> str:
                 f.readline()   # unvollständige erste Zeile überspringen
             text = f.read().strip()
         if not text:
-            return "(leer)"
+            return "(empty)"
         if read_from > 0:
-            return f"[... {read_from:,} Bytes übersprungen — zeige letztes 1 MB ...]\n{text}"
+            return f"[... {read_from:,} bytes skipped — showing last 1 MB ...]\n{text}"
         return text
     except Exception as exc:
-        return f"(Lesefehler: {exc})"
+        return f"(Read error: {exc})"
 
 
 def _extract_log_events(max_events: int = MAX_EVENT_LINES) -> tuple[str, dict]:
@@ -98,7 +98,7 @@ def _extract_log_events(max_events: int = MAX_EVENT_LINES) -> tuple[str, dict]:
         (events_text, stats_dict)
     """
     if not HELPER_LOG.exists():
-        return "(helper.log nicht gefunden)", {}
+        return "(helper.log not found)", {}
 
     try:
         file_size = HELPER_LOG.stat().st_size
@@ -151,10 +151,112 @@ def _extract_log_events(max_events: int = MAX_EVENT_LINES) -> tuple[str, dict]:
 
         events = events[-max_events:]
 
-        return ("\n".join(events) if events else "(keine Events gefunden)"), stats
+        return ("\n".join(events) if events else "(no events found)"), stats
 
     except Exception as exc:
-        return f"(Lesefehler: {exc})", {}
+        return f"(Read error: {exc})", {}
+
+
+def _fmt_float(val, prec: int = 3) -> str:
+    """Defensive float formatter — leaves non-numeric placeholders untouched."""
+    try:
+        return f"{float(val):.{prec}f}"
+    except (TypeError, ValueError):
+        return str(val)
+
+
+def _fanout_summary(status: Optional[dict]) -> str:
+    """
+    Human-readable summary of the helper's fan-out state.
+
+    Reuses the already-fetched get_status_quick() dict — does NOT make a second
+    helper call. Surfaces whether audio is actually being routed to physical
+    outputs, the producer ring level, and per-output health (src ratio, fill,
+    underruns, stall/recovery).
+    """
+    if not isinstance(status, dict):
+        return "(Helper not running or unreachable)"
+
+    active = status.get("active", [])
+    ring_frames = status.get("ring_frames", 0)
+    ioproc_calls = status.get("ioproc_calls", "n/a")
+    ioproc_age_ms = status.get("ioproc_age_ms", "n/a")
+
+    lines = []
+    if not active:
+        lines.append("Fan-out active on 0 outputs — NO audible routing")
+    else:
+        lines.append(f"Fan-out active on {len(active)} output(s):")
+        for e in active:
+            if not isinstance(e, dict):
+                continue
+            name = e.get("name", "unknown")
+            uid = e.get("uid", "?")
+            ch = e.get("ch_offset", "?")
+            src = _fmt_float(e.get("src_ratio", "n/a"), 3)
+            fill = _fmt_float(e.get("fill_ewma", "n/a"), 2)
+            underruns = e.get("underruns", 0)
+            stalled = bool(e.get("stalled", 0))
+            recovery = e.get("recovery_count", 0)
+            lines.append(
+                f"  - {name} (uid={uid}) ch_offset={ch} | src={src} | "
+                f"fill={fill} | underruns={underruns} | stalled={stalled} | "
+                f"recovery={recovery}"
+            )
+
+    lines.append("")
+    try:
+        rf = int(ring_frames)
+    except (TypeError, ValueError):
+        rf = 0
+    ring_status = (
+        "producer delivering audio"
+        if rf > 0
+        else "ring empty (nothing playing or producer stalled)"
+    )
+    lines.append(f"ring_frames={ring_frames}  ->  {ring_status}")
+    lines.append(f"ioproc_calls={ioproc_calls} | ioproc_age_ms={ioproc_age_ms}")
+
+    return "\n".join(lines)
+
+
+def _audio_router_state() -> str:
+    """
+    Reports whether 'Audio Router' is the current system default output and
+    which device is actually the default right now.
+
+    Uses CoreAudio via audio_device_control (ctypes, fast) — NO system_profiler
+    call. All external calls are wrapped defensively so a failure here never
+    aborts report generation.
+    """
+    lines = []
+    try:
+        from audio_device_control import (
+            is_audio_router_default,
+            _get_default_output_device_id,
+            _get_device_name,
+        )
+        try:
+            router_default = is_audio_router_default()
+            lines.append(
+                f"Audio Router is system default: {'Yes' if router_default else 'No'}"
+            )
+        except Exception as e:
+            lines.append(f"Audio Router is system default: (error: {e})")
+
+        try:
+            default_id = _get_default_output_device_id()
+            default_name = _get_device_name(default_id) if default_id else None
+            default_name = default_name or "unknown"
+            lines.append(
+                f"Current system default output: {default_name} (id={default_id})"
+            )
+        except Exception as e:
+            lines.append(f"Current system default output: (error: {e})")
+    except Exception as e:
+        lines.append(f"(audio_device_control import error: {e})")
+
+    return "\n".join(lines)
 
 
 def _format_report(
@@ -180,7 +282,7 @@ def _format_report(
     elif uptime_h > 0:
         uptime_str = f"~{uptime_h * 60:.1f} min  ({ioproc_t:,} IOProc calls)"
     else:
-        uptime_str = "(nicht verfügbar)"
+        uptime_str = "(not available)"
 
     stall_n = stats.get("stall_count_in_log", 0)
 
@@ -191,7 +293,7 @@ def _format_report(
         except Exception:
             status_str = str(status)
     else:
-        status_str = "(Helper läuft nicht oder nicht erreichbar)"
+        status_str = "(Helper not running or unreachable)"
 
     parts = [
         f"╔{_HDIV}╗",
@@ -211,7 +313,7 @@ def _format_report(
         "STATISTICS",
         _DIV,
         f"Uptime estimate : {uptime_str}",
-        f"HARD-STALLs     : {stall_n}  (in letzten 3 MB des Logs)",
+        f"HARD-STALLs     : {stall_n}  (in last 3 MB of log)",
         "",
         _DIV,
         "CURRENT STATUS",
@@ -219,12 +321,22 @@ def _format_report(
         status_str,
         "",
         _DIV,
-        "ERROR LOG  (helper.err — letztes 1 MB)",
+        "SYSTEM AUDIO STATE",
+        _DIV,
+        _audio_router_state(),
+        "",
+        _DIV,
+        "FAN-OUT  (physical outputs)",
+        _DIV,
+        _fanout_summary(status),
+        "",
+        _DIV,
+        "ERROR LOG  (helper.err — last 1 MB)",
         _DIV,
         err_text,
         "",
         _DIV,
-        f"RECENT EVENTS  (letzte {MAX_EVENT_LINES} aus helper.log)",
+        f"RECENT EVENTS  (last {MAX_EVENT_LINES} from helper.log)",
         _DIV,
         events_text,
         "",
