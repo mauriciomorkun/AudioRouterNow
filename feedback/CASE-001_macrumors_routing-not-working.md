@@ -15,7 +15,7 @@
 | **App-Version** | **Unbekannt — beim User erfragen** |
 | **Betriebssystem** | macOS Sequoia 15.7.7 |
 | **Hardware** | Mac mini (laut Symptom "Ton aus Mac-mini-Speaker") |
-| **Status** | In Analyse — Virtuelle Schicht bestätigt OK; **Fan-out-Schicht ungeklärt**; Helper-Log angefordert (2026-06-25). H1/H1-Wurzel falsifiziert, H2 bestätigt (P0), H5/H7 offen. Siehe §12 + §13 |
+| **Status** | **Fix in Arbeit → Wave-1 released (v3.4.1)** — H2 + H5 + i18n + README + Diagnostic implementiert (Commits a7265bd/7115a60/7521f0b/68ec5ec). H7 (Volume-Freeze) für Wave 2 offen; bogdanw Helper-Log + Info-Stand ausstehend. Siehe §12 + §13 + **§14** |
 | **Schweregrad** | **Kritisch** (App-Kernfunktion betroffen — kein Routing) |
 
 ---
@@ -498,9 +498,9 @@ Runtime Version=26.5.0
 | Hypothese | Status | Begründung |
 |---|---|---|
 | **H1 + H1-Wurzel** (Treiber nicht geladen / Resign zerstört Signatur) | ❌ **Falsifiziert** für Normal-Install | system_profiler + codesign + coreaudiod-Log eindeutig sauber |
-| **H2** (Status-UI "lügt") | ✅ **Bestätigt — P0** | Anzeige spiegelt gespeicherte Auswahl, nicht den realen Pfad |
-| **H5** (Stale Config / stille Skip) | ⚠️ **Weiterhin möglich** | Erklärt die Stille auf Pebble V3 + U3277WB |
-| **H7** (Lautstärken-Entkopplung) | ⚠️ **Wahrscheinlichste Erklärung** für "faint" am Mac-mini-Speaker | Volume-Keys steuern Router, nicht die HW-Lautstärke des Speakers |
+| **H2** (Status-UI "lügt") | ✅ **BEHOBEN (v3.4.1)** | `_compute_status` liest realen Zustand aus `status['active']` (7-Zustands-Matrix). Commit 7521f0b. Siehe §14 |
+| **H5** (Stale Config / stille Skip) | ✅ **BEHOBEN (v3.4.1)** | Fehlende Geräte als `⚠ unavailable` sichtbar + Reconcile-Hardening. Commit 7521f0b. Siehe §14 |
+| **H7** (Lautstärken-Entkopplung) | ⚠️ **Ausstehend (Wave 2)** — wahrscheinlichste Erklärung für "faint" am Mac-mini-Speaker | Volume-Keys steuern Router, nicht die HW-Lautstärke des Speakers |
 | **Manueller Kopier-Sonderfall** | 📄 **Dokumentiert** in §12.5 | Erklärt die ursprünglich gemeldete Fehlermeldung |
 
 #### Zentrale offene Frage
@@ -535,6 +535,7 @@ Runtime Version=26.5.0
 | 2026-06-24 | Case angelegt. Root-Cause-Analyse (H1–H4 + Wurzelverdacht), Sekundärbefunde, Verifikations-/Diagnoseplan, Fix-Backlog und User-Antwort-Entwurf dokumentiert. Datei:Zeile-Belege gegen die Quelldateien verifiziert. |
 | 2026-06-25 | **Revision auf Basis neuer User-Diagnosedaten (bogdanw, MacRumors).** H1 + H1-Wurzel **falsifiziert für die normale App-Installation** (codesign = gültige Developer ID, system_profiler = Device präsent + Default, coreaudiod-Logs = erfolgreicher Load + Keepalive-IOProc). Die "nicht in CoreAudio gefunden"-Meldung trat **nur** im manuellen Kopier-Sonderfall auf. coreaudiod-Logs neu interpretiert ("error 0" = sauberer Stop, kein Fehler). Neue Hypothesen H5–H7 formuliert. Siehe §12. |
 | 2026-06-25 | §13 hinzugefügt: Thread-Fortsetzung Posts #7-#9, vollständige Diagnose-Daten, Interpretation, Status-Update |
+| 2026-06-25 | §14 hinzugefügt — Wave-1-Fixes implementiert (H2, H5, i18n, README, Diagnostic) |
 
 ---
 
@@ -709,3 +710,29 @@ sudo log show --last 30m --predicate 'process == "coreaudiod"' --info \
   genau dieser Fall (Device geladen, aber kein hörbarer Fan-out) im Self-Report
   unsichtbar.
 - **Doku:** Hand-Kopieren des Treibers explizit abraten (§12.5).
+
+---
+
+## §14 Wave-1-Fixes — v3.4.1 (2026-06-25)
+
+### Implementierte Fixes
+
+| Fix | Commit | Betroffene Datei | Beschreibung |
+|-----|--------|-----------------|--------------|
+| H2 Status-UI | 7521f0b | menu_bar_app.py | Status zeigt realen Routing-Zustand aus `status['active']`, nicht mehr gespeicherte Auswahl. 7-Zustands-Matrix. |
+| H5 Stale-Config | 7521f0b | menu_bar_app.py | Fehlende Geräte als `⚠ unavailable` sichtbar im Menü + Status-Counter N/M |
+| i18n | a7265bd | audio_device_control.py, first_launch.py, diagnostic.py | Deutsche Fehlermeldungen → Englisch (inkl. CASE-001-Kernmeldung) |
+| README | 7115a60 | README.md | Homebrew "recommended" → "optional", Runtime-Dependency-Klarstellung |
+| Diagnostic Fan-out | 68ec5ec | diagnostic.py | Neue Sektionen SYSTEM AUDIO STATE + FAN-OUT im Diagnostic-Report |
+
+### Was bogdanw's Szenario jetzt zeigt
+
+- Status: 🔴 "Routing failed — no output" (statt fälschlich grün "Routing active — 2 devices")
+- Menü: ⚠ Gerätename — unavailable (statt stilles Verschwinden)
+- Diagnostic-Report: "Fan-out active on 0 outputs — NO audible routing"
+
+### Noch offen
+
+- **H7 (Volume-Freeze):** Wenn "Audio Router" System-Default wird, bleiben Hardware-Tasten am alten Level → leiser Ton. Fix in Wave 2 geplant.
+- **Bogdanw Helper-Log:** Ausstehend — für abschließende Root-Cause-Bestätigung H2/H5
+- **Bogdanw Info-Stand:** Er wurde über v3.4.1 noch nicht informiert — nächster Forum-Post geplant
