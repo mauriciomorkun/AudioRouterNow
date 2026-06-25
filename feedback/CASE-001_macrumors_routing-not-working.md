@@ -1,0 +1,532 @@
+# CASE-001 — Routing funktioniert nicht: "Audio Router nicht in CoreAudio gefunden"
+
+> Navigation: [← zurück zum Feedback-Register](./README.md)
+
+---
+
+## 1. Metadaten
+
+| Feld | Wert |
+|------|------|
+| **Case-ID** | CASE-001 |
+| **Datum** | 2026-06-24 |
+| **Quelle** | MacRumors-Forum |
+| **Reporter** | Anonym (Forum-User) |
+| **App-Version** | **Unbekannt — beim User erfragen** |
+| **Betriebssystem** | macOS Sequoia 15.7.7 |
+| **Hardware** | Mac mini (laut Symptom "Ton aus Mac-mini-Speaker") |
+| **Status** | In Analyse — **H1/H1-Wurzel falsifiziert für Normal-Install** (2026-06-25), neue Hypothesen H5–H7, siehe §12 |
+| **Schweregrad** | **Kritisch** (App-Kernfunktion betroffen — kein Routing) |
+
+---
+
+## 2. Zusammenfassung (TL;DR)
+
+Der HAL-Treiber **"Audio Router"** war auf dem System des Users **nicht in CoreAudio
+geladen**. Die App konnte den System-Default deshalb nie auf das virtuelle Gerät
+umstellen, sodass kein Fan-Out an die ausgewählten Geräte stattfand. Der "leise Ton"
+ist mit hoher Wahrscheinlichkeit schlicht der **unveränderte System-Default**
+(Mac-mini-Speaker) — die App hat den Audiopfad nie übernommen.
+
+Die sichtbare Fehlermeldung ("'Audio Router' nicht in CoreAudio gefunden") entsteht
+**ausschließlich** dann, wenn das virtuelle Gerät bei der Geräte-Enumeration nicht
+gefunden wird ([`engine/audio_device_control.py:222-227`](../engine/audio_device_control.py)).
+Der **primäre Verdacht** für die Ursache ist ein **Ad-hoc-Resign des Treibers nach der
+Installation** ([`engine/first_launch.py:506-512`](../engine/first_launch.py)), der die
+Developer-ID-/Notarisierungssignatur zerstört, sodass `coreaudiod` unter macOS 15 das
+HAL-Plugin nicht zuverlässig lädt. Dieser Kausalzusammenhang ist **noch nicht bewiesen**
+und muss reproduziert werden.
+
+Zusätzlich **"lügt" die Status-Anzeige**: "Routing active — 3 devices" spiegelt die
+gespeicherte Auswahl wider, nicht den real laufenden Audiopfad — das verschleierte für
+den User, dass nichts geroutet wurde.
+
+---
+
+## 3. Originalfeedback des Users
+
+Der User berichtete strukturiert fünf Punkte:
+
+**Punkt 1 — Routing funktioniert nicht / Kernproblem**
+Nach Auswahl der Geräte kam nur leiser Ton aus dem Mac-mini-Speaker; das gewünschte
+Routing fand nicht statt. Beim Umschalten erschien die Fehlermeldung:
+
+> **AudioRouterNow — Switch Failed**
+> Could not switch system audio: 'Audio Router' nicht in CoreAudio gefunden.
+> Ist der HAL-Treiber installiert und aktiv?
+> Starte AudioRouterNow neu und versuche es erneut.
+
+UI-Beobachtungen des Users:
+- **BlackHole 2ch** war installiert, aber **nicht angehakt**.
+- Der Status zeigte trotzdem **"Routing active — 3 devices"**.
+- Auch der **Safe Mode** brachte keine Besserung.
+
+**Punkt 2 — Homebrew-Widerspruch in der Doku**
+Die README empfiehlt einerseits Homebrew-Installation, behauptet an anderer Stelle aber,
+es gebe keine Homebrew-Abhängigkeit. Verwirrend.
+
+**Punkt 3 — Admin-Passwort-Abfrage via osascript**
+Beim Setup wurde per `osascript`-Dialog nach dem Admin-Passwort gefragt — das wirkt für
+den User wenig vertrauenswürdig.
+
+**Punkt 4 — Sparkle "Phone-home" ohne Opt-out**
+Die App kontaktiert beim Start einen Update-Server (Sparkle), ohne dass es eine
+sichtbare Opt-out-Möglichkeit gibt.
+
+**Punkt 5 — Gemischte Sprache (DE/EN)**
+Fehlermeldungen erscheinen teils auf Deutsch, teils auf Englisch — unprofessionell und
+für nicht-deutschsprachige User unverständlich (die zitierte Fehlermeldung ist ein
+Beispiel: deutscher Text in einer ansonsten englischen UI).
+
+---
+
+## 4. Architektur-Kontext
+
+AudioRouterNow ist eine **3-Prozess-Pipeline**, die über einen **POSIX-Shared-Memory-Ring**
+(`/audiorouter_shm`) kommuniziert:
+
+```
+┌─────────────────────────────┐     /audiorouter_shm     ┌──────────────────────────┐
+│  HAL-Plugin (Producer)      │ ───── Ring-Buffer ─────▶ │  Helper (Consumer)       │
+│  "Audio Router" virt. Gerät │                          │  ein device_ioproc       │
+│  driver/src/                │                          │  pro physischem Output   │
+│  AudioRouterNowDriver.c     │                          │  helper/                 │
+└─────────────────────────────┘                          │  AudioRouterNowHelper.c  │
+            ▲                                             └──────────────────────────┘
+            │ System-Default = "Audio Router"                        ▲
+            │                                                        │ UIDs / spawn
+┌───────────┴──────────────────────────────────────────────────────┴──────────────┐
+│  Menübar-App (Python / PyObjC)  —  engine/menu_bar_app.py                          │
+│  · setzt System-Default auf "Audio Router" via engine/audio_device_control.py     │
+│  · spawnt den Helper-Prozess                                                       │
+│  · schickt dem Helper die Geräte-UIDs der ausgewählten Outputs                     │
+└───────────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Komponente | Rolle | Datei |
+|------------|-------|-------|
+| **HAL-Plugin** | Virtuelles Gerät "Audio Router", **Producer** in den Ring | [`driver/src/AudioRouterNowDriver.c`](../driver/src/AudioRouterNowDriver.c) |
+| **Helper** | Unprivilegierter **Consumer**; ein `device_ioproc` je physischem Output = **Fan-Out** | [`helper/AudioRouterNowHelper.c`](../helper/AudioRouterNowHelper.c) |
+| **Menübar-App** | Setzt System-Default auf "Audio Router", spawnt Helper, schickt UIDs | [`engine/menu_bar_app.py`](../engine/menu_bar_app.py), [`engine/audio_device_control.py`](../engine/audio_device_control.py) |
+
+**Schlüssel-Implikation:** Wird das virtuelle Gerät nicht von `coreaudiod` geladen, kann
+die Menübar-App den System-Default nicht umstellen → die gesamte Kette darunter (Ring →
+Helper → Fan-Out) bleibt wirkungslos. Genau das ist das Bild dieses Falls.
+
+---
+
+## 5. Root-Cause-Analyse
+
+> **Methodik:** Zwei unabhängige Opus-Analyse-Tracks haben den Code betrachtet und
+> **konvergierten** auf dieselbe Kernursache (H1). Die folgenden Confidence-Werte sind
+> Einschätzungen, keine bewiesenen Wahrscheinlichkeiten — der entscheidende Beweis
+> (H1-Wurzel) **steht noch aus** (siehe §7).
+
+### Hypothesen
+
+#### H1 — Treiber nicht in CoreAudio geladen (Kernursache)
+
+| | |
+|---|---|
+| **Confidence** | ~65–80 % (beide Tracks bestätigt) |
+| **Mechanismus** | Das virtuelle Gerät "Audio Router" taucht nicht in der CoreAudio-Geräte-Enumeration auf → `target_id` bleibt `None` → System-Default kann nicht umgestellt werden → kein Fan-Out. Der "leise Ton" ist der **unveränderte** Original-Default (Mac-mini-Speaker). |
+| **Code-Beleg** | Die Fehlermeldung entsteht **ausschließlich** bei `target_id is None` in [`engine/audio_device_control.py:222-227`](../engine/audio_device_control.py). |
+| **Verifizierbarkeit** | Direkt prüfbar: `system_profiler SPAudioDataType` zeigt, ob "Audio Router" als Gerät existiert (siehe §7). |
+
+```python
+# engine/audio_device_control.py:222-227
+if target_id is None:
+    return False, (
+        f"'{device_name}' nicht in CoreAudio gefunden.\n"
+        "Ist der HAL-Treiber installiert und aktiv?\n"
+        "Starte AudioRouterNow neu und versuche es erneut."
+    )
+```
+
+#### H1-Wurzel — Ad-hoc-Resign zerstört die Treibersignatur (primärer Verdacht)
+
+| | |
+|---|---|
+| **Confidence** | wahrscheinlichste Ursache — **NOCH NICHT BEWIESEN** |
+| **Mechanismus** | Nach der Installation wird der Treiber **ad-hoc neu signiert** (`codesign --force --deep --sign -`). Das überschreibt die Developer-ID-/Notarisierungssignatur aus dem Build. macOS 15 `coreaudiod` lädt ein ad-hoc signiertes HAL-Plugin **nicht zuverlässig** → H1. |
+| **Code-Beleg** | [`engine/first_launch.py:506-512`](../engine/first_launch.py) (Ad-hoc-Resign). Demgegenüber sauberes Build-Signing mit Developer-ID + `--options runtime` + `--timestamp` in [`installer/build.sh:258-285`](../installer/build.sh). |
+| **Verifizierbarkeit** | Reproduktion mit/ohne Resign-Block (§7b) + `codesign -dv` auf dem installierten `.driver`. |
+
+```python
+# engine/first_launch.py:506-512  — der verdächtige Ad-hoc-Resign nach Install
+# Sign the installed driver (ad-hoc, best-effort — kein admin nötig)
+logger.info("Signing installed driver (ad-hoc)...")
+subprocess.run(
+    ["codesign", "--force", "--deep", "--sign", "-", str(DRIVER_INSTALL_PATH)],
+    check=False,
+    capture_output=True,
+)
+```
+
+> **Hinweis zur Zeilennummer:** Der eigentliche `codesign`-Aufruf steht auf
+> **Zeile 508–512**, der erläuternde Kommentar/Log auf **506–507**. Der ganze Block ist
+> also 506–512; die ausführbare Resign-Logik 508–512.
+
+#### H2 — Status-UI "lügt" (echter Bug)
+
+| | |
+|---|---|
+| **Confidence** | ~85 % |
+| **Mechanismus** | "Routing active — N devices" zeigt `len(self._active_device_names)` an — das ist die **gespeicherte/gewählte** Geräteliste, **nicht** der real laufende Audiopfad. So sieht der User "aktiv", obwohl nichts geroutet wird. |
+| **Code-Beleg** | Status-String aus `self._active_device_names` in [`engine/menu_bar_app.py:998-1002`](../engine/menu_bar_app.py). `_active_device_names` wird aus der gespeicherten Config initialisiert ([`menu_bar_app.py:105`](../engine/menu_bar_app.py)). Der echte Zustand läge in `resp['active']` des Helpers ([`helper/AudioRouterNowHelper.c:2275-2330`](../helper/AudioRouterNowHelper.c), `format_active_outputs` + Status-JSON). |
+| **Gates unzureichend** | `routed_here` ([`menu_bar_app.py:980`](../engine/menu_bar_app.py)) und `ring_frames > 0` ([`menu_bar_app.py:990`](../engine/menu_bar_app.py), Helper-Seite [`AudioRouterNowHelper.c:2387`](../helper/AudioRouterNowHelper.c)) prüfen den **physischen Output nicht** — sie verifizieren nicht, dass tatsächlich ein IOProc auf einem realen Gerät läuft. |
+| **Verifizierbarkeit** | Code-evident; reproduzierbar durch Auswahl ohne tatsächliches Routing. |
+
+> **Hinweis:** Es existiert eine Reconcile-Funktion gegen `resp['active']`
+> ([`menu_bar_app.py:1270`](../engine/menu_bar_app.py)), die die **Auswahl** mit den real
+> aktiven Outputs abgleicht. Der **Status-String** bei Zeile 998 liest dennoch aus
+> `_active_device_names` — der angezeigte Text wird also nicht vom verifizierten
+> Live-Zustand getrieben.
+
+#### H3 — Fan-Out / Gain / Sample-Rate-Bug (für diesen User vermutlich nicht primär)
+
+| | |
+|---|---|
+| **Confidence** | ~25–30 % |
+| **Mechanismus** | Falls der Treiber **doch** geladen war, käme ein Fehler im Mix-/SRC-Pfad als Erklärung für "leise" in Frage (Gain-/Sample-Rate-/De-Interleave-Fehler). |
+| **Code-Beleg** | Mix-/SRC-Pfad in [`helper/AudioRouterNowHelper.c`](../helper/AudioRouterNowHelper.c) (ca. Zeilen 1206–1448). |
+| **Relevanz** | Für **diesen** User unwahrscheinlich (die Fehlermeldung deutet klar auf "Gerät nicht gefunden"). **Für einen späteren zweiten User vormerken**, dessen Treiber geladen ist. |
+
+#### H4 — "Safe Mode" wirkungslos (stützt H1)
+
+| | |
+|---|---|
+| **Confidence** | ~90 % |
+| **Mechanismus** | "Safe Mode" / Safe-Take toggelt nur das **Auto-Healing innerhalb des laufenden Routings**. Wenn das Routing nie zustande kam (H1), kann Safe Mode nichts retten — die Ursache liegt **davor**. Dass Safe Mode nicht half, ist also konsistent mit H1. |
+| **Code-Beleg** | Toggle `_toggle_safe_take` in [`engine/menu_bar_app.py:443-448`](../engine/menu_bar_app.py) (ruft `set_safe_take`); Helper-Seite Safe-Take-State in [`AudioRouterNowHelper.c:2400-2401`](../helper/AudioRouterNowHelper.c). |
+| **Verifizierbarkeit** | Logisch konsistent; bestätigt sich automatisch mit H1-Beweis. |
+
+> **Hinweis zur Zeilennummer:** Der Safe-Mode-Toggle ist `_toggle_safe_take` auf
+> **443–448** (Prompt nannte 443–447; der `set_safe_take`-Aufruf liegt auf 446).
+
+### Offen / spekulativ
+
+**Warum "leise" (nicht nur falsches Gerät)?** — *Spekulation, mit Diagnosedaten zu klären:*
+- Lautstärketasten wirken evtl. auf den falschen Default
+  ([`menu_bar_app.py` Volume-Pfad ~1170](../engine/menu_bar_app.py),
+  `_apply_media_key_volume`), oder
+- der eingebaute Mac-mini-Speaker ist schlicht leise.
+
+Diese Frage ist **erst mit Diagnosedaten** (System-Default + Volume-Pegel) belastbar
+beantwortbar.
+
+---
+
+## 6. Sekundärbefunde (Feedback-Punkte 2–5)
+
+| Punkt | Befund | Schweregrad | Beleg |
+|-------|--------|-------------|-------|
+| **2 — Homebrew-Widerspruch** | README sagt "Homebrew (recommended)" vs. "No Homebrew dependencies". Tap evtl. noch nicht live. | Hoch | [`README.md:80`](../README.md) ("**Option A — Homebrew (recommended)**") vs. [`README.md:180`](../README.md) ("No kernel extension. No restart. **No Homebrew dependencies.**") |
+| **3 — osascript-Admin-Prompt** | Treiber-Install via `do shell script … with administrator privileges` statt signiertem privilegiertem Helper / SMJobBless → wirkt wenig vertrauenswürdig. | Mittel–Hoch | [`engine/first_launch.py:372`](../engine/first_launch.py) (`applescript = f'do shell script "{shell_cmd}" with administrator privileges'`) |
+| **4 — Sparkle Phone-home ohne Opt-out** | Update-Check kontaktiert `mauriciomorkun.github.io/AudioRouterNow/appcast.xml`; **kein In-App-Toggle** zum Deaktivieren. **Kein Tracking gefunden** — nur der Update-Feed. | Mittel (Privacy) | [`engine/updater.py:109-134`](../engine/updater.py) (Sparkle-Start liest SUFeedURL); SUFeedURL-Wert in [`installer/AudioRouterNow.spec:106`](../installer/AudioRouterNow.spec) |
+| **5 — i18n-Bug (DE/EN gemischt)** | Keine i18n-Schicht; gemischte deutsche/englische Strings. Die Kern-Fehlermeldung ist deutsch in einer englischen UI. | Hoch | [`engine/audio_device_control.py:223-227`](../engine/audio_device_control.py) (deutscher Fehlertext) |
+
+---
+
+## 7. Verifikations- & Diagnoseplan
+
+### (a) Beim User anfordern (read-only, ungefährlich)
+
+Folgende Befehle liefern den Beweis für H1 / H1-Wurzel:
+
+```sh
+# 1. Existiert das virtuelle Gerät "Audio Router" in CoreAudio überhaupt?
+system_profiler SPAudioDataType | grep -A3 -i router
+
+# 2. Wie ist der installierte Treiber signiert? (Developer-ID vs. ad-hoc)
+codesign -dv --verbose=4 /Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver
+
+# 3. Hat coreaudiod das Plugin abgelehnt / als invalid markiert?
+sudo log show --last 30m --predicate 'process == "coreaudiod"' --info \
+  | grep -iE "audiorouter|plug-?in|reject|invalid"
+```
+
+**Zusätzliche Fragen an den User:**
+- DMG-Install oder Homebrew-Install?
+- Wurde das Admin-Passwort beim Setup tatsächlich eingegeben?
+- Welche **App-Version** (z. B. v3.4.0)?
+
+### (b) Selbst reproduzieren (entscheidender Beweis)
+
+Auf einem **frischen macOS-15-System** (nicht der Dev-Mac, da dort die Signatur-Policy
+gelockert sein kann):
+
+1. App installieren **einmal MIT** dem Resign-Block ([`first_launch.py:507-512`](../engine/first_launch.py))
+   und **einmal OHNE**.
+2. Jeweils `system_profiler SPAudioDataType | grep -i router` prüfen.
+
+**Beweislage:** Taucht "Audio Router" **nur ohne** den Resign-Block auf, ist die
+**H1-Wurzel bewiesen** (Ad-hoc-Resign verhindert das Laden).
+
+### (c) Bekannte Lücke im aktuellen Diagnostic Report
+
+[`engine/diagnostic.py`](../engine/diagnostic.py) prüft **nicht**:
+- Treiber-**Präsenz** in CoreAudio / `system_profiler`,
+- **codesign**-Status des installierten `.driver`,
+- ob "Audio Router" der **aktuelle System-Default** ist.
+
+→ Der Diagnostic Report ist für **genau diesen Fehlerfall blind**. Ein User mit
+ungeladenem Treiber bekommt keinen aussagekräftigen Self-Report.
+
+---
+
+## 8. Empfohlene nächste Schritte / Fix-Backlog
+
+> **Wichtig: Es wird JETZT NICHT gefixt.** Die folgende Liste ist der geplante,
+> priorisierte Backlog. Aufwand/Risiko sind grobe Einschätzungen.
+
+- [ ] **P0 — H1-Wurzel beweisen** (Reproduktion §7b + Diagnose-Daten §7a). *Aufwand: mittel · Risiko: niedrig (read-only / Test-Mac).*
+- [ ] **P0 — Treiber-Signatur-/Lade-Strategie auf macOS 15 fixen.** Ad-hoc-Resign-Block ([`first_launch.py:506-512`](../engine/first_launch.py)) überdenken/entfernen; korrekt notarisiertes/Developer-ID-signiertes `.driver` **ohne** Ad-hoc-Override ausliefern; ggf. `ditto` statt `cp` beim Install, und `launchctl kickstart -k system/com.apple.audio.coreaudiod` statt `killall coreaudiod`. *Aufwand: mittel–hoch · Risiko: hoch (Signing/Install-Pfad, zwingend auf sauberem Mac testen).*
+- [ ] **P1 — Status-UI muss den realen Zustand verifizieren** (`resp['active']` **und** Default == "Audio Router") statt der gespeicherten Auswahl ([`menu_bar_app.py:998`](../engine/menu_bar_app.py)). *Aufwand: mittel · Risiko: niedrig–mittel.*
+- [ ] **P1 — i18n:** Fehlermeldungen auf Englisch vereinheitlichen / Lokalisierungsschicht einführen ([`audio_device_control.py:223-227`](../engine/audio_device_control.py) u. a.). *Aufwand: mittel · Risiko: niedrig.*
+- [ ] **P1 — Diagnostic Report erweitern** ([`diagnostic.py`](../engine/diagnostic.py)): Treiber-Präsenz + `codesign` + `system_profiler` + `is_audio_router_default` (Self-Diagnose-Modus). *Aufwand: mittel · Risiko: niedrig.*
+- [ ] **P2 — Sparkle Opt-out / First-Run-Consent** ([`updater.py`](../engine/updater.py)). *Aufwand: niedrig–mittel · Risiko: niedrig.*
+- [ ] **P2 — README-Homebrew-Widerspruch korrigieren** ([`README.md:80`](../README.md) vs. [`:180`](../README.md)). *Aufwand: niedrig · Risiko: niedrig.*
+- [ ] **P2 — Admin-Prompt-Vertrauen verbessern** (signierter privilegierter Helper / SMJobBless statt nacktem `osascript`, [`first_launch.py:372`](../engine/first_launch.py)). *Aufwand: hoch · Risiko: mittel.*
+
+---
+
+## 9. Entwurf User-Antwort (Englisch)
+
+> Ton: ehrlich, wertschätzend, problem-bestätigend. Text kann vor Versand geglättet werden.
+
+```text
+Hi, and thank you — this is genuinely one of the most useful reports I've received.
+You found a real and important problem, and you took the time to describe it clearly.
+I appreciate that.
+
+The core issue: it looks like the virtual "Audio Router" device was never loaded by
+macOS on your system. When that happens, AudioRouterNow can't take over your system
+audio at all — so what you heard was simply your unchanged default output (the Mac mini
+speaker). That also explains why Safe Mode didn't help: Safe Mode only adjusts an
+already-running route, and in your case routing never actually started.
+
+You also caught a second real bug: the status said "Routing active — 3 devices" even
+though nothing was routed. That label was reflecting your *saved selection*, not the
+actual live audio path. That's misleading and I'll fix it so the status reflects reality.
+
+To confirm the root cause, could you run these three read-only commands and paste the
+output? They don't change anything on your machine:
+
+  system_profiler SPAudioDataType | grep -A3 -i router
+  codesign -dv --verbose=4 /Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver
+  sudo log show --last 30m --predicate 'process == "coreaudiod"' --info | grep -iE "audiorouter|plug-?in|reject|invalid"
+
+And three quick questions:
+  - Did you install via the DMG or via Homebrew?
+  - Did you enter your admin password during setup?
+  - Which app version are you on?
+
+On your other points, you're right on all of them:
+  - The README contradicts itself on Homebrew ("recommended" vs. "no Homebrew
+    dependency"). I'll fix the docs.
+  - The osascript admin prompt is not a confidence-inspiring way to install a system
+    driver. I want to move to a properly signed privileged helper.
+  - The update check (Sparkle) currently has no visible opt-out. To be clear: it only
+    fetches an update feed, there's no tracking — but I'll add an opt-out / first-run
+    consent.
+  - The mixed German/English error messages are a bug. The app should be fully English
+    (or properly localized). I'll fix that too.
+
+Thanks again — this report directly shapes the next release.
+```
+
+---
+
+## 10. Offene Fragen / To-Confirm
+
+- [ ] **Ist H1-Wurzel (Ad-hoc-Resign) tatsächlich die Ursache?** — Reproduktion mit/ohne Resign-Block ausstehend.
+- [ ] **War der Treiber wirklich nicht geladen?** — `system_profiler`-Output des Users ausstehend.
+- [ ] **codesign-Status** des installierten `.driver` beim User unbekannt.
+- [ ] **Warum "leise" statt "stumm"/"falsches Gerät"?** — Volume-/Default-Verhalten ungeklärt (spekulativ).
+- [ ] **Install-Methode** (DMG vs. Homebrew) und **App-Version** unbekannt.
+- [ ] **Wurde das Admin-Passwort eingegeben** (Treiber-Install evtl. fehlgeschlagen)?
+- [ ] **macOS-15-Signatur-Policy** für ad-hoc HAL-Plugins: genaues Verhalten von `coreaudiod` zu bestätigen.
+
+---
+
+## 11. Änderungs-Log
+
+| Datum | Was |
+|-------|-----|
+| 2026-06-24 | Case angelegt. Root-Cause-Analyse (H1–H4 + Wurzelverdacht), Sekundärbefunde, Verifikations-/Diagnoseplan, Fix-Backlog und User-Antwort-Entwurf dokumentiert. Datei:Zeile-Belege gegen die Quelldateien verifiziert. |
+| 2026-06-25 | **Revision auf Basis neuer User-Diagnosedaten (bogdanw, MacRumors).** H1 + H1-Wurzel **falsifiziert für die normale App-Installation** (codesign = gültige Developer ID, system_profiler = Device präsent + Default, coreaudiod-Logs = erfolgreicher Load + Keepalive-IOProc). Die "nicht in CoreAudio gefunden"-Meldung trat **nur** im manuellen Kopier-Sonderfall auf. coreaudiod-Logs neu interpretiert ("error 0" = sauberer Stop, kein Fehler). Neue Hypothesen H5–H7 formuliert. Siehe §12. |
+
+---
+
+## 12. Revision 2026-06-25 — Neue Diagnosedaten (bogdanw, MacRumors G3)
+
+### 12.1 Was sich geändert hat (Zusammenfassung)
+
+Der User hat verwertbare Diagnosedaten und eine entscheidende Klarstellung geliefert:
+Die Fehlermeldung **"'Audio Router' nicht in CoreAudio gefunden"** trat **ausschließlich**
+auf, als er den Treiber **manuell** aus dem App-Bundle nach
+`/Library/Audio/Plug-Ins/HAL/` kopierte. Bei der **normalen DMG-Installation**
+(Drag&Drop + Admin-Passwort) erschien **kein** solcher Fehler.
+
+**Konsequenz:** Die bisherige Kernhypothese H1 (Treiber nicht geladen) und ihr
+Wurzelverdacht H1-Wurzel (Ad-hoc-Resign zerstört Signatur) sind für die
+**normale Installation falsifiziert**. Das verbleibende Problem ("Routing tut
+nichts / leiser Ton aus dem Speaker") tritt **trotz korrekt geladenem, als Default
+gesetztem Treiber** auf — die Ursache liegt also **nicht** im Treiber-Load,
+sondern weiter unten in der Pipeline (Consumer/Fan-out, Lautstärke, oder stale
+Config) bzw. in der UI ("Status lügt", H2).
+
+### 12.2 Befund: H1 + H1-Wurzel falsifiziert (Normal-Install)
+
+| Diagnosedatum | Aussage | Konsequenz |
+|---|---|---|
+| `system_profiler SPAudioDataType` | "Audio Router" ist in CoreAudio, ist Default + System Output | Treiber **geladen**, `target_id` ist **nicht** `None` → H1 trifft nicht zu |
+| `codesign -dv` | "Developer ID Application: MAURICIO MORAIS DA CUNHA", Apple Root CA | Installierter Treiber trägt **gültige Developer-ID** (kein Ad-hoc) → H1-Wurzel trifft nicht zu |
+| coreaudiod-Log 06:54:24 | `HALS_RemotePlugInRegistrar … Attempting to load: AudioRouterNow.driver` + `Creating remote driver service … pid 2447` + `HALS_Device::Activate: device 60: com.audiorouter.now.device` | Plugin wird **erfolgreich geladen und aktiviert** |
+
+**Fazit:** Bei der normalen Installation lädt coreaudiod das HAL-Plugin korrekt.
+H1/H1-Wurzel bleiben nur für den **manuellen Kopier-Sonderfall** (§12.5) relevant.
+
+### 12.3 coreaudiod-Logs — korrekte Interpretation
+
+Alle Log-Zeilen betreffen **ausschließlich das virtuelle Device**
+`com.audiorouter.now.device`. Die Fan-out-IOProcs des Helpers laufen dagegen auf
+den **physischen** Output-Devices (Mac-mini-Speaker, BlackHole, Interface) und
+würden unter **deren** IOContext geloggt — sie fehlen im gelieferten Auszug.
+Aus diesen Logs lässt sich daher **nichts** über den Fan-out aussagen.
+
+**Wer ist welche PID?**
+
+| Eintrag | PID / Context | Deutung |
+|---|---|---|
+| `Creating remote driver service "AudioRouterNow.driver", pid: 2447` | **2447** | coreaudiod-**Plugin-Host** (sandboxed Child, der den Treibercode ausführt). Nicht die App, nicht der Helper. |
+| `IOWorkLoopInit: 284 … starting [PID 2453]` (06:54:25) + Power-Assertion auf 2453 | **2453** = Context **284** | Erster IOProc-Client auf dem virtuellen Device, **1 s nach Device-Aktivierung**, **persistent (kein Deinit)** → das ist der **Keep-Alive-IOProc des C-Helpers** (`keepalive_start(find_device_by_uid(OUR_DEVICE_UID))`, [`helper/AudioRouterNowHelper.c:2921`](../helper/AudioRouterNowHelper.c) → `keepalive_start` [:461](../helper/AudioRouterNowHelper.c)). **Beweist: Helper läuft, hat das virtuelle Device gefunden, hält `gDeviceIsRunning=1`.** |
+| `SetDefaultDevice 'dOut'+'sOut' → 60` (06:55:51) | — | App ruft `set_default_output_device` + `set_default_system_output_device` ([`menu_bar_app.py:516-520`](../engine/menu_bar_app.py) bzw. `_save_and_apply` [:1400-1401](../engine/menu_bar_app.py)). **User-Aktion** (Klick "System Audio → Audio Router" oder Auto-Switch beim ersten Device). |
+| `IOWorkLoopInit: 171 … [PID 586]` (06:55:51), persistent | **586** = Context **171** | Niedrige, langlebige PID → ein **System-Audio-Client**, der beim Default-Wechsel auf das neue Default-Device umzieht (z.B. ein bereits laufender Audio-Agent). |
+| `IOWorkLoopInit: 172 … [PID 692]` (06:56:07) → `IOWorkLoopDeinit: 172 … stopping with error 0` (06:56:08) | **692** = Context **172** | **Transienter App-Client**: öffnet das Device, läuft **~1 s**, stoppt **sauber**. |
+
+**"stopping with error 0" ist KEIN Fehler.** Das trailing `error 0` ist der an den
+Teardown übergebene `OSStatus`; `0 == noErr == sauberer, vom Client gewollter Stop`
+(der Client rief `AudioDeviceStop`). Ein ~1-Sekunden-Lauf gefolgt von cleanem Stop
+ist die Signatur einer App, die einen **kurzen Ton** abgespielt oder das Device
+**geprobt** hat (UI-Sound, Notification, Format-Negotiation, kurzer Play/Pause) —
+**kein Helper-Crash, kein Treiber-Reject, kein StopIO-Bug.**
+
+Die **87 s** und **16 s** Pausen sind schlicht **User-Interaktionslücken** (Menü
+bedienen), keine Hänger.
+
+### 12.4 Neue / revidierte Hypothesen
+
+> **Kritische Diagnose-Lücke:** Aus den vorliegenden Daten ist **nicht** belegbar,
+> ob die **Fan-out-IOProcs** auf den physischen Devices je gestartet sind. Genau
+> das entscheidet zwischen H5, H6 und H7. Die dafür nötigen Daten (Helper-Log,
+> `get_status`, physische Device-Logs) fehlen noch (§12.6).
+
+#### H2 (unverändert, jetzt **primärer sichtbarer Bug**) — Status-UI „lügt"
+"Routing active — 3 devices" liest `len(self._active_device_names)` (die
+**gespeicherte Auswahl**), nicht den real laufenden Pfad
+([`menu_bar_app.py:998-1002`](../engine/menu_bar_app.py)). Dass der User
+"3 devices" sah, obwohl BlackHole **nicht** angehakt war, ist exakt dieses
+Verhalten — die Anzeige spiegelt eine **alte/persistierte Selektion** wider.
+Der Status-Pfad prüft physischen Output **nicht**: `audio_flowing` hängt nur an
+`ring_frames > 0` ([:990](../engine/menu_bar_app.py)), nicht an laufenden
+Fan-out-IOProcs.
+
+#### H5 (NEU) — Fan-out startet nicht / nur teilweise (stale Config)
+| | |
+|---|---|
+| **Confidence** | mittel-hoch — bester Kandidat für "Routing tut nichts" |
+| **Mechanismus** | `_apply_active_outputs` mappt gespeicherte Device-**Namen** → UIDs über den **aktuellen** Scan; Geräte, die nicht (mehr) präsent sind, werden **still übersprungen** ([`menu_bar_app.py:1227-1230`](../engine/menu_bar_app.py)). Eine aus einer früheren Session/anderem Setup stammende Auswahl ("3 devices") kann also auf 0–1 real verfügbare Outputs zusammenschrumpfen. Helper-seitig schlägt `output_add` bei nicht gefundenem Device/`AudioDeviceStart`-Fehler fehl und tombstoned den Slot ([`AudioRouterNowHelper.c:1233-1235`](../helper/AudioRouterNowHelper.c), [:1381-1395](../helper/AudioRouterNowHelper.c)). Ergebnis: Audio fließt in den Ring (Device ist Default), wird aber an **keinen hörbaren** Output gefannt → gefühlt "kein Routing", während die UI weiter "3 devices" zeigt (H2). |
+| **Belegbar via** | Helper-Log (`Output hinzugefuegt:` vs. `Device '…' nicht gefunden` / `AudioDeviceStart fehlgeschlagen`), `get_status` → `active`-Liste + `ioproc_calls`. |
+
+#### H6 (NEU) — Audio fließt nicht in den Ring (Producer-seitig)
+| | |
+|---|---|
+| **Confidence** | niedrig-mittel |
+| **Mechanismus** | Der Treiber schreibt Frames nur im `WriteMix`-Pfad ([`AudioRouterNowDriver.c:1874-1918`](../driver/src/AudioRouterNowDriver.c)). Wenn die spielende App ihren Stream zwar öffnet (PID 692, ~1 s), aber gleich wieder stoppt, bleibt der Ring leer → `ring_frames` ~ 0, der Consumer gibt Pre-Roll-Stille aus ([`AudioRouterNowHelper.c:867-884`](../helper/AudioRouterNowHelper.c)). Das wäre **kein Bug**, sondern "der User hat nichts Längeres abgespielt" — muss durch `ring_frames`/`ioproc_calls` über die Zeit ausgeschlossen werden. |
+| **Belegbar via** | `get_status` während aktiver Wiedergabe: `ring_frames` > 0 und `ioproc_calls` steigend? |
+
+#### H7 (NEU) — Lautstärke-Entkopplung erklärt "leise" (UX-Falle, kein Gain-Bug)
+| | |
+|---|---|
+| **Confidence** | mittel — beste Erklärung für **"leiser"** Ton (statt stumm) |
+| **Mechanismus** | Default-Gain ist **voll**: `volume_q16 = 65536 (1.0)` ([`shared_ring.h:96`](../helper/shared_ring.h)), `gVolume = 1.0f` ([`AudioRouterNowDriver.c:138`](../driver/src/AudioRouterNowDriver.c)) — der Pfad dämpft also **nicht** von sich aus. ABER: Sobald "Audio Router" **System Output** ist, steuern die Lautstärketasten/der HUD die **virtuelle** Router-Lautstärke (→ `volume_q16`-Skalierung im Consumer, [`AudioRouterNowHelper.c:887`](../helper/AudioRouterNowHelper.c)). Die **Hardware-Lautstärke des Mac-mini-Speakers** wird dabei **nicht** mehr angefasst und bleibt auf ihrem alten Wert eingefroren. War der Speaker vorher leise gestellt, spielt der Fan-out dort dauerhaft **leise** — und der User kann es mit den Tasten nicht mehr korrigieren (die wirken jetzt auf den Router). |
+| **Belegbar via** | User-Frage: Hardware-Lautstärke des Speakers vor/nach dem Umschalten? Router-Volume-Pegel? Quiet auf **allen** Apps? |
+
+#### H1 / H1-Wurzel — **falsifiziert für Normal-Install** (siehe §12.2)
+Nur noch relevant für den manuellen Kopier-Sonderfall (§12.5).
+
+#### H3 (Mix/SRC) und H4 (Safe Mode wirkungslos) — unverändert
+H4 bleibt konsistent: Safe Mode toggelt nur das Auto-Healing eines bereits
+laufenden Routings — bei H5/H6 (Routing kommt nie hörbar zustande) kann es nicht
+helfen.
+
+### 12.5 Sonderfall: manuelles Kopieren des Treibers (dokumentiert)
+
+Der User kopierte den Treiber **von Hand** aus dem App-Bundle
+(`/Applications/AudioRouterNow.app/Contents/Frameworks/AudioRouterNow.driver`)
+nach `/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver`. **Nur dann** erschien
+"nicht in CoreAudio gefunden".
+
+Plausible Ursachen für diesen **selbst herbeigeführten** Pfad (nicht abschließend,
+nicht der Normalfall):
+- **Quarantäne/Translocation-xattr** auf dem hand-kopierten Bundle (Finder-Copy
+  überträgt `com.apple.quarantine`), was coreaudiod das Laden verweigern lässt.
+- **coreaudiod nicht neu gestartet** nach dem Kopieren (kein
+  `launchctl kickstart -k system/com.apple.audio.coreaudiod`).
+- **Doppel-Install** (App-eigener Install-Pfad + Handkopie) → konkurrierende/
+  inkonsistente Plugin-Instanz.
+- Falsche **Permissions/Owner** durch `cp` statt `ditto`/Installer.
+
+**Wichtig:** Der reguläre Installer der App (`engine/first_launch.py`) übernimmt
+diesen Schritt korrekt; **Hand-Kopieren ist nicht vorgesehen** und sollte in der
+Doku/README explizit abgeraten werden. Das ist ein **Doku-/Onboarding-Befund**,
+keine Treiber-Regression.
+
+### 12.6 Was wir den User NOCH fragen müssen (entscheidend für H5/H6/H7)
+
+Read-only, ungefährlich:
+
+```sh
+# 1) Helper-Log: Sind Fan-out-IOProcs auf den physischen Devices gestartet?
+cat ~/Library/Logs/AudioRouterNow/*.log | grep -iE "Output hinzugefuegt|nicht gefunden|AudioDeviceStart|Slot"
+
+# 2) App-Log: Welche Device-NAMEN wurden tatsächlich angewandt / übersprungen?
+grep -iE "Outputs an Helper|nicht im aktuellen Scan|Auto-Switch|Outputs aus Config" \
+  ~/.audiorouter/logs/audiorouter.log
+
+# 3) Live-Status bei laufender Wiedergabe (Helper-Telemetrie):
+#    Help → "What's running in the background…" ODER get_status:
+#    → active[]  (real laufende Outputs)
+#    → ring_frames > 0 ?  (Producer liefert Audio?)
+#    → ioproc_calls steigend ?  (Fan-out feuert?)
+
+# 4) Physische Device-Logs (nicht nur das virtuelle Device):
+sudo log show --last 30m --predicate 'process == "coreaudiod"' --info \
+  | grep -iE "IOWorkLoop|IOContext|Start|Stop"
+```
+
+**Zusätzliche gezielte Fragen:**
+- Welche Geräte waren beim Test **tatsächlich angehakt** (Screenshot des Menüs)?
+  War der **Mac-mini-Speaker** dabei?
+- War der Ton **auf allen Apps** leise oder nur bei einer?
+- **Hardware-Lautstärke** des Mac-mini-Speakers vor dem Umschalten — niedrig?
+  Bewegen die Lautstärketasten nach dem Umschalten noch etwas Hörbares? (→ H7)
+- Stammt die Geräte-Auswahl evtl. aus einer **früheren Session / anderem Setup**?
+  (→ H5, stale Config)
+- **App-Version** (z. B. v3.4.0)?
+
+### 12.7 Revidierte Fix-Implikationen (Ergänzung zu §8)
+
+- **H2 ist jetzt P0 (nicht P1):** Der lügende Status hat den User aktiv in die
+  Irre geführt. Status muss `resp['active']` **und** `is_audio_router_default()`
+  **und** `ioproc_calls`-Fortschritt spiegeln, statt `_active_device_names`.
+- **H5:** Wenn ein gespeichertes Device im aktuellen Scan fehlt, **nicht still
+  überspringen** ([`menu_bar_app.py:1230`](../engine/menu_bar_app.py)) — sichtbar
+  als "unavailable" markieren und in der Status-Zeile melden.
+- **Diagnostic Report (`diagnostic.py`):** muss `active[]`, `ring_frames`,
+  `ioproc_calls` und die real gestarteten Fan-out-IOProcs aufnehmen — sonst bleibt
+  genau dieser Fall (Device geladen, aber kein hörbarer Fan-out) im Self-Report
+  unsichtbar.
+- **Doku:** Hand-Kopieren des Treibers explizit abraten (§12.5).
