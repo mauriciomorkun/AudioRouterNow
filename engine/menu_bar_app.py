@@ -103,6 +103,10 @@ class AudioRouterApp(rumps.App):
 
         # Aktive Device-Namen + ChannelOffsets (aus Config)
         self._active_device_names: set = set(self._config.output_device_names)
+        # H5: In der Config gespeicherte Outputs, die beim aktuellen Scan NICHT
+        # gefunden wurden (Stale-Config). Wird im Menue ausgegraut angezeigt und
+        # bei Hot-Plug neu berechnet. Immer disjunkt zu _active_device_names.
+        self._unavailable_devices: set = set()
         self._device_offsets: Dict[str, List[int]] = {
             k: list(v) for k, v in self._config.output_device_offsets.items()
         }
@@ -315,6 +319,14 @@ class AudioRouterApp(rumps.App):
             no_dev = rumps.MenuItem("  (no devices found)")
             no_dev.set_callback(None)
             items.append(no_dev)
+
+        # H5: Unavailable devices (stale config) — shown greyed out, not clickable.
+        # set_callback(None) macht den MenuItem nicht-klickbar (konsistent mit
+        # _status_item / _output_header).
+        for missing in sorted(self._unavailable_devices):
+            mi = rumps.MenuItem(f"⚠  {missing} — unavailable")
+            mi.set_callback(None)
+            items.append(mi)
 
         # Sample Rate Sektion
         items.append(None)
@@ -756,6 +768,13 @@ class AudioRouterApp(rumps.App):
         # Device-Liste aktualisieren
         if self._device_update_pending:
             self._device_update_pending = False
+            # H5: Unavailable-Set bei Hot-Plug neu berechnen. Geraete, die wieder
+            # auftauchen, wandern zurueck nach _active_device_names; verschwundene
+            # aktive Geraete werden zu unavailable. Beide Sets bleiben disjunkt.
+            scanned = {d.name for d in self._device_manager.get_output_devices()}
+            intended = self._active_device_names | self._unavailable_devices
+            self._unavailable_devices = intended - scanned
+            self._active_device_names = self._active_device_names & scanned
             self._build_menu()
 
         # F8: Status-Update via Status-Cache statt blockierendem Socket-Ping
@@ -954,11 +973,22 @@ class AudioRouterApp(rumps.App):
         dient ("restart_helper" / "switch_audio"), oder None wenn die Zeile
         nicht klickbar ist.
 
-        Eingangssignale in Prioritaet:
-          1. helper_alive
-          2. outputs_selected
-          3. routed_here  (System-Default-Output == Audio Router)
-          4. audio_flowing (get_status: ring_frames > 0)
+        H2: Der angezeigte Routing-Zustand wird aus dem REALEN Helper-Status
+        (status['active']) abgeleitet, NICHT aus der gespeicherten Auswahl
+        (_active_device_names). status['active'] ist die Autoritaet darueber,
+        welche Outputs der Helper tatsaechlich bedient — die gespeicherte
+        Auswahl kann davon abweichen (Device weg, Fan-out fehlgeschlagen).
+
+        Zustands-Matrix (in Prioritaet):
+          0. driver_abi_ok        → 🔴 Driver update required
+          1. helper_alive         → ⚠️  Helper not responding
+          2. outputs_selected     → 🔴 No output selected
+          3. routed_here          → 🔴 Audio Router not system default
+          4. selected & n_active==0 → 🔴 Routing failed — no output (CASE-001)
+          5. ring_frames          → audio_flowing
+          6. n_active == m_total & !audio_flowing → 🟡 Ready
+          7. 0 < n_active < m_total → 🟡 Routing active N/M (orange)
+          8. voll aktiv & audio_flowing → 🟢 Routing active (Health-Ampel)
         """
         helper_alive = self._helper_alive
         outputs_selected = bool(self._active_device_names)
@@ -977,31 +1007,76 @@ class AudioRouterApp(rumps.App):
 
         # 3. routed_here pruefen — H-8: Cache aus health-poll-Thread, kein
         #    synchroner CoreAudio-Call auf dem Main-Thread (0.5s-UI-Tick).
+        #    H2: Icon 🔴 (nicht 🟡) — ist der Treiber NICHT System-Default,
+        #    fliesst ueberhaupt kein Audio durch den Router. Harter Fehler.
         routed_here = self._router_is_default
         if not routed_here:
-            return ("🟡  System audio not routed here — click to fix", "switch_audio")
+            return ("🔴  Audio Router not system default — click to fix", "switch_audio")
 
-        # 4. audio_flowing — P8: Status aus dem zentralen Cache lesen (vom
-        #    health-poll-Loop alle 200ms aktualisiert) statt eigenem Socket-Connect.
-        audio_flowing = False
-        status = self._cached_status()
-        if status is not None:
-            try:
-                audio_flowing = int(status.get("ring_frames", 0)) > 0
-            except (TypeError, ValueError):
-                audio_flowing = False
+        # H2: REALEN Routing-Zustand aus dem Helper-Status ableiten, NICHT aus
+        #     der gespeicherten Auswahl. status['active'] ist die Autoritaet
+        #     darueber, welche Outputs der Helper tatsaechlich bedient.
+        #     P8: aus dem zentralen Status-Cache (health-poll-Loop, 200ms).
+        #     max_age=1.5 muss mit dem helper_alive-Check (_helper_alive, oben aus
+        #     _cached_status(max_age=1.5)) uebereinstimmen — sonst zeigt das
+        #     1.0-1.5s-Fenster faelschlich "Routing failed".
+        status = self._cached_status(max_age=1.5)
+        active_entries = status.get("active", []) if isinstance(status, dict) else []
+        active_names = sorted({
+            str(e["name"]) for e in active_entries
+            if isinstance(e, dict) and e.get("name")
+        })
+        n_active = len(active_names)
+        selected = self._active_device_names
+        unavailable = getattr(self, "_unavailable_devices", set())
+        # m_total = erwartete Geraete = gewaehlt + (stale/unavailable). Past
+        # Schritt 2 ist selected nicht leer → m_total >= 1 (kein /0 moeglich).
+        m_total = len(selected) + len(unavailable)
 
-        if not audio_flowing:
+        # 4. CASE-001: Default ist korrekt gesetzt, eine Auswahl existiert, aber
+        #    der Helper bedient KEIN Geraet → Audio versickert im Treiber.
+        #    Harter Fehlerzustand.
+        #    Edge-Case Pre-Roll: direkt nach set_outputs kann active[] fuer einen
+        #    Tick leer sein (Start-Transient). Der _reconcile_drift_count-
+        #    Mechanismus federt nur die Auswahl-Korrektur ab, nicht den Status-
+        #    Pfad — bekannte Limitierung: ein einzelner 0.5s-Tick kann hier
+        #    "Routing failed" zeigen, der naechste Tick korrigiert sobald
+        #    active[] befuellt ist.
+        if selected and n_active == 0:
+            return ("🔴  Routing failed — no output", None)
+
+        # 5. audio_flowing aus ring_frames ableiten.
+        ring_frames = status.get("ring_frames", 0) if isinstance(status, dict) else 0
+        try:
+            audio_flowing = int(ring_frames) > 0
+        except (TypeError, ValueError):
+            audio_flowing = False
+
+        # 6. Ready-State — alle erwarteten Outputs aktiv, aber noch kein Audio.
+        #    Sanfter Uebergangszustand beim Start; verhindert falsches Gruen.
+        if m_total > 0 and n_active == m_total and not audio_flowing:
             return ("🟡  Ready — play something to start routing", None)
 
-        # 5. Routing aktiv → Device-Namen anhaengen
-        names = sorted(self._active_device_names)
-        if len(names) > 2:
-            names_str = f"{len(names)} devices"
-        else:
-            names_str = ", ".join(names)
+        # 7. Teilweises Routing — nur ein Teil der erwarteten Geraete ist aktiv
+        #    (z.B. ein Output verschwunden / Fan-out teilweise fehlgeschlagen).
+        if 0 < n_active < m_total:
+            missing_from_active = (set(selected) | unavailable) - set(active_names)
+            n_missing = len(missing_from_active)
+            return (
+                f"🟡  Routing active — {n_active}/{m_total} devices "
+                f"({n_missing} unavailable)",
+                None,
+            )
 
-        # Tranche A: Health-Ampel in den Routing-Status integrieren
+        # 8. Voll aktiv und Audio fliesst → gruen. Device-Namen aus active_names
+        #    (dem REALEN Helper-Zustand), NICHT aus _active_device_names.
+        if n_active > 2:
+            names_str = f"{n_active} devices"
+        else:
+            names_str = ", ".join(active_names)
+
+        # Tranche A: Health-Ampel in den Routing-Status integrieren — NACH dem
+        #    audio_flowing-Gate eingehaengt.
         health_level = getattr(self, '_health_level', 'healthy')
         if health_level == "critical":
             icon_override = "🔴"
@@ -1227,7 +1302,7 @@ class AudioRouterApp(rumps.App):
         for dev_name in self._active_device_names:
             uid = name_to_uid.get(dev_name)
             if not uid:
-                logger.debug(f"Device '{dev_name}' nicht im aktuellen Scan — ueberspringe")
+                logger.info(f"Device '{dev_name}' nicht im aktuellen Scan — ueberspringe")
                 continue
 
             dev = next((d for d in devices if d.uid == uid), None)
@@ -1339,7 +1414,11 @@ class AudioRouterApp(rumps.App):
         for n in new_offsets:
             new_offsets[n] = sorted(set(new_offsets[n]))
 
-        self._active_device_names = new_names
+        # Keep unavailable set consistent after reconcile
+        scanned = {d.name for d in devices}
+        self._active_device_names = new_names & scanned
+        intended = new_names | self._unavailable_devices
+        self._unavailable_devices = intended - scanned
         self._device_offsets = new_offsets
 
         # Persistieren.
@@ -1413,13 +1492,22 @@ class AudioRouterApp(rumps.App):
             restored = self._device_manager.get_devices_by_names(
                 self._config.output_device_names
             )
-            self._active_device_names = {d.name for d in restored}
+            restored_names = {d.name for d in restored}
+            self._active_device_names = restored_names
+            # H5: Diff zwischen Config und tatsaechlich gefundenen Geraeten —
+            # nicht gefundene Outputs sind "unavailable" (Stale-Config).
+            self._unavailable_devices = set(self._config.output_device_names) - restored_names
             self._device_offsets = {
                 k: list(v) for k, v in self._config.output_device_offsets.items()
             }
             if restored:
                 logger.info("Outputs aus Config wiederhergestellt: %s",
                             ", ".join(d.name for d in restored))
+            if self._unavailable_devices:
+                logger.info("Stale config — unavailable devices: %s",
+                            ", ".join(sorted(self._unavailable_devices)))
+        else:
+            self._unavailable_devices = set()
 
         self._build_menu()
 
