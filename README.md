@@ -77,13 +77,7 @@ macOS System Audio
 
 ## Installation
 
-**Option A — Homebrew (recommended)**
-
-```sh
-brew install --cask mauriciomorkun/tap/audiorouternow
-```
-
-**Option B — Direct download**
+**Option A — Direct download**
 
 1. Download `AudioRouterNow.dmg` from [Releases](../../releases)
 2. Open the DMG and drag the app to Applications
@@ -91,6 +85,12 @@ brew install --cask mauriciomorkun/tap/audiorouternow
 4. `🎛️` appears in your menu bar — you're done
 
 No Terminal. No restart. No security approval.
+
+**Option B — Homebrew Cask (optional)**
+
+```sh
+brew install --cask mauriciomorkun/tap/audiorouternow
+```
 
 ---
 
@@ -177,7 +177,7 @@ AudioRouterNow was built as a free, open-source alternative:
 | N-channel routing | No | **Yes** |
 | Hot-plug | No | **Yes** |
 
-No kernel extension. No restart. No Homebrew dependencies. Just drag, drop, and route.
+No kernel extension. No restart. No runtime dependencies on Homebrew, SwitchAudioSource, or any external tool. Just drag, drop, and route.
 
 ---
 
