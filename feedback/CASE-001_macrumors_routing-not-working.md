@@ -536,6 +536,7 @@ Runtime Version=26.5.0
 | 2026-06-25 | **Revision auf Basis neuer User-Diagnosedaten (bogdanw, MacRumors).** H1 + H1-Wurzel **falsifiziert für die normale App-Installation** (codesign = gültige Developer ID, system_profiler = Device präsent + Default, coreaudiod-Logs = erfolgreicher Load + Keepalive-IOProc). Die "nicht in CoreAudio gefunden"-Meldung trat **nur** im manuellen Kopier-Sonderfall auf. coreaudiod-Logs neu interpretiert ("error 0" = sauberer Stop, kein Fehler). Neue Hypothesen H5–H7 formuliert. Siehe §12. |
 | 2026-06-25 | §13 hinzugefügt: Thread-Fortsetzung Posts #7-#9, vollständige Diagnose-Daten, Interpretation, Status-Update |
 | 2026-06-25 | §14 hinzugefügt — Wave-1-Fixes implementiert (H2, H5, i18n, README, Diagnostic) |
+| 2026-06-26 | Lokaler Test-Build v3.4.1-dev erstellt — Wave-1-Fixes in laufender App verfügbar für manuelle Verifikation |
 
 ---
 
@@ -735,4 +736,4 @@ sudo log show --last 30m --predicate 'process == "coreaudiod"' --info \
 
 - **H7 (Volume-Freeze):** Wenn "Audio Router" System-Default wird, bleiben Hardware-Tasten am alten Level → leiser Ton. Fix in Wave 2 geplant.
 - **Bogdanw Helper-Log:** Ausstehend — für abschließende Root-Cause-Bestätigung H2/H5
-- **Bogdanw Info-Stand:** Er wurde über v3.4.1 noch nicht informiert — nächster Forum-Post geplant
+- **Bogdanw Info-Stand:** Er wurde über v3.4.1 noch nicht informiert — nächster Forum-Post geplant. v3.4.1-dev lokal getestet — nach Verifikation Release erstellen
