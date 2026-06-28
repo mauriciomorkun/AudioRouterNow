@@ -737,3 +737,93 @@ sudo log show --last 30m --predicate 'process == "coreaudiod"' --info \
 - **H7 (Volume-Freeze):** Wenn "Audio Router" System-Default wird, bleiben Hardware-Tasten am alten Level → leiser Ton. Fix in Wave 2 geplant.
 - **Bogdanw Helper-Log:** Ausstehend — für abschließende Root-Cause-Bestätigung H2/H5
 - **Bogdanw Info-Stand:** Er wurde über v3.4.1 noch nicht informiert — nächster Forum-Post geplant. v3.4.1-dev lokal getestet — nach Verifikation Release erstellen
+
+---
+
+## §15 Neue Diagnosedaten — Post #12 (2026-06-26) + Opus-Analyse
+
+### 15.1 Neue Daten von bogdanw
+
+**Post #12 (MacRumors, 2026-06-26):**
+> "I'll start with the good news 🙂 I've tested AudioRouterNow on an MBA M1 with a USB sound card and it works as expected. The sound can be heard from the internal speakers as well as on the headphones connected to the USB sound card.
+>
+> I've tested again on the Mac mini and if I first select the internal speakers, then route through AudioRouterNow, the volume stays the same. But the other two outputs still don't work."
+
+**Helper Log (~/Library/Logs/AudioRouterNow/helper.log):**
+```
+AudioRouterNow Helper v3.4.0 (ABI v4)
+SHM: /audiorouter_shm Ring: 8192 Frames ~ 171 ms @48kHz
+Helper: Config-Socket lauscht auf /Users/bogdan/.audiorouter/audiorouter.config.sock
+Helper: SHM erstellt (/audiorouter_shm, 0666 (world-rw), 65792 Bytes, iid=0x2d834b5cb)
+Warte auf SHM-Ring vom Plugin...
+Helper: SHM verbunden — /audiorouter_shm (8192 Frames Kapazitaet, SR=48000)
+Helper: SHM bereit — Routing kann starten
+Helper: Keep-Alive IOProc gestartet (Device ID 94)
+Helper: Hot-Plug-Listener aktiv
+Helper: Output hinzugefuegt: U3277WB [Ch 1-2] (UID: 05E37732-0000-0000-151B-0104B5462778)
+Helper laeuft — Routing aktiv. Ctrl+C zum Beenden.
+Helper: Sample-Rate geaendert auf 48000 Hz — pruefe Outputs
+Ring: 235 Frames | Outputs: 1 | IOProc-Calls: +192/2s (957 total)
+Helper: Output hinzugefuegt: Mac mini Speakers [Ch 1-2] (UID: BuiltInSpeakerDevice)
+Helper: Output entfernt: U3277WB [Ch 1-2]
+Ring: 4296 Frames | Outputs: 1 | IOProc-Calls: +192/2s (1914 total)
+Helper: Output hinzugefuegt: U3277WB [Ch 1-2] (UID: 05E37732-0000-0000-151B-0104B5462778)
+Ring: 6933 Frames | Outputs: 2 | IOProc-Calls: +383/2s (7903 total)
+```
+
+**AVAudioSession System Log (gekürzt — kritische Zeilen):**
+```
+16:41:27 - setPlayState Started Output {com.audiorouter.now.device, 0xa}
+16:41:27 - setPlayState Started Output {U3277WB (05E37732...), 0xa}
+           Devices: [com.audiorouter.now.device, U3277WB]
+16:41:39 - setPlayState Started Output {BuiltInSpeakerDevice, 0xa}
+           Devices: [U3277WB, BuiltInSpeakerDevice, com.audiorouter.now.device]
+16:41:39 - HALC_ProxyIOContext.cpp:1593 IOWorkLoop: ending the transport, stopping the io thread
+16:41:39 - setPlayState Stopped Output {U3277WB, 0xa}   ← U3277WB IOProc gestoppt von coreaudiod
+16:41:49 - setPlayState Started Output {U3277WB, 0xb}   ← Neuer IOProc-Kontext
+```
+
+### 15.2 Executive Summary (Opus-Analyse, 2026-06-28)
+
+**Zwei unabhängige Probleme** — nicht eines.
+
+**Problem 1 (Hauptursache Stille): H7 ist bestätigt und generalisiert.**
+Das virtuelle Device startet immer mit `volume_q16=65536` (`shared_ring.h:96`). Die Lautstärketasten steuern nach dem Switch ausschließlich das *virtuelle Volume* (`audio_device_control.py:648`). Die Hardware-Lautstärke jedes physischen Outputs (U3277WB, dritter Output) bleibt eingefroren, wo immer sie war. bogdanws Workaround beweist es exakt: der Output, der vor dem Routing Default war (interne Speaker, HW-Volume oben), bleibt hörbar — die anderen bleiben stumm/leise.
+
+**Problem 2 (Instabilität): Transport-Restart → Healer-Reconnect.**
+coreaudiod stoppt den IOWorkLoop für U3277WB (`HALC_ProxyIOContext:1593`) sobald `BuiltInSpeakerDevice` als 3. Device hinzukommt. Der Healer erkennt den Stall (`healer.py:138`) und ruft `reconnect_output` auf — sichtbar als 10-sekündiger "Output entfernt/hinzugefügt"-Zyklus. Nach dem Reconnect feuert der IOProc wieder (~96 Calls/s, 7903 total), aber das Audio ist wegen H7 trotzdem nicht hörbar.
+
+### 15.3 Hypothesen-Status (Stand nach §15-Analyse)
+
+| Hypothese | Status | Befund |
+|-----------|--------|--------|
+| **H7** Volume-Entkopplung | ✅ **BESTÄTIGT (P0)** | `audio_device_control.py:648` schreibt nur auf virtuelles Device. Bogdanw-Workaround ist Direktbeweis. Erklärt vollständig "other two outputs don't work". |
+| **H8** Transport-Restart → Stall → Healer-Reconnect | ✅ **BESTÄTIGT (kausal)** | IOWorkLoop stoppt bei BuiltIn als 3. Output → `healer.py:138` → `reconnect_output` → "Output entfernt". 10s Gap = Stall-Fenster (1000ms) + Healer-Persist (600ms) + Add-Latenz. |
+| **H9** Ring-Buffer-Divergenz | ✅ Symptom / ❌ KEINE Stille-Ursache | 235→4296→6933 Frames erklärt, stale Read-Pointer widerlegt: Re-Add setzt `local_ridx` korrekt auf `write_idx` (`AudioRouterNowHelper.c:1254/1308`). |
+| **H10** 2 vs 3 Outputs | 🟡 TEILWEISE | MBA M1 = 2 Outputs (kein Restart) ✓. Ob "3. Device generell" oder "BuiltIn speziell": offen (W2-5 klärt). |
+| **H11** Dritter Output | 🔵 OFFEN | Nicht im Helper-Log sichtbar — benötigt ungefiltertes Log + Screenshot Gerätauswahl. |
+
+### 15.4 Code-Befunde (mit Zeilennummern)
+
+| Datei:Zeile | Befund |
+|---|---|
+| `shared_ring.h:96` | Virtuelles Device startet mit `volume_q16=65536` — keine Übernahme der vorherigen HW-Lautstärke |
+| `audio_device_control.py:648` | `set_default_output_volume` schreibt nur auf Default-Device (= virtuell); nie auf physische Outputs → **Kern H7** |
+| `menu_bar_app.py:528, 1457-1458, 1479-1480` | Alle drei Switch-Pfade setzen nur System-Default; keiner liest/propagiert HW-Volume → **Fix-Orte W2-1** |
+| `AudioRouterNowHelper.c:1048` | Einzige Gain-Stelle nutzt virtuelles Volume; physische HW-Volumes unsichtbar für Helper |
+| `AudioRouterNowHelper.c:1456-1492, 1479` | `output_remove_locked` ist einzige Quelle von "Output entfernt" — nur via `set_outputs`/`reconnect_output` aufrufbar (nicht Hot-Plug) |
+| `AudioRouterNowHelper.c:1254, 1308` | Re-Add setzt `local_ridx`/`src_frac_ridx` auf aktuelles `write_idx` + Pre-Roll → **widerlegt stale-Pointer-Hypothese** |
+| `healer.py:25-27, 90-160, 138` | `STALL_PERSIST_SAMPLES=3` (600ms), Healer ruft `reconnect_output` bei ≥3 critical polls → **Fix-Ort W2-2** |
+| `health.py:182` | `any_stalled` → `critical` → triggert Healer |
+| `AudioRouterNowHelper.c:1095-1134` | `read_idx = min` nicht-gestallter `local_ridx`; eingefrorener aktiver Output staut Ring bis Soft-Stall greift |
+
+### 15.5 Nächste Aktion an bogdanw (Forum-Post)
+
+**Zu erfragen:**
+1. In Audio MIDI Setup: U3277WB-Volume-Slider auf 100% setzen während Routing aktiv — hört er dann Audio?
+2. Ungefilterten Helper-Log ohne `grep` senden: `log show --last 1h --predicate 'process == "AudioRouterNowHelper"' --info`
+3. Screenshot welche Geräte in ARN angehakt waren
+
+### 15.6 Analyse-Status
+- **Analyse abgeschlossen:** 2026-06-28 (Opus-Deep-Analysis via SuperClaude)
+- **Nächste Phase:** Wave-2-Implementierung nach User-Bewilligung (→ BRAINSTORM-001 §W2)

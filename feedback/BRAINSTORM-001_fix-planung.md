@@ -770,3 +770,145 @@ Ohne diese Sichtbarkeit können weder wir noch der User einen Fan-out-Bug ohne T
 **Fix:** Beim App-Start prüfen ob /Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver existiert aber NICHT dem erwarteten Install-Pfad / Bundle entspricht (z.B. andere Signatur-Timestamp als eigene Build-Timestamp). Wenn ja: Warnung "The driver seems to have been installed outside of the app. Please reinstall via the app to ensure correct operation."
 
 **Alternativ:** In README und FAQ explizit: "Do not manually copy the driver bundle. Only the app installer correctly handles permissions, coreaudiod restart, and setup."
+
+---
+
+## Wave-2-Fix-Plan — v3.4.2 (2026-06-28, nach §15-Opus-Analyse)
+
+> Basis: CASE-001 §15 (2026-06-28). Neue Erkenntnisse aus bogdanw Post #12.
+> Root-Cause identifiziert: H7 (HW-Volume-Entkopplung) = Hauptursache Stille.
+> H8 (Transport-Restart → Healer-Reconnect) = Instabilität bei 3+ Outputs.
+
+---
+
+### W2-1: HW-Volume beim Routing-Start auf physische Outputs übernehmen (P0)
+
+**Problem:**
+Wenn das virtuelle Audio-Router-Device zum System-Default wird, reagieren Lautstärketasten nur auf das *virtuelle* Volume (`shared_ring.h:96`, `audio_device_control.py:648`). Die HW-Lautstärke aller physischen Outputs (U3277WB, Pebble, etc.) bleibt eingefroren auf ihrem bisherigen Pegel — oft 0% oder ein alter niedrigen Wert. Ergebnis: kein hörbares Audio aus physischen Outputs. Dies ist H7, jetzt vollständig verstanden.
+
+**Code-Belege:**
+- `audio_device_control.py:648`: `set_default_output_volume` schreibt nur auf Default-Device (virtuell)
+- `menu_bar_app.py:528` (`_switch_system_audio`): setzt Default, kein HW-Volume-Transfer
+- `menu_bar_app.py:1457-1458` (`_auto_start_if_configured`): kein HW-Volume-Transfer
+- `menu_bar_app.py:1479-1480` (`_save_and_apply`): kein HW-Volume-Transfer
+- `audio_device_control.py:613`: `_volume_selector_for` — Selector für per-Device-Volume vorhanden
+
+**Lösung:**
+Im Moment des Switch: HW-Lautstärke des bisherigen Default-Geräts lesen (via `kAudioHardwareServiceDeviceProperty_VirtualMainVolume`) → als virtuelles `volume_q16` setzen + jeden physischen Ziel-Output, der unter 20% steht, auf einen komfortablen Referenzpegel (z.B. 80%) anheben.
+
+**Implementierung:**
+1. `audio_device_control.py`: neue Funktion `get_device_volume_scalar(device_id)` + `set_device_volume_scalar(device_id, scalar)`
+2. `menu_bar_app.py:528/1457/1479`: vor/nach `_set_default_output` → HW-Volume lesen → auf physische Outputs propagieren
+
+**Risiken:**
+- Geräte mit Hardware-Poti ignorieren Scalar-Volume → dokumentieren
+- Ungewollt laute Built-In-Speaker → konservativ anheben, nur wenn aktuell <20%
+- Property-Listener-Races → Volume-Set außerhalb des Audio-Callbacks
+
+**Priorität:** **P0** — adressiert direkt bogdanws Hauptsymptom ("the other two outputs don't work")
+
+---
+
+### W2-2: Healer-Karenz gegen coreaudiod-Transport-Restart (P0)
+
+**Problem:**
+Wenn BuiltInSpeakerDevice als 3. Device zur AVAudioSession hinzukommt, erzwingt coreaudiod einen IOWorkLoop-Stopp für U3277WB (H8). Der Healer erkennt dies als Stall (1000ms Soft-Stall + 600ms Persist = 1600ms) und ruft `reconnect_output` auf — unnötigerweise, da coreaudiod den Transport selbst wiederherstellt. Das Ergebnis: 10s-Ausfall + Ring-Stau + Instabilität, obwohl der IOProc nach Reconnect korrekt feuert.
+
+**Code-Belege:**
+- `healer.py:25-27`: `STALL_PERSIST_SAMPLES = 3` (600ms bei 200ms Poll-Intervall)
+- `healer.py:90-160` (`_process_output`): Stall → `reconnect_output` call
+- `health.py:182`: `any_stalled` → `critical` → triggert Healer
+- `AudioRouterNowHelper.c:1971-2011`: Soft-Stall-Detektor (1000ms), ruft KEIN Remove auf
+
+**Lösung:**
+(a) Nach dem Hinzufügen eines weiteren Devices 1500-2000ms Karenz-Fenster im Healer setzen (Reconnect erst starten wenn Fenster abgelaufen und Stall noch besteht).
+(b) Vor `reconnect_output` prüfen: steigt `ioproc_calls` **global** noch? (Anderes Output-Device konsumiert weiter → wahrscheinlicher Transport-Restart, kein echter Stall)
+(c) Backoff-Eskalation: wenn Reconnect 3x hintereinander keinen Erfolg bringt → log warning, nicht unbegrenzt wiederholen.
+
+**Implementierung:**
+- `healer.py`: neues `_transport_reconfig_window` State, `STALL_PERSIST_SAMPLES` adaptiv oder erhöht für Multi-Output-Szenarien
+- `health.py`: neues Signal `transport_reconfig_suspected` (basierend auf `n_active_outputs`-Änderung im Status)
+
+**Risiken:**
+- Zu lange Karenz verzögert echte Recoveries (Gerät physisch entfernt)
+- Sorgfältig gegen normalen Stall-Fall (Device wirklich weg) abgrenzen via Hot-Plug-Counter
+
+**Priorität:** **P0** — behebt den 10s-Ausfall auf Multi-Output-Macs (Mac mini, alle mit BuiltIn als einem von mehreren Outputs)
+
+---
+
+### W2-3: Diagnostic: HW-Volume + Reconnect-State pro Output (P1)
+
+**Problem:**
+Der Diagnostic-Report zeigt `active[]`, `ring_frames`, `ioproc_calls` — aber NICHT die HW-Lautstärke der physischen Outputs. bogdanws Problem wäre mit einem einzigen "Output X: HW-Volume = 0%" sofort klar geworden.
+
+**Lösung:**
+Pro aktivem Output im Diagnostic-Report ausgeben: HW-Volume-Scalar, `stalled`, `recovery_count`, `underruns`-Delta, `src_ratio`-ppm, `reconnect_count`. Plus Hinweis: "Output X is at 0% hardware volume — raise it in Audio MIDI Setup."
+
+**Implementierung:**
+- `diagnostic.py`: neue Sektion `PER-OUTPUT STATE`, nutzt `get_status` `active[]` + `_volume_selector_for` + `get_device_volume_scalar` (aus W2-1)
+
+**Risiken:** gering (read-only).
+
+**Priorität:** **P1** — entscheidend für Support-Qualität
+
+---
+
+### W2-4: Add-Fehler und "failed to start" sichtbar machen (P1)
+
+**Problem:**
+Ein selektierter Output, der nie hinzugefügt wird (z.B. Pebble V3, H11), verschwindet still. Im Menü wird nur "⚠ unavailable" angezeigt (H5-Fix aus Wave 1), aber kein Unterschied zwischen "Gerät nicht im System" und "Gerät vorhanden, aber Start fehlgeschlagen".
+
+**Lösung:**
+`_reconcile_active_outputs` (menu_bar_app.py:1344) nutzt bereits `resp['active']`; zusätzlich die Differenz selected−active als "failed to start" im Status und Menü melden, differenziert von "unavailable/not found".
+
+**Implementierung:**
+- `menu_bar_app.py:1344-1432` + `_compute_status`: neue Kategorie "⚠ failed" vs "⚠ unavailable"
+
+**Risiken:** gering.
+
+**Priorität:** **P1**
+
+---
+
+### W2-5: Reproduktions-Test "Built-In vs. 3. Device" (Diagnose vor Release) (P1)
+
+**Problem:**
+H10 ist noch unvollständig: Trigger des Transport-Restarts ist unklar — "3. Device generell" oder "BuiltIn als Clock-Master speziell"?
+
+**Testplan:**
+Mac mini, test A: virtuell + U3277WB + Pebble (kein BuiltIn) → Transport-Restart? 
+Mac mini, test B: virtuell + U3277WB + BuiltIn → Transport-Restart?
+Wenn nur B → BuiltIn speziell → W2-2 Sonderpfad für BuiltIn-Add; wenn beide → "3. Device generell" → W2-2 reicht.
+
+**Benötigt von bogdanw:** ungefilterten System-Log für beide Szenarien.
+
+**Priorität:** **P1** — klärt ob W2-2 genügt oder zusätzliche Maßnahmen nötig sind
+
+---
+
+### W2-6: Pre-Roll/Lag-Eviction nach Re-Add optimieren (P2)
+
+**Problem:**
+Re-added Output U3277WB bringt Ring-Fill auf ~6933 Frames (~144ms), knapp unter Eviction-Schwelle (7372 = 90%). Die ~144ms Latenz ist hörbar (leichter Echo-Effekt bei simultaner Wiedergabe). Pre-Roll hält `local_ridx` als Minimum zurück und staut den Ring.
+
+**Lösung:**
+Pre-Roll-HWM für **Re-Adds** niedriger ansetzen, oder `read_idx`-Aggregat einen frisch armed Pre-Roll-Output erst nach HWM-Erreichen einbeziehen.
+
+**Implementierung:**
+- `AudioRouterNowHelper.c:1095-1134` (Aggregat), `:1263-1265` (Pre-Roll)
+
+**Risiken:** Audio-Hot-Path, sorgfältige Underrun/Knack-Regressionstests nötig.
+
+**Priorität:** **P2** — Latenz-Politur, keine Stille-Ursache. Zurückstellen auf v3.5.
+
+---
+
+### Release-Planung Wave 2
+
+| Version | Inhalt | Risiko |
+|---------|--------|--------|
+| **v3.4.2** | W2-1 (HW-Volume), W2-2 (Healer-Karenz), W2-3 (Diagnostic), W2-4 (Add-Fehler) | Low (Python/Healer only, kein Audio-Pfad-Eingriff) |
+| **v3.5** | W2-6 (Pre-Roll-Tuning) | Medium (C-Hot-Path, Regression-Tests nötig) |
+
+**Voraussetzung vor v3.4.2:** W2-5 (Reproduktions-Test) mit bogdanws ungefiltertem Log durchführen.
