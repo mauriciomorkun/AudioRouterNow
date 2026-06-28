@@ -15,7 +15,7 @@
 | **App-Version** | **Unbekannt — beim User erfragen** |
 | **Betriebssystem** | macOS Sequoia 15.7.7 |
 | **Hardware** | Mac mini (laut Symptom "Ton aus Mac-mini-Speaker") |
-| **Status** | **Fix in Arbeit → Wave-1 released (v3.4.1)** — H2 + H5 + i18n + README + Diagnostic implementiert (Commits a7265bd/7115a60/7521f0b/68ec5ec). H7 (Volume-Freeze) für Wave 2 offen; bogdanw Helper-Log + Info-Stand ausstehend. Siehe §12 + §13 + **§14** |
+| **Status** | **Wave-2 implementiert (v3.4.2-dev) — bogdanw-Verifikation ausstehend** — Wave-1 (H2/H5/i18n/README/Diagnostic, Commits a7265bd/7115a60/7521f0b/68dc5ec) + Wave-2 (H7 W2-1 HW-Volume, H8 W2-2 Healer-Karenz, Commit 722ee69). Dual-Audit PASS (0 kritische Issues). Forum-Post an bogdanw bereit. Siehe §12–§15 + BRAINSTORM-001 Wave-2 |
 | **Schweregrad** | **Kritisch** (App-Kernfunktion betroffen — kein Routing) |
 
 ---
