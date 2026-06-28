@@ -674,6 +674,182 @@ def set_default_output_volume(volume: float) -> bool:
         return False
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# W2-1: HW-Volume-Propagation beim Routing-Switch.
+#
+# Wenn das virtuelle "Audio Router"-Device System-Default wird, regeln die
+# Lautstaerketasten nur noch das virtuelle volume_q16. Die HW-Lautstaerke der
+# physischen Ziel-Geraete bleibt eingefroren (oft 0%) → Stille trotz laufendem
+# IOProc. Diese Funktionen lesen/setzen per-Device-HW-Volume und propagieren den
+# zuletzt hoerbaren Pegel auf zu leise stehende physische Ziele.
+# ──────────────────────────────────────────────────────────────────────────
+
+# Geraete-Volume unter diesem Wert gilt als "zu leise" → wird angehoben.
+# Geraete >= dieser Schwelle bleiben unangetastet (User-Intent respektieren).
+LOW_VOLUME_THRESHOLD = 0.15
+# Wenn der vorherige Default-Pegel selbst unter der Schwelle lag, kann er ein
+# zu leises Ziel nicht hoerbar machen → komfortabler Ersatzpegel.
+COMFORTABLE_FALLBACK_VOLUME = 0.5
+
+
+def _get_device_id_by_uid(uid: str) -> int:
+    """W2-1: Gibt die CoreAudio Device-ID zu einer Device-UID zurueck, oder 0
+    wenn nicht gefunden / bei Fehler."""
+    try:
+        CA, CF = _CA, _CF
+        uid_addr = _AudioObjectPropertyAddress(
+            _kAudioDevicePropertyDeviceUID,
+            _kAudioObjectPropertyScopeGlobal,
+            _kAudioObjectPropertyElementMain,
+        )
+        for did in _get_all_device_ids():
+            uid_sz = ctypes.c_uint32(ctypes.sizeof(ctypes.c_void_p))
+            cf_uid = ctypes.c_void_p(0)
+            if CA.AudioObjectGetPropertyData(
+                ctypes.c_uint32(did),
+                ctypes.byref(uid_addr),
+                ctypes.c_uint32(0), None,
+                ctypes.byref(uid_sz),
+                ctypes.byref(cf_uid),
+            ) != 0 or not cf_uid.value:
+                continue
+            buf = ctypes.create_string_buffer(512)
+            CF.CFStringGetCString(cf_uid, buf, 512, _kCFStringEncodingUTF8)
+            CF.CFRelease(cf_uid)
+            if buf.value.decode("utf-8", errors="replace") == uid:
+                return int(did)
+        return 0
+    except Exception as e:
+        logger.debug("_get_device_id_by_uid Fehler: %s", e)
+        return 0
+
+
+def get_device_volume_scalar(device_id: int) -> float:
+    """W2-1: Liest die HW-Lautstaerke (0.0-1.0) eines beliebigen Devices ueber
+    dessen CoreAudio Device-ID. Verwendet den vom Device tatsaechlich
+    unterstuetzten Selector ('vmvl' bei HW-Geraeten, 'volm' beim virtuellen
+    Device) via _volume_selector_for().
+
+    Gibt -1.0 zurueck wenn das Device keine lesbare Volume-Property besitzt
+    (z.B. Interface mit reinem Hardware-Poti) oder bei Fehler — so kann der
+    Aufrufer "kein Volume-Control" eindeutig von echtem 0% unterscheiden."""
+    try:
+        if device_id == 0:
+            return -1.0
+        selector = _volume_selector_for(device_id)
+        addr = _AudioObjectPropertyAddress(
+            selector,
+            _kAudioObjectPropertyScopeOutput,
+            _kAudioObjectPropertyElementMain,
+        )
+        if not _CA.AudioObjectHasProperty(ctypes.c_uint32(device_id), ctypes.byref(addr)):
+            return -1.0
+        vol = ctypes.c_float(0.0)
+        sz = ctypes.c_uint32(4)
+        ret = _CA.AudioObjectGetPropertyData(
+            ctypes.c_uint32(device_id),
+            ctypes.byref(addr),
+            ctypes.c_uint32(0), None,
+            ctypes.byref(sz),
+            ctypes.byref(vol),
+        )
+        if ret == 0:
+            return max(0.0, min(1.0, float(vol.value)))
+        return -1.0
+    except Exception as e:
+        logger.debug("get_device_volume_scalar Fehler: %s", e)
+        return -1.0
+
+
+def set_device_volume_scalar(device_id: int, scalar: float) -> bool:
+    """W2-1: Setzt die HW-Lautstaerke (0.0-1.0) eines beliebigen Devices ueber
+    dessen CoreAudio Device-ID. Verwendet den vom Device unterstuetzten Selector
+    ('vmvl' bzw. 'volm') via _volume_selector_for().
+
+    Gibt False zurueck (und greift NICHT ein) wenn das Device keine setzbare
+    Volume-Property hat — kein Crash. True nur bei OSStatus noErr."""
+    try:
+        if device_id == 0:
+            return False
+        v = max(0.0, min(1.0, float(scalar)))
+        selector = _volume_selector_for(device_id)
+        addr = _AudioObjectPropertyAddress(
+            selector,
+            _kAudioObjectPropertyScopeOutput,
+            _kAudioObjectPropertyElementMain,
+        )
+        if not _CA.AudioObjectHasProperty(ctypes.c_uint32(device_id), ctypes.byref(addr)):
+            return False
+        vol = ctypes.c_float(v)
+        status = _CA.AudioObjectSetPropertyData(
+            ctypes.c_uint32(device_id),
+            ctypes.byref(addr),
+            ctypes.c_uint32(0), None,
+            ctypes.c_uint32(4),
+            ctypes.byref(vol),
+        )
+        return status == 0
+    except Exception as e:
+        logger.debug("set_device_volume_scalar Fehler: %s", e)
+        return False
+
+
+def equalize_volume_after_switch(prev_level: float, target_uids,
+                                 low_threshold: float = LOW_VOLUME_THRESHOLD) -> None:
+    """W2-1: Gleicht die Lautstaerke nach einem Routing-Switch auf das virtuelle
+    Audio-Router-Device an. NACH dem Setzen des System-Defaults aufrufen.
+
+    Ablauf:
+      1. Das virtuelle Device (jetzt System-Default) bekommt prev_level als
+         Lautstaerke (set_default_output_volume schreibt 'volm' auf das Default-
+         Device = das virtuelle Device).
+      2. Fuer jedes physische Ziel-Device (target_uids):
+         - HW-Lautstaerke lesen (get_device_volume_scalar)
+         - kein Volume-Control (Rueckgabe < 0): still ueberspringen
+         - HW-Lautstaerke >= low_threshold: unveraendert lassen (User-Intent)
+         - HW-Lautstaerke < low_threshold: auf raise_to anheben
+
+    raise_to = prev_level, ausser prev_level liegt selbst unter low_threshold
+    (vorheriger Default war faktisch stumm/unbekannt) — dann
+    COMFORTABLE_FALLBACK_VOLUME, damit ein zu leises Ziel garantiert hoerbar
+    wird.
+
+    prev_level: HW-Lautstaerke des VORHERIGEN Default-Geraets (0.0-1.0), VOR dem
+                Switch via get_default_output_volume() gelesen.
+    target_uids: iterable der UIDs der physischen Routing-Ziele.
+    """
+    try:
+        lvl = max(0.0, min(1.0, float(prev_level)))
+
+        # Schritt 1: virtuelles Device (jetzt Default) auf prev_level.
+        set_default_output_volume(lvl)
+
+        # Anhebe-Zielpegel bestimmen.
+        raise_to = lvl if lvl >= low_threshold else COMFORTABLE_FALLBACK_VOLUME
+
+        # Schritt 2: physische Ziele angleichen.
+        for uid in target_uids:
+            try:
+                dev_id = _get_device_id_by_uid(uid)
+                if dev_id == 0:
+                    continue
+                cur = get_device_volume_scalar(dev_id)
+                if cur < 0.0:
+                    # Kein Volume-Control (HW-Poti) → still ueberspringen.
+                    continue
+                if cur >= low_threshold:
+                    # User-Intent respektieren — nicht anfassen.
+                    continue
+                if set_device_volume_scalar(dev_id, raise_to):
+                    logger.info(
+                        "W2-1: HW-Volume von '%s' (%.0f%% → %.0f%%) angehoben",
+                        uid, cur * 100.0, raise_to * 100.0)
+            except Exception as e:
+                logger.debug("equalize_volume_after_switch: Ziel '%s' Fehler: %s", uid, e)
+    except Exception as e:
+        logger.debug("equalize_volume_after_switch Fehler: %s", e)
+
+
 def set_muted(muted: bool) -> bool:
     """P1: Mutet/Unmutet das Standard-Ausgabegeraet direkt via CoreAudio.
 

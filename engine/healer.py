@@ -26,6 +26,16 @@ MAX_ATTEMPTS    = 5
 # (interne C-Recovery hat bis dahin keine Wirkung gezeigt)
 STALL_PERSIST_SAMPLES = 3  # 3 × 200ms = 600ms
 
+# W2-2: Karenzfenster nach Output-Add. coreaudiod erzwingt beim Hinzufuegen
+# eines weiteren Outputs (z.B. BuiltInSpeaker als 3. Device) einen IOWorkLoop-
+# Transport-Restart, der IOProcs anderer Outputs transient stoppt. Diese
+# transienten Stalls duerfen KEINEN reconnect_output ausloesen — coreaudiod
+# stabilisiert sich selbst.
+GRACE_PERIOD_S = 2.0
+# Ein Stall mit ioproc_age_ms ueber dieser Schwelle gilt als ECHTER Ausfall und
+# heilt auch waehrend der Karenz (kein transienter Transport-Restart).
+HARD_STALL_MS = 5000
+
 
 @dataclass
 class CircuitBreaker:
@@ -61,10 +71,20 @@ class Healer:
         # H-6: Thread-Safety — process()/tripped_outputs()/breaker_name() laufen
         # im health-poll-Thread; reset_all() kommt vom UI-Timer-Thread.
         self._lock = threading.Lock()
+        # W2-2: Karenzfenster-State. _last_add_ts: monotonic-Zeitpunkt des
+        # letzten Output-Adds (0.0 = nie). _last_ioproc_age_ms: zuletzt von
+        # process() gesehener System-ioproc_age_ms (Hard-Stall-Override).
+        # Beide unter self._lock geschuetzt.
+        self._last_add_ts: float = 0.0
+        self._last_ioproc_age_ms: int = 0
 
     def process(self, health: SystemHealth) -> None:
         """Verarbeitet einen SystemHealth-Snapshot und löst ggf. Heilung aus."""
         with self._lock:
+            # W2-2: System-ioproc_age_ms fuer Hard-Stall-Override in
+            # _process_output zwischenspeichern (laeuft unter demselben Lock).
+            self._last_ioproc_age_ms = int(getattr(health, "ioproc_age_ms", 0) or 0)
+
             # M1: Breaker-Eviction — Breaker entfernen, deren Output nicht mehr in
             # health.outputs vorkommt (Karenz: erst nach 2 aufeinanderfolgenden
             # Aufrufen ohne den Output, damit transiente Lücken nicht evicten).
@@ -131,6 +151,17 @@ class Healer:
             )
             return
 
+        # W2-2: Karenzfenster nach Output-Add. Weiche Stalls (transienter
+        # coreaudiod-Transport-Restart) NICHT behandeln. Ausnahme: harte Stalls
+        # (ioproc_age_ms > HARD_STALL_MS) = echter Ausfall → sofort heilen.
+        if self._last_add_ts > 0.0 and (now - self._last_add_ts) < GRACE_PERIOD_S:
+            if self._last_ioproc_age_ms <= HARD_STALL_MS:
+                logger.debug(
+                    "Healer: reconnect für '%s' Ch%d unterdrückt — Karenz nach "
+                    "Output-Add (ioproc_age=%dms)",
+                    output.name, output.ch_offset + 1, self._last_ioproc_age_ms)
+                return
+
         # Heilversuch
         logger.info("Healer: reconnect_output für '%s' Ch%d (Versuch %d/%d)",
                     output.name, output.ch_offset + 1, cb.failures + 1, MAX_ATTEMPTS)
@@ -177,3 +208,17 @@ class Healer:
                 logger.info("Healer: reset_all — %d Breaker zurückgesetzt", len(self._breakers))
             self._breakers.clear()
             self._evict_pending.clear()
+
+    def notify_output_added(self) -> None:
+        """W2-2: Signalisiert, dass soeben ein Output zum Routing hinzugefuegt
+        wurde. Startet ein Karenzfenster (GRACE_PERIOD_S). Waehrend dieses
+        Fensters werden weiche Stalls NICHT mit reconnect_output behandelt
+        (coreaudiod-Transport-Reconfiguration stabilisiert sich selbst). Harte
+        Stalls (ioproc_age_ms > HARD_STALL_MS) heilen trotzdem.
+
+        Thread-safe: wird vom Main-Thread (Output-Add) aufgerufen, waehrend
+        _process_output im health-poll-Thread laeuft."""
+        with self._lock:
+            self._last_add_ts = time.monotonic()
+            logger.debug("Healer: Karenzfenster (%.1fs) nach Output-Add gestartet",
+                         GRACE_PERIOD_S)

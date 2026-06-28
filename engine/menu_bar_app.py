@@ -57,6 +57,8 @@ from audio_device_control import (
     set_muted,
     get_default_output_volume,
     get_default_output_muted,
+    # W2-1: HW-Volume-Propagation beim Routing-Switch
+    equalize_volume_after_switch,
 )
 from config import AppConfig, CONFIG_FILE, load_config, save_config
 from device_manager import AudioDevice, DeviceManager
@@ -222,6 +224,11 @@ class AudioRouterApp(rumps.App):
             helper_client=self._helper,
             safe_take_getter=lambda: getattr(self._config, 'safe_take_mode', False)
         )
+
+        # W2-2: Set der zuletzt an den Helper gesendeten Output-Keys
+        # (uid, ch_offset). Wird in _apply_active_outputs verglichen, um ein
+        # ADD zu erkennen und den Healer ein Karenzfenster setzen zu lassen.
+        self._applied_output_keys: set = set()
 
         # P10: Treiber-ABI-Version gegen App-Erwartung pruefen (einmalig beim
         # Start gecacht — kein File-Read pro Status-Tick). Bei Mismatch zeigt
@@ -524,13 +531,36 @@ class AudioRouterApp(rumps.App):
         else:
             logger.warning(f"Auto Sample-Rate {best} Hz fehlgeschlagen: {resp}")
 
+    def _propagate_hw_volume_on_switch(self, prev_level: float) -> None:
+        """W2-1: Nach einem Routing-Switch die zuvor hoerbare HW-Lautstaerke
+        (prev_level) auf das virtuelle Device sowie auf zu leise stehende
+        physische Ziel-Outputs propagieren. prev_level MUSS vor dem Switch via
+        get_default_output_volume() gelesen worden sein."""
+        try:
+            devices = self._device_manager.get_output_devices()
+            name_to_uid = {d.name: d.uid for d in devices}
+            target_uids = [
+                name_to_uid[name]
+                for name in self._active_device_names
+                if name in name_to_uid
+            ]
+            equalize_volume_after_switch(prev_level, target_uids)
+        except Exception as e:
+            logger.debug("_propagate_hw_volume_on_switch Fehler: %s", e)
+
     def _switch_system_audio(self, sender):
+        # W2-1: HW-Lautstaerke des AKTUELLEN (physischen) Defaults VOR dem Switch
+        # lesen — danach ist der Default das virtuelle Device.
+        prev_level = get_default_output_volume()
         success, error_msg = set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
         # System Output ebenfalls auf Audio Router setzen —
         # macOS Keyboard-Volume-Tasten folgen dem System Output.
         # Ohne diesen Schritt zeigt der HUD eine leere Lautstärke-Spur.
         set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
         if success:
+            # W2-1: zuvor hoerbaren Pegel auf virtuelles Device + physische Ziele
+            # propagieren (verhindert Stille auf eingefroren-leisen Outputs).
+            self._propagate_hw_volume_on_switch(prev_level)
             rumps.notification(
                 title="AudioRouterNow", subtitle="",
                 message="System audio switched to 'Audio Router'.",
@@ -1323,6 +1353,15 @@ class AudioRouterApp(rumps.App):
             self._needs_reconfigure = True
             return False
         self._needs_reconfigure = False
+
+        # W2-2: ADD erkennen — wenn neue Output-Keys hinzukamen, Healer-Karenz
+        # starten (coreaudiod-Transport-Restart bei Multi-Output abfangen).
+        new_keys = {(s.uid, s.ch_offset) for s in specs}
+        added_keys = new_keys - self._applied_output_keys
+        self._applied_output_keys = new_keys
+        if added_keys and hasattr(self, "_healer"):
+            self._healer.notify_output_added()
+
         if resp is None:
             logger.warning("Helper antwortet nicht — bitte prüfen")
         else:
@@ -1454,8 +1493,11 @@ class AudioRouterApp(rumps.App):
         # Keep-Alive wird vom C-Helper verwaltet (ab v2.6) — kein Python-ctypes-Callback.
         # Default-Output idempotent setzen (nur wenn nötig).
         if not is_audio_router_default():
+            # W2-1: physischen Default-Pegel VOR dem Switch lesen.
+            prev_level = get_default_output_volume()
             set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
             set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
+            self._propagate_hw_volume_on_switch(prev_level)
         else:
             logger.debug("Auto-start: Audio Router bereits Default — kein Switch nötig")
 
@@ -1476,9 +1518,14 @@ class AudioRouterApp(rumps.App):
         # System-Audio automatisch auf "Audio Router" umschalten.
         # Kein manueller Klick auf "System Audio → Audio Router" nötig.
         if self._active_device_names and not had_outputs_before:
+            # W2-1: physischen Default-Pegel VOR dem Switch lesen.
+            prev_level = get_default_output_volume()
             set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
             set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
             logger.info("Auto-Switch: System-Audio auf Audio Router umgestellt")
+
+            # W2-1: zuvor hoerbaren Pegel auf physische Ziele propagieren.
+            self._propagate_hw_volume_on_switch(prev_level)
 
             # Keep-Alive wird vom C-Helper verwaltet — kein Python-ctypes-Thread nötig.
 
