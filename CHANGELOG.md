@@ -9,6 +9,25 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
+## [3.4.2] — 2026-06-28
+
+### Fixed
+- Audio now audible on all fan-out outputs after routing switch — HW volume of physical targets was frozen at previous (often near-zero) level; now carried across from the previous system default on every switch
+- No more ~10 s audio drop-out on other outputs when a 3rd device is added — healer grace period (2 s) prevents unnecessary reconnect during coreaudiod transport restart
+- Devices without software volume control (hardware-pot interfaces) correctly skipped during volume propagation
+
+---
+
+## [3.4.1] — 2026-06-25
+
+### Fixed
+- Routing status now reflects actual IOProc state, not saved device selection
+- Missing/unplugged devices shown as `⚠ unavailable` instead of silently disappearing
+- All user-facing error messages translated to English
+- Diagnostic report now includes SYSTEM AUDIO STATE and FAN-OUT sections
+
+---
+
 ## [3.4.0] — 2026-06-13
 
 ### Fixed

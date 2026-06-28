@@ -9,6 +9,58 @@ Each release contains **two sections**:
 
 ---
 
+## v3.4.2 — June 28, 2026
+
+### For Everyone
+
+**Fix: Audio now stays audible on all outputs when routing to multiple devices.**
+
+Two issues were causing audio to be silent or faint on secondary outputs (e.g. a monitor or a second speaker) even though AudioRouterNow appeared to be working:
+
+- **All your outputs are now audible after routing.** When AudioRouterNow takes over your system audio, it now carries your current volume level across to every device it routes to, instead of leaving them at whatever (sometimes silent) hardware level they were set to. Outputs you've deliberately set loud are left exactly as they are.
+- **No more brief drop-outs when adding a third output.** On setups with three or more audio outputs (common on Mac mini), adding another output could cause the others to cut out for about ten seconds while macOS reconfigured its audio transport internally. AudioRouterNow now rides through that transition smoothly. Genuine audio failures are still recovered automatically.
+
+No action required. Update normally.
+
+### For Power Users
+
+| Fix | ID | Component | Root Cause | Resolution |
+|-----|----|-----------|------------|------------|
+| **W2-1** | H7 | `engine/audio_device_control.py`, `engine/menu_bar_app.py` | When "Audio Router" becomes the system default, `set_default_output_volume()` drives only the virtual device's `volume_q16`. Physical fan-out targets retain their frozen HW volume (often near zero) — silence despite a working IOProc. bogdanw confirmed: pre-selecting the internal speaker (already loud) → audible; U3277WB/Pebble V3 (frozen low) → silent. | `get_device_volume_scalar()` / `set_device_volume_scalar()` read/write per-device HW volume via `kAudioHardwareServiceDeviceProperty_VirtualMainVolume` (falling back to `kAudioDevicePropertyVolumeScalar` per channel). `equalize_volume_after_switch(prev_level, target_uids)` called at all three switch sites: reads previous default's level before switch, sets virtual device to that level after switch, raises any physical target below `LOW_VOLUME_THRESHOLD` (15%) to `raise_to` (or `COMFORTABLE_FALLBACK_VOLUME` = 50% if prev level itself was sub-15%). Devices without software volume control are skipped silently (`get_device_volume_scalar` returns -1.0). Devices ≥15% are left untouched (user intent preserved). All CoreAudio calls on main thread; CFStrings released. |
+| **W2-2** | H8 | `engine/healer.py`, `engine/menu_bar_app.py` | Adding `BuiltInSpeakerDevice` as a 3rd output to the AVAudioSession forces coreaudiod to restart the IOWorkLoop (`HALC_ProxyIOContext:1593 "ending the transport"`), transiently stalling already-running outputs. The healer's 1600 ms stall window (`1000 ms` soft-stall + `3×200 ms` persist polls) detected this as a real failure and called `reconnect_output` — producing a visible ~10 s "Output removed/re-added" churn cycle. | `notify_output_added()` in `Healer` records `time.monotonic()` of each genuine output add (detected by set-diff in `_apply_active_outputs`). Grace-period check in `_process_output` suppresses `reconnect_output` for `GRACE_PERIOD_S = 2.0 s` after any add, provided `ioproc_age_ms ≤ HARD_STALL_MS` (5000 ms). Hard stalls (device truly gone) still heal immediately even during the window. State is thread-safe under the existing `self._lock`. |
+
+**Audit:** Both fixes passed two independent line-by-line audits (SuperClaude `root-cause-analyst` + Claude `validator`, both Opus) in a single iteration with zero critical and zero major issues.
+
+**Commits:** `722ee69` (implementation), `6b05285` (case analysis + fix plan)
+
+---
+
+## v3.4.1 — June 25, 2026
+
+### For Everyone
+
+**Improved feedback, status display, and diagnostics.**
+
+This release addresses issues discovered from user feedback: the app's status indicator was showing "Routing active" even when no audio was actually routing, device names could silently disappear from the menu, and some error messages were shown in German regardless of system language.
+
+- **Accurate routing status** — The status indicator now reflects whether audio is actually flowing, not just whether a device was selected. If routing fails, you'll see a clear error state instead of a misleading green icon.
+- **Missing devices are now visible** — If a device you had selected is no longer available (e.g. unplugged), it now appears marked as unavailable in the menu instead of silently disappearing.
+- **Diagnostic report improved** — The built-in diagnostic report now includes system audio state and fan-out status, making it easier to identify audio issues.
+- **English error messages** — All user-visible error messages are now in English.
+
+### For Power Users
+
+| Fix | ID | Component | Root Cause | Resolution |
+|-----|----|-----------|------------|------------|
+| **H2** | Status-UI | `engine/menu_bar_app.py` | Status string read `_active_device_names` (saved selection) not `resp['active']` (real IOProc state). Showed "Routing active — 2 devices" even when fan-out was dead. | 7-state matrix reading `status['active']`, `is_audio_router_default()`, and `ioproc_calls` progression. |
+| **H5** | Stale-Config | `engine/menu_bar_app.py` | Devices missing from current HAL scan were silently skipped at `menu_bar_app.py:1230`. | Missing devices marked `⚠ unavailable` in menu + N/M counter in status line. |
+| **i18n** | | `audio_device_control.py`, `first_launch.py`, `diagnostic.py` | User-facing error strings were hardcoded in German. | All user-facing strings translated to English. |
+| **Diagnostic** | Fan-out | `diagnostic.py` | Diagnostic report had no visibility into whether fan-out IOProcs were actually running. | New `SYSTEM AUDIO STATE` and `FAN-OUT` sections added; reports `active[]`, `ring_frames`, `ioproc_calls`. |
+
+**Commits:** `7521f0b`, `a7265bd`, `7115a60`, `68ec5ec`
+
+---
+
 ## v3.4.0 — June 13, 2026
 
 ### For Everyone
