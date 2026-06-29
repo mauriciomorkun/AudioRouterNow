@@ -1567,6 +1567,15 @@ class AudioRouterApp(rumps.App):
         else:
             self._status_item.set_callback(self._status_action)
 
+        # WARNING-2-Fix: Im Popover-Modus die offene Ansicht live nachziehen,
+        # damit Status-Wechsel (Helper stirbt/erwacht, Driver-ABI etc.) sofort
+        # sichtbar sind statt erst beim naechsten Device-Hotplug. refresh() ist
+        # no-op bei geschlossenem Popover und Main-Thread-geguarded. Bewusst
+        # NICHT _refresh_view() — das wuerde im NSMenu-Modus _build_menu() bei
+        # jedem Status-Tick neu bauen (Flicker/Overhead). Hier nur popover-scoped.
+        if self._use_popover and self._status_popover is not None:
+            self._status_popover.refresh()
+
     # ------------------------------------------------------------------
     # Helper-Integration
     # ------------------------------------------------------------------
