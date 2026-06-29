@@ -523,18 +523,21 @@ class AudioRouterApp(rumps.App):
                 callback=lambda s, d=device: self._toggle_device(s, d),
             ))
 
-            if is_active:
-                num_pairs = device.max_output_channels // 2
-                for pair_idx in range(num_pairs):
-                    offset = pair_idx * 2
-                    selected = offset in active_offsets
-                    rows.append(Row(
-                        f"Ch {offset + 1}-{offset + 2}",
-                        checked=selected,
-                        indent=1,
-                        callback=lambda s, d=device, o=offset:
-                            self._toggle_channel_pair(s, d, o),
-                    ))
+            # Channel-Pairs immer anzeigen (auch wenn Gerät inaktiv) —
+            # ausgegraut wenn inaktiv, damit User die Möglichkeit sieht
+            # ohne das Gerät erst aktivieren zu müssen (Option A).
+            num_pairs = device.max_output_channels // 2
+            for pair_idx in range(num_pairs):
+                offset = pair_idx * 2
+                selected = is_active and (offset in active_offsets)
+                rows.append(Row(
+                    f"Ch {offset + 1}-{offset + 2}",
+                    checked=selected,
+                    indent=1,
+                    enabled=is_active,   # ausgegraut wenn Gerät nicht aktiv
+                    callback=lambda s, d=device, o=offset:
+                        self._toggle_channel_pair(s, d, o),
+                ))
 
         if not devices:
             rows.append(Row("(no devices found)", enabled=False))
