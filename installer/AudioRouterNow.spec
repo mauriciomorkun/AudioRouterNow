@@ -48,6 +48,7 @@ a = Analysis(
         "health",
         "healer",
         "updater",
+        "popover_menu",
     ],
     hookspath=[],
     hooksconfig={},

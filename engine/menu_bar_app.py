@@ -205,6 +205,18 @@ class AudioRouterApp(rumps.App):
         self._ui_timer = rumps.Timer(self._process_pending_updates, 0.5)
         self._ui_timer.start()
 
+        # NSPopover-Migration (Option B) — additiver Feature-Flag-Hybrid.
+        # Default False → klassisches NSMenu (verhaltensidentisch zu v3.4.x).
+        # Bei True wird nach Runloop-Start ein One-shot-Timer ausgeloest, der den
+        # NSPopover installiert (das StatusItem existiert erst nach rumps' run() →
+        # initializeStatusBar). Starke Referenz auf das Popover-Objekt verhindert
+        # PyObjC-GC-Crash (dieselbe Lehre wie self._updater / self._media_key_monitor).
+        self._use_popover = bool(getattr(self._config, "use_popover_menu", False))
+        self._status_popover = None
+        if self._use_popover:
+            self._popover_install_timer = rumps.Timer(self._install_popover, 0.1)
+            self._popover_install_timer.start()
+
         # P1: Event-driven Volume — CoreAudio Property-Listener statt
         # osascript-Polling. Der Listener feuert bei jeder Lautstaerke-Aenderung
         # des Standard-Ausgabegeraets; ein periodischer Poll-Thread entfaellt.
@@ -422,6 +434,172 @@ class AudioRouterApp(rumps.App):
         return item
 
     # ------------------------------------------------------------------
+    # NSPopover-Migration (Option B) — additiv, hinter use_popover_menu-Flag
+    # ------------------------------------------------------------------
+
+    def _install_popover(self, timer):
+        """One-shot: installiert den NSPopover NACH Runloop-Start.
+
+        rumps.App.run() blockiert; das NSStatusItem (self._nsapp.nsstatusitem)
+        existiert erst nach initializeStatusBar(). Der 0.1s-Timer feuert garantiert
+        nach Runloop-Start auf dem Main-Thread — dann ist der StatusItem-Button
+        verfuegbar und kann als Popover-Anchor + Klick-Target dienen."""
+        timer.stop()
+        try:
+            from popover_menu import StatusPopover  # noqa: PLC0415 (lazy)
+            self._status_popover = StatusPopover.alloc().initWithApp_(self)  # STARKE Ref
+            logger.info("NSPopover-Modus aktiv — StatusItem-Klick zeigt Popover")
+        except Exception as exc:  # noqa: BLE001 — Fallback auf NSMenu
+            logger.error("NSPopover-Installation fehlgeschlagen, Fallback NSMenu: %s",
+                         exc, exc_info=True)
+            self._use_popover = False
+            self._status_popover = None
+            # NSMenu als Fallback aufbauen (Popover-Modus hatte es uebersprungen).
+            self._build_menu()
+
+    def build_rows(self):
+        """Spiegelt die Struktur von _build_menu() als list[Row] fuer den Popover.
+
+        KEINE neue Logik — liest exakt denselben State wie _build_menu /
+        _make_device_menu_item und zeigt auf DIESELBEN bestehenden Callbacks.
+        Checkmarks werden ueber den NSButton-State (Row.checked) statt ueber
+        '[x]'/'[ ]'-Textpraefixe dargestellt.
+
+        Abweichung vom NSMenu (dokumentiert): Channel-Pairs erscheinen als
+        eingerueckte Inline-Zeilen statt als echtes Submenu — und nur fuer
+        AKTIVE Multi-Channel-Devices (im NSMenu existiert das Submenu immer,
+        ist aber bis zum Hover verborgen). Das Help-Submenu wird zur Inline-
+        Sektion. Beides ist Folge der Popover-Praesentation (kein NSMenu-Submenu).
+        """
+        from popover_menu import Row  # noqa: PLC0415 (lazy)
+
+        rows = []
+
+        # 1. Status-Zeile — Titel + ggf. Klick-Aktion aus dem Status-Cache
+        #    (von _update_status_ui befuellt; faellt im Erstaufbau auf
+        #    _compute_status zurueck). Klickbar nur wenn action_key != None.
+        title, action_key = self._last_status_cache
+        if title is None:
+            title, action_key = self._compute_status()
+        if action_key is None:
+            rows.append(Row(title or "", kind="status"))
+        else:
+            rows.append(Row(title or "", kind="status", callback=self._status_action))
+
+        rows.append(Row(kind="separator"))
+
+        # 2. System Audio → Audio Router
+        rows.append(Row("System Audio → Audio Router",
+                        callback=self._switch_system_audio))
+        rows.append(Row(kind="separator"))
+
+        # 3. OUTPUT DEVICES
+        rows.append(Row("OUTPUT DEVICES:", kind="header"))
+
+        devices = self._device_manager.get_output_devices()
+        for device in sorted(devices, key=lambda d: d.name):
+            is_active = device.name in self._active_device_names
+
+            if device.max_output_channels <= 2:
+                rows.append(Row(
+                    f"{device.name} — {device.max_output_channels}ch",
+                    checked=is_active,
+                    callback=lambda s, d=device: self._toggle_device(s, d),
+                ))
+                continue
+
+            # Multi-Channel: Parent-Zeile + (bei aktivem Device) Pair-Inline-Zeilen.
+            active_offsets = self._device_offsets.get(device.name, [])
+            parent_checked = bool(is_active and active_offsets)
+            if is_active and active_offsets:
+                pairs_str = ", ".join(
+                    f"Ch {o + 1}-{o + 2}" for o in sorted(active_offsets))
+                parent_title = f"{device.name} — {pairs_str}"
+            else:
+                parent_title = f"{device.name} — {device.max_output_channels}ch"
+            rows.append(Row(
+                parent_title,
+                checked=parent_checked,
+                callback=lambda s, d=device: self._toggle_device(s, d),
+            ))
+
+            if is_active:
+                num_pairs = device.max_output_channels // 2
+                for pair_idx in range(num_pairs):
+                    offset = pair_idx * 2
+                    selected = offset in active_offsets
+                    rows.append(Row(
+                        f"Ch {offset + 1}-{offset + 2}",
+                        checked=selected,
+                        indent=1,
+                        callback=lambda s, d=device, o=offset:
+                            self._toggle_channel_pair(s, d, o),
+                    ))
+
+        if not devices:
+            rows.append(Row("(no devices found)", enabled=False))
+
+        # H5: Unavailable devices (stale config) — nicht klickbar, ausgegraut.
+        for missing in sorted(self._unavailable_devices):
+            rows.append(Row(f"⚠  {missing} — unavailable", enabled=False))
+
+        # 4. SAMPLE RATE
+        rows.append(Row(kind="separator"))
+        rows.append(Row("SAMPLE RATE:", kind="header"))
+        rows.append(Row("Auto", checked=self._config.auto_sample_rate,
+                        callback=self._toggle_auto_sample_rate))
+        current_sr = self._config.sample_rate
+        for rate in SUPPORTED_SAMPLE_RATES:
+            checked = (not self._config.auto_sample_rate) and rate == current_sr
+            rows.append(Row(
+                self._format_sample_rate(rate),
+                checked=checked,
+                callback=lambda s, r=rate: self._set_sample_rate(r),
+            ))
+
+        # 5. Safe mode
+        rows.append(Row(kind="separator"))
+        rows.append(Row("Safe mode (no auto-healing)",
+                        checked=self._config.safe_take_mode,
+                        callback=self._toggle_safe_take))
+
+        # 6. Help-Sektion inline (statt Submenu)
+        rows.append(Row(kind="separator"))
+        rows.append(Row("Status Guide", callback=self._show_status_guide))
+        rows.append(Row("What's running in the background…",
+                        callback=self._show_background_info))
+        rows.append(Row("Open documentation", callback=self._open_documentation))
+        rows.append(Row("Check for Updates…", callback=self._check_for_updates))
+        rows.append(Row("Save Diagnostic Report…",
+                        callback=self._save_diagnostic_report))
+        rows.append(Row("Uninstall AudioRouterNow…", callback=self._uninstall))
+
+        # 7. Donation + Footer
+        rows.append(Row(kind="separator"))
+        rows.append(Row("Support AudioRouterNow", callback=self._open_donation))
+        rows.append(Row("Made with love by Mauricio — free forever",
+                        enabled=False))
+
+        # 8. Quit
+        rows.append(Row(kind="separator"))
+        rows.append(Row("Quit", callback=self._quit_app))
+
+        return rows
+
+    def _refresh_view(self):
+        """Praesentations-Weiche: im Popover-Modus den Popover live aktualisieren
+        (no-op wenn geschlossen), sonst das klassische NSMenu neu bauen.
+
+        Ersetzt die bisherigen direkten _build_menu()-Aufrufe an den
+        State-mutierenden Call-Sites. Laeuft stets auf dem Main-Thread
+        (Toggle-Callbacks bzw. 0.5s-rumps.Timer) — derselbe K2-Pump, kein
+        zweiter Refresh-Pfad."""
+        if self._use_popover and self._status_popover is not None:
+            self._status_popover.refresh()
+        else:
+            self._build_menu()
+
+    # ------------------------------------------------------------------
     # Callbacks
     # ------------------------------------------------------------------
 
@@ -435,7 +613,7 @@ class AudioRouterApp(rumps.App):
                 self._device_offsets[device.name] = [0]
 
         self._save_and_apply()
-        self._build_menu()
+        self._refresh_view()
 
     def _toggle_channel_pair(self, sender, device: AudioDevice, offset: int):
         offsets = self._device_offsets.get(device.name, [])
@@ -452,21 +630,21 @@ class AudioRouterApp(rumps.App):
             self._active_device_names.discard(device.name)
 
         self._save_and_apply()
-        self._build_menu()
+        self._refresh_view()
 
     def _toggle_auto_sample_rate(self, sender):
         self._config.auto_sample_rate = not self._config.auto_sample_rate
         save_config(self._config)
         if self._config.auto_sample_rate:
             self._apply_best_sample_rate()
-        self._build_menu()
+        self._refresh_view()
 
     def _toggle_safe_take(self, sender):
         self._config.safe_take_mode = not self._config.safe_take_mode
         save_config(self._config)
         self._helper.set_safe_take(self._config.safe_take_mode)
         logger.info("Safe-Take: %s", "aktiviert" if self._config.safe_take_mode else "deaktiviert")
-        self._build_menu()
+        self._refresh_view()
 
     def _set_sample_rate(self, rate: int):
         self._config.auto_sample_rate = False
@@ -479,7 +657,7 @@ class AudioRouterApp(rumps.App):
                 title="AudioRouterNow — Sample Rate",
                 message=f"Could not set sample rate:\n{err}",
             )
-        self._build_menu()
+        self._refresh_view()
 
     def _apply_best_sample_rate(self):
         """Auto-Detection: beste gemeinsame SR aller aktiven Output-Devices."""
@@ -781,6 +959,9 @@ class AudioRouterApp(rumps.App):
             return
         # Helper und Routing stoppen
         self._ui_timer.stop()
+        # NSPopover-Migration: Popover sauber schliessen (falls aktiv).
+        if getattr(self, "_status_popover", None) is not None:
+            self._status_popover.teardown()
         # P1: Volume-Listener abmelden (event-driven, kein Poll-Thread mehr)
         try:
             unregister_volume_listener()
@@ -808,6 +989,9 @@ class AudioRouterApp(rumps.App):
 
     def _quit_app(self, sender):
         self._ui_timer.stop()
+        # NSPopover-Migration: Popover sauber schliessen (falls aktiv).
+        if getattr(self, "_status_popover", None) is not None:
+            self._status_popover.teardown()
         # P1: Volume-Listener abmelden (event-driven, kein Poll-Thread mehr)
         try:
             unregister_volume_listener()
@@ -865,7 +1049,7 @@ class AudioRouterApp(rumps.App):
             intended = self._active_device_names | self._unavailable_devices
             self._unavailable_devices = intended - scanned
             self._active_device_names = self._active_device_names & scanned
-            self._build_menu()
+            self._refresh_view()
 
         # F8: Status-Update via Status-Cache statt blockierendem Socket-Ping
         # auf dem Main-Thread — der health-poll-Loop (200ms) befuellt den Cache.
@@ -1624,7 +1808,7 @@ class AudioRouterApp(rumps.App):
         else:
             self._unavailable_devices = set()
 
-        self._build_menu()
+        self._refresh_view()
 
 
 def _ensure_secure_base_dir() -> None:
