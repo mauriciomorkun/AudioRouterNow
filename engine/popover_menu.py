@@ -185,6 +185,21 @@ class _RowsController(NSViewController):
             tf.setFont_(NSFont.boldSystemFontOfSize_(size))
             return tf
 
+        if r.kind == "action":
+            btn = NSButton.alloc().init()
+            btn.setBordered_(False)
+            btn.setTitle_(r.title or "")
+            btn.setFont_(NSFont.systemFontOfSize_(13.0))
+            btn.setAlignment_(NSLeftTextAlignment)
+            if r.callback is None or not r.enabled:
+                btn.setEnabled_(False)
+            else:
+                t = _Target.alloc().initWithCallback_(r.callback)
+                self._targets.append(t)
+                btn.setTarget_(t)
+                btn.setAction_("fire:")
+            return btn
+
         # Klick- bzw. nicht-klickbare Item-Zeile als Checkbox-Button.
         btn = NSButton.alloc().init()
         btn.setButtonType_(NSSwitchButton)             # Checkbox-Stil
