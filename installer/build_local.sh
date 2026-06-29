@@ -39,10 +39,16 @@ DIST_DIR="$SCRIPT_DIR/dist"
 APP_NAME="AudioRouterNow"
 SIGN_IDENTITY="Developer ID Application: MAURICIO MORAIS DA CUNHA (5D52U34B3W)"
 
+# --- Versionsnummer aus Single Source of Truth (engine/version.py) -----------
+# Kein Hardcoding mehr: Banner + Bundle-/Driver-Info.plist werden aus dieser
+# einen Quelle abgeleitet, um Versions-Divergenz dauerhaft zu eliminieren.
+APP_VERSION="$(sed -n 's/^APP_VERSION[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$ENGINE_DIR/version.py")"
+[[ -n "$APP_VERSION" ]] || fail "APP_VERSION konnte nicht aus engine/version.py gelesen werden."
+
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════╗${NC}"
 echo -e "${BOLD}║   AudioRouterNow — Local Test Build  ║${NC}"
-echo -e "${BOLD}║   v3.4.1-dev · Keine Notarisierung   ║${NC}"
+echo -e "${BOLD}║   v${APP_VERSION} · Keine Notarisierung       ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════╝${NC}"
 echo ""
 
@@ -186,6 +192,21 @@ if [[ -d "$STORAGE_BUNDLE" ]]; then
     ok "Storage-Bundle entfernt: Contents/Resources/AudioRouterNow.driver"
 else
     ok "Storage-Bundle nicht vorhanden (bereits bereinigt)"
+fi
+
+# --- Driver-Info.plist Version aus Single Source ableiten --------------------
+# build_local.sh ruft KEIN make auf — der Driver kommt vorgebaut aus
+# driver/build/. Damit die Version NIE divergiert, wird die Info.plist des
+# eingebetteten Driver-Bundles hier zwingend aus $APP_VERSION gesetzt.
+if [[ -n "$DOTDRIVER_BUNDLE" ]] && [[ -f "$DOTDRIVER_BUNDLE/Contents/Info.plist" ]]; then
+    DRV_PLIST="$DOTDRIVER_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$DRV_PLIST" \
+        || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $APP_VERSION" "$DRV_PLIST"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_VERSION" "$DRV_PLIST" \
+        || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $APP_VERSION" "$DRV_PLIST"
+    ok "Driver-Info.plist auf v$APP_VERSION gesetzt (aus version.py)"
+else
+    warn "Driver-Info.plist nicht gefunden — Versions-Sync übersprungen"
 fi
 
 # --- Sparkle.framework ins Bundle einbetten ---------------------------------
@@ -342,11 +363,33 @@ codesign --verify --deep --strict --verbose=2 "$APP_PATH" \
     || fail "Sparkle.framework-Verifikation fehlgeschlagen — Signing prüfen"; }
 ok "Signing-Gate bestanden ✓"
 
+# --- Versions-Gate: alle Bundles MÜSSEN $APP_VERSION melden ------------------
+# Verhindert die früher aufgetretene Dreifach-Divergenz (Code/Bundle/Driver).
+# Release-fähig nur, wenn App + Driver exakt die Single-Source-Version tragen.
+log "Versions-Gate: Prüfe CFBundle-Versionen gegen v$APP_VERSION..."
+PB=/usr/libexec/PlistBuddy
+APP_PLIST="$APP_PATH/Contents/Info.plist"
+
+app_short="$($PB -c 'Print :CFBundleShortVersionString' "$APP_PLIST" 2>/dev/null || echo '?')"
+app_build="$($PB -c 'Print :CFBundleVersion' "$APP_PLIST" 2>/dev/null || echo '?')"
+[[ "$app_short" == "$APP_VERSION" ]] || fail "App CFBundleShortVersionString=$app_short ≠ $APP_VERSION"
+[[ "$app_build" == "$APP_VERSION" ]] || fail "App CFBundleVersion=$app_build ≠ $APP_VERSION"
+ok "App-Bundle: ShortVersion=$app_short · BuildVersion=$app_build ✓"
+
+if [[ -n "${DOTDRIVER_BUNDLE:-}" ]] && [[ -f "$DOTDRIVER_BUNDLE/Contents/Info.plist" ]]; then
+    drv_short="$($PB -c 'Print :CFBundleShortVersionString' "$DOTDRIVER_BUNDLE/Contents/Info.plist" 2>/dev/null || echo '?')"
+    drv_build="$($PB -c 'Print :CFBundleVersion' "$DOTDRIVER_BUNDLE/Contents/Info.plist" 2>/dev/null || echo '?')"
+    [[ "$drv_short" == "$APP_VERSION" ]] || fail "Driver CFBundleShortVersionString=$drv_short ≠ $APP_VERSION"
+    [[ "$drv_build" == "$APP_VERSION" ]] || fail "Driver CFBundleVersion=$drv_build ≠ $APP_VERSION"
+    ok "Driver-Bundle: ShortVersion=$drv_short · BuildVersion=$drv_build ✓"
+fi
+ok "Versions-Gate bestanden ✓ — alle Bundles melden v$APP_VERSION"
+
 # --- Fertig (KEIN DMG, KEINE Notarisierung, KEIN Stapling) -------------------
 echo ""
 echo -e "${GREEN}${BOLD}╔══════════════════════════════════════╗${NC}"
 echo -e "${GREEN}${BOLD}║   AudioRouterNow — Local Test Build  ║${NC}"
-echo -e "${GREEN}${BOLD}║   v3.4.1-dev · Keine Notarisierung   ║${NC}"
+echo -e "${GREEN}${BOLD}║   v${APP_VERSION} · Keine Notarisierung       ║${NC}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  ${BOLD}APP:${NC} installer/dist/AudioRouterNow.app"
