@@ -1017,7 +1017,7 @@ class AudioRouterApp(rumps.App):
           4. selected & n_active==0 → 🔴 Routing failed — no output (CASE-001)
           5. ring_frames          → audio_flowing
           6. n_active == m_total & !audio_flowing → 🟡 Ready
-          7. 0 < n_active < m_total → 🟡 Routing active N/M (orange)
+          7. 0 < n_active < m_total → 🟢 Routing active N/M (>=1 Geraet aktiv → gruen)
           8. voll aktiv & audio_flowing → 🟢 Routing active (Health-Ampel)
         """
         helper_alive = self._helper_alive
@@ -1089,11 +1089,19 @@ class AudioRouterApp(rumps.App):
 
         # 7. Teilweises Routing — nur ein Teil der erwarteten Geraete ist aktiv
         #    (z.B. ein Output verschwunden / Fan-out teilweise fehlgeschlagen).
+        #    UX-Fix (2026-06-29): Solange MINDESTENS EIN Geraet aktiv ist
+        #    (0 < n_active), fliesst Audio weiter — das Icon bleibt GRUEN.
+        #    Ein getrenntes Geraet (USB-Soundkarte etc.) ist KEIN Fehler, wenn
+        #    andere Outputs noch bedient werden. Frueher: 🟡 orange, was
+        #    faelschlich "Audio kaputt" suggerierte. Der Statustext zeigt die
+        #    "(N unavailable)"-Transparenz weiterhin an — nur das Icon ist gruen.
+        #    Orange/Rot bleibt den echten Fehlerzustaenden vorbehalten:
+        #    n_active == 0 wird oben in Schritt 4 als 🔴 abgefangen.
         if 0 < n_active < m_total:
             missing_from_active = (set(selected) | unavailable) - set(active_names)
             n_missing = len(missing_from_active)
             return (
-                f"🟡  Routing active — {n_active}/{m_total} devices "
+                f"🟢  Routing active — {n_active}/{m_total} devices "
                 f"({n_missing} unavailable)",
                 None,
             )
