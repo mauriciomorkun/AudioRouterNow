@@ -490,7 +490,7 @@ class AudioRouterApp(rumps.App):
 
         # 2. System Audio → Audio Router
         rows.append(Row("System Audio → Audio Router",
-                        callback=self._switch_system_audio))
+                        kind="action", callback=self._switch_system_audio))
         rows.append(Row(kind="separator"))
 
         # 3. OUTPUT DEVICES
@@ -565,24 +565,24 @@ class AudioRouterApp(rumps.App):
 
         # 6. Help-Sektion inline (statt Submenu)
         rows.append(Row(kind="separator"))
-        rows.append(Row("Status Guide", callback=self._show_status_guide))
+        rows.append(Row("Status Guide", kind="action", callback=self._show_status_guide))
         rows.append(Row("What's running in the background…",
-                        callback=self._show_background_info))
-        rows.append(Row("Open documentation", callback=self._open_documentation))
-        rows.append(Row("Check for Updates…", callback=self._check_for_updates))
+                        kind="action", callback=self._show_background_info))
+        rows.append(Row("Open documentation", kind="action", callback=self._open_documentation))
+        rows.append(Row("Check for Updates…", kind="action", callback=self._check_for_updates))
         rows.append(Row("Save Diagnostic Report…",
-                        callback=self._save_diagnostic_report))
-        rows.append(Row("Uninstall AudioRouterNow…", callback=self._uninstall))
+                        kind="action", callback=self._save_diagnostic_report))
+        rows.append(Row("Uninstall AudioRouterNow…", kind="action", callback=self._uninstall))
 
         # 7. Donation + Footer
         rows.append(Row(kind="separator"))
-        rows.append(Row("Support AudioRouterNow", callback=self._open_donation))
+        rows.append(Row("Support AudioRouterNow", kind="action", callback=self._open_donation))
         rows.append(Row("Made with love by Mauricio — free forever",
-                        enabled=False))
+                        kind="action", enabled=False))
 
         # 8. Quit
         rows.append(Row(kind="separator"))
-        rows.append(Row("Quit", callback=self._quit_app))
+        rows.append(Row("Quit", kind="action", callback=self._quit_app))
 
         return rows
 
