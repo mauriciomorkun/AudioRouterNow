@@ -9,12 +9,22 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
-## [3.4.2] — 2026-06-28
+## [3.4.2] — 2026-06-29
+
+### Added
+- Help → Status Guide — native `NSAlert` colour legend explaining all three menu bar icon states (🟢 routing active, 🟡 warning, 🔴 error) and the scenarios that trigger each
+- Persistent `NSPopover` menu (behind `use_popover_menu` flag) — the menu now stays open after each click so you can select multiple outputs and change settings without reopening it; closes on outside click
+- Brand logo asset set in `assets/logo/` — Inline and Stacked variants, Black and White, each as SVG + PNG
 
 ### Fixed
 - Audio now audible on all fan-out outputs after routing switch — HW volume of physical targets was frozen at previous (often near-zero) level; now carried across from the previous system default on every switch
 - No more ~10 s audio drop-out on other outputs when a 3rd device is added — healer grace period (2 s) prevents unnecessary reconnect during coreaudiod transport restart
 - Devices without software volume control (hardware-pot interfaces) correctly skipped during volume propagation
+- Menu bar icon stays green when audio routes fine despite an unavailable configured device — turns orange only when zero outputs are available (status text keeps the `(N unavailable)` counter)
+- Three NSPopover follow-up warnings resolved — status rows clickable inside the popover, status line updates live while the popover is open, and a 0.15 s flicker guard on icon toggle
+
+### Changed
+- Version number is now single-sourced from `engine/version.py` (`APP_VERSION = "3.4.2"`) — `installer/AudioRouterNow.spec`, `installer/build_local.sh`, and `driver/resources/Info.plist` all derive from it; build fails on divergence (4 previously hardcoded strings eliminated)
 
 ---
 

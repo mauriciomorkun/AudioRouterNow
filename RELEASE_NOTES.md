@@ -9,29 +9,55 @@ Each release contains **two sections**:
 
 ---
 
-## v3.4.2 — June 28, 2026
+## v3.4.2 — June 29, 2026
 
 ### For Everyone
 
-**Fix: Audio now stays audible on all outputs when routing to multiple devices.**
+**Audio reliability fixes plus a friendlier, more informative menu.**
 
-Two issues were causing audio to be silent or faint on secondary outputs (e.g. a monitor or a second speaker) even though AudioRouterNow appeared to be working:
+This release fixes two audio issues that could leave secondary outputs silent, and reworks the menu so it stays open while you work and explains its own status.
+
+**Audio fixes:**
 
 - **All your outputs are now audible after routing.** When AudioRouterNow takes over your system audio, it now carries your current volume level across to every device it routes to, instead of leaving them at whatever (sometimes silent) hardware level they were set to. Outputs you've deliberately set loud are left exactly as they are.
 - **No more brief drop-outs when adding a third output.** On setups with three or more audio outputs (common on Mac mini), adding another output could cause the others to cut out for about ten seconds while macOS reconfigured its audio transport internally. AudioRouterNow now rides through that transition smoothly. Genuine audio failures are still recovered automatically.
 
+**Menu & status improvements:**
+
+- **The menu stays open while you set things up.** Previously the dropdown closed after every single click, so selecting several outputs or changing sample rates meant reopening it again and again. The menu now stays open as you work and closes when you click away.
+- **The menu bar icon no longer cries wolf.** If one of your configured devices is unplugged but audio is still routing fine to the others, the icon now stays green instead of turning orange. It only turns orange when no outputs are available at all. The menu still notes "(N unavailable)" so you stay informed.
+- **New: Help → Status Guide.** A built-in colour legend explains exactly what 🟢 green, 🟡 orange, and 🔴 red mean and when each appears — no need to guess or look it up.
+
 No action required. Update normally.
 
 ### For Power Users
+
+#### Audio fixes
 
 | Fix | ID | Component | Root Cause | Resolution |
 |-----|----|-----------|------------|------------|
 | **W2-1** | H7 | `engine/audio_device_control.py`, `engine/menu_bar_app.py` | When "Audio Router" becomes the system default, `set_default_output_volume()` drives only the virtual device's `volume_q16`. Physical fan-out targets retain their frozen HW volume (often near zero) — silence despite a working IOProc. bogdanw confirmed: pre-selecting the internal speaker (already loud) → audible; U3277WB/Pebble V3 (frozen low) → silent. | `get_device_volume_scalar()` / `set_device_volume_scalar()` read/write per-device HW volume via `kAudioHardwareServiceDeviceProperty_VirtualMainVolume` (falling back to `kAudioDevicePropertyVolumeScalar` per channel). `equalize_volume_after_switch(prev_level, target_uids)` called at all three switch sites: reads previous default's level before switch, sets virtual device to that level after switch, raises any physical target below `LOW_VOLUME_THRESHOLD` (15%) to `raise_to` (or `COMFORTABLE_FALLBACK_VOLUME` = 50% if prev level itself was sub-15%). Devices without software volume control are skipped silently (`get_device_volume_scalar` returns -1.0). Devices ≥15% are left untouched (user intent preserved). All CoreAudio calls on main thread; CFStrings released. |
 | **W2-2** | H8 | `engine/healer.py`, `engine/menu_bar_app.py` | Adding `BuiltInSpeakerDevice` as a 3rd output to the AVAudioSession forces coreaudiod to restart the IOWorkLoop (`HALC_ProxyIOContext:1593 "ending the transport"`), transiently stalling already-running outputs. The healer's 1600 ms stall window (`1000 ms` soft-stall + `3×200 ms` persist polls) detected this as a real failure and called `reconnect_output` — producing a visible ~10 s "Output removed/re-added" churn cycle. | `notify_output_added()` in `Healer` records `time.monotonic()` of each genuine output add (detected by set-diff in `_apply_active_outputs`). Grace-period check in `_process_output` suppresses `reconnect_output` for `GRACE_PERIOD_S = 2.0 s` after any add, provided `ioproc_age_ms ≤ HARD_STALL_MS` (5000 ms). Hard stalls (device truly gone) still heal immediately even during the window. State is thread-safe under the existing `self._lock`. |
 
-**Audit:** Both fixes passed two independent line-by-line audits (SuperClaude `root-cause-analyst` + Claude `validator`, both Opus) in a single iteration with zero critical and zero major issues.
+**Audit:** Both audio fixes passed two independent line-by-line audits (SuperClaude `root-cause-analyst` + Claude `validator`, both Opus) in a single iteration with zero critical and zero major issues.
 
-**Commits:** `722ee69` (implementation), `6b05285` (case analysis + fix plan)
+#### UI / UX changes
+
+| Change | ID | Component | Detail |
+|--------|----|-----------|--------|
+| **NSPopover menu** | `use_popover_menu` | `engine/menu_bar_app.py` | The rumps/`NSMenu` dropdown is replaced by a persistent `NSPopover` toggled from the `NSStatusItem`, gated behind a `use_popover_menu` flag. The popover stays open across clicks (multi-device selection, sample-rate changes, Help navigation) and dismisses only on outside click (transient behavior). All callbacks and dynamic updates preserved; all AppKit calls guarded to the main thread. |
+| **NSPopover hardening** | 3 warnings | `engine/menu_bar_app.py` | Follow-up audit fixes: (1) status rows are clickable inside the popover — `restart_helper` / `reinstall_driver` / `switch_audio` dispatched via `action_key`; (2) the status line updates live while the popover is open (`refresh()` in `_update_status_ui()`, main-thread safe); (3) flicker guard on icon toggle — if the popover is shown, close only (no reopen), with a 0.15 s monotonic debounce against the `popoverDidClose_` transient-dismiss race. |
+| **Icon colour logic** | UX | `engine/menu_bar_app.py` | Menu bar icon stays green when ≥1 output is active and routing works, even if a configured device is unavailable. Turns orange only at zero available outputs. Status text keeps the `(N unavailable)` counter for transparency. Fixes the misleading orange icon that alarmed users while audio was working fine. |
+| **Status Guide** | UX | `engine/menu_bar_app.py` | New `Help → Status Guide` item opens a native `NSAlert` colour legend describing all three icon states (🟢 routing active, 🟡 warning, 🔴 error) with the specific scenarios that trigger each. |
+
+#### Build & assets
+
+| Change | Component | Detail |
+|--------|-----------|--------|
+| **Single-source version** | `engine/version.py`, `installer/AudioRouterNow.spec`, `installer/build_local.sh`, `driver/resources/Info.plist` | Four independent hardcoded version strings replaced by true single-source derivation from `engine/version.py` (`APP_VERSION = "3.4.2"`). The spec reads `APP_VERSION` via `exec()`; `build_local.sh` reads it via `sed` and adds a version-gate that fails on divergence; the driver `Info.plist` is set to `3.4.2`. Found and fixed during the Wave-2 local build audit (2 audit iterations, both PASS). |
+| **Logo assets** | `assets/logo/` | Brand logo set added: Inline and Stacked variants in Black and White, each as SVG + PNG. |
+
+**Commits:** `722ee69` (W2-1 + W2-2), `6b05285` (case analysis + fix plan), `da2b5d8` (icon colour), `00e4084` (Status Guide), `767d147` (NSPopover), `390bc53`/`dda961c` (NSPopover hardening), `3b57f14` (single-source version)
 
 ---
 
