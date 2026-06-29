@@ -9,6 +9,8 @@
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS%2011%2B-lightgrey?logo=apple)](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 [![Latest Release](https://img.shields.io/github/v/release/mauriciomorkun/AudioRouterNow)](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 
+> **Latest release: [v3.4.2](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.2)** — [Download AudioRouterNow.dmg](https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.2/AudioRouterNow.dmg)
+
 **Route macOS system audio to multiple audio interfaces simultaneously.**
 
 AudioRouterNow is a free, open-source macOS menu bar app that lets you send your system audio to any combination of output devices at the same time — no restarts, no Terminal, no external tools required.
@@ -79,12 +81,20 @@ macOS System Audio
 
 **Option A — Direct download**
 
-1. Download `AudioRouterNow.dmg` from [Releases](../../releases)
+1. Download [`AudioRouterNow.dmg` (v3.4.2)](https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.2/AudioRouterNow.dmg) from [Releases](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 2. Open the DMG and drag the app to Applications
 3. Launch the app — macOS will ask for your password once to install the audio driver
 4. `🎛️` appears in your menu bar — you're done
 
 No Terminal. No restart. No security approval.
+
+**Verify the download (optional)**
+
+```sh
+shasum -a 256 ~/Downloads/AudioRouterNow.dmg
+# Expected (v3.4.2):
+# a805adcf8cc8f3578180f0f520af7bd2f24d8d6885018519a2ceeec7e8fc6d3e
+```
 
 **Option B — Homebrew Cask (optional)**
 
