@@ -102,6 +102,12 @@ def save_config(config: AppConfig):
     Speichert die Konfiguration in ~/.audiorouter/config.json.
 
     Erstellt das Verzeichnis falls es nicht existiert.
+
+    Merge-Save: Liest zuerst die existierende Datei und erhält alle
+    unbekannten Felder (Forward-Compatibility). Bekannte Felder werden
+    mit dem aktuellen Wert überschrieben. So gehen Felder neuerer App-
+    Versionen (z.B. use_popover_menu) nicht verloren wenn eine ältere
+    Version die Config speichert.
     """
     # M9: Atomares Schreiben via Temp-Datei + rename().
     # rename() ist auf macOS/POSIX atomar (gleiche Partition) — ein Absturz
@@ -109,9 +115,19 @@ def save_config(config: AppConfig):
     # vollständige Datei, nie ein korrumpiertes Halb-JSON.
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        # Forward-Compat: Bestehende Felder lesen, um unbekannte zu erhalten.
+        existing: dict = {}
+        if CONFIG_FILE.exists():
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                existing = {}
+        # Merge: unbekannte Felder aus existing erhalten, bekannte überschreiben.
+        merged = {**existing, **config.to_dict()}
         tmp_path = CONFIG_FILE.with_suffix(".tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(config.to_dict(), f, indent=2, ensure_ascii=False)
+            json.dump(merged, f, indent=2, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
         tmp_path.replace(CONFIG_FILE)  # atomares rename (POSIX garantiert)
