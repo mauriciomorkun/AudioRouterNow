@@ -44,6 +44,10 @@ class AppConfig:
     # (0 = Ch 1-2, 2 = Ch 3-4, 4 = Ch 5-6, ...)
     # Mehrere Offsets = mehrere Kanal-Paare gleichzeitig aktiv
     output_device_offsets: Dict[str, List[int]] = field(default_factory=dict)
+    # NSPopover-Migration (Option B): Feature-Flag fuer den Popover-Modus.
+    # Default False → klassisches NSMenu (verhaltensidentisch zu v3.4.x).
+    # True → NSStackView-Popover, der nach Klicks geoeffnet bleibt.
+    use_popover_menu: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -67,6 +71,7 @@ class AppConfig:
             onboarding_done=bool(data.get("onboarding_done", False)),
             safe_take_mode=bool(data.get("safe_take_mode", False)),
             output_device_offsets=offsets,
+            use_popover_menu=bool(data.get("use_popover_menu", False)),
         )
 
 
