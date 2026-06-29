@@ -12,6 +12,13 @@ PROJECT_ROOT = Path(SPECPATH).parent
 ENGINE_DIR   = PROJECT_ROOT / "engine"
 DRIVER_BUILD = PROJECT_ROOT / "driver" / "build" / "AudioRouterNow.driver"
 
+# Single Source of Truth fuer die Versionsnummer: engine/version.py
+# Kein Hardcoding mehr — CFBundleVersion / CFBundleShortVersionString werden
+# direkt aus APP_VERSION abgeleitet, um Versions-Divergenz dauerhaft zu eliminieren.
+_version_ns = {}
+exec((ENGINE_DIR / "version.py").read_text(encoding="utf-8"), _version_ns)
+APP_VERSION = _version_ns["APP_VERSION"]
+
 # launchd plist (wird vom first_launch ggf. nach ~/Library/LaunchAgents/ kopiert)
 HELPER_PLIST = PROJECT_ROOT / "helper" / "com.audiorouter.now.helper.plist"
 
@@ -91,13 +98,13 @@ app = BUNDLE(
     name="AudioRouterNow.app",
     icon=str(Path(SPECPATH) / "AudioRouterNow.icns"),
     bundle_identifier="com.audiorouter.now",
-    version="3.4.0",
+    version=APP_VERSION,
     info_plist={
         "CFBundleName":               "AudioRouterNow",
         "CFBundleDisplayName":        "AudioRouterNow",
         "CFBundleIdentifier":         "com.audiorouter.now",
-        "CFBundleVersion":            "3.4.0",
-        "CFBundleShortVersionString": "3.4.0",
+        "CFBundleVersion":            APP_VERSION,
+        "CFBundleShortVersionString": APP_VERSION,
         "NSHighResolutionCapable":    True,
         "LSUIElement":                True,
         "NSHumanReadableCopyright":   "AudioRouterNow",
