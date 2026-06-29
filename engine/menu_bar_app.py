@@ -133,6 +133,8 @@ class AudioRouterApp(rumps.App):
         # Help-Untermenü (None als Separator — konsistent mit _build_menu)
         self._help_menu = rumps.MenuItem("Help")
         self._help_menu.update([
+            rumps.MenuItem("Status Guide", callback=self._show_status_guide),
+            None,
             rumps.MenuItem("What's running in the background…", callback=self._show_background_info),
             None,
             rumps.MenuItem("Open documentation", callback=self._open_documentation),
@@ -573,6 +575,64 @@ class AudioRouterApp(rumps.App):
 
     def _open_donation(self, sender):
         webbrowser.open(DONATION_URL)
+
+    def _show_status_guide(self, sender):
+        """Zeigt eine native NSAlert mit der Farb-Legende aller Icon-Zustände.
+
+        Bewusst NSAlert statt rumps.alert(): NSAlert erlaubt einen fett gesetzten
+        Titel (messageText) getrennt vom mehrzeiligen Erklärungstext
+        (informativeText) und bringt die App via activateIgnoringOtherApps_ über
+        alle anderen Fenster in den Fokus. Menü-Callbacks laufen bereits auf dem
+        Main-Thread; der NSThread-Guard stellt das defensiv sicher, da NSAlert
+        zwingend auf dem Main-Thread gezeigt werden muss.
+        """
+        informative_text = (
+            "🟢  Routing active\n"
+            "    Audio is routed and all selected devices are working.\n"
+            "\n"
+            "🟡  Warning\n"
+            "    • Ready — waiting for audio playback\n"
+            "    • Health degraded — output recovering\n"
+            "\n"
+            "🔴  Error — action required\n"
+            "    • Driver update required\n"
+            "    • No output device selected\n"
+            "    • Audio Router is not system default\n"
+            "    • Routing failed — no active outputs\n"
+            "    • Health critical — output stalled\n"
+            "\n"
+            "────────────────────────────\n"
+            "Tap the menu bar icon to see the current status detail."
+        )
+
+        def _show_on_main_thread():
+            try:
+                from AppKit import NSAlert, NSApp  # noqa: PLC0415 (lazy import)
+
+                alert = NSAlert.alloc().init()
+                alert.setMessageText_("AudioRouterNow — Status Guide")
+                alert.setInformativeText_(informative_text)
+                alert.setAlertStyle_(1)  # NSInformationalAlertStyle
+                alert.addButtonWithTitle_("OK")
+                if NSApp() is not None:
+                    NSApp().activateIgnoringOtherApps_(True)
+                alert.runModal()
+            except Exception as exc:  # noqa: BLE001 — Fallback auf rumps-Alert
+                logger.warning("NSAlert Status Guide failed, falling back: %s", exc)
+                rumps.alert(
+                    title="AudioRouterNow — Status Guide",
+                    message=informative_text,
+                    ok="OK",
+                )
+
+        from Foundation import NSThread  # noqa: PLC0415 (lazy import)
+
+        if NSThread.isMainThread():
+            _show_on_main_thread()
+        else:
+            import objc  # noqa: PLC0415 (lazy import)
+
+            objc.callOnMainThread(_show_on_main_thread)
 
     def _show_background_info(self, sender):
         """Zeigt einen Infodialog mit dynamischen System-/Routing-Daten."""
