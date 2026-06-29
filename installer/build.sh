@@ -538,9 +538,15 @@ else
 fi
 
 # --- Stapling ----------------------------------------------------------------
+# App zuerst stapeln → dann DMG (enthält bereits gestapelte App).
+# Robusterer Offline-Erststart: Gatekeeper findet Ticket lokal ohne Netz.
+log "Staple Notarization Ticket in .app..."
+xcrun stapler staple "$APP_PATH" || fail "Stapling der .app fehlgeschlagen"
+ok ".app Notarization Ticket gestapelt ✓"
+
 log "Staple Notarization Ticket in DMG..."
 xcrun stapler staple "$DMG_OUTPUT" || fail "Stapling fehlgeschlagen"
-ok "Notarization Ticket gestapelt ✓"
+ok "DMG Notarization Ticket gestapelt ✓"
 
 # --- Fertig ------------------------------------------------------------------
 echo ""
