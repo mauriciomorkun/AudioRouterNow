@@ -22,6 +22,7 @@ der App ist macOS 11.0 — beide garantiert verfuegbar.
 """
 
 import logging
+import time   # WARNING-3-Fix: Debounce-Zeitstempel fuer Transient-Dismiss-Guard
 
 import objc
 from AppKit import (
@@ -40,6 +41,7 @@ from AppKit import (
     NSMinYEdge,
     NSUserInterfaceLayoutOrientationVertical,
     NSLayoutAttributeLeading,
+    NSLeftTextAlignment,   # WARNING-1-Fix: linksbuendige Status-Button-Beschriftung
 )
 from Foundation import NSObject, NSMakeRect, NSMakeSize, NSThread
 
@@ -159,6 +161,24 @@ class _RowsController(NSViewController):
             box.setBoxType_(NSBoxSeparator)
             return box
 
+        # WARNING-1-Fix: Klickbare Status-Zeile. Wenn build_rows() der Status-Row
+        # einen callback (_status_action) gibt — d.h. action_key war
+        # restart_helper / reinstall_driver / switch_audio — darf sie NICHT als
+        # reines Label gerendert werden, sonst ist die Aktion im Popover-Modus
+        # unerreichbar. Borderloser NSButton (kein Checkbox-State, wirkt wie
+        # fetter Text) ueber dieselbe _Target/'fire:'-Bridge wie Item-Zeilen.
+        if r.kind == "status" and r.callback is not None and r.enabled:
+            btn = NSButton.alloc().init()           # Default: Momentary-Push, kein State
+            btn.setBordered_(False)                 # bezellos → reine Text-Optik
+            btn.setTitle_(r.title or "")
+            btn.setFont_(NSFont.boldSystemFontOfSize_(12.0))
+            btn.setAlignment_(NSLeftTextAlignment)  # linksbuendig wie der Stack
+            t = _Target.alloc().initWithCallback_(r.callback)
+            self._targets.append(t)                 # Strong-Ref halten (PyObjC-GC!)
+            btn.setTarget_(t)
+            btn.setAction_("fire:")
+            return btn
+
         if r.kind in ("header", "status"):
             tf = NSTextField.labelWithString_(r.title or "")
             size = 11.0 if r.kind == "header" else 12.0
@@ -198,6 +218,8 @@ class StatusPopover(NSObject):
         self._popover = NSPopover.alloc().init()
         self._popover.setBehavior_(NSPopoverBehaviorTransient)  # Outside-Click-Dismiss
         self._popover.setAnimates_(False)
+        self._popover.setDelegate_(self)        # WARNING-3-Fix: popoverDidClose_ empfangen
+        self._last_dismiss_ts = 0.0             # monotone Zeit des letzten Schliessens
 
         # rumps haelt das NSStatusItem auf der NSApp-Delegate-Instanz (_nsapp).
         # Verifiziert: rumps.py:1188 (_nsapp) + :1201 initializeStatusBar →
@@ -218,8 +240,23 @@ class StatusPopover(NSObject):
     def togglePopover_(self, sender):
         if self._popover.isShown():
             self._popover.performClose_(sender)
-        else:
-            self._present()
+            return
+        # WARNING-3-Fix (Flicker-Guard): Bei NSPopoverBehaviorTransient schliesst
+        # ein Klick auf den StatusItem-Button den offenen Popover bereits per
+        # Transient-Dismiss, BEVOR diese Action feuert — isShown() ist hier dann
+        # schon False. Ohne Guard fuehrt das zu Dismiss→sofortiges Reopen =
+        # Flicker. War der letzte Close gerade eben (derselbe Klick), nur
+        # geschlossen lassen. Echtes Wieder-Oeffnen liegt > Reaktionszeit
+        # entfernt und passiert das Fenster.
+        if (time.monotonic() - self._last_dismiss_ts) < 0.15:
+            return
+        self._present()
+
+    def popoverDidClose_(self, notification):
+        """NSPopoverDelegate: feuert bei JEDEM Schliessen (performClose_ UND
+        Transient-Dismiss). Liefert den Recency-Stempel fuer den Flicker-Guard
+        in togglePopover_."""
+        self._last_dismiss_ts = time.monotonic()
 
     def _build_vc(self):
         rows = self._py_app.build_rows()
