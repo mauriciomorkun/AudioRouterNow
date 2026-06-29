@@ -23,6 +23,7 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 - Menu bar icon stays green when audio routes fine despite an unavailable configured device — turns orange only when zero outputs are available (status text keeps the `(N unavailable)` counter)
 - Three NSPopover follow-up warnings resolved — status rows clickable inside the popover, status line updates live while the popover is open, and a 0.15 s flicker guard on icon toggle
 - Action items in NSPopover (Quit, Status Guide, docs, etc.) no longer render with spurious checkboxes — only toggle items (output devices, sample rate, safe mode) use checkbox style
+- Channel pairs for multi-channel devices are now always visible in the NSPopover, even when the device is inactive — sub-rows (Ch 1-2, Ch 3-4, …) appear greyed-out so users can discover channel selection before activating the device
 
 ### Changed
 - Version number is now single-sourced from `engine/version.py`
