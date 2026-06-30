@@ -960,7 +960,8 @@ class AudioRouterApp(rumps.App):
     def _uninstall(self, sender):
         if not first_launch._show_uninstall_confirm():
             return
-        # Helper und Routing stoppen
+        # Main-Thread NICHT blockieren: UI sofort in "Uninstalling"-Zustand,
+        # eigentliche Arbeit (sleep, osascript-Admin, killall) im Background.
         self._ui_timer.stop()
         # NSPopover-Migration: Popover sauber schliessen (falls aktiv).
         if getattr(self, "_status_popover", None) is not None:
@@ -977,18 +978,60 @@ class AudioRouterApp(rumps.App):
             self._helper.shutdown()
         except Exception:
             pass
-        # Uninstall ausführen
-        success, msg = first_launch.uninstall_all()
+
+        # Sichtbares Feedback ohne Blockieren.
+        try:
+            self.title = "Uninstalling…"
+        except Exception:
+            pass
+
+        # Ergebnis-Slot (GIL-atomare Zuweisung aus dem Worker reicht).
+        self._uninstall_result = None
+
+        def _worker():
+            try:
+                result = first_launch.uninstall_all()  # blockiert NUR diesen Thread
+            except Exception as exc:  # defensiv — Thread darf nie still sterben
+                result = (False, f"Unexpected error during uninstall:\n{exc}")
+            self._uninstall_result = result
+
+        threading.Thread(
+            target=_worker, name="arn-uninstall", daemon=True
+        ).start()
+
+        # Ergebnis im Main-Thread abholen (one-shot Poll-Timer, starke Ref).
+        self._uninstall_result_timer = rumps.Timer(self._uninstall_poll_result, 0.3)
+        self._uninstall_result_timer.start()
+
+    def _uninstall_poll_result(self, timer):
+        """Main-Thread-Callback: holt Ergebnis aus dem Uninstall-Worker-Thread."""
+        result = self._uninstall_result
+        if result is None:
+            return  # Worker noch nicht fertig — weiter pollen
+        timer.stop()
+        success, msg = result
         if success:
             rumps.alert(
                 title="AudioRouterNow Uninstalled",
-                message="All components removed.\n\nDrag AudioRouterNow.app to Trash to complete the uninstall.",
+                message="All components removed.\n\n"
+                        "Drag AudioRouterNow.app to Trash to complete the uninstall.",
                 ok="Done",
             )
             rumps.quit_application()
+            # Gürtel-und-Hosenträger: garantierter Exit, falls terminate_
+            # ausnahmsweise nicht durchgreift (Cleanup ist bereits erfolgt).
+            def _hard_exit():
+                time.sleep(3.0)
+                os._exit(0)
+            threading.Thread(target=_hard_exit, name="arn-hardexit", daemon=True).start()
         else:
+            # Abbruch/Fehler: UI zurück in Normalzustand.
+            try:
+                self.title = None  # rumps: None → nur Icon (Default-Zustand)
+            except Exception:
+                pass
             rumps.alert(title="Uninstall incomplete", message=msg, ok="OK")
-            self._ui_timer.start()  # Timer wieder starten falls abgebrochen
+            self._ui_timer.start()
 
     def _quit_app(self, sender):
         self._ui_timer.stop()
