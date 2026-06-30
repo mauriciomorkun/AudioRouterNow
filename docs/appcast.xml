@@ -17,6 +17,25 @@
          6. docs/appcast.xml committen + pushen (GitHub Pages publiziert automatisch)
     -->
     <item>
+      <title>Version 3.4.4</title>
+      <description><![CDATA[
+        <p><strong>Fixes audio routing to devices with non-ASCII characters in their internal ID.</strong></p>
+        <ul>
+          <li><strong>Devices with special-character IDs now route correctly.</strong> A few audio interfaces report an internal identifier containing non-Latin characters (for example, certain Pebble V3 units). On those devices routing could silently fail to engage. This is now fixed.</li>
+        </ul>
+        <p>No action required. Update normally.</p>
+      ]]></description>
+      <pubDate>Tue, 30 Jun 2026 19:14:44 +0000</pubDate>
+      <sparkle:version>3.4.4</sparkle:version>
+      <sparkle:shortVersionString>3.4.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.4</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.4/AudioRouterNow.dmg"
+                 sparkle:edSignature="qfivvTCG0I2B0HcPNFulR4BviQuqfmsBEGhyj/6KcRCLDYUqxadv0RH+GthKE1jTZL3nFFnR2xG+eGQ6F7vTAA=="
+                 length="13372432"
+                 type="application/octet-stream"/>
+    </item>
+    <item>
       <title>Version 3.4.3</title>
       <description><![CDATA[
         <p><strong>Persistent menu for everyone — and the uninstaller no longer freezes.</strong></p>
