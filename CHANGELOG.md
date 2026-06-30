@@ -9,6 +9,13 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
+## [3.4.4] — 2026-06-30
+
+### Fixed
+- Devices with non-ASCII characters in their CoreAudio UID (e.g. CJK characters from serial numbers) are now correctly routed — previously the helper received `\uXXXX` escape sequences instead of actual UTF-8 bytes, causing `find_device_by_uid()` to fail with "not found" despite the device being present and functional
+
+---
+
 ## [3.4.3] — 2026-06-30
 
 ### Fixed
