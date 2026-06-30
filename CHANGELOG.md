@@ -9,6 +9,17 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
+## [3.4.3] — 2026-06-30
+
+### Fixed
+- NSPopover is now the default menu for all users, including fresh installs — `use_popover_menu` default changed from `False` to `True`
+- Existing users who had the old NSMenu persisted in their config now automatically receive the NSPopover after updating — one-time migration via `popover_migrated` flag in `AppConfig`; fires once on first launch, immediately persisted to survive force-quit/crash; a manual revert to `use_popover_menu: false` is respected afterwards
+- Uninstaller no longer freezes the app for 30+ seconds — `uninstall_all()` now runs in a background thread with a polling timer; the UI stays responsive throughout
+- Reentrancy guard on the Uninstall menu item prevents double-trigger when the menu stays open (NSPopover)
+- App now reliably quits after a successful uninstall — `rumps.quit_application()` called from the main thread after the background worker completes
+
+---
+
 ## [3.4.2] — 2026-06-29
 
 ### Added
