@@ -82,6 +82,9 @@ collect_weekly.py
 # Insights-Tracker (Excel liegt in iCloud, Script bleibt lokal)
 tracking/
 
+# Feedback & Brainstorming (CASE-*, BRAINSTORM-* — lokal, nicht ins Repo)
+feedback/
+
 # Export-Ordner: Grosse Binaries ausschliessen (HTML-Quellen werden committed)
 export/*.gif
 export/*.zip

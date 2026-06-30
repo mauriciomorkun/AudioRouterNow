@@ -9,6 +9,35 @@ Each release contains **two sections**:
 
 ---
 
+## v3.4.3 — June 30, 2026
+
+### For Everyone
+
+**The persistent menu is now on by default — and the uninstaller no longer freezes.**
+
+This release makes the improved menu interface (which stays open while you work) the standard experience for all users, including those updating from an earlier version. It also fixes the uninstaller, which could freeze the app for 30+ seconds and sometimes fail to quit afterward.
+
+- **Persistent menu for everyone.** The menu that stays open while you select devices, change sample rates, or explore settings is now the default for all users — including those who had already installed an earlier version. No configuration needed.
+- **Uninstaller no longer freezes.** Clicking "Uninstall AudioRouterNow…" previously caused a long freeze (macOS spinning wheel, 30+ seconds) because the uninstall process ran on the app's main thread. It now runs in the background — the menu bar shows "Uninstalling…" and the app quits cleanly once done.
+- **Double-click protection on Uninstall.** Since the menu stays open, it was possible to accidentally trigger the uninstaller twice. This is now prevented.
+
+No action required. Update normally.
+
+### For Power Users
+
+| Fix | Component | Root Cause | Resolution |
+|-----|-----------|------------|------------|
+| **NSPopover as default** | `engine/config.py` | `use_popover_menu` defaulted to `False`; new installs always received the legacy NSMenu. | Default flipped to `True` in both the `AppConfig` dataclass field and `from_dict()`. |
+| **One-time migration** | `engine/config.py` | Existing users had `use_popover_menu: false` already persisted in `~/.audiorouter/config.json`; a default change alone wouldn't reach them. | `popover_migrated` flag added to `AppConfig` (default `True` for new installs; `False` sentinel for legacy configs). On first load of a pre-3.4.3 config (key absent → `data.get("popover_migrated", False)` = `False`), `from_dict()` forces `use_popover_menu=True` and sets `popover_migrated=True`. `load_config()` immediately persists via `save_config()` to survive force-quit/crash. After migration, a manual `use_popover_menu: false` is respected (no re-override). |
+| **Uninstall main-thread freeze** | `engine/menu_bar_app.py` | `_uninstall()` called `first_launch.uninstall_all()` synchronously on the main thread. `uninstall_all()` contains `time.sleep(2.0)` + `subprocess.run(osascript + killall coreaudiod, timeout=60)` — together ~30 s of main-thread blocking → macOS spinning wheel, `rumps.quit_application()` not reached reliably. | `_uninstall()` now starts a daemon worker thread (`arn-uninstall`) that runs `uninstall_all()`. A `rumps.Timer` (0.3 s interval) in `_uninstall_poll_result()` collects the result on the main thread and calls `quit_application()`. `os._exit(0)` added as a 3 s hard-exit fallback (triggered only if `terminate_()` somehow doesn't propagate). `killall coreaudiod` shell command is unchanged. |
+| **Reentrancy guard** | `engine/menu_bar_app.py` | NSPopover stays open after a click, making it possible to invoke `_uninstall()` a second time while the worker is already running — spawning a second thread and a second osascript admin prompt. | `self._uninstalling` flag checked at entry; set on entry, cleared on cancel/error in `_uninstall_poll_result()`. Success path quits the app, so no reset needed there. |
+
+**Audit:** All fixes passed dual Opus audit (`@root-cause-analyst` + `@validator`, parallel, both Opus) in a single iteration with zero critical and zero major issues. One cosmetic finding (`getattr` fallback) resolved in cleanup commit.
+
+**Commits:** `55bf7f0` (NSPopover default), `60331cd` (uninstall background thread), `6101587` (reentrancy guard + audit cleanup), `5d43f06` (one-time migration v3.4.3), `6689cfb` (getattr simplification)
+
+---
+
 ## v3.4.2 — June 29, 2026
 
 ### For Everyone
