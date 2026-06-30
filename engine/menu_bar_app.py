@@ -212,7 +212,7 @@ class AudioRouterApp(rumps.App):
         # existiert erst nach rumps' run() → initializeStatusBar). Starke Referenz
         # auf das Popover-Objekt verhindert PyObjC-GC-Crash (dieselbe Lehre wie
         # self._updater / self._media_key_monitor).
-        self._use_popover = bool(getattr(self._config, "use_popover_menu", True))
+        self._use_popover = bool(self._config.use_popover_menu)
         self._status_popover = None
         if self._use_popover:
             self._popover_install_timer = rumps.Timer(self._install_popover, 0.1)
