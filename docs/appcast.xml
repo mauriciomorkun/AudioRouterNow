@@ -17,6 +17,27 @@
          6. docs/appcast.xml committen + pushen (GitHub Pages publiziert automatisch)
     -->
     <item>
+      <title>Version 3.4.3</title>
+      <description><![CDATA[
+        <p><strong>Persistent menu for everyone — and the uninstaller no longer freezes.</strong></p>
+        <ul>
+          <li><strong>Persistent menu for everyone.</strong> The menu that stays open while you work is now the default for all users, including those updating from an earlier version.</li>
+          <li><strong>Uninstaller no longer freezes.</strong> The uninstall process now runs in the background — no more 30+ second spinning wheel.</li>
+          <li><strong>Double-click protection on Uninstall.</strong> Prevents accidentally triggering the uninstaller twice since the menu stays open.</li>
+        </ul>
+        <p>No action required. Update normally.</p>
+      ]]></description>
+      <pubDate>Tue, 30 Jun 2026 05:18:42 +0000</pubDate>
+      <sparkle:version>3.4.3</sparkle:version>
+      <sparkle:shortVersionString>3.4.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.3</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.3/AudioRouterNow.dmg"
+                 sparkle:edSignature="H9+Gw2bI5xZrkeuw07F1fhytFLH/Xw0vRTmS59G9kELnNMoKjZLzzCrTt8Qk6Tiz1M41NBADKJssoqdk9ojdCw=="
+                 length="13373197"
+                 type="application/octet-stream"/>
+    </item>
+    <item>
       <title>Version 3.4.2</title>
       <description><![CDATA[
         <p><strong>Audio reliability fixes plus a friendlier, more informative menu.</strong></p>
