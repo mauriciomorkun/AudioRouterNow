@@ -48,6 +48,12 @@ class AppConfig:
     # Default True → NSStackView-Popover (bleibt nach Klicks offen).
     # False → klassisches NSMenu (Fallback).
     use_popover_menu: bool = True
+    # One-Time-Migration v3.4.3: erzwingt NSPopover fuer Bestands-User, die noch
+    # den alten Default use_popover_menu=False gespeichert haben. Fehlt der Key in
+    # der Config (alle Versionen < 3.4.3), feuert die Migration einmalig in
+    # from_dict(). Danach bleibt der Key True und eine manuelle Rueckstellung auf
+    # use_popover_menu=False wird respektiert (kein erneutes Ueberschreiben).
+    popover_migrated: bool = True
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -62,6 +68,17 @@ class AppConfig:
                 offsets[k] = [int(x) for x in v]
             else:
                 offsets[k] = [int(v)]   # altes Single-Int-Format migrieren
+        # One-Time-Migration v3.4.3 (NSPopover-Zwang fuer Bestands-User):
+        # Get-Default fuer popover_migrated ist hier BEWUSST False (anders als der
+        # Dataclass-Default True). Fehlt der Key, ist es eine Alt-Config (< 3.4.3)
+        # → Migration feuert und erzwingt use_popover_menu=True. Idempotent:
+        # erneutes Ausfuehren setzt nur True. Ist der Key bereits True, wird eine
+        # manuelle use_popover_menu=False-Wahl respektiert.
+        popover_migrated = bool(data.get("popover_migrated", False))
+        use_popover_menu = bool(data.get("use_popover_menu", True))
+        if not popover_migrated:
+            use_popover_menu = True
+            popover_migrated = True
         return cls(
             output_device_names=data.get("output_device_names", []),
             sample_rate=int(data.get("sample_rate", 48000)),
@@ -71,7 +88,8 @@ class AppConfig:
             onboarding_done=bool(data.get("onboarding_done", False)),
             safe_take_mode=bool(data.get("safe_take_mode", False)),
             output_device_offsets=offsets,
-            use_popover_menu=bool(data.get("use_popover_menu", True)),
+            use_popover_menu=use_popover_menu,
+            popover_migrated=popover_migrated,
         )
 
 
@@ -91,6 +109,12 @@ def load_config() -> AppConfig:
             data = json.load(f)
         config = AppConfig.from_dict(data)
         logger.info(f"Konfiguration geladen: {config.output_device_names}")
+        # One-Time-Migration v3.4.3 SOFORT persistieren, damit der NSPopover-Zwang
+        # auch bei einem spaeteren Force-Quit/Crash erhalten bleibt — sonst feuerte
+        # die Migration bei jedem Start neu und ueberschriebe eine spaetere
+        # manuelle use_popover_menu=False-Wahl. Nur wenn der Key zuvor fehlte.
+        if "popover_migrated" not in data:
+            save_config(config)
         return config
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         logger.warning(f"Konfigurationsdatei konnte nicht gelesen werden: {e} — Standardwerte")
