@@ -448,7 +448,14 @@ class HelperClient:
     def _send_no_lock(self, payload: dict, timeout: Optional[float] = None) -> dict:
         connect_to = timeout if timeout is not None else CONNECT_TIMEOUT
         read_to = timeout if timeout is not None else READ_TIMEOUT
-        line = (json.dumps(payload) + "\n").encode("utf-8")
+        # ensure_ascii=False: send real UTF-8 bytes for non-ASCII UIDs (e.g. the
+        # Pebble V3, whose CoreAudio UID embeds CJK serial-number chars). Default
+        # ensure_ascii=True would escape them to literal \uXXXX, which the C
+        # helper's mini-parser (parse_outputs) copies verbatim and then fails to
+        # strcmp-match against the device's real UTF-8 UID ('Device ... nicht
+        # gefunden'). The helper response path already emits/consumes raw UTF-8,
+        # so this makes both directions symmetric. Newlines/quotes stay escaped.
+        line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(connect_to)
             s.connect(CONFIG_SOCKET)
