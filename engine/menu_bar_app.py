@@ -206,12 +206,13 @@ class AudioRouterApp(rumps.App):
         self._ui_timer.start()
 
         # NSPopover-Migration (Option B) — additiver Feature-Flag-Hybrid.
-        # Default False → klassisches NSMenu (verhaltensidentisch zu v3.4.x).
-        # Bei True wird nach Runloop-Start ein One-shot-Timer ausgeloest, der den
-        # NSPopover installiert (das StatusItem existiert erst nach rumps' run() →
-        # initializeStatusBar). Starke Referenz auf das Popover-Objekt verhindert
-        # PyObjC-GC-Crash (dieselbe Lehre wie self._updater / self._media_key_monitor).
-        self._use_popover = bool(getattr(self._config, "use_popover_menu", False))
+        # Default True → NSStackView-Popover (bleibt nach Klicks offen).
+        # Bei False → klassisches NSMenu (Fallback). Nach Runloop-Start wird ein
+        # One-shot-Timer ausgeloest, der den NSPopover installiert (das StatusItem
+        # existiert erst nach rumps' run() → initializeStatusBar). Starke Referenz
+        # auf das Popover-Objekt verhindert PyObjC-GC-Crash (dieselbe Lehre wie
+        # self._updater / self._media_key_monitor).
+        self._use_popover = bool(getattr(self._config, "use_popover_menu", True))
         self._status_popover = None
         if self._use_popover:
             self._popover_install_timer = rumps.Timer(self._install_popover, 0.1)
@@ -958,7 +959,12 @@ class AudioRouterApp(rumps.App):
         threading.Thread(target=_run, name="diagnostic-report", daemon=True).start()
 
     def _uninstall(self, sender):
+        # Reentrancy-Guard: NSPopover bleibt nach Klick offen → Doppelklick möglich.
+        if getattr(self, "_uninstalling", False):
+            return
+        self._uninstalling = True
         if not first_launch._show_uninstall_confirm():
+            self._uninstalling = False
             return
         # Main-Thread NICHT blockieren: UI sofort in "Uninstalling"-Zustand,
         # eigentliche Arbeit (sleep, osascript-Admin, killall) im Background.
@@ -1026,6 +1032,7 @@ class AudioRouterApp(rumps.App):
             threading.Thread(target=_hard_exit, name="arn-hardexit", daemon=True).start()
         else:
             # Abbruch/Fehler: UI zurück in Normalzustand.
+            self._uninstalling = False  # Reentrancy-Guard freigeben
             try:
                 self.title = None  # rumps: None → nur Icon (Default-Zustand)
             except Exception:
