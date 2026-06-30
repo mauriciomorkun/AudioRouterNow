@@ -9,6 +9,26 @@ Each release contains **two sections**:
 
 ---
 
+## v3.4.4 — June 30, 2026
+
+### For Everyone
+
+**Fixes audio routing to certain devices with special characters in their internal ID.**
+
+A small number of audio interfaces report an internal device identifier that contains non-Latin characters (for example, certain Pebble V3 units whose identifier embeds characters from their serial number). On those devices, AudioRouterNow could fail to start routing — the device was detected but never engaged. This release fixes that.
+
+No action required. Update normally.
+
+### For Power Users
+
+| Fix | Component | Root Cause | Resolution |
+|-----|-----------|------------|------------|
+| **Non-ASCII UID** | `engine/helper_client.py` (`_send_no_lock`) | `json.dumps(payload)` serialised non-ASCII UIDs as `\uXXXX` escapes (`ensure_ascii=True` default). The C helper's `parse_outputs` mini-parser copied these literally, so `find_device_by_uid()` could not `strcmp`-match against the device's real UTF-8 UID. | `json.dumps(payload, ensure_ascii=False)` — sends raw UTF-8 bytes. The helper response path already emits/consumes UTF-8, so both directions are now symmetric. |
+
+**Reported by:** bogdanw (MacRumors, CASE-001 Post #18). **Audit:** dual independent Opus audit, both PASS in round 1. **Commit:** `eb021d7`
+
+---
+
 ## v3.4.3 — June 30, 2026
 
 ### For Everyone
