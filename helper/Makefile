@@ -26,8 +26,10 @@ CFLAGS      := $(ARCHS) \
                -std=c11 \
                -I.
 
-# Zentrale Helper-Versionsnummer (Single Source of Truth fuer den C-Banner)
-CFLAGS += -DARN_HELPER_VERSION=\"3.4.0\"
+# Versionsnummer dynamisch aus engine/version.py lesen (einzige Quelle)
+ARN_VERSION := $(shell python3 -c "import re,sys; m=re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"',open('../engine/version.py').read()); print(m.group(1)) if m else sys.exit(1)" 2>/dev/null)
+$(if $(ARN_VERSION),,$(error ARN_VERSION konnte nicht aus ../engine/version.py gelesen werden))
+CFLAGS      += -DARN_HELPER_VERSION=\"$(ARN_VERSION)\"
 
 LDFLAGS     := $(ARCHS) \
                -framework CoreAudio \
