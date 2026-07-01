@@ -58,11 +58,16 @@ LDFLAGS     := $(ARCHS) \
                -framework CoreAudio \
                -framework CoreFoundation
 
+# Versionsnummer dynamisch aus engine/version.py lesen (einzige Quelle)
+ARN_VERSION := $(shell python3 -c "import re,sys; m=re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"',open('../engine/version.py').read()); print(m.group(1)) if m else sys.exit(1)" 2>/dev/null)
+$(if $(ARN_VERSION),,$(error ARN_VERSION konnte nicht aus ../engine/version.py gelesen werden))
+
 # Flags fuer Helper (Executable, kein dynamiclib, mit AudioToolbox)
 HELPER_CFLAGS := $(ARCHS) \
                  -mmacosx-version-min=11.0 \
                  -O2 -Wall -Wextra -std=c11 \
-                 -I$(HELPER_DIR)
+                 -I$(HELPER_DIR) \
+                 -DARN_HELPER_VERSION=\"$(ARN_VERSION)\"
 HELPER_LDFLAGS := $(ARCHS) \
                   -framework CoreAudio \
                   -framework AudioToolbox \
