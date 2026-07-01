@@ -11,9 +11,9 @@
 
 > **Latest release: [v3.4.4](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.4)** — [Download AudioRouterNow.dmg](https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.4/AudioRouterNow.dmg)
 
-**Route macOS system audio to multiple audio interfaces simultaneously.**
+**Play macOS system audio through every output at once — speakers, headphones, and interfaces together.**
 
-AudioRouterNow is a free, open-source macOS menu bar app that lets you send your system audio to any combination of output devices at the same time — no restarts, no Terminal, no external tools required.
+AudioRouterNow is a free, open-source macOS menu bar app. It sends one audio source to every output simultaneously. One click, your volume keys keep working, your setup survives reboots — no restarts, no Terminal, no external tools.
 
 > Built by [Mauricio Morkun](https://audiorouternow.mauriciomorkun.com) · Free forever · [Support via ☕](https://www.buymeacoffee.com/mauriciomorkun)
 
