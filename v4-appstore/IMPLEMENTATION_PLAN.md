@@ -316,3 +316,227 @@ AudioRouterNow v4.0 ist ein vollständiger Swift-Rewrite der bisherigen HAL-Plug
 6. **Phase 5:** HDMI-Display-Sleep-Testfall in Edge-Case-Matrix ergänzen. VM-Testplan definieren.
 7. **Phase 6:** Release-Runbook schreiben bevor die Phase beginnt. Zwei Channels = doppelte Checkliste, die nicht improvisiert werden kann.
 8. **Zeitplanung:** 11–13 Wochen ist die evidenzbasierte Schätzung. Puffer in Phase 3 und 6, nicht als Float am Ende.
+
+---
+
+## Issue-Resolutions (06.07.2026)
+
+*Analysiert via 3 parallele Fable-Agenten + Synthese*
+
+### Issue 1: Entitlement-Widerspruch — Confidence: hoch
+
+**Status:** Aufgelöst. PLAN.md Zeile 332 ist korrekt — die geplante Entitlement-Kombination ist durch Apples eigenes sandboxtes Sample-Projekt 1:1 belegt. Offener Punkt Zeile 467 ("spezielle Entitlements nötig?") kann abgehakt werden: Nein.
+
+**Root Cause:** Der scheinbare Widerspruch entsteht durch zwei getrennte, nirgends zusammenhängend dokumentierte Ebenen:
+1. **Sandbox-Ebene:** `com.apple.security.device.audio-input` gated JEDEN Audio-Capture-Pfad in der Sandbox — auch das Lesen vom Aggregate-Device mit Tap, nicht nur das Mikrofon.
+2. **TCC-Ebene:** Process Taps haben eine eigene, vom Mikrofon getrennte TCC-Kategorie ("System Audio Recording Only"); der Prompt-Text kommt aus `NSAudioCaptureUsageDescription` (Key fehlt im Xcode-Dropdown, manuell eintragen).
+
+Referenzen wie Rogue Amoeba/DGR Labs verwirren, weil deren Apps nicht sandboxed/MAS sind. Definitiver Beweis: Apples offizielles Sample `CapturingSystemAudioWithCoreAudioTaps` (Entitlements direkt geprüft) ist sandboxed mit exakt `app-sandbox=true` + `device.audio-input=true` + `NSAudioCaptureUsageDescription` — identisch mit insidegui/AudioCap. Es gibt kein spezifischeres Tap-Entitlement, kein Antragsverfahren, kein DriverKit.
+
+**Lösung:** Geplante Kombination beibehalten und präzisieren — minimale, maximal genehmigungsfähige Konfiguration:
+
+```xml
+<!-- AudioRouterNow.entitlements (vollständig — mehr ist NICHT nötig) -->
+<key>com.apple.security.app-sandbox</key><true/>
+<key>com.apple.security.device.audio-input</key><true/>
+
+<!-- Info.plist (manuell eintragen, nicht im Xcode-Dropdown!) -->
+<key>NSAudioCaptureUsageDescription</key>
+<string>AudioRouterNow benötigt Zugriff auf Systemaudio, um es an mehrere
+Ausgabegeräte weiterzuleiten. Es wird nichts aufgenommen oder gespeichert.</string>
+```
+
+Kritische MAS-Randbedingung (bisher nicht im Plan): Es gibt **keine public API** zum Abfragen/Anfordern der System-Audio-Permission. AudioCaps privater TCC-SPI-Pfad darf NICHT portiert werden (Guideline 2.5.1 → Rejection). Stattdessen: Prompt feuert automatisch beim ersten IO-Start auf dem Aggregate-Device mit Tap; Verweigert-Fall heuristisch erkennen (Tap liefert nur Silence) + Deep-Link `x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture`.
+
+**Konkrete Schritte (Phase 0/1):**
+- **0.1** — Entitlements-Datei mit exakt zwei Keys anlegen (keine Temporary Exceptions, kein DriverKit)
+- **0.2** — `NSAudioCaptureUsageDescription` manuell in Info.plist; Text betont Routing-only, keine Aufnahme
+- **0.3** — PLAN.md Zeile 264 korrigieren: Deployment-Target **14.4 statt 14.2** (vor 14.4 andere TCC-Kategorie, divergentes Prompt-Verhalten)
+- **0.4** — PLAN.md Zeile 369 korrigieren: Es existiert **keine** "Audio Capture"-Kategorie im Privacy Manifest. PrivacyInfo.xcprivacy wird wegen Required-Reason-APIs gebraucht (UserDefaults → Reason CA92.1); `NSPrivacyCollectedDataTypes` leer deklarieren
+- **0.5** — Signing von Anfang an mit stabiler Team-Identity (TCC-Record ist an Signing-Identity gekoppelt; unsignierte Builds → Silent Failure, Prompt feuert nie). Dev-Reset: `tccutil reset SystemAudioCaptureRequests <bundle-id>`
+- **Phase 1** — Permission-Flow ohne private TCC-API implementieren; Silence-Heuristik + Deep-Link (deckt Phase-5-"graceful degradation" ab)
+- **Phase 6** — Review-Notes: erklären, dass `device.audio-input` nur für den Tap-Pfad genutzt wird, kein Mikrofonzugriff, keine Aufzeichnung; Demo-Video beilegen
+
+**Swift-Sketch:**
+```swift
+// KEIN privater TCC-Check im MAS-Build (AudioCap-SPI-Pfad NICHT portieren):
+func startRouting() throws {
+    let tapDesc = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+    tapDesc.isPrivate = true; tapDesc.muteBehavior = .unmuted
+    var tapID = AudioObjectID(kAudioObjectUnknown)
+    try check(AudioHardwareCreateProcessTap(tapDesc, &tapID)) // TCC-Prompt feuert beim ersten IO-Start
+    // Aggregate mit kAudioAggregateDeviceTapListKey + kAudioAggregateDeviceIsPrivateKey=true
+    // Verweigert-Erkennung: N Callbacks lang nur Silence -> Hinweis + Deep-Link:
+    // x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture
+}
+```
+
+**Phase-Integration:** Schritte 0.1–0.5 ersetzen/präzisieren PLAN.md Zeilen 330–335 (Phase 0, Woche 1). Permission-Flow → Phase 1 (Zeile 340) und Phase 5 (Zeile 364). Privacy-Manifest-Korrektur → Phase 6 (Zeile 369).
+
+**Verbleibende Risiken:**
+- audio-input-Entitlement ohne sichtbare Mikrofonnutzung kann Reviewer-Rückfragen auslösen — via Review-Notes + Demo-Video mitigierbar; Restrisiko einer ersten Rejection bleibt
+- Silence-Heuristik nicht 100% deterministisch (echtes Silence vs. verweigerte Permission) — UX muss beide Fälle kommunizieren
+- DGR Labs meldet "CATap unter Sandbox fragil" — Phase-1-PoC muss Sandbox-Edge-Cases testen (Aggregate-Lifecycle, coreaudiod-Restart), bevor Phase 2 startet
+- tccutil-Service-Name `SystemAudioCaptureRequests` stammt aus Sekundärquelle — in Phase 0/1 lokal verifizieren
+- Wenig MAS-Precedent für reine Tap-Routing-Apps; künftiges TCC-Verhalten nicht garantiert
+
+**Quellen:**
+- [Apple: Capturing System Audio with Core Audio Taps](https://developer.apple.com/documentation/CoreAudio/capturing-system-audio-with-core-audio-taps)
+- [Apple Sample (Entitlements direkt verifiziert)](https://docs-assets.developer.apple.com/published/02fe64305fe7/CapturingSystemAudioWithCoreAudioTaps.zip)
+- [NSAudioCaptureUsageDescription](https://developer.apple.com/documentation/bundleresources/information-property-list/nsaudiocaptureusagedescription) · [device.audio-input Entitlement](https://developer.apple.com/documentation/BundleResources/Entitlements/com.apple.security.device.audio-input)
+- [insidegui/AudioCap](https://github.com/insidegui/AudioCap) + [Entitlements-Datei](https://raw.githubusercontent.com/insidegui/AudioCap/main/AudioCap/AudioCap.entitlements)
+- [DGR Labs: Capturing System Audio on macOS in 2026](https://dgrlabs.co/blog/2026-04-25-capturing-system-audio-on-macos-in-2026.html)
+- `v4-appstore/PLAN.md` Zeilen 264, 269, 330–335, 369, 467
+
+---
+
+### Issue 2: VM-Testplan — Confidence: hoch
+
+**Root Cause:** Kein einzelnes Setup deckt beide Distributionskanäle UND Audio-Hardware ab: App-Store/TestFlight-Login ist in VMs unmöglich, USB-/Bluetooth-Passthrough existiert für macOS-Guests auf Apple Silicon nicht, und Gatekeeper-Caches sind auf einer einmal benutzten Maschine nicht resetbar.
+
+**Lösung:** 4-Schichten-Kombination:
+1. **UTM-VM** (gratis, Apple-Virtualization-Backend) als primäres Clean-System für den Developer-ID-DMG-Kanal — Gatekeeper/Notarisierung/TCC/Onboarding/Locale zu 100% testbar; Golden-Image pro Testlauf klonen (Apple-DTS-Empfehlung). Zweite VM mit macOS 14.4 für die TCC-Versions-Matrix.
+2. **TestFlight auf Fremdgeräten** (bogdanw + 10–30 Beta-User) als einziger MAS-Kanal-Cleantest + Geräte-Diversität (CJK-UIDs/CASE-001).
+3. **Ein physischer Clean-Mac** (Kandidat: alter MacBook Pro mit frischem macOS >= 14.4) für die Audio-Hardware-Matrix (USB, BT, HDMI/Display-Sleep — geht in der VM nicht).
+4. **GitHub Actions** als automatisiertes Signatur-Gate pro Release-Build.
+
+**Verworfen:** Zweit-Nutzerkonto auf dem Dev-Mac — Gatekeeper-Caches und Dev-Zertifikate sind systemweit; taugt nur für Per-User-State-Regression, nicht als Clean-Test.
+
+**Konkrete Schritte (Phase 5/6):**
+- **Setup (1x, ~2h):** UTM + macOS-15-IPSW-VM, Locale Deutsch oder Japanisch (CASE-001), keine Dev-Tools, als `golden-clean-15.utm` archivieren; zweite Golden-VM mit 14.4. Pro Testlauf Golden-Image **kopieren**, nie das Original booten.
+- **CI-Gate (Phase 6, pro Release-Build):** `codesign --verify --deep --strict`, `spctl -a -t exec -vv` (erwarte: 'source=Notarized Developer ID'), `xcrun stapler validate` auf App UND Uninstaller-Helper.
+- **VM-Checkliste (pro Release Candidate):** [1] DMG via Safari von echter Release-URL laden (Quarantäne-Flag, nicht per Shared Folder) → [2] `xattr -p com.apple.quarantine` prüfen → [3] Install nach /Applications → [4] Erststart: Gatekeeper zeigt "Apple hat … geprüft", kein "beschädigt" → [5] TCC-Prompt genau einmal, Text korrekt → [6] Onboarding komplett Englisch trotz DE/JP-Locale (CASE-001) → [7] Routing aktiv, Ton hörbar → [8] Login-Item + Reboot: Persistenz intakt, kein zweiter TCC-Prompt → [9] TCC entziehen → saubere Degradation → [10] Uninstaller: eigener Gatekeeper-Check, rückstandsfreie Entfernung → [11] Gleiche Liste auf der 14.4-VM, Unterschiede dokumentieren → Mindestversion final bestätigen.
+- **Physischer Clean-Test (1x vor Submission):** Checkliste [1]–[10] plus Hardware-Matrix: USB-Hot-Plug während Wiedergabe, BT-Connect/Disconnect/Reconnect-Kaskade, USB+BT gleichzeitig (Drift/PI-Regler), HDMI + Display-Sleep (BenQ-Klasse), Default-Device-Wechsel.
+- **TestFlight-Beta (Phase 5):** Feedback-Formular fragt explizit macOS-Version, Geräteliste (`system_profiler SPAudioDataType`), Non-ASCII-Gerätenamen ja/nein; bogdanw gezielt um Erstinstallations-Flow-Beschreibung bitten.
+- **Runbook:** Checkliste als `v4-appstore/CLEAN_SYSTEM_TEST.md` ins Repo; VM-Checkliste grün = Blocker für notarytool-Submit, physischer Test grün = Blocker für App-Store-Submission.
+
+**Swift-Sketch:**
+```bash
+# Golden-Image-Workflow (UTM, Apple-Silicon-Host)
+cp -R ~/VMs/golden-clean-15.utm ~/VMs/testrun-$(date +%Y%m%d).utm  # nie das Original booten
+
+# CI-Signatur-Gate (GitHub Actions Schritt)
+codesign --verify --deep --strict --verbose=2 AudioRouterNow.app
+spctl -a -t exec -vv AudioRouterNow.app        # erwarte: 'source=Notarized Developer ID'
+xcrun stapler validate AudioRouterNow.app
+xcrun stapler validate Uninstaller.app          # eigenes Artefakt (Phase 4)!
+
+# In der VM: Quarantäne verifizieren (Safari-Download vorausgesetzt)
+xattr -p com.apple.quarantine ~/Downloads/AudioRouterNow.dmg
+```
+
+**Phase-Integration:** Kern in Phase 5 (Woche 9–10): VM-Setup + Checkliste + Versions-Matrix ergänzen den bestehenden Testpunkt "TCC-/Tap-Verhalten 14.2/14.3 vs. 14.4+". Physischer Clean-Test und CI-Signatur-Gate als Gate an den Anfang von Phase 6. Uninstaller-Clean-Test validiert rückwirkend den Phase-4-Punkt.
+
+**Verbleibende Risiken:**
+- Echter App-Store-Kauf-Install ist vor Live-Gang nirgends 1:1 testbar — TestFlight ist die beste Näherung; Restrisiko via Review-Notes + Rejection-Playbook (Phase 6)
+- Alter MacBook Pro unterstützt evtl. kein 14.4+ (Modell prüfen!) — Fallback: Bekannten-Mac oder frisches APFS-Volume auf dem Dev-Mac
+- CATapDescription gegen VirtIO-Audio kann von echter Hardware abweichen — VM validiert Signing/TCC/UX, **nicht** Audio-Korrektheit
+- Intel-Macs in der Beta-Population berücksichtigen, falls v4 Intel unterstützt (Apple-Silicon-VMs testen nur arm64)
+
+**Quellen:**
+- [Apple DTS/Quinn: Testing a Notarised Product](https://developer.apple.com/forums/thread/130560) · [Notarizing macOS Software](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)
+- [macOS-VMs auf Apple Silicon](https://developer.apple.com/documentation/Virtualization/running-macos-in-a-virtual-machine-on-apple-silicon) · [Eclectic Light: Apple-ID in VMs, kein App Store](https://eclecticlight.co/2024/07/12/sequoia-virtualisation-and-apple-id/)
+- [Parallels KB 128867](https://kb.parallels.com/en/128867) · [UTM #3778: kein USB-Passthrough](https://github.com/utmapp/UTM/issues/3778) · [VMware/Broadcom: BT-Sharing-Limits](https://knowledge.broadcom.com/external/article/311216/)
+- `v4-appstore/IMPLEMENTATION_PLAN.md` (Phase 4–6)
+
+---
+
+### Issue 3: HDMI-Display-Sleep — Confidence: hoch
+
+**Root Cause:** HDMI/DP-Audio ist eine Funktion des Grafiktreibers (AppleGFXHDA bzw. DCP auf Apple Silicon). Bei Display-Sleep schaltet macOS die Audio-Funktion des Ports stromlos, coreaudiod unpublisht das Device vollständig (anders als USB). Der laufende IOProc erhält **keinen** Error-Callback — Silent Drop. `AudioDeviceStop`/`DestroyIOProcID` auf der toten ID liefern `kAudioHardwareBadDeviceError` ('!dev' = 560227702), sind aber gefahrlos. Beim Wake erscheint das Device mit **neuer** AudioDeviceID (nur die UID ist stabil), gefolgt von EDID-Renegotiation mit SR-/Format-Flaps in den ersten Sekunden. Bekannter macOS-Bug: nach mehreren Sleep-Zyklen kommt das Device teils bis Reboot gar nicht zurück. Die BenQ-Dropouts aus v3 sind dieselbe Fehlerklasse.
+
+**Lösung:** UID-keyed **Desired-State-Reconciliation** mit per-Output-Zustandsmaschine — dieselbe Maschinerie wie für BT-Reconnect-Kaskaden (Phase 3), nur mit transportspezifischen Settle-Parametern (~90% Code-Identität):
+- v3-Teardown-Muster portieren (`helper/AudioRouterNowHelper.c:1735–1797`) + den in v3 fehlenden Auto-Re-Attach ergänzen
+- Idempotenter Diff Desired-vs-Live: jedes Event (Device-Liste, IsAlive, Watchdog, coreaudiod-Restart) triggert denselben `reconcile()`-Durchlauf auf serieller Queue
+- Fan-out-Isolation: pro Output eigener SPSC-Ring + eigener IOProc; Tap-Callback überspringt lost/settling-Branches non-blocking
+- Settle-Karenz quiescence-basiert: HDMI/DP T=3s, BT 2s, sonst 1s — Parameter via `kAudioDevicePropertyTransportType`
+
+Zustandsmaschine: `active → lost(since) → settling(deadline) → active` bzw. `failed(retryAt, attempts)` mit Backoff 1/2/4/8s. `tryAttach` löst die neue AudioDeviceID immer via `kAudioHardwarePropertyTranslateUIDToDevice` auf, liest SR/StreamFormat frisch.
+
+**Konkrete Schritte (Phase 2/3/4/5):**
+- **Phase 2:** OutputUnit-API idempotent/fehlertolerant — '!dev' (560227702) als erwarteten Pfad tolerieren; pro Output eigener SPSC-Ring, Tap-Callback überspringt inaktive Branches non-blocking
+- **Phase 3:** DeviceLifecycleManager mit UID-keyed Desired-State + `reconcile()` auf serieller Queue; Listener für `kAudioHardwarePropertyDevices`, `DeviceIsAlive` und `ServiceRestarted`; Callbacks enqueuen NUR (v3-Lektion H3, kein Re-Entry-Deadlock)
+- **Phase 3:** Quiescence-Settle statt fixem Timer (HDMI/DP 3s, BT 2s, sonst 1s)
+- **Phase 3:** Watchdog im 50ms-Regel-Thread — IOProc-Timestamp älter 1s bei nominell aktivem Output → lost → `reconcile()`; fängt Silent-Drop ohne Notification
+- **Phase 3:** `tryAttach` löst DeviceID neu auf, liest SR/Format frisch, entscheidet SRC-Bypass neu (EDID-Renegotiation nach Wake)
+- **Phase 4:** UI-Zustand "waiting for device" (Ampel gelb) für dauerhaft wegbleibendes HDMI; User-Selektion bleibt als Desired-State erhalten
+- **Phase 5:** Edge-Case-Testfall — Display-Sleep während Wiedergabe auf HDMI + 2 weiteren Outputs: andere Outputs glitch-frei (Underrun-Zähler == 0), HDMI spielt nach Wake innerhalb Settle+2s; plus 5x Sleep/Wake-Kaskade (BenQ-Muster)
+- **Phase 5 (optional):** opt-in NoDisplaySleep-IOPMAssertion während HDMI-Output aktiv, Default aus; als Beta-Feedback-Frage mitnehmen
+
+**Swift-Sketch:**
+```swift
+// AudioRouterKit: DeviceLifecycleManager (serielle Queue, KEINE Arbeit im CoreAudio-Callback)
+enum OutputState {
+  case active(OutputUnit)
+  case lost(since: Date)           // Device weg, DesiredOutput bleibt erhalten
+  case settling(deadline: Date)    // wieder da, Quiescence-Fenster läuft
+  case failed(retryAt: Date, attempts: Int)
+}
+
+final class DeviceLifecycleManager {
+  private let q = DispatchQueue(label: "arn.lifecycle")
+  private var desired: [DeviceUID: OutputConfig]  // User-Intent, persistiert
+  private var states:  [DeviceUID: OutputState]
+
+  func install() {
+    // v3-Lektion H3: Callback enqueued NUR, kein CoreAudio-Call, kein Lock
+    AudioObjectAddPropertyListenerBlock(systemObj, &devicesAddr, q) { _,_ in self.reconcile() }
+    AudioObjectAddPropertyListenerBlock(systemObj, &serviceRestartedAddr, q) { _,_ in self.rebuildAll() }
+  }
+
+  private func reconcile() {  // idempotent, von JEDEM Event getriggert
+    let live = Set(currentDeviceUIDs())
+    for (uid, cfg) in desired {
+      switch (states[uid], live.contains(uid)) {
+      case (.active(let unit), false):
+        teardown(unit); states[uid] = .lost(since: .now)
+      case (.lost, true), (.failed, true):
+        armSettle(uid, cfg)
+      case (.settling, false):
+        states[uid] = .lost(since: .now)
+      default: break
+      }
+    }
+  }
+
+  private func armSettle(_ uid: DeviceUID, _ cfg: OutputConfig) {
+    let t = settleInterval(uid)  // TransportType: HDMI/DP 3s, BT 2s, sonst 1s
+    states[uid] = .settling(deadline: .now + t)
+    q.asyncAfter(deadline: .now() + t) { self.tryAttach(uid, cfg) }
+  }
+
+  private func tryAttach(_ uid: DeviceUID, _ cfg: OutputConfig) {
+    guard case .settling(let dl) = states[uid], Date.now >= dl else { return }
+    guard let devID = translateUIDToDevice(uid), isAlive(devID) else {
+      states[uid] = .lost(since: .now); return
+    }
+    // NEUE AudioDeviceID! SR/Format frisch lesen, SRC-Bypass neu entscheiden
+    do {
+      let unit = try OutputUnit(devID, cfg, tapFormat)
+      unit.addIsAliveListener(q) { self.reconcile() }
+      try unit.start()
+      states[uid] = .active(unit)
+    } catch {
+      states[uid] = .failed(retryAt: .now + backoff, attempts: n+1)
+    }
+  }
+}
+// Watchdog (50ms-Regel-Thread): IOProc-Timestamp älter 1s bei aktivem Output -> reconcile()
+// Tap-Callback: schreibt non-blocking nur in Ringe von .active-Outputs
+```
+
+**Phase-Integration:** Kern in Phase 3 — "Settle-Karenz + idempotenter Graph-Rebuild" ist dort für BT bereits verankert (Zeile 106); HDMI wird als zweiter Transport-Parameter derselben Maschinerie mitimplementiert, **nicht** als separates Feature. Vorbereitung in Phase 2, Testfall + UI-Zustand in Phase 5 (Audit-Finding Zeile 281). Der Punkt wandert damit aus "Fehlende Überlegungen" (Zeile 303) in die reguläre Edge-Case-Matrix.
+
+**Verbleibende Risiken:**
+- Verhalten variiert pro GPU/Monitor: Device-Removal vs. IsAlive=0 vs. Zero-Buffers — Watchdog als drittes Erkennungsnetz zwingend; final nur über Beta-Geräte-Diversität verifizierbar
+- HDMI-UID kann sich bei Port-Wechsel/generischen EDIDs ändern — ggf. Fallback-Matching über Device-Namen als Phase-5-Erweiterung
+- macOS-Bug "Device kommt bis Reboot nicht zurück" ist app-seitig nicht heilbar — nur sauberer waiting-Zustand + FAQ-Eintrag
+- 3s-Settle ist Erfahrungswert, kein Apple-Wert — im 24h-Soak und Beta validieren, ggf. auf 5s erhöhen
+- Verhalten des Process Taps bei Display-Sleep (falls HDMI Default-Device war) ungetestet — im Phase-1-Prototyp explizit prüfen
+
+**Quellen:**
+- `helper/AudioRouterNowHelper.c` Zeilen 1735–1829 (devices_changed_listener, process_hotplug_removals, hotplug_register)
+- `v4-appstore/IMPLEMENTATION_PLAN.md` Zeilen 106, 148, 281, 296, 303
+- [kAudioDevicePropertyDeviceIsAlive](https://developer.apple.com/documentation/coreaudio/kaudiodevicepropertydeviceisalive) · [kAudioHardwarePropertyDevices](https://developer.apple.com/documentation/coreaudio/kaudiohardwarepropertydevices) · [AudioDeviceIOProc](https://developer.apple.com/documentation/coreaudio/audiodeviceioproc)
+- [BackgroundMusic #94](https://github.com/kyleneideck/BackgroundMusic/issues/94) (Destroy-Fehler 560227702) · [cubeb_audiounit.cpp](https://searchfox.org/mozilla-central/source/media/libcubeb/src/cubeb_audiounit.cpp) · [JUCE juce_mac_CoreAudio.cpp](https://codesearch.isocpp.org/actcd19/main/j/juce/juce_5.4.1+really5.4.1~repack-2/modules/juce_audio_devices/native/juce_mac_CoreAudio.cpp)
+- Apple Discussions [3466260](https://discussions.apple.com/thread/3466260), [8549367](https://discussions.apple.com/thread/8549367) · [MacRumors HDMI/DP-Audio-Fix-Thread](https://forums.macrumors.com/threads/hdmi-displayport-audio-fix.2147525/)
