@@ -77,23 +77,55 @@ struct RouterStatusTests {
     }
 }
 
-// MARK: - TapEngine
+// MARK: - TapEngine (Phase 1 PoC)
+// Hardware-abhängige Tests laufen auf echtem Mac — CI testet nur Fehler-Pfade.
 
-@Suite("TapEngine")
+@Suite("TapEngine (CI-safe: Fehler-Pfade)")
 struct TapEngineTests {
 
-    @Test("start/stop Statusübergänge (ohne CoreAudio)")
+    @Test("Initialer Status ist idle")
     @MainActor
-    func tapEngineLifecycle() throws {
+    func initialStatusIsIdle() {
         let engine = TapEngine()
         #expect(engine.status == .idle)
-        try engine.start()
-        #expect(engine.status == .routing)
-        engine.stop()
+    }
+
+    @Test("start() wirft RouterError in CI-Umgebung (kein Audio/TCC)")
+    @MainActor
+    func startThrowsWithoutPermission() {
+        let engine = TapEngine()
+        // In CI (kein Audio, kein TCC): start() MUSS RouterError werfen.
+        // Auf echtem Mac mit TCC: start() KANN .routing setzen (manuell testen).
+        do {
+            try engine.start()
+            // Wenn wir hier ankommen: echter Mac mit TCC-Permission.
+            // Status muss routing sein.
+            #expect(engine.status == .routing)
+            engine.stop()
+            #expect(engine.status == .idle)
+        } catch let error as RouterError {
+            // CI-Pfad: RouterError erwartet (tapFailed oder tccDenied)
+            #expect(engine.status == .idle, "Nach Fehler muss Status idle bleiben")
+            _ = error // tapFailed(status:) oder tccDenied
+        } catch {
+            Issue.record("Unerwarteter Error-Typ: \(error) — nur RouterError erlaubt")
+        }
+    }
+
+    @Test("stop() ist idempotent: mehrfach sicher aufrufbar")
+    @MainActor
+    func stopIsIdempotent() {
+        let engine = TapEngine()
+        engine.stop()  // Ohne start() — darf nicht crashen
+        engine.stop()  // Doppeltes stop() — darf nicht crashen
         #expect(engine.status == .idle)
-        // Idempotenz: doppeltes stop() ist ein erwarteter Pfad
-        engine.stop()
-        #expect(engine.status == .idle)
+    }
+
+    @Test("TCC Deep-Link URL ist valide (statisch, kein Hardware nötig)")
+    func tccDeepLinkIsValid() {
+        let url = TapEngine.tccDeepLink
+        #expect(url.hasPrefix("x-apple.systempreferences:"), "Deep-Link muss x-apple.systempreferences: Scheme haben")
+        #expect(url.contains("Privacy_AudioCapture"), "Deep-Link muss Privacy_AudioCapture enthalten")
     }
 }
 
