@@ -7,3 +7,8 @@ MARKETING_VERSION = 4.0.0
 CURRENT_PROJECT_VERSION = 1
 PRODUCT_BUNDLE_IDENTIFIER = com.mauriciomorkun.audiorouternow
 SWIFT_VERSION = 6.0
+
+// Signing — aus bestehendem Apple-Development-Zertifikat extrahiert.
+// Für MAS-Submission: Apple Distribution-Zertifikat wird in Phase 5 beantragt.
+// CI überschreibt Signing via CODE_SIGN_IDENTITY=- (Ad-hoc), daher kein Problem.
+DEVELOPMENT_TEAM = X2MDPHT93K
