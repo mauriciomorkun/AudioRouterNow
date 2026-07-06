@@ -1,0 +1,18 @@
+# AudioRouterNow v4 — .gitignore
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Xcode
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# xcodegen-Workflow: das generierte .xcodeproj wird NICHT committed —
+# project.yml ist die Single Source of Truth, CI führt `xcodegen generate`
+# aus (siehe .github/workflows/ci.yml).
+*.xcodeproj/
+
+# macOS
+.DS_Store

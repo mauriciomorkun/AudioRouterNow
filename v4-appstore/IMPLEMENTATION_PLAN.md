@@ -75,6 +75,13 @@ AudioRouterNow v4.0 ist ein vollständiger Swift-Rewrite der bisherigen HAL-Plug
 
 **Deliverable:** PROTOTYPE_RESULTS.md mit Testergebnissen + formaler Go/No-Go-Entscheid
 
+**Eingangskriterium für Phase 4 (UI-Verdrahtung):** Der Phase-0-Placeholder
+`TapEngine.start()` setzt `status = .routing` OHNE reale Arbeit (Fake-Erfolg,
+Audit-Befund 2026-07-06). Bevor die UI in Phase 4 gegen `RouterStatus`
+verdrahtet wird, MUSS dieser Fake-Übergang durch den echten Tap-Aufbau
+(CATapDescription + AudioHardwareCreateProcessTap + TCC-Preflight) ersetzt
+sein — sonst zeigt die UI "Routing aktiv" ohne Audio.
+
 ---
 
 #### Phase 2: Multi-Output Fan-out (Woche 3–4)

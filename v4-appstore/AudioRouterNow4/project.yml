@@ -1,0 +1,108 @@
+# AudioRouterNow v4.0 — xcodegen Projekt-Spec (xcodegen 2.45.x)
+# Generieren: xcodegen generate (im Verzeichnis AudioRouterNow4/)
+#
+# Architektur (IMPLEMENTATION_PLAN.md Phase 0):
+# - Sandboxtes Mac-App-Store-Target, Hardened Runtime, LSUIElement (Menu-Bar-App)
+# - Engine-Logik lebt im lokalen SPM-Package AudioRouterKit — testbar ohne
+#   UI-Bootstrap via: scripts/test.sh (setzt DEVELOPER_DIR auf volles Xcode;
+#   die CLT enthalten kein swift-testing)
+# - Versionierung (MARKETING_VERSION etc.) single-source in
+#   Configs/AudioRouterNow4.xcconfig — NICHT hier duplizieren.
+
+name: AudioRouterNow4
+
+options:
+  bundleIdPrefix: com.mauriciomorkun
+  deploymentTarget:
+    macOS: "14.4"
+  createIntermediateGroups: true
+
+configs:
+  Debug: debug
+  Release: release
+
+packages:
+  AudioRouterKit:
+    path: AudioRouterKit
+
+# SWIFT_VERSION lebt single-source in Configs/AudioRouterNow4.xcconfig —
+# NICHT hier duplizieren.
+# Deployment-Target lebt single-source in options.deploymentTarget.macOS
+# (xcodegen propagiert es an alle Targets) — NICHT pro Target oder als
+# MACOSX_DEPLOYMENT_TARGET duplizieren. Einzige unvermeidbare zweite
+# Quelle: AudioRouterKit/Package.swift (platforms), dort kommentiert.
+settings:
+  base:
+    SWIFT_STRICT_CONCURRENCY: complete
+
+targets:
+  AudioRouterNow4:
+    type: application
+    platform: macOS
+    sources:
+      - path: AudioRouterNow4
+    dependencies:
+      - package: AudioRouterKit
+        product: AudioRouterKit
+    settings:
+      base:
+        # SWIFT_STRICT_CONCURRENCY: settings.base propagiert es bereits —
+        # hier nicht duplizieren (Single-Source-Doktrin, Minor-Audit-Fix 06.07.2026).
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_ENTITLEMENTS: AudioRouterNow4/AudioRouterNow4.entitlements
+        INFOPLIST_FILE: AudioRouterNow4/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        # LSUIElement / LSApplicationCategoryType sind Info.plist-Keys,
+        # keine Build-Settings — Quelle ist ausschliesslich Info.plist.
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        # AppIcon-Set existiert als Platzhalter (Assets.xcassets) — echte
+        # Icon-Grafiken (inkl. 1024x1024) sind Phase-4-Task vor TestFlight.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    configFiles:
+      Debug: Configs/AudioRouterNow4.xcconfig
+      Release: Configs/AudioRouterNow4.xcconfig
+
+  # Unit-Test-Bundle für AudioRouterKit innerhalb des Xcode-Projekts.
+  # Identische Tests laufen headless via: scripts/test.sh
+  # (setzt DEVELOPER_DIR auf Xcode.app — nackter swift-test schlägt mit CLT fehl)
+  AudioRouterKitTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: AudioRouterKit/Tests/AudioRouterKitTests
+    dependencies:
+      - package: AudioRouterKit
+        product: AudioRouterKit
+    settings:
+      base:
+        # SWIFT_STRICT_CONCURRENCY: settings.base propagiert es bereits —
+        # hier nicht duplizieren (Single-Source-Doktrin, Minor-Audit-Fix 06.07.2026).
+        # Überschreibt die Bundle-ID aus der xcconfig — das Test-Bundle
+        # darf nicht dieselbe ID wie die App tragen.
+        PRODUCT_BUNDLE_IDENTIFIER: com.mauriciomorkun.audiorouternow.tests
+        # Nur target-scoped: Das Test-Bundle braucht ein generiertes
+        # Info.plist (sonst bricht `xcodebuild test` beim Code-Signing).
+        # Das App-Target bleibt bewusst bei GENERATE_INFOPLIST_FILE=NO.
+        GENERATE_INFOPLIST_FILE: YES
+    configFiles:
+      Debug: Configs/AudioRouterNow4.xcconfig
+      Release: Configs/AudioRouterNow4.xcconfig
+
+schemes:
+  AudioRouterNow4:
+    build:
+      targets:
+        AudioRouterNow4: all
+        AudioRouterKitTests: [test]
+    test:
+      config: Debug
+      # Coverage-Basis für Qualitäts-Audits (SPM-Pfad analog:
+      # swift test --enable-code-coverage). Kein coverageTargets-Filter —
+      # der Kit-Code wird über das Test-Bundle miterfasst.
+      gatherCoverageData: true
+      targets:
+        - AudioRouterKitTests
+    run:
+      config: Debug
+    archive:
+      config: Release

@@ -1,0 +1,9 @@
+// AudioRouterNow4.xcconfig
+// Single Source of Truth für Versionierung (Lehre aus v3.4.2:
+// MARKETING_VERSION nie an mehreren Stellen pflegen).
+// Wird via project.yml als configFile für Debug UND Release eingebunden.
+
+MARKETING_VERSION = 4.0.0
+CURRENT_PROJECT_VERSION = 1
+PRODUCT_BUNDLE_IDENTIFIER = com.mauriciomorkun.audiorouternow
+SWIFT_VERSION = 6.0
