@@ -9,7 +9,7 @@ on:
 jobs:
   swift-test:
     name: swift-test
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,14 +17,14 @@ jobs:
       - name: Select Xcode (Swift 6 / swift-testing)
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.4'
+          xcode-version: '16'
 
       - name: Run AudioRouterKit tests
         run: swift test --package-path AudioRouterKit
 
   xcode-build-test:
     name: xcode-build-test
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
       - name: Select Xcode (Swift 6 / swift-testing)
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.4'
+          xcode-version: '16'
 
       - name: Install xcodegen
         run: brew install xcodegen
