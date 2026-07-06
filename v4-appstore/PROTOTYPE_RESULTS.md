@@ -5,6 +5,14 @@
 **Hardware:** [ausfüllen: Mac + angeschlossene Geräte]
 **macOS Version:** [ausfüllen]
 
+> **Phase-1-Kontext:** Der aktuelle IOProc *zählt* Frames und erkennt Silence.
+> Er routet Audio noch NICHT zu mehreren Zielen (kein Fan-out — das ist Phase 2).
+> **Was "Go" bedeutet für Blöcke 2+3:** Der Tap capturt Audio vom System
+> (Silence-Heuristik schlägt NICHT an = TCC erteilt, Audio fließt). Hörbares
+> Routing auf mehreren Geräten gleichzeitig kommt erst in Phase 2.
+> **AirPlay-Test (Block 3.5):** Frühes Testen trotz fehlendem Fan-out wichtig —
+> prüfen ob AirPlay als AudioDeviceID überhaupt erreichbar ist.
+
 ## Go/No-Go Kriterien (aus IMPLEMENTATION_PLAN.md)
 
 Ein einziges "FAIL" in den Kern-Tests = No-Go → Phase 1 Architektur überdenken.
@@ -66,7 +74,7 @@ Mindestens 3 gleichzeitige Outputs testen:
 | # | Test | Ergebnis | Notizen |
 |---|---|---|---|
 | 4.1 | SR-Wechsel des Default-Geräts während laufendem Tap: kein Crash | ☐ PASS / ☐ FAIL | |
-| 4.2 | Property-Listener greift bei SR-Wechsel (Log-Eintrag vorhanden) | ☐ PASS / ☐ FAIL | |
+| 4.2 | Property-Listener greift bei SR-Wechsel (Log-Eintrag vorhanden) | ☐ N/A (Phase 3) | Phase 3 — im Phase-1-Code kein Listener, N/A |
 | 4.3 | coreaudiod-Restart (sudo killall coreaudiod): Recovery innerhalb 5s | ☐ PASS / ☐ FAIL | |
 
 ---
@@ -85,6 +93,7 @@ Mindestens 3 gleichzeitige Outputs testen:
 
 **Kern-Kriterien (alle müssen PASS sein für Go):**
 - [ ] Block 2: Apple Music Streaming + Downloads routbar
+- [ ] Block 2: Apple Music Lossless (192kHz) routbar (oder SR-Fehler sauber dokumentiert)
 - [ ] Block 2: Kein Selbst-Aufnahme-Loop
 - [ ] Block 1: TCC-Prompt feuert korrekt, Permission wird persistiert
 - [ ] Block 3: ≥3 gleichzeitige Outputs, 1h stabil (Underruns akzeptiert)

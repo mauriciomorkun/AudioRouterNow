@@ -4,6 +4,42 @@
 
 ---
 
+## Implementierungsstatus
+
+| Phase | Status | Datum | Audit | Commit |
+|---|---|---|---|---|
+| Phase 0: Projekt-Setup | ✅ Abgeschlossen | 06.07.2026 | Dual-Fable PASS (Iter 2/3) | `8543785` |
+| Phase 1: Process Tap PoC | ✅ Code fertig | 06.07.2026 | Dual-Fable PASS (Iter 1/3) | `5b4e9e5` |
+| Phase 1: Go/No-Go Entscheid | ⏳ Manuelle Tests ausstehend | — | — | — |
+| Phase 2: Multi-Output Fan-out | ⏳ Wartet auf Go/No-Go | — | — | — |
+| Phase 3: PI-Regler + Clock-Drift | ⏳ Wartet auf Phase 2 | — | — | — |
+| Phase 4: Menu Bar UI | ⏳ Wartet auf Phase 3 | — | — | — |
+| Phase 5: Robustheit + Beta | ⏳ Wartet auf Phase 4 | — | — | — |
+| Phase 6: App Store Submission | ⏳ Wartet auf Phase 5 | — | — | — |
+
+### Phase-1-Implementierungsdetails (06.07.2026)
+
+**Implementierte API-Sequenz:**
+1. `CATapDescription(stereoGlobalTapButExcludeProcesses: [])` — global, `.unmuted`, `isPrivate = true`
+2. `AudioHardwareCreateProcessTap` → `tapID` — kein TCC-Prompt hier
+3. `AudioHardwareCreateAggregateDevice` — privat, Default-Output als Sub-Device, Tap via `kAudioAggregateDeviceTapListKey`
+4. `AudioDeviceCreateIOProcIDWithBlock` — allokationsfrei, Silence-Heuristik (200 Callbacks ≈ 2,1s), kein MainActor-Capture
+5. `AudioDeviceStart` — **TCC-Prompt feuert hier**
+6. Teardown invers + idempotent (AudioCap-konform)
+
+**Offene Phase-2-Schulden (kein Blocker für Go/No-Go):**
+- `start()` async erforderlich (blockiert derzeit Main-Thread ~3 Min bei TCC/HAL-Hang)
+- Env-Gate `ARN_HW_TESTS=1` für Hardware-Tests in CI
+- Property-Listener für SR-/Device-Wechsel (Test 4.2 — Phase 3)
+
+**Technische Entscheidungen Phase 1:**
+- Silence-Heuristik statt privater TCC-SPI (MAS-konform, Guideline 2.5.1)
+- `TapIOMetrics` als `Sendable`-Box für Realtime-Pfad (Swift 6 konform)
+- `tccDeepLink` als `nonisolated static` (kein MainActor nötig)
+- 20/20 Tests grün, CI-safe (fangen RouterError ohne Hardware)
+
+---
+
 ## Vergleich: Agent A vs Agent B
 
 Beide Agents haben unabhängig voneinander denselben Befund produziert: Die PLAN.md-Schätzung von ~10 Wochen Teilzeit unterschlägt zwei kritische Arbeitspakete, die in v3 bereits Probleme verursacht haben — die Latenz-Kompensation als eigenes Arbeitspaket (v3 ist daran einmal gescheitert) und den Uninstaller-Helper als separates Signing-/Notarisierungs-Artefakt. Beide Agents korrigieren auf 11–13 Wochen Teilzeit, aus denselben Gründen, unabhängig voneinander. Das ist ein starkes konvergentes Signal.
