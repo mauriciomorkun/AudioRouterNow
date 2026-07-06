@@ -83,8 +83,18 @@ final class TapIOMetrics: @unchecked Sendable {
 
 // MARK: - TapEngine
 
-/// Der System-Audio-Tap: erfasst den globalen Audio-Output-Stream und speist
-/// ihn (ab Phase 2) in die Fan-out-Pipeline.
+/// Der System-Audio-Tap: erfasst den globalen Audio-Output-Stream via
+/// `CATapDescription` + `AudioHardwareCreateProcessTap` und speist ihn
+/// (ab Phase 2) in die Fan-out-Pipeline.
+///
+/// **Phase-1-PoC-Natur:** Diese Klasse ist bewusster Wegwerf-Code. Sie beweist
+/// den Tap-Mechanismus und die TCC-Permission-Flow, enthält aber noch keinen
+/// Fan-out. In Phase 2 wird `TapEngine` komplett durch eine produktionsreife
+/// Engine mit SPSC-Ring-Buffern pro Ziel-Device ersetzt.
+///
+/// **Phase-2-TODO:** Fan-out via SPSC-Ring-Buffer — für jedes Ziel-Device
+/// einen lock-freien Ring allozieren; der IOProc-Callback schreibt Frames
+/// non-blocking in alle Ringe statt nur die Silence-Heuristik zu bedienen.
 ///
 /// `@MainActor`, weil Start/Stop und Statusabfragen vom UI-/Kontroll-Pfad
 /// kommen. Der Realtime-Pfad (IOProc-Callback) läuft NICHT auf dem MainActor;
@@ -103,7 +113,19 @@ public final class TapEngine {
     public static let silenceHeuristicThreshold = 200
 
     /// Deep-Link zu Systemeinstellungen → Datenschutz → System-Audio-Aufnahme.
-    /// ⚠️ Auf 14.4 + aktuellem macOS verifizieren (Plan warnt vor Versionsdrift).
+    ///
+    /// Zweck: Den User direkt zur richtigen Einstellungsseite führen, wenn
+    /// ``isSuspectedTCCDenied`` `true` ist — da es keine öffentliche API gibt,
+    /// die Permission programmatisch anzufordern (Guideline 2.5.1). Der Link
+    /// ist der einzige MAS-konforme Weg, den User zur Berechtigungs-Erteilung
+    /// zu leiten.
+    ///
+    /// Wann verwenden: In der Fehlerbehandlung nach ``start()``, wenn
+    /// `isSuspectedTCCDenied` nach ca. 2 Sekunden noch `true` ist. In Phase 4
+    /// öffnet die Menu-Bar-UI diesen Link via `NSWorkspace.shared.open(_:)`.
+    ///
+    /// ⚠️ URL auf 14.4 + aktuellem macOS verifizieren (Plan warnt vor
+    /// Versionsdrift zwischen macOS-Releases).
     public nonisolated static let tccDeepLink =
         "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture"
 
@@ -162,9 +184,15 @@ public final class TapEngine {
     /// In CI/headless WIRD dieser Pfad scheitern oder nur Silence liefern —
     /// das ist korrektes, erwartetes Verhalten (kein Crash-Pfad, nur OSStatus).
     ///
-    /// - Throws: ``RouterError``, wenn der Tap nicht aufgebaut werden kann.
-    ///   Bei jedem Fehler nach Tap-Erstellung werden bereits erstellte
-    ///   Ressourcen in Teardown-Reihenfolge rückabgewickelt.
+    /// - Throws: ``RouterError/tapFailed(status:)``, wenn `AudioHardwareCreateProcessTap`,
+    ///   `AudioHardwareCreateAggregateDevice`, `AudioDeviceCreateIOProcIDWithBlock`
+    ///   oder `AudioDeviceStart` einen Fehler-OSStatus liefert.
+    ///   ``RouterError/deviceNotFound(uid:)`` wenn das Default-Output-Device
+    ///   nicht lesbar ist. Bei jedem Fehler nach Tap-Erstellung werden bereits
+    ///   erstellte Ressourcen in Teardown-Reihenfolge rückabgewickelt.
+    ///
+    /// - Note: TCC-Denied führt meist zu `noErr` + Silence, NICHT zu einem
+    ///   Throw. Den Denied-Fall über ``isSuspectedTCCDenied`` abfragen.
     public func start() throws {
         // Nur aus .idle starten — doppeltes start() ist ein No-Op.
         guard status == .idle else { return }
