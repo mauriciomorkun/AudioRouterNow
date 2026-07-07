@@ -32,6 +32,12 @@
 - Env-Gate `ARN_HW_TESTS=1` für Hardware-Tests in CI
 - Property-Listener für SR-/Device-Wechsel (Test 4.2 — Phase 3)
 
+**Root Cause IOProc Crash (behoben 07.07.2026):**
+- **Symptom:** `EXC_BREAKPOINT` auf `com.apple.audio.IOThread.client` sofort nach `AudioDeviceStart` — Stack: `HALC_ProxyIOContext::IOWorkLoop` → IOProc-Closure → `swift_task_checkIsolatedSwift` → `dispatch_assert_queue` → `_dispatch_assert_queue_fail`.
+- **Ursache:** Der IOProc-Block war INLINE in `TapEngine.start()` definiert. `TapEngine` ist `@MainActor`, `start()` damit implizit auch — und eine in einer `@MainActor`-Methode definierte Closure ERBT diese Isolation, selbst wenn sie `self` nicht captured und nur Sendable-Werte berührt. Swift Concurrency emittiert dann bei jeder Invokation einen `swift_task_checkIsolatedSwift`-Runtime-Check. CoreAudio ruft den IOProc aber auf seinem Realtime-Thread auf (nicht Main Queue) → Assert schlägt fehl → Crash. Die Sandbox war NICHT die Ursache (gleicher Crash mit `app-sandbox = false` verifiziert).
+- **Fix:** `private nonisolated static func makeIOBlock(metrics:)` in `TapEngine` — die Factory erstellt den Block außerhalb jeder Actor-Isolation, dadurch kein Concurrency-Check auf dem RT-Thread. Ausführliche Root-Cause-Doku als Kommentar direkt an der Methode.
+- **⚠️ Warnung für Phase 2+ (Pflichtregel):** ALLE Callbacks/Closures, die auf Realtime-/CoreAudio-Threads laufen (IOProcs, `AudioObjectAddPropertyListenerBlock`, Fan-out-Callbacks), MÜSSEN in einem `nonisolated`-Kontext erstellt werden — niemals inline in `@MainActor`-Methoden. Betrifft insbesondere die Phase-2-Fan-out-IOProcs pro Ziel-Device und die Phase-3-Property-Listener.
+
 **Technische Entscheidungen Phase 1:**
 - Silence-Heuristik statt privater TCC-SPI (MAS-konform, Guideline 2.5.1)
 - `TapIOMetrics` als `Sendable`-Box für Realtime-Pfad (Swift 6 konform)
