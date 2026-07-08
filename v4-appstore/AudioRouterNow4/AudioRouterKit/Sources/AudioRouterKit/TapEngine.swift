@@ -39,47 +39,8 @@ import CoreAudio
 import Foundation
 import os
 
-// MARK: - IO-Metriken (Realtime-Pfad ↔ MainActor-Brücke)
-
-/// Zähler, die der Realtime-IOProc beschreibt und der MainActor liest.
-///
-/// PoC-Kompromiss: `OSAllocatedUnfairLock` statt lock-freier Atomics.
-/// Ein unfair lock im Realtime-Callback ist für den Phase-1-PoC akzeptabel
-/// (nur zwei Int-Inkremente, MainActor pollt selten), MUSS aber in Phase 2
-/// durch den lock-freien ``SPSCRingBuffer``-Pfad + swift-atomics ersetzt
-/// werden (v3-Lektion: keine Locks im 50ms-Regel-Pfad).
-final class TapIOMetrics: @unchecked Sendable {
-
-    private struct State {
-        var totalCallbacks: Int = 0
-        var consecutiveSilentCallbacks: Int = 0
-        var hasReceivedAudio: Bool = false
-    }
-
-    private let state = OSAllocatedUnfairLock(initialState: State())
-
-    /// Wird aus dem IOProc-Callback aufgerufen (NICHT MainActor).
-    /// Kein throw, kein Allocation-lastiger Pfad — nur zählen.
-    func record(callbackWasSilent: Bool) {
-        state.withLock { s in
-            s.totalCallbacks += 1
-            if callbackWasSilent {
-                s.consecutiveSilentCallbacks += 1
-            } else {
-                s.consecutiveSilentCallbacks = 0
-                s.hasReceivedAudio = true
-            }
-        }
-    }
-
-    func reset() {
-        state.withLock { $0 = State() }
-    }
-
-    var totalCallbacks: Int { state.withLock { $0.totalCallbacks } }
-    var consecutiveSilentCallbacks: Int { state.withLock { $0.consecutiveSilentCallbacks } }
-    var hasReceivedAudio: Bool { state.withLock { $0.hasReceivedAudio } }
-}
+// TapIOMetrics ist in Phase 2 nach AudioMetrics.swift ausgelagert —
+// TapEngine (Deprecated, Phase 1) UND FanOutEngine nutzen dieselbe Box.
 
 // MARK: - TapEngine
 
@@ -146,11 +107,10 @@ public final class TapEngine {
     /// Realtime-sichere Zähler-Brücke (siehe ``TapIOMetrics``).
     private let metrics = TapIOMetrics()
 
-    /// Dispatch-Queue für den IOProc-Callback (CoreAudio ruft den Block hier).
-    private let ioQueue = DispatchQueue(
-        label: "com.mauriciomorkun.audiorouternow.tap-io",
-        qos: .userInteractive
-    )
+    // ioQueue entfernt (Fix 07.07.2026): AudioDeviceCreateIOProcIDWithBlock mit
+    // eigener Queue löste `_dispatch_assert_queue_fail` in CoreAudio aus.
+    // CoreAudio erwartet dass der IOProc auf seinem eigenen
+    // com.apple.audio.IOThread.client läuft — nil übergeben, nicht custom Queue.
 
     /// Anzahl aufeinanderfolgender Silence-Callbacks seit dem letzten
     /// Nicht-Silence-Callback (für die TCC-Heuristik).
@@ -166,6 +126,12 @@ public final class TapEngine {
         !metrics.hasReceivedAudio
             && metrics.consecutiveSilentCallbacks >= Self.silenceHeuristicThreshold
     }
+
+    /// Gesamtzahl der IOProc-Callbacks seit Start (für Test-UI-Polling).
+    public var totalCallbacks: Int { metrics.totalCallbacks }
+
+    /// `true`, wenn der IOProc mindestens ein nicht-stilles Frame empfangen hat.
+    public var hasReceivedAudio: Bool { metrics.hasReceivedAudio }
 
     /// Erstellt eine noch nicht gestartete Engine.
     public init() {}
@@ -280,27 +246,15 @@ public final class TapEngine {
         // MainActor-Berührung, keine Allocations im Callback.
         // TODO(Phase 2): Fan-out — Frames aus inInputData lock-frei in je
         //                einen SPSCRingBuffer pro Ziel-Device schreiben.
-        let ioMetrics = metrics // Sendable-Box capturen, NICHT self (@MainActor)
+        //
+        // ⚠️ Der Block MUSS über die nonisolated static Factory erstellt
+        // werden — NIEMALS inline hier definieren (Root Cause siehe
+        // makeIOBlock, Fix 07.07.2026).
         var newProcID: AudioDeviceIOProcID?
-        err = AudioDeviceCreateIOProcIDWithBlock(&newProcID, aggregateDeviceID, ioQueue) {
-            _, inInputData, _, _, _ in
-            // Silence-Check: alle Input-Buffer als Float32 scannen,
-            // Early-Exit beim ersten Nicht-Null-Sample.
-            var isSilent = true
-            let bufferList = UnsafeMutableAudioBufferListPointer(
-                UnsafeMutablePointer(mutating: inInputData)
-            )
-            outer: for buffer in bufferList {
-                guard let data = buffer.mData else { continue }
-                let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size
-                let samples = data.assumingMemoryBound(to: Float32.self)
-                for i in 0..<sampleCount where samples[i] != 0 {
-                    isSilent = false
-                    break outer
-                }
-            }
-            ioMetrics.record(callbackWasSilent: isSilent)
-        }
+        // nil = CoreAudio-eigener com.apple.audio.IOThread.client.
+        // Eigene Queue löst _dispatch_assert_queue_fail aus (Fix 07.07.2026).
+        let ioBlock = Self.makeIOBlock(metrics: metrics)
+        err = AudioDeviceCreateIOProcIDWithBlock(&newProcID, aggregateDeviceID, nil, ioBlock)
         guard err == noErr, newProcID != nil else {
             teardownPartial() // Aggregate + Tap zerstören
             throw RouterError.tapFailed(status: err)
@@ -364,6 +318,62 @@ public final class TapEngine {
     }
 
     // MARK: Helpers
+
+    /// Erstellt den Realtime-IOProc-Block für `AudioDeviceCreateIOProcIDWithBlock`.
+    ///
+    /// ## ⚠️ ROOT CAUSE — warum diese Methode `nonisolated static` sein MUSS
+    /// (EXC_BREAKPOINT-Crash, behoben 07.07.2026)
+    ///
+    /// `TapEngine` ist `@MainActor`. Eine Closure, die INLINE in einer
+    /// `@MainActor`-Methode (z. B. `start()`) definiert wird, ERBT die
+    /// `@MainActor`-Isolation — auch wenn sie `self` nicht captured und nur
+    /// Sendable-Werte berührt. Swift Concurrency fügt dann bei JEDER
+    /// Invokation der Closure einen Runtime-Check ein:
+    ///
+    ///     swift_task_checkIsolatedSwift → dispatch_assert_queue(mainQueue)
+    ///
+    /// CoreAudio ruft den IOProc aber auf seinem eigenen Realtime-Thread
+    /// `com.apple.audio.IOThread.client` auf (HALC_ProxyIOContext::IOWorkLoop)
+    /// — NICHT auf der Main Queue. Der Assert schlägt fehl:
+    ///
+    ///     _dispatch_assert_queue_fail → brk #0x1 → EXC_BREAKPOINT
+    ///
+    /// Die Sandbox war NICHT die Ursache (gleicher Crash mit
+    /// app-sandbox = false verifiziert, Xcode-Stack-Trace 07.07.2026).
+    ///
+    /// **Fix:** Der Block wird in dieser `nonisolated static` Factory
+    /// erstellt. Ohne umgebende Actor-Isolation erbt die Closure KEINE
+    /// Isolation → Swift emittiert keinen `swift_task_checkIsolatedSwift`-
+    /// Check → der Block läuft assert-frei auf dem RT-Thread.
+    ///
+    /// **Lektion für Phase 2+:** ALLE Callbacks/Closures, die auf
+    /// Realtime-/CoreAudio-Threads laufen, MÜSSEN in einem
+    /// `nonisolated`-Kontext erstellt werden — niemals inline in
+    /// `@MainActor`-Methoden.
+    ///
+    /// - Parameter metrics: Die Sendable-Zähler-Box; einziges Capture des
+    ///   Blocks (kein `self`, keine `@MainActor`-Properties).
+    /// - Returns: Allokationsfreier Block mit Silence-Heuristik (Phase 1).
+    private nonisolated static func makeIOBlock(metrics: TapIOMetrics) -> AudioDeviceIOBlock {
+        return { _, inInputData, _, _, _ in
+            // Silence-Check: alle Input-Buffer als Float32 scannen,
+            // Early-Exit beim ersten Nicht-Null-Sample.
+            var isSilent = true
+            let bufferList = UnsafeMutableAudioBufferListPointer(
+                UnsafeMutablePointer(mutating: inInputData)
+            )
+            outer: for buffer in bufferList {
+                guard let data = buffer.mData else { continue }
+                let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size
+                let samples = data.assumingMemoryBound(to: Float32.self)
+                for i in 0..<sampleCount where samples[i] != 0 {
+                    isSilent = false
+                    break outer
+                }
+            }
+            metrics.record(callbackWasSilent: isSilent)
+        }
+    }
 
     /// Liest die UID des aktuellen Default-Output-Devices.
     /// UID statt AudioObjectID (kAudioDevicePropertyDeviceUID) — stabil über
