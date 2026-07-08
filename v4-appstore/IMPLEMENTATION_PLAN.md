@@ -11,7 +11,7 @@
 | Phase 0: Projekt-Setup | ✅ Abgeschlossen | 06.07.2026 | Dual-Fable PASS (Iter 2/3) | `8543785` |
 | Phase 1: Process Tap PoC | ✅ Code fertig | 06.07.2026 | Dual-Fable PASS (Iter 1/3) | `5b4e9e5` |
 | Phase 1: Go/No-Go Entscheid | ✅ GO | 07.07.2026 | PASS (1.704 Callbacks, Audio erfasst) | `PROTOTYPE_RESULTS.md` |
-| Phase 2: Multi-Output Fan-out | 🔜 Bereit | — | — | — |
+| Phase 2: Multi-Output Fan-out | ✅ Code fertig | 08.07.2026 | Build+Tests PASS (25/25) | `76d0111` |
 | Phase 3: PI-Regler + Clock-Drift | ⏳ Wartet auf Phase 2 | — | — | — |
 | Phase 4: Menu Bar UI | ⏳ Wartet auf Phase 3 | — | — | — |
 | Phase 5: Robustheit + Beta | ⏳ Wartet auf Phase 4 | — | — | — |
