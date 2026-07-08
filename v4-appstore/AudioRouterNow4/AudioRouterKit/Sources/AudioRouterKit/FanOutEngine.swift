@@ -61,6 +61,7 @@ public final class FanOutEngine {
     public private(set) var status: RouterStatus = .idle
 
     /// AudioObjectID des Process Taps (`AudioHardwareCreateProcessTap`).
+    private let logger = Logger(subsystem: "com.mauriciomorkun.audiorouternow", category: "FanOutEngine")
     private var tapID = AudioObjectID(kAudioObjectUnknown)
 
     /// AudioObjectID des privaten Aggregate Devices.
@@ -146,7 +147,28 @@ public final class FanOutEngine {
         metrics.reset()
 
         // ── Schritt 1: CATapDescription ─────────────────────────────────
-        let tapDescription = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+        //
+        // ⚠️ KRITISCH: Eigenen Prozess IMMER aus dem Tap ausschliessen.
+        //
+        // `stereoGlobalTapButExcludeProcesses` erfasst den System-Audio-Mix
+        // von ALLEN Prozessen. Unsere Output-IOProcs schreiben Audio auf
+        // Ziel-Devices (z. B. MacBook-Lautsprecher) — dieses Audio wird
+        // von coreaudiod unserem Prozess zugerechnet und landet ohne diesen
+        // Ausschluss erneut im Tap. Resultat: Feedback-Schleife mit
+        // Unity-Gain (43 ms Pre-Roll-Delay) → exponentiell akkumulierendes
+        // Signal → "Wirrwarr". Das ist das etablierte AudioCap-Muster.
+        // Eigene ProcessObjectID für die Exclude-Liste ermitteln.
+        // kAudioHardwarePropertyTranslatePIDToProcessObject übersetzt
+        // unsere OS-PID in die CoreAudio-interne AudioObjectID des Prozesses.
+        // Ohne diese Exclusion würde unser Fan-out-Output wieder in den
+        // Global-Tap einfließen (Feedback-Loop).
+        let excludeList: [AudioObjectID] = Self.ownProcessObjectID().map { [$0] } ?? []
+        if excludeList.isEmpty {
+            logger.warning("FanOutEngine: eigene PID nicht zu AudioObjectID auflösbar — Tap ohne Exclude-Liste (Feedback-Loop möglich!)")
+        }
+        let tapDescription = CATapDescription(
+            stereoGlobalTapButExcludeProcesses: excludeList
+        )
         // Die UUID wird unten als Tap-UID im Aggregate referenziert!
         tapDescription.uuid = UUID()
         tapDescription.isPrivate = true
@@ -202,9 +224,26 @@ public final class FanOutEngine {
         aggregateDeviceID = newAggregateID
 
         // ── Schritt 4: Output-Nodes aufbauen (UID → DeviceID, gruppiert) ─
+        //
+        // ⚠️ Default-Output-Device AUSSCHLIESSEN:
+        // Das Tap-Aggregate verwendet den Default-Output als Main-Sub-Device
+        // (muteBehavior = .unmuted → Audio spielt dort weiter nativ).
+        // Würden wir zusätzlich einen Output-IOProc auf demselben Device
+        // registrieren, summiert sich das Signal → Feedback-Loop.
+        // Der User muss das Default-Device NICHT als Ziel hinzufügen.
+        let filteredOutputs = outputs.filter { $0.uid != defaultOutputUID }
+        if filteredOutputs.count < outputs.count {
+            let skippedUIDs = outputs
+                .filter { $0.uid == defaultOutputUID }
+                .map { $0.uid }
+            logger.warning(
+                "FanOutEngine: \(skippedUIDs.count) Output(s) übersprungen (UID = Default-Output '\(defaultOutputUID)') — würde Feedback-Loop erzeugen. Das Default-Device spielt nativ weiter."
+            )
+        }
+
         let nodes: [OutputDeviceNode]
         do {
-            nodes = try buildOutputNodes(from: outputs)
+            nodes = try buildOutputNodes(from: filteredOutputs)
         } catch {
             teardownPartial()
             throw error
@@ -535,6 +574,39 @@ public final class FanOutEngine {
     }
 
     // MARK: Device-Property-Helpers (nonisolated static)
+
+    /// Übersetzt die OS-PID des laufenden Prozesses in die CoreAudio-interne
+    /// `AudioObjectID` des Prozesses.
+    ///
+    /// Wird genutzt, um den eigenen Prozess aus dem Global-Tap auszuschließen
+    /// und so eine digitale Feedback-Schleife zu verhindern (AudioCap-Muster).
+    ///
+    /// - Returns: `AudioObjectID` des eigenen Prozesses, oder `nil` wenn die
+    ///   Übersetzung fehlschlägt (z. B. Sandbox-Einschränkung).
+    private nonisolated static func ownProcessObjectID() -> AudioObjectID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var pid = getpid()
+        var processObjectID = AudioObjectID(kAudioObjectUnknown)
+        var outSize = UInt32(MemoryLayout<AudioObjectID>.size)
+        let err = withUnsafeMutablePointer(to: &pid) { pidPtr in
+            withUnsafeMutablePointer(to: &processObjectID) { objPtr in
+                AudioObjectGetPropertyData(
+                    AudioObjectID(kAudioObjectSystemObject),
+                    &address,
+                    UInt32(MemoryLayout<pid_t>.size),
+                    pidPtr,
+                    &outSize,
+                    objPtr
+                )
+            }
+        }
+        guard err == noErr, processObjectID != kAudioObjectUnknown else { return nil }
+        return processObjectID
+    }
 
     /// Liest `kAudioDevicePropertyStreamConfiguration` (Output-Scope) →
     /// Summe der Output-Kanäle über alle Streams.
