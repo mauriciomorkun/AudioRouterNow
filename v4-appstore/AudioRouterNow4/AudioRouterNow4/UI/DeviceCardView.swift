@@ -234,6 +234,71 @@ struct StatsGrid: View {
     }
 }
 
+// MARK: - DeviceSelectionRow
+
+/// IDLE/ERROR-State: Checkbox-Zeile für ein verfügbares Gerät.
+/// Multi-Kanal-Geräte (channelCount > 2) erhalten eine Zeile pro
+/// Kanal-Paar (Ch1-2, Ch3-4, …) — jedes Paar einzeln togglebar.
+struct DeviceSelectionRow: View {
+    @EnvironmentObject var controller: EngineController
+    let uid: String
+    let name: String
+    let channelCount: Int
+
+    private var pairCount: Int { max(1, channelCount / 2) }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(0..<pairCount, id: \.self) { pair in
+                pairRow(offset: pair * 2, showChannels: pairCount > 1)
+            }
+        }
+    }
+
+    /// Bereits ausgewählte Config für uid + offset (channelCount-agnostisch,
+    /// damit auch abweichend initialisierte Configs erkannt werden).
+    private func selectedConfig(offset: Int) -> OutputConfig? {
+        controller.outputConfigs.first {
+            $0.uid == uid && $0.channelOffset == offset
+        }
+    }
+
+    private func pairRow(offset: Int, showChannels: Bool) -> some View {
+        let existing = selectedConfig(offset: offset)
+        let selected = existing != nil
+        return Button {
+            if let cfg = existing {
+                controller.removeOutputConfig(cfg)
+            } else {
+                controller.addOutputConfig(OutputConfig(uid: uid, channelOffset: offset))
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: selected ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 13))
+                    .foregroundStyle(selected ? ARNColor.accent : Color.secondary)
+                Text(name)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+                if showChannels {
+                    Text("Ch\(offset + 1)-\(offset + 2)")
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                }
+                Spacer()
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(selected ? ARNColor.cardStrokeActive : ARNColor.cardStroke,
+                        lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - AddDeviceRow
 
 struct AddDeviceRow: View {

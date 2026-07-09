@@ -48,17 +48,8 @@ struct MenuBarView: View {
                 Divider()
             }
 
-            // ── Accordion-Geräteliste ────────────────────────────────────
-            ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(controller.outputConfigs, id: \.self) { cfg in
-                        DeviceCardView(state: ui, config: cfg)
-                    }
-                    AddDeviceRow()
-                }
-                .padding(.horizontal, 14).padding(.vertical, 10)
-            }
-            .frame(maxHeight: 320)
+            // ── Geräteliste (IDLE: Auswahl-Checkboxen · ACTIVE: Accordion) ─
+            deviceListSection(ui)
 
             Divider()
 
@@ -70,6 +61,9 @@ struct MenuBarView: View {
             .padding(14)
         }
         .frame(width: 320)
+        // Bug-Fix: MenuBarExtra(.window)-Panel erhält sonst keine korrekte
+        // Inhaltshöhe — fixedSize erzwingt die ideale vertikale Größe.
+        .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             // W5: SMAppService-Status bei jedem Öffnen neu spiegeln
             // (Onboarding registriert direkt; User kann in Systemeinstellungen entfernen).
@@ -81,6 +75,46 @@ struct MenuBarView: View {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 controller.refreshAvailableDevices()
             }
+        }
+    }
+
+    // MARK: Geräteliste
+
+    /// IDLE/ERROR: alle verfügbaren Geräte als togglebare Checkbox-Zeilen
+    /// (plus nicht mehr verbundene, aber noch konfigurierte Geräte —
+    /// damit stale Configs entfernbar bleiben).
+    /// STARTING/ACTIVE: laufende Outputs als Accordion-Cards + AddDeviceRow.
+    @ViewBuilder
+    private func deviceListSection(_ ui: ARNUIState) -> some View {
+        VStack(spacing: 8) {
+            switch ui {
+            case .idle, .error:
+                ForEach(controller.availableDevices, id: \.uid) { device in
+                    DeviceSelectionRow(
+                        uid: device.uid,
+                        name: device.name,
+                        channelCount: device.channelCount)
+                }
+                // Konfigurierte, aber aktuell getrennte Geräte weiterhin
+                // anzeigen, damit sie abgewählt werden können.
+                ForEach(staleConfigs, id: \.self) { cfg in
+                    DeviceCardView(state: ui, config: cfg)
+                }
+            case .starting, .active:
+                ForEach(controller.outputConfigs, id: \.self) { cfg in
+                    DeviceCardView(state: ui, config: cfg)
+                }
+                AddDeviceRow()
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    /// Ausgewählte Outputs, deren Gerät gerade nicht verbunden ist.
+    private var staleConfigs: [OutputConfig] {
+        controller.outputConfigs.filter { cfg in
+            !controller.availableDevices.contains { $0.uid == cfg.uid }
         }
     }
 
