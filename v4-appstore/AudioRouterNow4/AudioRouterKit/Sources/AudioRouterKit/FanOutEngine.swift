@@ -104,6 +104,13 @@ public final class FanOutEngine {
     private let logger = Logger(subsystem: "com.mauriciomorkun.audiorouternow", category: "FanOutEngine")
     private var tapID = AudioObjectID(kAudioObjectUnknown)
 
+    /// UUID des aktiven Process-Taps — wird für Warm-Restart-Aggregate wiederverwendet.
+    private var tapUUID: UUID?
+
+    /// K1: Engine-interne Serialisierung für updateOutputs — verhindert
+    /// parallele Rebuilds (zweiter IOProc auf demselben Tap → doppeltes Audio).
+    private var isRebuilding = false
+
     /// AudioObjectID des privaten Aggregate Devices.
     private var aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
 
@@ -115,8 +122,24 @@ public final class FanOutEngine {
     /// Direct-IOProc gelesen (Wert-Kopie im Block-Capture — kein self-Capture).
     private var directOutputSlots: [DirectOutputSlot] = []
 
+    /// System-Volume-Tracker — startet mit start(), stoppt mit stop().
+    private var volumeTracker: VolumeTracker?
+
     /// Realtime-sichere Zähler-Brücke (siehe ``TapIOMetrics``).
     private let metrics = TapIOMetrics()
+
+    /// Realtime-sichere Peak-Pegel-Brücke (siehe ``PeakMeters``).
+    private let peaks = PeakMeters()
+
+    /// Slot-Identität pro Peak-Index: `slotDeviceKeys[i]` gehört zu `slots[i]`.
+    /// Key-Format `"<uid>:<channelOffset>"` (Composite — mehrere Configs teilen
+    /// evtl. dieselbe UID). Wird in ``buildAndStartAggregate`` gesetzt und in
+    /// ``teardownAggregate`` geleert. Vom MainActor gelesen (Wert-Kopie).
+    public private(set) var slotDeviceKeys: [String] = []
+
+    /// IO-Buffer-Grösse (Frames pro Callback) des aktiven Aggregates.
+    /// Wird nach erfolgreichem Start gesetzt (Fallback 512, falls unlesbar).
+    public private(set) var ioBufferFrames: Int = 512
 
     /// `true`, wenn seit ``silenceHeuristicThreshold`` Callbacks nur Silence
     /// ankam und noch NIE Audio empfangen wurde → TCC-Denied-Verdacht.
@@ -130,6 +153,17 @@ public final class FanOutEngine {
 
     /// `true`, wenn der Tap mindestens ein nicht-stilles Frame empfangen hat.
     public var hasReceivedAudio: Bool { metrics.hasReceivedAudio }
+
+    /// Aktueller Lautstärke-Skalar aus dem VolumeTracker [0.0–1.0]. Polling-sicher.
+    public var currentVolumeScale: Float32 {
+        volumeTracker?.volumeScale ?? 1.0
+    }
+
+    /// Schreibt die Lautstärke auf das Default-Output-Gerät (kAudioDevicePropertyVolumeScalar).
+    /// Kein-Op wenn kein Tracker aktiv oder Gerät kein Software-Volume unterstützt.
+    public func setSystemVolume(_ vol: Float32) {
+        volumeTracker?.setSystemVolume(vol)
+    }
 
     /// Erstellt eine noch nicht gestartete Engine.
     public init() {}
@@ -196,9 +230,73 @@ public final class FanOutEngine {
     /// - Note: TCC-Denied führt meist zu `noErr` + Silence, NICHT zu einem
     ///   Throw. Den Denied-Fall über ``isSuspectedTCCDenied`` abfragen.
     public func start(outputs: [OutputConfig] = []) throws {
-        // Nur aus .idle starten — doppeltes start() ist ein No-Op.
-        guard status == .idle else { return }
+        // Nur wenn nicht bereits routing — doppeltes start() ist ein No-Op.
+        guard status != .routing else { return }
 
+        // ── Ebene 1: Process-Tap (TCC-Session) ──────────────────────────
+        try createTap()
+
+        // ── Ebene 2: VolumeTracker ──────────────────────────────────────
+        // WICHTIG: VOR buildAndStartAggregate — der Direct-IOProc-Block captured
+        // den Tracker per Wert. Würde er erst danach erzeugt, hätte der IOProc
+        // beim ersten Start keine Volume-Referenz. Der Tracker überlebt jeden
+        // Warm-Restart (updateOutputs ruft NUR buildAndStartAggregate).
+        if volumeTracker == nil {
+            let tracker = VolumeTracker()
+            tracker.start()
+            volumeTracker = tracker
+        }
+
+        // ── Ebene 3: Aggregate + IOProc ─────────────────────────────────
+        do {
+            // createTap() hat tapUUID gesetzt — defensiv statt Force-Unwrap.
+            guard let uuid = tapUUID else { throw RouterError.tapFailed(status: -1) }
+            try buildAndStartAggregate(outputs: outputs, tapUUID: uuid)
+        } catch {
+            teardownPartial()
+            throw error
+        }
+    }
+
+    /// Tauscht Output-Geräte bei laufendem Routing ohne den Tap zu zerstören.
+    /// Musikunterbrechung: Aggregate-Teardown + 200 ms Settle + Rebuild (~0.5–1 s).
+    /// Tap und TCC-Session bleiben erhalten — kein neuer TCC-Prompt.
+    public func updateOutputs(_ outputs: [OutputConfig]) async throws {
+        // K1: Serialisierung — nur EIN Rebuild gleichzeitig. Die Tap-UUID wird
+        // VOR der Suspension festgehalten, um Identität nachher zu prüfen.
+        guard status == .routing, !isRebuilding, let expectedUUID = tapUUID else { return }
+        isRebuilding = true
+        defer { isRebuilding = false }
+
+        teardownAggregate()
+        try await Task.sleep(nanoseconds: 200_000_000)   // 200 ms CoreAudio settle
+
+        // K1: Re-Validierung nach der Suspension. Während der 200 ms kann
+        // (a) stopRouting() → teardownPartial() → tapUUID = nil gelaufen sein
+        //     (Force-Unwrap-Crash), oder
+        // (b) ein voller stop()+start()-Zyklus mit NEUER tapUUID und eigenem
+        //     Aggregate (zweiter IOProc → doppeltes Audio).
+        // Identitätsvergleich deckt BEIDE Fälle ab.
+        guard status == .routing, let uuid = tapUUID, uuid == expectedUUID else {
+            logger.debug("K1: updateOutputs abandoned — tap identity changed or status no longer routing")
+            return
+        }
+
+        do {
+            try buildAndStartAggregate(outputs: outputs, tapUUID: uuid)
+        } catch {
+            // Fallback: vollständiger Stop damit Status konsistent bleibt
+            teardownPartial()
+            status = .idle
+            throw error
+        }
+    }
+
+    // MARK: Tap-Erstellung
+
+    /// Erstellt den globalen Process-Tap (TCC-Session). Setzt `tapID` + `tapUUID`.
+    /// Der Tap überlebt Warm-Restarts — die UUID wird im Aggregate wiederverwendet.
+    private func createTap() throws {
         metrics.reset()
 
         // ── Schritt 1: CATapDescription ─────────────────────────────────
@@ -224,7 +322,7 @@ public final class FanOutEngine {
         let tapDescription = CATapDescription(
             stereoGlobalTapButExcludeProcesses: excludeList
         )
-        // Die UUID wird unten als Tap-UID im Aggregate referenziert!
+        // Die UUID wird als Tap-UID im Aggregate referenziert!
         tapDescription.uuid = UUID()
         tapDescription.isPrivate = true
         // Quelle am Tap muten — der Direct-IOProc übernimmt die Wiedergabe für
@@ -234,50 +332,50 @@ public final class FanOutEngine {
 
         // ── Schritt 2: Process Tap erzeugen ─────────────────────────────
         var newTapID = AudioObjectID(kAudioObjectUnknown)
-        var err = AudioHardwareCreateProcessTap(tapDescription, &newTapID)
+        let err = AudioHardwareCreateProcessTap(tapDescription, &newTapID)
         guard err == noErr, newTapID != kAudioObjectUnknown else {
             throw RouterError.tapFailed(status: err)
         }
         tapID = newTapID
+        tapUUID = tapDescription.uuid
+    }
 
-        // Ab hier: bei JEDEM Fehler zuerst teardownPartial(), dann werfen.
+    // MARK: Aggregate-Aufbau (Warm-Restart-fähig)
 
+    /// Baut das Aggregate + IOProc und startet die Wiedergabe. Setzt `status`
+    /// bei Erfolg auf `.routing`. Erwartet einen bereits erstellten Tap
+    /// (`tapUUID` gesetzt). Wirft ohne selbst aufzuräumen — der Aufruf-Kontext
+    /// (start/updateOutputs) übernimmt Teardown im catch.
+    private func buildAndStartAggregate(outputs: [OutputConfig], tapUUID: UUID) throws {
         let diagLogger = Logger(subsystem: "com.mauriciomorkun.audiorouternow", category: "SlotDiag")
 
         // ── Schritt 2b: Default-Output-Device-UID lesen ─────────────────
-        let defaultOutputUID: String
-        do {
-            defaultOutputUID = try Self.readDefaultOutputDeviceUID()
-        } catch {
-            teardownPartial()
-            throw error
-        }
+        let defaultOutputUID = try Self.readDefaultOutputDeviceUID()
 
-        // ── Schritt 2c: Master-Device bestimmen (F19) ─────────────────────
+        // ── Schritt 2c: Master-Device bestimmen (L1 — transport-basiert, deterministisch) ─
         //
-        // KERN-PROBLEM: USB- und externe Audio-Interfaces (KA6, RME, Focusrite…)
-        // sind eigenständige Clock-Taktgeber. Als Aggregate-SLAVE empfangen sie
-        // KEINE Writes aus ioOutputData — CoreAudio liefert den Hardware-DAC des
-        // Slaves nicht an, wenn das Clock-Timing nicht mit dem Master übereinstimmt.
-        // Das ist der Grund warum KA6 als Slave dauerhaft stumm blieb (F17+F18
-        // haben Drift-Kompensation + DelayLine-Fix eingebaut, aber der Master war
-        // immer noch das falsche Gerät).
+        // Rang-0: USB/TB/PCI/FireWire (eigene stabile Clock)
+        // Rang-1: Built-in
+        // Rang-2: HDMI/DisplayPort
+        // Rang-3: Virtual/Unknown
+        // Rang-4: Bluetooth/AirPlay — NIEMALS Master (adaptive Buffer = instabile Clock)
+        // Tie-Break: lexikografisch kleinste UID (unabhängig von Add-Reihenfolge)
         //
-        // Lösung (F19): Das erste Nicht-Default-User-Output wird zum Aggregate-MASTER.
-        // Der System-Default-Output (MacBook intern) wird zum SLAVE mit Drift-Komp.
-        // MacBook-internes Audio ist robust und tolerant gegenüber SRC als Slave.
-        //
-        // Falls der User NUR Built-in konfiguriert → masterUID == defaultOutputUID
-        // (klassisches Verhalten, unverändert).
-        let masterUID: String
-        if let firstExternal = outputs.first(where: { $0.uid != defaultOutputUID }) {
-            masterUID = firstExternal.uid
-            let masterPrefix = String(masterUID.prefix(20))
-            diagLogger.debug("F19: extern Master=\(masterPrefix, privacy: .public) — Default wird Slave")
-        } else {
-            masterUID = defaultOutputUID
-            diagLogger.debug("F19: Master=DefaultOutput (nur Built-in konfiguriert)")
+        // Kandidaten = alle konfigurierten UIDs + Default-Output (vor Stale-Filter,
+        // damit der Default-Output immer wählbar bleibt).
+        var electionUIDs: [String] = [defaultOutputUID]
+        var electionSeen = Set<String>([defaultOutputUID])
+        for c in outputs where electionSeen.insert(c.uid).inserted {
+            electionUIDs.append(c.uid)
         }
+        let masterCandidates: [(uid: String, rank: Int)] = electionUIDs.compactMap { uid in
+            guard let deviceID = Self.deviceIDForUID(uid) else { return nil }
+            return (uid: uid, rank: Self.deviceTransportRank(deviceID))
+        }
+        let masterUID = Self.electMasterUID(candidates: masterCandidates, fallback: defaultOutputUID)
+        let masterRankStr = masterCandidates.first(where: { $0.uid == masterUID })?.rank ?? -1
+        let masterPrefix = String(masterUID.prefix(20))
+        diagLogger.debug("L1: Master=\(masterPrefix, privacy: .public) rank=\(masterRankStr, privacy: .public)")
 
         // ── Schritt 2d: allOutputs in subDevice-Reihenfolge aufbauen ─────
         //
@@ -285,7 +383,9 @@ public final class FanOutEngine {
         // buildDirectOutputSlots fest und MUSS exakt der SubDeviceList-Reihenfolge
         // entsprechen, damit ioOutputData-Buffer-Indizes korrekt sind.
         //
-        // Reihenfolge: (1) Master ch0 → (2) Default falls Slave → (3) User-Configs
+        // W4: Der Master ist nur Clock-Referenz (SubDeviceList/MainSubDevice) —
+        // er bekommt KEINEN synthetischen ch0-Schreib-Slot mehr. Schreib-Slots
+        // gibt es nur für (a) den Default-Output und (b) explizit konfigurierte OutputConfigs.
         var allOutputs: [OutputConfig] = []
         var addedConfigKeys = Set<String>()
 
@@ -294,37 +394,44 @@ public final class FanOutEngine {
             if addedConfigKeys.insert(key).inserted { allOutputs.append(c) }
         }
 
-        // 1. Master-Device als Basis (ch0 als Puffer-Anker)
-        appendConfig(OutputConfig(uid: masterUID, channelOffset: 0))
-        // 2. Default-Output als Slave (falls nicht Master)
-        if masterUID != defaultOutputUID {
+        if masterUID == defaultOutputUID {
+            // 1a. Master == Default → ch0-Slot (Default wird immer bespielt).
+            appendConfig(OutputConfig(uid: defaultOutputUID, channelOffset: 0))
+        } else {
+            // 1b. Master ist ein User-Device → NUR die vom User konfigurierten
+            //     Slots dieses Devices (kein ungewollter Ch1-2-Slot, W4).
+            for config in outputs where config.uid == masterUID { appendConfig(config) }
+            // 2. Default-Output als Slave (wird immer bespielt).
             appendConfig(OutputConfig(uid: defaultOutputUID, channelOffset: 0))
         }
-        // 3. Alle User-Configs in Reihenfolge (dedupliziert)
+        // 3. Alle übrigen User-Configs in Reihenfolge (dedupliziert).
         for config in outputs { appendConfig(config) }
 
-        // ── Schritt 2d: Alle Output-UIDs validieren (F3) ────────────────
-        // Unauflösbare UID → sonst würde buildDirectOutputSlots das Offset-
-        // Mapping stillschweigend verschieben (Audio auf falschen Geräten).
-        for config in allOutputs {
-            guard Self.deviceIDForUID(config.uid) != nil else {
-                teardownPartial()
-                throw RouterError.deviceNotFound(uid: config.uid)
-            }
+        // ── Schritt 2d-filter: Unavailable UIDs filtern (L1) — graceful degradation ─
+        // Statt Throw: konfigurierte Geräte die gerade nicht verbunden sind überspringen.
+        // Default-Output ist immer auflösbar → resolvableOutputs ist nie leer.
+        // TOCTOU (bewusst akzeptiert): Verschwindet das Master-Device zwischen
+        // Elektion (2c) und diesem Re-Resolve, enthält die SubDeviceList den Master,
+        // resolvableOutputs aber nicht → Offset-Mismatch, den der F5-Guard
+        // (aggregateLayoutMismatch, Schritt 4b) sicher abfängt. Kein Code-Fix nötig.
+        let resolvableOutputs = allOutputs.filter { Self.deviceIDForUID($0.uid) != nil }
+        let skippedCount = allOutputs.count - resolvableOutputs.count
+        if skippedCount > 0 {
+            diagLogger.warning("L1: \(skippedCount, privacy: .public) output(s) unavailable — skipped for this session")
         }
 
         // ── Schritt 3: Privates Aggregate Device ────────────────────────
         //
         // SubDeviceList: masterUID ZUERST (kein DriftKey — Master ist Clock-Quelle),
         // alle weiteren Sub-Devices MIT DriftKey (SRC aktiviert, lockt zum Master).
-        // Reihenfolge MUSS exakt allOutputs entsprechen (Buffer-Offsets!).
+        // Reihenfolge MUSS exakt resolvableOutputs entsprechen (Buffer-Offsets!).
         var subDevices: [[String: Any]] = [[kAudioSubDeviceUIDKey: masterUID]]
         var addedSubUIDs = Set<String>([masterUID])
-        for config in allOutputs {
+        for config in resolvableOutputs {
             if addedSubUIDs.insert(config.uid).inserted {
                 subDevices.append([
                     kAudioSubDeviceUIDKey: config.uid,
-                    kAudioSubDeviceDriftCompensationKey: true,   // F17+F19: Slave-Sync
+                    kAudioSubDeviceDriftCompensationKey: true,   // L1: Slave-Sync
                 ])
             }
         }
@@ -333,33 +440,36 @@ public final class FanOutEngine {
         let description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "AudioRouterNow-FanOut-Aggregate",
             kAudioAggregateDeviceUIDKey: aggregateUID,
-            kAudioAggregateDeviceMainSubDeviceKey: masterUID,   // F19: extern = Master
+            kAudioAggregateDeviceMainSubDeviceKey: masterUID,   // L1: Clock-Master
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceTapAutoStartKey: true,
             kAudioAggregateDeviceSubDeviceListKey: subDevices,
             kAudioAggregateDeviceTapListKey: [
                 [
-                    kAudioSubTapUIDKey: tapDescription.uuid.uuidString,
+                    kAudioSubTapUIDKey: tapUUID.uuidString,
                     kAudioSubTapDriftCompensationKey: true,
                 ]
             ],
         ]
 
         var newAggregateID = AudioObjectID(kAudioObjectUnknown)
-        err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &newAggregateID)
+        var err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &newAggregateID)
         guard err == noErr, newAggregateID != kAudioObjectUnknown else {
-            teardownPartial()
             throw RouterError.tapFailed(status: err)
         }
         aggregateDeviceID = newAggregateID
 
         // ── Schritt 4: Buffer-Slot-Mapping bauen ────────────────────────
         let (slots, expectedBufferCount) = Self.buildDirectOutputSlots(
-            allOutputs: allOutputs,
+            allOutputs: resolvableOutputs,
             aggregateDeviceID: newAggregateID
         )
         directOutputSlots = slots
+
+        // Peak-Slot-Identität: 1:1 mit `slots` (computeSlotLayouts erhält die
+        // Reihenfolge von resolvableOutputs). Für das UI-Peak-Mapping.
+        slotDeviceKeys = resolvableOutputs.map { "\($0.uid):\($0.channelOffset)" }
 
         // DIAG: Slot-Mapping nach buildDirectOutputSlots loggen
         diagLogger.debug("SlotDiag slots.count=\(slots.count, privacy: .public) expectedBufferCount=\(expectedBufferCount, privacy: .public)")
@@ -374,7 +484,6 @@ public final class FanOutEngine {
         let aggregateBufferCount = Self.outputStreamBufferCount(for: newAggregateID)
         diagLogger.debug("SlotDiag F5: aggregateBufferCount=\(aggregateBufferCount, privacy: .public) expected=\(expectedBufferCount, privacy: .public) match=\(aggregateBufferCount == expectedBufferCount, privacy: .public)")
         guard aggregateBufferCount == expectedBufferCount else {
-            teardownPartial()
             throw RouterError.aggregateLayoutMismatch(
                 expected: expectedBufferCount, actual: aggregateBufferCount)
         }
@@ -382,12 +491,13 @@ public final class FanOutEngine {
         // ── Schritt 5: Ein Direct-IOProc auf dem Aggregate ──────────────
         // ⚠️ Block via nonisolated static Factory — niemals inline (s. o.).
         // Der Block captured nur `metrics` (Sendable) und `slots` (Wert-Kopie).
-        let directBlock = Self.makeDirectIOBlock(metrics: metrics, slots: slots)
+        let directBlock = Self.makeDirectIOBlock(
+            metrics: metrics, slots: slots, volumeTracker: volumeTracker, peaks: peaks
+        )
         var newProcID: AudioDeviceIOProcID?
         // nil = CoreAudio-eigener IOThread (eigene Queue → assert-Crash-Regel).
         err = AudioDeviceCreateIOProcIDWithBlock(&newProcID, aggregateDeviceID, nil, directBlock)
         guard err == noErr, newProcID != nil else {
-            teardownPartial()
             throw RouterError.tapFailed(status: err)
         }
         tapIoProcID = newProcID
@@ -395,9 +505,11 @@ public final class FanOutEngine {
         // ── Schritt 6: Aggregate starten — HIER feuert der TCC-Prompt ───
         err = AudioDeviceStart(aggregateDeviceID, tapIoProcID)
         guard err == noErr else {
-            teardownPartial()
             throw RouterError.tapFailed(status: err)
         }
+
+        // IO-Buffer-Grösse für die UI-Statistik lesen (Fallback bleibt 512).
+        ioBufferFrames = Self.bufferFrameSize(for: aggregateDeviceID) ?? ioBufferFrames
 
         status = .routing
     }
@@ -412,11 +524,13 @@ public final class FanOutEngine {
         status = .idle
     }
 
-    /// Rückabwicklung aller BEREITS erstellten Ressourcen in korrekter
-    /// Reihenfolge: Direct-IOProc → Aggregate → Tap.
+    /// Reißt NUR Aggregate + Direct-IOProc ab — Tap (TCC-Session) und
+    /// VolumeTracker bleiben erhalten. Grundlage für Warm-Restart
+    /// (``updateOutputs(_:)``): der Tap überlebt, es feuert kein neuer
+    /// TCC-Prompt. `status` bleibt `.routing`.
     /// OSStatus-Fehler beim Teardown werden bewusst ignoriert
     /// ('!dev' nach Gerätverlust ist hier normal, v3-Lektion).
-    private func teardownPartial() {
+    private func teardownAggregate() {
         // 1. Direct-IOProc stoppen + zerstören (RT-Pfad zuerst — danach
         //    greift niemand mehr auf ioOutputData zu).
         if let procID = tapIoProcID, aggregateDeviceID != kAudioObjectUnknown {
@@ -434,17 +548,36 @@ public final class FanOutEngine {
         }
         directOutputSlots = []
 
+        // Peak-Meter + Slot-Keys zurücksetzen (RT-Pfad ruht nach AudioDeviceStop).
+        peaks.reset()
+        slotDeviceKeys = []
+        ioBufferFrames = 512
+
         // 3. Aggregate Device zerstören.
         if aggregateDeviceID != kAudioObjectUnknown {
             _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
             aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
         }
+    }
+
+    /// Rückabwicklung ALLER erstellten Ressourcen in korrekter Reihenfolge:
+    /// Direct-IOProc → Aggregate → Tap → VolumeTracker.
+    /// OSStatus-Fehler beim Teardown werden bewusst ignoriert
+    /// ('!dev' nach Gerätverlust ist hier normal, v3-Lektion).
+    private func teardownPartial() {
+        // 1.–3. Aggregate-Ebene (IOProc, Scratch, Aggregate).
+        teardownAggregate()
 
         // 4. Process Tap zerstören (zuletzt — das Aggregate referenziert ihn).
         if tapID != kAudioObjectUnknown {
             _ = AudioHardwareDestroyProcessTap(tapID)
             tapID = AudioObjectID(kAudioObjectUnknown)
+            tapUUID = nil
         }
+
+        // 5. VolumeTracker stoppen (nach AudioDeviceStop — RT-Pfad liest nicht mehr).
+        volumeTracker?.stop()
+        volumeTracker = nil
     }
 
     // MARK: Buffer-Slot-Mapping
@@ -591,7 +724,9 @@ public final class FanOutEngine {
     ///   - slots: Buffer-Ziel-Slots (Wert-Kopie; Reihenfolge = Config-Reihenfolge).
     private nonisolated static func makeDirectIOBlock(
         metrics: TapIOMetrics,
-        slots: [DirectOutputSlot]
+        slots: [DirectOutputSlot],
+        volumeTracker: VolumeTracker?,
+        peaks: PeakMeters
     ) -> AudioDeviceIOBlock {
         // F2: Bei aktiven DelayLines darf Silence NICHT früh raus — sonst wird
         // der Audio-Tail abgeschnitten (Geister-Burst beim nächsten Callback).
@@ -605,22 +740,36 @@ public final class FanOutEngine {
             )
             let outputList = UnsafeMutableAudioBufferListPointer(ioOutputData)
 
-            // ── Silence-Heuristik ────────────────────────────────────────
+            // ── Silence-Heuristik (W10: NUR Tap-Buffer scannen) ──────────
+            // Hardware-Inputs (Mic, Line-In) liefern auch bei TCC-Denied
+            // Nicht-Null-Samples → würden die TCC-Warnung dauerhaft
+            // unterdrücken (false negative). Tap = letzter Input-Buffer.
             var isSilent = true
-            outer: for buffer in inputList {
-                guard let data = buffer.mData else { continue }
-                let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size
-                let samples = data.assumingMemoryBound(to: Float32.self)
-                for i in 0..<sampleCount where samples[i] != 0 {
-                    isSilent = false
-                    break outer
+            if inputList.count >= 1 {
+                let lastIdx = inputList.count - 1
+                let scanStart = (inputList[lastIdx].mNumberChannels == 1
+                                 && lastIdx >= 1
+                                 && inputList[lastIdx - 1].mNumberChannels == 1)
+                                ? lastIdx - 1 : lastIdx
+                outer: for bi in scanStart...lastIdx {
+                    let buffer = inputList[bi]
+                    guard let data = buffer.mData else { continue }
+                    let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size
+                    let samples = data.assumingMemoryBound(to: Float32.self)
+                    for i in 0..<sampleCount where samples[i] != 0 {
+                        isSilent = false
+                        break outer
+                    }
                 }
             }
             metrics.record(callbackWasSilent: isSilent)
 
             // F2: Nur früh raus, wenn KEINE DelayLine zu leeren ist.
             guard (!isSilent || anySlotHasDelay), !slots.isEmpty, inputList.count >= 1
-            else { return }
+            else {
+                if isSilent { peaks.reset() }   // UI-Meter auf 0 bei Stille
+                return
+            }
 
             let bytesPerSample = MemoryLayout<Float32>.size
 
@@ -663,6 +812,35 @@ public final class FanOutEngine {
             }
 
             guard frameCount > 0 else { return }
+
+            // Phase 2: System-Lautstärke-Multiplikator (RT-safe via os_unfair_lock < 100 ns).
+            let vol: Float32 = volumeTracker?.volumeScale ?? 1.0
+
+            // ── Peak-Metering (RT-safe, einzelne O(n)-Passage) ───────────
+            // Alle Slots teilen dieselbe Tap-Quelle (channelOffset selektiert
+            // nur den Output-Kanal) → ein Source-Peak ist für alle Slots gültig.
+            var pkL: Float32 = 0
+            var pkR: Float32 = 0
+            if let intPtr = tapInterleavedPtr {
+                let stride = tapInterleavedStride
+                let rIdx = min(1, stride - 1)
+                for i in 0..<frameCount {
+                    let l = abs(intPtr[i * stride])
+                    let r = abs(intPtr[i * stride + rIdx])
+                    if l > pkL { pkL = l }
+                    if r > pkR { pkR = r }
+                }
+            } else if let L = tapLeft {
+                for i in 0..<frameCount {
+                    let l = abs(L[i]); if l > pkL { pkL = l }
+                }
+                if let R = tapRight {
+                    for i in 0..<frameCount { let r = abs(R[i]); if r > pkR { pkR = r } }
+                } else {
+                    pkR = pkL   // Mono → R spiegelt L
+                }
+            }
+            peaks.record(l: pkL * vol, r: pkR * vol, slotCount: slots.count)
 
             // ── Direkt in ioOutputData schreiben ─────────────────────────
             for slot in slots {
@@ -709,6 +887,10 @@ public final class FanOutEngine {
                                 outL: dstL, outR: dstR
                             )
                         }
+                        // Volume anwenden (Non-Interleaved Delay-Pfad)
+                        if vol != 1.0 {
+                            for i in 0..<n { dstL[i] *= vol; dstR?[i] *= vol }
+                        }
                     } else {
                         // Interleaved Output — F8: vorab-allozierte Scratch.
                         let stride = Int(outBuf.mNumberChannels)
@@ -730,8 +912,8 @@ public final class FanOutEngine {
                                           outL: tL, outR: tR)
                         }
                         for i in 0..<n {
-                            dst[i * stride + chOffset]     = tL[i]
-                            dst[i * stride + chOffset + 1] = tR[i]
+                            dst[i * stride + chOffset]     = tL[i] * vol
+                            dst[i * stride + chOffset + 1] = tR[i] * vol
                         }
                     }
                 } else if outBuf.mNumberChannels == 1 {
@@ -748,13 +930,14 @@ public final class FanOutEngine {
                     if let intPtr = tapInterleavedPtr {
                         let stride = tapInterleavedStride
                         for i in 0..<n {
-                            dst[i] = intPtr[i * stride]
-                            dstR?[i] = intPtr[i * stride + min(1, stride - 1)]
+                            dst[i] = intPtr[i * stride] * vol
+                            dstR?[i] = intPtr[i * stride + min(1, stride - 1)] * vol
                         }
                     } else if let L = tapLeft {
-                        dst.update(from: L, count: n)
-                        if let R = tapRight { dstR?.update(from: R, count: n) }
-                        else { dstR?.update(from: L, count: n) } // Mono-Dup
+                        for i in 0..<n {
+                            dst[i] = L[i] * vol
+                            dstR?[i] = (tapRight?[i] ?? L[i]) * vol
+                        }
                     }
                 } else {
                     // Interleaved Output: L/R innerhalb eines Buffers.
@@ -767,14 +950,14 @@ public final class FanOutEngine {
                     if let intPtr = tapInterleavedPtr {
                         let srcStride = tapInterleavedStride
                         for i in 0..<n {
-                            dst[i * stride + chOffset]     = intPtr[i * srcStride]
-                            dst[i * stride + chOffset + 1] = intPtr[i * srcStride + min(1, srcStride - 1)]
+                            dst[i * stride + chOffset]     = intPtr[i * srcStride] * vol
+                            dst[i * stride + chOffset + 1] = intPtr[i * srcStride + min(1, srcStride - 1)] * vol
                         }
                     } else if let L = tapLeft {
                         let R = tapRight
                         for i in 0..<n {
-                            dst[i * stride + chOffset]     = L[i]
-                            dst[i * stride + chOffset + 1] = R?[i] ?? L[i]
+                            dst[i * stride + chOffset]     = L[i] * vol
+                            dst[i * stride + chOffset + 1] = (R?[i] ?? L[i]) * vol
                         }
                     }
                 }
@@ -817,6 +1000,69 @@ public final class FanOutEngine {
             result.append((uid: uid, name: name, channelCount: channelCount))
         }
         return result
+    }
+
+    /// Peak-Pegel eines Output-Slots [0.0 … 1.0 linear]. Polling-sicher.
+    /// Index korrespondiert 1:1 mit ``slotDeviceKeys``.
+    public func peakLevel(slotIndex: Int) -> (l: Float32, r: Float32) {
+        peaks.level(slotIndex: slotIndex)
+    }
+
+    /// Public UID→AudioObjectID Auflösung für den Kontroll-Layer
+    /// (Latenz-Abfrage). Flüchtig (AudioObjectID) — nur zum sofortigen Lesen.
+    public nonisolated static func deviceID(forUID uid: String) -> AudioObjectID? {
+        deviceIDForUID(uid)
+    }
+
+    // MARK: Master-Elektion (L1 — transport-basiert, deterministisch)
+
+    /// Liest `kAudioDevicePropertyTransportType` und mappt ihn auf einen
+    /// Clock-Master-Rang (kleiner = besser). BT/AirPlay = Rang 4 (nie Master).
+    private nonisolated static func deviceTransportRank(_ deviceID: AudioObjectID) -> Int {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        _ = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value)
+        switch value {
+        case kAudioDeviceTransportTypeUSB,
+             kAudioDeviceTransportTypeThunderbolt,
+             kAudioDeviceTransportTypePCI,
+             kAudioDeviceTransportTypeFireWire:
+            return 0   // Beste Hardware-Clock
+        case kAudioDeviceTransportTypeBuiltIn:
+            return 1
+        case kAudioDeviceTransportTypeHDMI,
+             kAudioDeviceTransportTypeDisplayPort:
+            return 2
+        case kAudioDeviceTransportTypeVirtual,
+             kAudioDeviceTransportTypeUnknown,
+             kAudioDeviceTransportTypeAVB:
+            return 3
+        case kAudioDeviceTransportTypeBluetooth,
+             kAudioDeviceTransportTypeBluetoothLE,
+             kAudioDeviceTransportTypeAirPlay:
+            return 4   // Niemals Master (adaptive Buffer, Netzwerk-Jitter)
+        default:
+            return 3
+        }
+    }
+
+    /// Wählt den Clock-Master deterministisch nach Transport-Typ und UID.
+    /// BT/AirPlay werden niemals Master (Rang 4).
+    /// Tie-Break: lexikografisch kleinste UID (Reihenfolge-unabhängig).
+    nonisolated static func electMasterUID(
+        candidates: [(uid: String, rank: Int)],
+        fallback: String
+    ) -> String {
+        guard let best = candidates.min(by: { l, r in
+            l.rank != r.rank ? l.rank < r.rank : l.uid < r.uid
+        }), best.rank < 4 else {
+            return fallback
+        }
+        return best.uid
     }
 
     // MARK: Device-Property-Helpers (nonisolated static)
@@ -1003,6 +1249,14 @@ public final class FanOutEngine {
     /// Liest die UID des aktuellen Default-Output-Devices
     /// (CoreAudio-Helper — UID statt AudioObjectID: stabil über Hot-Plug,
     /// CJK-sicher).
+    /// W3: Public Helper — UID des aktuellen Default-Output-Devices, `nil`
+    /// bei Fehler. Für den Lifecycle-Layer: Der Default-Output ist immer Teil
+    /// des Aggregates, seine SR-Wechsel müssen deshalb ebenso einen
+    /// Warm-Restart auslösen wie die der konfigurierten Targets.
+    public nonisolated static func currentDefaultOutputUID() -> String? {
+        try? readDefaultOutputDeviceUID()
+    }
+
     private nonisolated static func readDefaultOutputDeviceUID() throws -> String {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
@@ -1036,5 +1290,20 @@ public final class FanOutEngine {
         var size = UInt32(MemoryLayout<Float64>.size)
         _ = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &rate)
         return rate
+    }
+
+    /// Liest `kAudioDevicePropertyBufferFrameSize` (Output-Scope) des Aggregates.
+    /// Nicht RT-safe — nur im Start-/Rebuild-Pfad aufrufen.
+    private nonisolated static func bufferFrameSize(for deviceID: AudioObjectID) -> Int? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyBufferFrameSize,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value) == noErr,
+              value > 0 else { return nil }
+        return Int(value)
     }
 }

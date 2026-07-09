@@ -2,8 +2,9 @@
 //  MenuBarView.swift
 //  AudioRouterNow4
 //
-//  Phase 2 Test-UI: Output-Liste (Add/Remove), Start/Stop, Metriken.
-//  Wird in Phase 4 durch die vollständige UI ersetzt.
+//  Phase 3 (UI-Layer, Konzept 4B "Fusion Prominent Wave + Accordion Expand"):
+//  Container-View — animierter Wellen-Header, Status-Bar, Volume-Slider,
+//  Accordion-Geräteliste, State-Button und Footer.
 //
 //  Copyright 2026 Mauricio Moraïs da Cunha. Apache License 2.0.
 //
@@ -16,174 +17,149 @@ struct MenuBarView: View {
     @EnvironmentObject var controller: EngineController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let ui = ARNUIState(status: controller.status, isStarting: controller.isStarting)
+        VStack(alignment: .leading, spacing: 0) {
 
-            // ── Header ──────────────────────────────────────────────────
-            Text("AudioRouterNow v4.0")
-                .font(.headline)
-                .bold()
+            // ── Wellen-Header ────────────────────────────────────────────
+            WaveHeaderView(state: ui)
 
-            Text("Phase 2 — Fan-out")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            // ── Status-Bar ───────────────────────────────────────────────
+            statusBar(ui)
 
-            Divider()
-
-            // ── Status ──────────────────────────────────────────────────
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 8, height: 8)
-                Text(statusText)
-                    .font(.subheadline)
-            }
-
-            // ── TCC-Denied-Warnung ───────────────────────────────────────
+            // ── TCC-Warnung (unverändert übernommen) ─────────────────────
             if controller.isSuspectedTCCDenied {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("⚠️ TCC möglicherweise verweigert")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                    Button("Systemeinstellungen öffnen →") {
-                        controller.openTCCSettings()
-                    }
-                    .font(.caption)
-                }
+                tccWarningSection
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
             }
 
-            // ── Fehler-Anzeige ───────────────────────────────────────────
+            // ── Fehler (unverändert übernommen) ──────────────────────────
             if case .error(let e) = controller.status {
-                Text(e.localizedDescription)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .lineLimit(3)
+                errorSection(e)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
             }
 
-            // ── Metriken (nur bei aktivem Routing) ───────────────────────
-            if controller.status == .routing {
-                Divider()
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Callbacks: \(controller.totalCallbacks)")
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(controller.hasReceivedAudio ? Color.green : Color.secondary)
-                            .frame(width: 6, height: 6)
-                        Text(controller.hasReceivedAudio ? "Audio erfasst ✓" : "Warte auf Audio…")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(controller.hasReceivedAudio ? .primary : .secondary)
-                    }
-                }
-            }
-
-            Divider()
-
-            // ── Output-Config-Verwaltung (nur wenn nicht routing) ────────
-            if controller.status != .routing {
-                Text("Routing-Ziele:")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if controller.outputConfigs.isEmpty {
-                    Text("Kein Ziel — routet nur Tap")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                } else {
-                    ForEach(controller.outputConfigs, id: \.self) { config in
-                        HStack {
-                            Text(config.uid.prefix(20))
-                                .font(.caption.monospaced())
-                                .lineLimit(1)
-                            if config.channelOffset > 0 {
-                                Text("Ch\(config.channelOffset + 1)-\(config.channelOffset + 2)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button(action: { controller.removeOutputConfig(config) }) {
-                                Image(systemName: "minus.circle")
-                                    .foregroundStyle(.red)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-
-                // Add-Picker: verfügbare Devices; >= 4 Kanäle → Ch1-2 und
-                // Ch3-4 separat anbieten (KA6-Fall).
-                if !controller.availableDevices.isEmpty {
-                    Menu("+ Hinzufügen") {
-                        ForEach(controller.availableDevices, id: \.uid) { device in
-                            if device.channelCount >= 4 {
-                                Button("\(device.name) (Ch1-2)") {
-                                    controller.addOutputConfig(
-                                        OutputConfig(uid: device.uid, channelOffset: 0)
-                                    )
-                                }
-                                Button("\(device.name) (Ch3-4)") {
-                                    controller.addOutputConfig(
-                                        OutputConfig(uid: device.uid, channelOffset: 2)
-                                    )
-                                }
-                            } else {
-                                Button(device.name) {
-                                    controller.addOutputConfig(
-                                        OutputConfig(uid: device.uid, channelOffset: 0)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    .menuStyle(.borderlessButton)
-                    .font(.caption)
-                }
-
+            // ── Volume-Slider (nur ACTIVE) ───────────────────────────────
+            if ui == .active {
+                VolumeRow()
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
                 Divider()
             }
 
-            // ── Start / Stop Button ──────────────────────────────────────
-            Button(controller.status == .routing ? "Stop Routing" : "Start Routing") {
-                if controller.status == .routing {
-                    controller.stopRouting()
-                } else {
-                    controller.startRouting()
+            // ── Accordion-Geräteliste ────────────────────────────────────
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(controller.outputConfigs, id: \.self) { cfg in
+                        DeviceCardView(state: ui, config: cfg)
+                    }
+                    AddDeviceRow()
                 }
+                .padding(.horizontal, 14).padding(.vertical, 10)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(controller.status == .routing ? .red : .accentColor)
+            .frame(maxHeight: 320)
 
             Divider()
 
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
+            // ── State-Button + Footer ────────────────────────────────────
+            VStack(spacing: 10) {
+                RoutingButton(state: ui)
+                FooterRow()
             }
+            .padding(14)
         }
-        .padding(12)
-        .frame(width: 300)
-        // Einmalig Devices laden + Polling alle 0,5 s für Metriken-Update
+        .frame(width: 320)
+        .onAppear {
+            // W5: SMAppService-Status bei jedem Öffnen neu spiegeln
+            // (Onboarding registriert direkt; User kann in Systemeinstellungen entfernen).
+            controller.refreshLaunchAtLoginStatus()
+        }
         .task {
             controller.refreshAvailableDevices()
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                controller.poll()
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                controller.refreshAvailableDevices()
             }
         }
     }
 
-    private var statusColor: Color {
-        switch controller.status {
-        case .idle:    return .gray
-        case .routing: return .green
-        case .error:   return .red
+    // MARK: Status-Bar (inline, §4.4)
+
+    private func statusBar(_ ui: ARNUIState) -> some View {
+        HStack(spacing: 7) {
+            PulsingDot(color: dotColor(ui), pulsing: ui == .active || ui == .starting)
+            Text(statusText(ui))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            Spacer()
+            if ui == .active {
+                Text("CBs \(controller.totalCallbacks)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+
+    private func dotColor(_ ui: ARNUIState) -> Color {
+        switch ui {
+        case .idle:     return ARNColor.statusDotIdle
+        case .starting: return ARNColor.accent
+        case .active:   return controller.hasReceivedAudio ? ARNColor.accent : .yellow
+        case .error:    return .red
         }
     }
 
-    private var statusText: String {
-        switch controller.status {
-        case .idle:    return "Idle"
-        case .routing: return "Routing → \(controller.outputConfigs.count) Outputs"
-        case .error:   return "Fehler"
+    private func statusText(_ ui: ARNUIState) -> String {
+        switch ui {
+        case .idle:     return "Kein Routing aktiv"
+        case .starting: return "Verbinde Geräte…"
+        case .active:
+            let n = controller.outputConfigs.count
+            return controller.hasReceivedAudio
+                ? "Routing → \(n) Gerät\(n == 1 ? "" : "e")"
+                : "Warte auf Audio…"
+        case .error:    return "Fehler"
+        }
+    }
+
+    // MARK: TCC-Warnung (unverändert aus dem Ist-Stand)
+
+    private var tccWarningSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.caption)
+                Text("System Audio Recording permission missing")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            Text("Either grant permission in System Settings, or the current source plays DRM-protected content (Apple Music, Netflix, TV+) — macOS does not expose DRM audio to any app.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Open System Settings →") {
+                controller.openTCCSettings()
+            }
+            .font(.caption)
+        }
+    }
+
+    // MARK: Fehler (unverändert aus dem Ist-Stand)
+
+    @ViewBuilder
+    private func errorSection(_ error: RouterError) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.red)
+                .font(.caption)
+            Text(error.localizedDescription)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .lineLimit(3)
         }
     }
 }
