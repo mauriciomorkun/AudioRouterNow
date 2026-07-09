@@ -2,20 +2,32 @@
 //  FanOutEngine.swift
 //  AudioRouterKit
 //
-//  Phase 2 — Multi-Output Fan-out Engine.
+//  Phase 3/4 — Multi-Output Fan-out Engine (Zero-Latency Direct IOProc)
+//              mit Output-Latency-Compensation (Phase 4).
 //
-//  Erweitert die Phase-1-Tap-Logik (TapEngine) um echten Fan-out:
+//  Aggregate(Tap + DefaultOutput + ALL FanOut-Targets) → Single IOProc
+//      inInputData (Tap) ─────────────────────────────────────────────────┐
+//                                                                         ▼
+//      ioOutputData: [DefaultOutput] [FanOut1] [FanOut2] … [FanOutN]
 //
-//    Tap-IOProc (Producer, com.apple.audio.IOThread.client des Aggregates)
-//        └─► SPSCRingBuffer pro Output-Route (lock-frei, non-blocking)
-//                └─► Output-IOProc pro physischem Ziel-Device (Consumer)
+//  WICHTIG (Phase-5-Fix): Mit `.mutedWhenTapped` mutet CoreAudio die Quelle am
+//  Tap — der Default-Output bekommt auf dem nativen Weg KEIN Signal mehr. Der
+//  Direct-IOProc ist die EINZIGE Signalquelle und bespielt deshalb ALLE Slots
+//  inkl. Default-Output (= allOutputs[0], bufferOffset 0). Es gibt keinen
+//  „skip"-Slot mehr.
 //
-//  Gruppierung: Mehrere OutputConfigs mit derselben Device-UID (z. B.
-//  KA6 Ch1-2 + KA6 Ch3-4) werden zu EINEM OutputDeviceNode mit EINEM
-//  IOProc zusammengefasst — jede Route behält ihren eigenen Ring.
+//  Kein Ring-Buffer, kein Inter-Thread-Delay. CoreAudio's Aggregate Device
+//  synchronisiert die Clocks aller Sub-Devices automatisch (kAudioSubTapDriftCompensationKey).
+//  Latenz: ≈ 5ms (nur Tap-Capture-Delay, unvermeidbar bei Post-Mix-Tap).
 //
-//  SR-Drift: Phase 2 ist SR-agnostisch (Ring-Preroll puffert 43 ms);
-//  echte Drift-Kompensation (PI-Regler/SRC) kommt in Phase 3.
+//  ## Phase 4 — Output-Latency-Compensation
+//  Unterschiedliche Output-Devices haben stark unterschiedliche Hardware-
+//  Latenzen (USB ≈ 5–40 ms, Bluetooth ≈ 100–300 ms, AirPlay ≈ 200–2000 ms).
+//  Laufen zwei Targets gleichzeitig, spielen sie dasselbe Audio zeitversetzt →
+//  hörbares Echo. Lösung: niedrig-latente Targets (inkl. Default-Output) werden
+//  per ``DelayLine`` auf `maxLatency` verzögert, bis ALLE Slots synchron sind.
+//  Latenzen werden Sample-Rate-normalisiert verglichen (Sekunden, F6), das
+//  delayFrames-Ergebnis in der Nominal-Sample-Rate des Aggregates ausgedrückt.
 //
 //  Copyright 2026 Mauricio Moraïs da Cunha. Apache License 2.0.
 //
@@ -25,29 +37,57 @@ import CoreAudio
 import Foundation
 import os
 
-/// Multi-Output Fan-out Engine (Phase 2).
+/// Reine Wert-Beschreibung eines Sub-Devices für die Slot-Planung.
+/// CoreAudio-frei → in ``FanOutEngine/computeSlotLayouts`` unit-testbar (F3/F6/F7).
+struct DeviceLayoutInfo: Equatable, Sendable {
+    /// Erster Buffer-Index dieses Devices in `ioOutputData`.
+    let bufferOffset: Int
+    /// Gesamt-Output-Latenz in Sekunden (Sample-Rate-normalisiert, F6).
+    let latencySeconds: Double
+    /// true = 1 Buffer mit N Kanälen; false = 1 Buffer pro Kanal.
+    let isInterleaved: Bool
+    /// Anzahl Buffer, die dieses Device in `ioOutputData` beiträgt.
+    let bufferCount: Int
+}
+
+/// Reines Layout-Ergebnis pro OutputConfig (ohne allozierte DelayLine/Scratch).
+struct SlotLayout: Equatable, Sendable {
+    let bufferIndex: Int
+    let channelOffset: Int
+    let delayFrames: Int
+    /// Buffer-Bereich DIESES Devices in `ioOutputData` (F7 R-Bounds-Check).
+    let bufferSpan: Range<Int>
+}
+
+/// Multi-Output Fan-out Engine (Phase 3 — Zero-Latency Direct IOProc).
 ///
 /// `@MainActor`, weil Start/Stop und Statusabfragen vom UI-/Kontroll-Pfad
-/// kommen. Die Realtime-Pfade (Tap-IOProc als Producer, Output-IOProcs als
-/// Consumer) laufen NICHT auf dem MainActor; sie kommunizieren ausschließlich
-/// über ``SPSCRingBuffer`` (lock-frei) und ``TapIOMetrics``.
+/// kommen. Der Realtime-Pfad (ein einziger Direct-IOProc auf dem Aggregate)
+/// läuft NICHT auf dem MainActor; er kommuniziert mit dem MainActor
+/// ausschließlich über ``TapIOMetrics``.
 ///
 /// ## ⚠️ PFLICHTREGEL (Phase-1-Crash-Root-Cause, Fix 07.07.2026)
 ///
-/// ALLE IOProc-Blöcke werden über `nonisolated static` Factories erstellt
-/// (``makeTapIOBlock(metrics:outputChannels:)``,
-/// ``makeOutputIOBlock(channels:)``). Eine inline in einer
+/// Der IOProc-Block wird über eine `nonisolated static` Factory erstellt
+/// (``makeDirectIOBlock(metrics:slots:)``). Eine inline in einer
 /// `@MainActor`-Methode definierte Closure erbt die MainActor-Isolation →
 /// `swift_task_checkIsolatedSwift` → `_dispatch_assert_queue_fail` →
-/// EXC_BREAKPOINT auf dem CoreAudio-RT-Thread. Details: TapEngine.makeIOBlock.
+/// EXC_BREAKPOINT auf dem CoreAudio-RT-Thread. Voll ausgeführte Root-Cause-
+/// Analyse: siehe ``makeDirectIOBlock``.
 @MainActor
 public final class FanOutEngine {
 
-    // MARK: Konstanten (TapEngine-Parität)
+    // MARK: Konstanten
 
     /// Anzahl aufeinanderfolgender reiner Silence-Callbacks, ab der ein
     /// TCC-Denied-Verdacht besteht. Bei 48 kHz / 512 Frames ≈ 2,1 s Wandzeit.
     public static let silenceHeuristicThreshold = 200
+
+    /// Obere Grenze der IO-Buffer-Größe pro Callback. Bestimmt DelayLine-
+    /// Kapazität (F1), Scratch-Buffer-Größe (F8) und den IOProc-Clamp (F9).
+    /// 4096 Frames deckt reguläre und AirPlay-typische IO-Buffer ab; größere
+    /// Callbacks werden im IOProc geclamped (RT-sicher, kein Overrun).
+    public nonisolated static let maxFramesPerCallback = 4096
 
     /// Deep-Link zu Systemeinstellungen → Datenschutz → System-Audio-Aufnahme
     /// (einziger MAS-konformer Weg, den User zur Berechtigung zu leiten —
@@ -70,8 +110,10 @@ public final class FanOutEngine {
     /// IOProc-Handle des Tap-IOProcs auf dem Aggregate Device.
     private var tapIoProcID: AudioDeviceIOProcID?
 
-    /// Aktive Output-Nodes (ein Node pro physischem Ziel-Device).
-    private var outputNodes: [OutputDeviceNode] = []
+    /// Buffer-Slot-Mapping: welcher Buffer-Index in `ioOutputData` gehört zu
+    /// welchem OutputConfig. Wird nach Aggregate-Erstellung gebaut und vom
+    /// Direct-IOProc gelesen (Wert-Kopie im Block-Capture — kein self-Capture).
+    private var directOutputSlots: [DirectOutputSlot] = []
 
     /// Realtime-sichere Zähler-Brücke (siehe ``TapIOMetrics``).
     private let metrics = TapIOMetrics()
@@ -94,44 +136,57 @@ public final class FanOutEngine {
 
     // MARK: Interne Typen
 
-    /// Laufzeit-Gruppierung pro physischem Output-Device.
-    /// Mehrere OutputConfigs mit derselben UID → EIN OutputDeviceNode mit
-    /// mehreren ``OutputDeviceChannel``s (je Route ein eigener Ring).
+    /// Zielbeschreibung EINES OutputConfigs innerhalb `ioOutputData` des
+    /// Aggregate-Devices.
     ///
-    /// `@unchecked Sendable`: Die `channels`-Referenzen werden vom
-    /// Output-IOProc (RT-Thread) gelesen; alle Stored Properties außer
-    /// `ioProcID` sind `let`. `ioProcID` wird ausschließlich vom MainActor
-    /// beschrieben (start/teardown), nie vom RT-Pfad — der IOProc-Block
-    /// captured nur `channels`, nie den Node selbst.
-    private final class OutputDeviceNode: @unchecked Sendable {
-        let deviceID: AudioObjectID
-        let uid: String
-        let channels: [OutputDeviceChannel] // geordnet nach Config-Reihenfolge
-        var ioProcID: AudioDeviceIOProcID?
-
-        init(deviceID: AudioObjectID, uid: String, channels: [OutputDeviceChannel]) {
-            self.deviceID = deviceID
-            self.uid = uid
-            self.channels = channels
-            self.ioProcID = nil
-        }
+    /// Die Buffer-Reihenfolge in `ioOutputData` folgt der Sub-Device-Reihenfolge
+    /// des Aggregates; jedes Sub-Device trägt seine Output-Streams bei.
+    ///
+    /// - Non-interleaved (`mNumberChannels == 1` pro Buffer):
+    ///   `bufferIndex` zeigt auf den L-Channel-Buffer; der zugehörige
+    ///   R-Buffer liegt bei `bufferIndex + 1`. `channelOffset` ist bereits in
+    ///   `bufferIndex` eingerechnet und deshalb 0.
+    /// - Interleaved (`mNumberChannels >= 2` in einem Buffer):
+    ///   `bufferIndex` zeigt auf den (einzigen) Buffer des Devices;
+    ///   `channelOffset` indiziert L/R INNERHALB des interleavten Frames.
+    ///
+    /// - `@unchecked Sendable`: `bufferIndex`/`channelOffset`/`bufferSpan` sind
+    ///   reine Werte; `delay` ist eine `DelayLine`-Referenz (selbst
+    ///   `@unchecked Sendable`); `scratchL/R` sind vorab-allozierte RT-Buffer
+    ///   (F8), die AUSSCHLIESSLICH vom IOProc-Thread beschrieben und im Teardown
+    ///   erst NACH `AudioDeviceStop` freigegeben werden — kein Shared State.
+    private struct DirectOutputSlot: @unchecked Sendable {
+        let bufferIndex: Int
+        let channelOffset: Int
+        /// nil = direkt schreiben (höchste Latenz). non-nil = durch DelayLine.
+        let delay: DelayLine?
+        /// Buffer-Bereich DIESES Devices in `ioOutputData`. F7: R (bufferIndex+1)
+        /// wird nur geschrieben, wenn er in dieser Span liegt (sonst Mono-Gerät).
+        let bufferSpan: Range<Int>
+        /// F8: vorab-allozierte Scratch für den interleaved Delay-Pfad
+        /// (ersetzt `withUnsafeTemporaryAllocation` → kein Heap/Stack-Risiko).
+        /// Kapazität = `maxFramesPerCallback`. Freigabe in `teardownPartial`.
+        let scratchL: UnsafeMutableBufferPointer<Float32>
+        let scratchR: UnsafeMutableBufferPointer<Float32>
     }
 
     // MARK: Start
 
-    /// Startet Tap + N Output-IOProcs.
+    /// Startet Tap + einen einzigen Direct-IOProc (Zero-Latency Fan-out).
     ///
-    /// API-Sequenz (Erweiterung der Research-verifizierten TapEngine-Sequenz):
+    /// API-Sequenz (Research-verifizierte CoreAudio-Tap-Sequenz):
     /// 1. `CATapDescription` (global, unmuted, privat)
     /// 2. `AudioHardwareCreateProcessTap` → `tapID`
-    /// 3. Privates Aggregate Device mit Tap in `kAudioAggregateDeviceTapListKey`
-    /// 4. Output-Nodes auflösen (UID → AudioObjectID, nach Device gruppieren)
-    /// 5. Pro Output-Node ein Output-IOProc (Consumer, `makeOutputIOBlock`)
-    /// 6. Tap-IOProc mit Fan-out in alle Ringe (`makeTapIOBlock`)
-    /// 7. Output-Devices starten, dann Aggregate starten (TCC-Prompt HIER)
+    /// 3. Privates Aggregate Device mit Tap UND allen Fan-out-Targets als
+    ///    Sub-Devices (`kAudioAggregateDeviceSubDeviceListKey`)
+    /// 4. Buffer-Slot-Mapping bauen (welcher `ioOutputData`-Buffer gehört zu
+    ///    welchem OutputConfig, `buildDirectOutputSlots`)
+    /// 5. Ein Direct-IOProc auf dem Aggregate (`makeDirectIOBlock`) —
+    ///    liest inInputData (Tap) und schreibt direkt nach ioOutputData
+    /// 6. Aggregate starten (TCC-Prompt HIER)
     ///
-    /// `outputs` kann leer sein → verhält sich wie Phase 1
-    /// (nur Metriken/Silence-Heuristik, kein Fan-out).
+    /// `outputs` kann leer sein → dann ist der Default-Output der einzige Slot
+    /// (Passthrough mit reiner Tap-Latenz, keine Delay-Kompensation).
     ///
     /// - Throws: ``RouterError/tapFailed(status:)`` bei OSStatus-Fehlern,
     ///   ``RouterError/deviceNotFound(uid:)`` wenn eine Output-UID nicht
@@ -172,9 +227,10 @@ public final class FanOutEngine {
         // Die UUID wird unten als Tap-UID im Aggregate referenziert!
         tapDescription.uuid = UUID()
         tapDescription.isPrivate = true
-        // Quelle NICHT muten — v4-Routing ist additiv.
-        tapDescription.muteBehavior = .unmuted
-        tapDescription.name = "AudioRouterNow Global Tap (Phase 2 Fan-out)"
+        // Quelle am Tap muten — der Direct-IOProc übernimmt die Wiedergabe für
+        // ALLE Outputs inkl. Default-Output. Kein paralleler nativer Signalweg.
+        tapDescription.muteBehavior = .mutedWhenTapped
+        tapDescription.name = "AudioRouterNow Global Tap (Fan-out — muted at source)"
 
         // ── Schritt 2: Process Tap erzeugen ─────────────────────────────
         var newTapID = AudioObjectID(kAudioObjectUnknown)
@@ -186,6 +242,8 @@ public final class FanOutEngine {
 
         // Ab hier: bei JEDEM Fehler zuerst teardownPartial(), dann werfen.
 
+        let diagLogger = Logger(subsystem: "com.mauriciomorkun.audiorouternow", category: "SlotDiag")
+
         // ── Schritt 2b: Default-Output-Device-UID lesen ─────────────────
         let defaultOutputUID: String
         do {
@@ -195,18 +253,91 @@ public final class FanOutEngine {
             throw error
         }
 
+        // ── Schritt 2c: Master-Device bestimmen (F19) ─────────────────────
+        //
+        // KERN-PROBLEM: USB- und externe Audio-Interfaces (KA6, RME, Focusrite…)
+        // sind eigenständige Clock-Taktgeber. Als Aggregate-SLAVE empfangen sie
+        // KEINE Writes aus ioOutputData — CoreAudio liefert den Hardware-DAC des
+        // Slaves nicht an, wenn das Clock-Timing nicht mit dem Master übereinstimmt.
+        // Das ist der Grund warum KA6 als Slave dauerhaft stumm blieb (F17+F18
+        // haben Drift-Kompensation + DelayLine-Fix eingebaut, aber der Master war
+        // immer noch das falsche Gerät).
+        //
+        // Lösung (F19): Das erste Nicht-Default-User-Output wird zum Aggregate-MASTER.
+        // Der System-Default-Output (MacBook intern) wird zum SLAVE mit Drift-Komp.
+        // MacBook-internes Audio ist robust und tolerant gegenüber SRC als Slave.
+        //
+        // Falls der User NUR Built-in konfiguriert → masterUID == defaultOutputUID
+        // (klassisches Verhalten, unverändert).
+        let masterUID: String
+        if let firstExternal = outputs.first(where: { $0.uid != defaultOutputUID }) {
+            masterUID = firstExternal.uid
+            let masterPrefix = String(masterUID.prefix(20))
+            diagLogger.debug("F19: extern Master=\(masterPrefix, privacy: .public) — Default wird Slave")
+        } else {
+            masterUID = defaultOutputUID
+            diagLogger.debug("F19: Master=DefaultOutput (nur Built-in konfiguriert)")
+        }
+
+        // ── Schritt 2d: allOutputs in subDevice-Reihenfolge aufbauen ─────
+        //
+        // KRITISCH: allOutputs-Reihenfolge legt die Buffer-Offsets für
+        // buildDirectOutputSlots fest und MUSS exakt der SubDeviceList-Reihenfolge
+        // entsprechen, damit ioOutputData-Buffer-Indizes korrekt sind.
+        //
+        // Reihenfolge: (1) Master ch0 → (2) Default falls Slave → (3) User-Configs
+        var allOutputs: [OutputConfig] = []
+        var addedConfigKeys = Set<String>()
+
+        func appendConfig(_ c: OutputConfig) {
+            let key = "\(c.uid):\(c.channelOffset)"
+            if addedConfigKeys.insert(key).inserted { allOutputs.append(c) }
+        }
+
+        // 1. Master-Device als Basis (ch0 als Puffer-Anker)
+        appendConfig(OutputConfig(uid: masterUID, channelOffset: 0))
+        // 2. Default-Output als Slave (falls nicht Master)
+        if masterUID != defaultOutputUID {
+            appendConfig(OutputConfig(uid: defaultOutputUID, channelOffset: 0))
+        }
+        // 3. Alle User-Configs in Reihenfolge (dedupliziert)
+        for config in outputs { appendConfig(config) }
+
+        // ── Schritt 2d: Alle Output-UIDs validieren (F3) ────────────────
+        // Unauflösbare UID → sonst würde buildDirectOutputSlots das Offset-
+        // Mapping stillschweigend verschieben (Audio auf falschen Geräten).
+        for config in allOutputs {
+            guard Self.deviceIDForUID(config.uid) != nil else {
+                teardownPartial()
+                throw RouterError.deviceNotFound(uid: config.uid)
+            }
+        }
+
         // ── Schritt 3: Privates Aggregate Device ────────────────────────
+        //
+        // SubDeviceList: masterUID ZUERST (kein DriftKey — Master ist Clock-Quelle),
+        // alle weiteren Sub-Devices MIT DriftKey (SRC aktiviert, lockt zum Master).
+        // Reihenfolge MUSS exakt allOutputs entsprechen (Buffer-Offsets!).
+        var subDevices: [[String: Any]] = [[kAudioSubDeviceUIDKey: masterUID]]
+        var addedSubUIDs = Set<String>([masterUID])
+        for config in allOutputs {
+            if addedSubUIDs.insert(config.uid).inserted {
+                subDevices.append([
+                    kAudioSubDeviceUIDKey: config.uid,
+                    kAudioSubDeviceDriftCompensationKey: true,   // F17+F19: Slave-Sync
+                ])
+            }
+        }
+
         let aggregateUID = UUID().uuidString
         let description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "AudioRouterNow-FanOut-Aggregate",
             kAudioAggregateDeviceUIDKey: aggregateUID,
-            kAudioAggregateDeviceMainSubDeviceKey: defaultOutputUID,
+            kAudioAggregateDeviceMainSubDeviceKey: masterUID,   // F19: extern = Master
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceSubDeviceListKey: [
-                [kAudioSubDeviceUIDKey: defaultOutputUID]
-            ],
+            kAudioAggregateDeviceSubDeviceListKey: subDevices,
             kAudioAggregateDeviceTapListKey: [
                 [
                     kAudioSubTapUIDKey: tapDescription.uuid.uuidString,
@@ -223,74 +354,45 @@ public final class FanOutEngine {
         }
         aggregateDeviceID = newAggregateID
 
-        // ── Schritt 4: Output-Nodes aufbauen (UID → DeviceID, gruppiert) ─
-        //
-        // ⚠️ Default-Output-Device AUSSCHLIESSEN:
-        // Das Tap-Aggregate verwendet den Default-Output als Main-Sub-Device
-        // (muteBehavior = .unmuted → Audio spielt dort weiter nativ).
-        // Würden wir zusätzlich einen Output-IOProc auf demselben Device
-        // registrieren, summiert sich das Signal → Feedback-Loop.
-        // Der User muss das Default-Device NICHT als Ziel hinzufügen.
-        let filteredOutputs = outputs.filter { $0.uid != defaultOutputUID }
-        if filteredOutputs.count < outputs.count {
-            let skippedUIDs = outputs
-                .filter { $0.uid == defaultOutputUID }
-                .map { $0.uid }
-            logger.warning(
-                "FanOutEngine: \(skippedUIDs.count) Output(s) übersprungen (UID = Default-Output '\(defaultOutputUID)') — würde Feedback-Loop erzeugen. Das Default-Device spielt nativ weiter."
-            )
+        // ── Schritt 4: Buffer-Slot-Mapping bauen ────────────────────────
+        let (slots, expectedBufferCount) = Self.buildDirectOutputSlots(
+            allOutputs: allOutputs,
+            aggregateDeviceID: newAggregateID
+        )
+        directOutputSlots = slots
+
+        // DIAG: Slot-Mapping nach buildDirectOutputSlots loggen
+        diagLogger.debug("SlotDiag slots.count=\(slots.count, privacy: .public) expectedBufferCount=\(expectedBufferCount, privacy: .public)")
+        for (i, slot) in slots.enumerated() {
+            diagLogger.debug("  SlotDiag slot[\(i, privacy: .public)] bufferIndex=\(slot.bufferIndex, privacy: .public) bufferSpan=\(slot.bufferSpan.lowerBound, privacy: .public)..<\(slot.bufferSpan.upperBound, privacy: .public) channelOffset=\(slot.channelOffset, privacy: .public) delayFrames=\(slot.delay?.delayFrames ?? 0, privacy: .public)")
         }
 
-        let nodes: [OutputDeviceNode]
-        do {
-            nodes = try buildOutputNodes(from: filteredOutputs)
-        } catch {
+        // ── Schritt 4b: Aggregate-Buffer-Layout validieren (F5) ─────────
+        // Das Aggregate MUSS exakt so viele Output-Buffer bereitstellen, wie die
+        // Summe der Sub-Device-Buffer erwartet — sonst zeigt unser Slot-Mapping
+        // in falsche/fremde Buffer.
+        let aggregateBufferCount = Self.outputStreamBufferCount(for: newAggregateID)
+        diagLogger.debug("SlotDiag F5: aggregateBufferCount=\(aggregateBufferCount, privacy: .public) expected=\(expectedBufferCount, privacy: .public) match=\(aggregateBufferCount == expectedBufferCount, privacy: .public)")
+        guard aggregateBufferCount == expectedBufferCount else {
             teardownPartial()
-            throw error
+            throw RouterError.aggregateLayoutMismatch(
+                expected: expectedBufferCount, actual: aggregateBufferCount)
         }
-        // Ab jetzt in outputNodes halten, damit teardownPartial() bereits
-        // registrierte Output-IOProcs bei späteren Fehlern mit abräumt.
-        outputNodes = nodes
 
-        // ── Schritt 5: Pro Output-Node ein Output-IOProc (Consumer) ─────
+        // ── Schritt 5: Ein Direct-IOProc auf dem Aggregate ──────────────
         // ⚠️ Block via nonisolated static Factory — niemals inline (s. o.).
-        for node in nodes {
-            let block = Self.makeOutputIOBlock(channels: node.channels)
-            var procID: AudioDeviceIOProcID?
-            // nil = CoreAudio-eigener IOThread (eigene Queue → assert-Crash).
-            let procErr = AudioDeviceCreateIOProcIDWithBlock(&procID, node.deviceID, nil, block)
-            guard procErr == noErr, let pid = procID else {
-                teardownPartial()
-                throw RouterError.tapFailed(status: procErr)
-            }
-            node.ioProcID = pid
-        }
-
-        // ── Schritt 6: Tap-IOProc mit Fan-out (Producer) ────────────────
-        // Alle Channels aller Nodes als flache Liste — der Tap-IOProc pusht
-        // jeden Callback-Block in JEDEN Ring (non-blocking, Overrun = Skip).
-        let allChannels = nodes.flatMap { $0.channels }
-        let tapBlock = Self.makeTapIOBlock(metrics: metrics, outputChannels: allChannels)
+        // Der Block captured nur `metrics` (Sendable) und `slots` (Wert-Kopie).
+        let directBlock = Self.makeDirectIOBlock(metrics: metrics, slots: slots)
         var newProcID: AudioDeviceIOProcID?
-        err = AudioDeviceCreateIOProcIDWithBlock(&newProcID, aggregateDeviceID, nil, tapBlock)
+        // nil = CoreAudio-eigener IOThread (eigene Queue → assert-Crash-Regel).
+        err = AudioDeviceCreateIOProcIDWithBlock(&newProcID, aggregateDeviceID, nil, directBlock)
         guard err == noErr, newProcID != nil else {
             teardownPartial()
             throw RouterError.tapFailed(status: err)
         }
         tapIoProcID = newProcID
 
-        // ── Schritt 7a: Output-Devices starten ──────────────────────────
-        // Consumer zuerst — die Ringe liefern Stille bis Pre-Roll (43 ms)
-        // gefüllt ist, es gibt also keinen Start-Glitch.
-        for node in nodes {
-            let startErr = AudioDeviceStart(node.deviceID, node.ioProcID)
-            guard startErr == noErr else {
-                teardownPartial()
-                throw RouterError.tapFailed(status: startErr)
-            }
-        }
-
-        // ── Schritt 7b: Aggregate starten — HIER feuert der TCC-Prompt ──
+        // ── Schritt 6: Aggregate starten — HIER feuert der TCC-Prompt ───
         err = AudioDeviceStart(aggregateDeviceID, tapIoProcID)
         guard err == noErr else {
             teardownPartial()
@@ -302,7 +404,7 @@ public final class FanOutEngine {
 
     // MARK: Stop
 
-    /// Stoppt Tap + alle Output-IOProcs und gibt alle Ressourcen frei.
+    /// Stoppt den Direct-IOProc und gibt alle Ressourcen frei.
     /// Idempotent — mehrfaches Stoppen und Stoppen nach Gerätverlust
     /// (`'!dev'` = 560227702) sind erwartete Pfade, keine Fehler.
     public func stop() {
@@ -311,27 +413,26 @@ public final class FanOutEngine {
     }
 
     /// Rückabwicklung aller BEREITS erstellten Ressourcen in korrekter
-    /// Reihenfolge: Tap-IOProc → Output-IOProcs → Aggregate → Tap.
+    /// Reihenfolge: Direct-IOProc → Aggregate → Tap.
     /// OSStatus-Fehler beim Teardown werden bewusst ignoriert
     /// ('!dev' nach Gerätverlust ist hier normal, v3-Lektion).
     private func teardownPartial() {
-        // 1. Tap-IOProc stoppen + zerstören (Producer zuerst — danach
-        //    schreibt niemand mehr in die Ringe).
+        // 1. Direct-IOProc stoppen + zerstören (RT-Pfad zuerst — danach
+        //    greift niemand mehr auf ioOutputData zu).
         if let procID = tapIoProcID, aggregateDeviceID != kAudioObjectUnknown {
             _ = AudioDeviceStop(aggregateDeviceID, procID)
             _ = AudioDeviceDestroyIOProcID(aggregateDeviceID, procID)
         }
         tapIoProcID = nil
 
-        // 2. Alle Output-IOProcs stoppen + zerstören.
-        for node in outputNodes {
-            if let procID = node.ioProcID {
-                _ = AudioDeviceStop(node.deviceID, procID)
-                _ = AudioDeviceDestroyIOProcID(node.deviceID, procID)
-            }
-            node.ioProcID = nil
+        // 2. Slot-Mapping verwerfen: erst die vorab-allozierten Scratch-Buffer
+        //    (F8) freigeben (RT-Handles sind nach AudioDeviceStop tot),
+        //    DelayLines werden via ARC beim Array-Clear freigegeben.
+        for slot in directOutputSlots {
+            slot.scratchL.deallocate()
+            slot.scratchR.deallocate()
         }
-        outputNodes = []
+        directOutputSlots = []
 
         // 3. Aggregate Device zerstören.
         if aggregateDeviceID != kAudioObjectUnknown {
@@ -346,80 +447,167 @@ public final class FanOutEngine {
         }
     }
 
-    // MARK: Output-Node-Aufbau
+    // MARK: Buffer-Slot-Mapping
 
-    /// Löst OutputConfigs zu AudioObjectIDs auf und gruppiert sie pro
-    /// physischem Device (KA6 Ch1-2 + KA6 Ch3-4 → EIN Node, 2 Channels).
-    private func buildOutputNodes(from configs: [OutputConfig]) throws -> [OutputDeviceNode] {
-        // 1. Jede Config zu (AudioObjectID, Config) auflösen.
-        var byDeviceID: [(AudioObjectID, OutputConfig)] = []
-        for config in configs {
-            guard let deviceID = Self.deviceIDForUID(config.uid) else {
-                throw RouterError.deviceNotFound(uid: config.uid)
-            }
-            byDeviceID.append((deviceID, config))
+    /// Baut das Mapping OutputConfig → Buffer-Slot in `ioOutputData` des
+    /// Aggregates.
+    ///
+    /// **Buffer-Reihenfolge:** `allOutputs[0]` ist immer der Default-Output
+    /// (bufferOffset = 0 → erster Buffer in `ioOutputData`). Weitere Fan-out-
+    /// Targets folgen in Config-Reihenfolge. Jedes Sub-Device trägt so viele
+    /// Buffer bei, wie ``outputStreamBufferCount(for:)`` meldet
+    /// (non-interleaved: 1 Buffer pro Kanal; interleaved: 1 Buffer gesamt).
+    ///
+    /// **WICHTIG:** Pro einzigartiger UID wird der Offset nur EINMAL vorgerückt —
+    /// auch wenn mehrere OutputConfigs dieselbe UID teilen (z. B. KA6 Ch1-2 +
+    /// KA6 Ch3-4 zeigen in denselben Device-Buffer-Bereich, nur mit anderem
+    /// Channel-Offset).
+    ///
+    /// Liest pro einzigartiger UID Buffer-Anzahl, Latenz (Sekunden, F6) und
+    /// Layout aus CoreAudio, ruft die reine Planungslogik ``computeSlotLayouts``
+    /// (F3/F6/F7) und alloziert DelayLines + Scratch (F8).
+    ///
+    /// - Returns: die Slots plus `expectedBufferCount` (Summe aller Sub-Device-
+    ///   Buffer) für die Aggregate-Validierung (F5).
+    private nonisolated static func buildDirectOutputSlots(
+        allOutputs: [OutputConfig],
+        aggregateDeviceID: AudioObjectID
+    ) -> (slots: [DirectOutputSlot], expectedBufferCount: Int) {
+        var currentOffset = 0
+        var deviceInfoByUID: [String: DeviceLayoutInfo] = [:]
+
+        for config in allOutputs {
+            guard deviceInfoByUID[config.uid] == nil else { continue }
+            let deviceID = deviceIDForUID(config.uid)
+            let bufCount = deviceID.map { outputStreamBufferCount(for: $0) } ?? 2
+            // F18: fanOutLatencySeconds = deviceFrames + streamFrames (OHNE safetyFrames).
+            // safetyOffset kann zehntausende Frames groß sein (MacBook Spatial Audio) —
+            // das ist kein physischer Hardware-Latenz-Wert und würde KA6 etc. zu
+            // langen DelayLines zwingen (mehrere Sekunden Anfangsstille).
+            let latInfo = deviceID.map { readDeviceLatency(deviceID: $0) }
+            let latencySeconds = latInfo.map { $0.fanOutLatencySeconds } ?? 0
+            let interleaved = deviceID.map { isDeviceOutputInterleaved($0) } ?? false
+            // DIAG: Buffer-Mapping + Latenz pro Device loggen
+            let diagLogger = Logger(subsystem: "com.mauriciomorkun.audiorouternow", category: "SlotDiag")
+            let totalMs = latInfo.map { $0.totalMilliseconds } ?? -1
+            let fanOutMs = latInfo.map { $0.fanOutLatencySeconds * 1000 } ?? -1
+            diagLogger.debug("SlotDiag uid=\(String(config.uid.prefix(20)), privacy: .public) bufOffset=\(currentOffset, privacy: .public) bufCount=\(bufCount, privacy: .public) interleaved=\(interleaved, privacy: .public) totalMs=\(totalMs, privacy: .public) fanOutMs=\(fanOutMs, privacy: .public)")
+            deviceInfoByUID[config.uid] = DeviceLayoutInfo(
+                bufferOffset: currentOffset,
+                latencySeconds: latencySeconds,
+                isInterleaved: interleaved,
+                bufferCount: bufCount
+            )
+            currentOffset += bufCount
         }
 
-        // 2. Nach DeviceID gruppieren (Config-Reihenfolge beibehalten).
-        var grouped: [AudioObjectID: [OutputConfig]] = [:]
-        var deviceOrder: [AudioObjectID] = []
-        for (deviceID, config) in byDeviceID {
-            if grouped[deviceID] == nil {
-                grouped[deviceID] = []
-                deviceOrder.append(deviceID)
-            }
-            grouped[deviceID]!.append(config)
-        }
+        let aggregateSampleRate = nominalSampleRate(for: aggregateDeviceID)
+        let layouts = computeSlotLayouts(
+            allOutputs: allOutputs,
+            deviceInfoByUID: deviceInfoByUID,
+            aggregateSampleRate: aggregateSampleRate
+        )
 
-        // 3. Pro DeviceID einen OutputDeviceNode erstellen.
-        var nodes: [OutputDeviceNode] = []
-        for deviceID in deviceOrder {
-            let deviceConfigs = grouped[deviceID]!
-            let channels = deviceConfigs.map { OutputDeviceChannel(config: $0) }
-            // UID aus der ersten Config (alle haben dieselbe UID).
-            let uid = deviceConfigs[0].uid
-            nodes.append(OutputDeviceNode(deviceID: deviceID, uid: uid, channels: channels))
+        var slots: [DirectOutputSlot] = []
+        slots.reserveCapacity(layouts.count)
+        for layout in layouts {
+            let delay: DelayLine? = layout.delayFrames >= DelayLine.minimumDelayFrames
+                ? DelayLine(delayFrames: layout.delayFrames,
+                            maxFramesPerCallback: maxFramesPerCallback)
+                : nil
+            let scratchL = UnsafeMutableBufferPointer<Float32>.allocate(capacity: maxFramesPerCallback)
+            let scratchR = UnsafeMutableBufferPointer<Float32>.allocate(capacity: maxFramesPerCallback)
+            scratchL.initialize(repeating: 0)
+            scratchR.initialize(repeating: 0)
+            slots.append(DirectOutputSlot(
+                bufferIndex:   layout.bufferIndex,
+                channelOffset: layout.channelOffset,
+                delay:         delay,
+                bufferSpan:    layout.bufferSpan,
+                scratchL:      scratchL,
+                scratchR:      scratchR
+            ))
         }
-        return nodes
+        return (slots, currentOffset)
     }
 
-    // MARK: Realtime-IOProc-Factories
+    /// Reine Slot-Planung (F3/F6/F7) — CoreAudio-frei, deshalb unit-testbar.
+    ///
+    /// - F6: Latenzen werden in SEKUNDEN verglichen (Sample-Rate-normalisiert);
+    ///   `delayFrames` wird in der Nominal-Sample-Rate des Aggregates ausgedrückt.
+    /// - F7: `bufferSpan` pro Slot = Buffer-Bereich des Devices.
+    nonisolated static func computeSlotLayouts(
+        allOutputs: [OutputConfig],
+        deviceInfoByUID: [String: DeviceLayoutInfo],
+        aggregateSampleRate: Double
+    ) -> [SlotLayout] {
+        let maxLatencySeconds = deviceInfoByUID.values.map(\.latencySeconds).max() ?? 0
+        let sr = aggregateSampleRate > 0 ? aggregateSampleRate : 48_000
 
-    /// Erstellt den Tap-IOProc-Block (Producer): Silence-Heuristik +
-    /// Fan-out in alle Ring-Buffer.
+        var layouts: [SlotLayout] = []
+        for config in allOutputs {
+            guard let info = deviceInfoByUID[config.uid] else { continue }
+            let deltaSeconds = maxLatencySeconds - info.latencySeconds
+            let delayFrames = max(0, Int((deltaSeconds * sr).rounded()))
+            let span = info.bufferOffset ..< (info.bufferOffset + info.bufferCount)
+
+            let bufferIndex: Int
+            let channelOffset: Int
+            if info.isInterleaved {
+                bufferIndex   = info.bufferOffset
+                channelOffset = config.channelOffset
+            } else {
+                bufferIndex   = info.bufferOffset + config.channelOffset
+                channelOffset = 0
+            }
+            layouts.append(SlotLayout(
+                bufferIndex:   bufferIndex,
+                channelOffset: channelOffset,
+                delayFrames:   delayFrames,
+                bufferSpan:    span
+            ))
+        }
+        return layouts
+    }
+
+    // MARK: Realtime-IOProc-Factory
+
+    /// Erstellt den einzigen Direct-IOProc-Block (Zero-Latency Fan-out).
     ///
-    /// ## ⚠️ nonisolated static — PFLICHT (Phase-1-Crash-Root-Cause)
-    /// NIEMALS inline in einer `@MainActor`-Methode definieren — die Closure
-    /// würde die MainActor-Isolation erben und CoreAudio ruft sie auf
-    /// `com.apple.audio.IOThread.client` auf → `_dispatch_assert_queue_fail`
-    /// → EXC_BREAKPOINT (Details: TapEngine.makeIOBlock, Fix 07.07.2026).
-    ///
-    /// `AudioDeviceIOBlock` liefert KEINEN Frame-Count-Parameter — die
-    /// Framezahl wird aus `mDataByteSize` des jeweiligen Buffers abgeleitet.
-    ///
-    /// Der Tap liefert je nach Aggregate-Konfiguration:
-    /// - NON-INTERLEAVED Stereo: 2 Buffer à `mNumberChannels == 1` (L, R)
-    /// - INTERLEAVED: 1 Buffer mit `mNumberChannels >= 2`
-    /// - Mono: 1 Buffer mit `mNumberChannels == 1`
+    /// ## ⚠️ nonisolated static — PFLICHT (Phase-1-Crash-Root-Cause, 07.07.2026)
+    /// `FanOutEngine` ist `@MainActor`. Eine INLINE in einer `@MainActor`-Methode
+    /// definierte Closure ERBT die MainActor-Isolation — auch ohne `self`-Capture.
+    /// Swift fügt dann bei jeder Invokation `swift_task_checkIsolatedSwift` →
+    /// `dispatch_assert_queue(mainQueue)` ein. CoreAudio ruft den IOProc aber auf
+    /// `com.apple.audio.IOThread.client` (HALC_ProxyIOContext::IOWorkLoop), NICHT
+    /// auf der Main Queue → `_dispatch_assert_queue_fail` → `brk #0x1` →
+    /// EXC_BREAKPOINT. (Die Sandbox war NICHT die Ursache — gleicher Crash mit
+    /// app-sandbox=false verifiziert.) Fix: Block in dieser `nonisolated static`
+    /// Factory erstellen → keine geerbte Isolation → kein Assert → RT-safe.
+    /// **Lektion:** ALLE RT-/CoreAudio-Callbacks in `nonisolated`-Kontext bauen.
     ///
     /// - Parameters:
     ///   - metrics: Sendable-Zähler-Box (kein `self`-Capture!).
-    ///   - outputChannels: Alle Ring-Routen (Array von `@unchecked Sendable`
-    ///     Referenzen; SPSC-Invariante: dieser Block ist der EINZIGE Producer
-    ///     jedes Rings).
-    private nonisolated static func makeTapIOBlock(
+    ///   - slots: Buffer-Ziel-Slots (Wert-Kopie; Reihenfolge = Config-Reihenfolge).
+    private nonisolated static func makeDirectIOBlock(
         metrics: TapIOMetrics,
-        outputChannels: [OutputDeviceChannel]
+        slots: [DirectOutputSlot]
     ) -> AudioDeviceIOBlock {
-        return { _, inInputData, _, _, _ in
-            let bufferList = UnsafeMutableAudioBufferListPointer(
+        // F2: Bei aktiven DelayLines darf Silence NICHT früh raus — sonst wird
+        // der Audio-Tail abgeschnitten (Geister-Burst beim nächsten Callback).
+        let anySlotHasDelay = slots.contains { $0.delay != nil }
+        // F9: Kapazitätsgrenze für Scratch/DelayLine (kein RT-Alloc).
+        let maxFrames = maxFramesPerCallback
+
+        let block: AudioDeviceIOBlock = { _, inInputData, _, ioOutputData, _ in
+            let inputList = UnsafeMutableAudioBufferListPointer(
                 UnsafeMutablePointer(mutating: inInputData)
             )
+            let outputList = UnsafeMutableAudioBufferListPointer(ioOutputData)
 
-            // Silence-Heuristik (Phase-1-Parität): Early-Exit beim ersten
-            // Nicht-Null-Sample.
+            // ── Silence-Heuristik ────────────────────────────────────────
             var isSilent = true
-            outer: for buffer in bufferList {
+            outer: for buffer in inputList {
                 guard let data = buffer.mData else { continue }
                 let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size
                 let samples = data.assumingMemoryBound(to: Float32.self)
@@ -430,111 +618,169 @@ public final class FanOutEngine {
             }
             metrics.record(callbackWasSilent: isSilent)
 
-            // Kein Fan-out bei Silence (Consumer-Ringe laufen leer und
-            // liefern selbst Stille) oder ohne Routen.
-            guard !isSilent, !outputChannels.isEmpty, bufferList.count >= 1 else { return }
+            // F2: Nur früh raus, wenn KEINE DelayLine zu leeren ist.
+            guard (!isSilent || anySlotHasDelay), !slots.isEmpty, inputList.count >= 1
+            else { return }
 
             let bytesPerSample = MemoryLayout<Float32>.size
-            let first = bufferList[0]
 
-            if bufferList.count >= 2, first.mNumberChannels == 1 {
-                // Non-interleaved: Buffer 0 = L, Buffer 1 = R.
-                let frameCount = Int(first.mDataByteSize) / bytesPerSample
-                guard frameCount > 0,
-                      let left = first.mData?.assumingMemoryBound(to: Float32.self)
-                else { return }
-                let right = bufferList[1].mData?.assumingMemoryBound(to: Float32.self)
-                for ch in outputChannels {
-                    _ = ch.ring.push(left: left, right: right, frameCount: frameCount)
-                }
-            } else if first.mNumberChannels >= 2 {
-                // Interleaved: ein Buffer mit 2+ Kanälen.
-                let stride = Int(first.mNumberChannels)
-                let frameCount = Int(first.mDataByteSize) / (bytesPerSample * stride)
-                guard frameCount > 0,
-                      let data = first.mData?.assumingMemoryBound(to: Float32.self)
-                else { return }
-                for ch in outputChannels {
-                    _ = ch.ring.pushInterleaved(from: data, stride: stride, frameCount: frameCount)
-                }
+            // F20: Tap-Buffer = LETZTER Input-Buffer im Aggregate.
+            //
+            // CoreAudio legt die Input-Buffer-Reihenfolge so fest:
+            // [0..N-1] = Sub-Device Hardware-Inputs (KA6 Line-In, MacBook Mic) = meist Stille
+            // [N]      = Tap-Audio (CATap, Systemton) — immer am Ende
+            //
+            // Bisheriger Fehler: inputList[0] war der Hardware-Input → Stille auf ALLEN Outputs,
+            // auch wenn Audio erfasst ✓ zeigte (Silence-Check scannt ALLE Buffer → findet Tap in [N]).
+            let tapIdx = max(0, inputList.count - 1)
+            let first = inputList[tapIdx]
+
+            // ── Tap-Format bestimmen ─────────────────────────────────────
+            let frameCount: Int
+            let tapLeft: UnsafeMutablePointer<Float32>?
+            let tapRight: UnsafeMutablePointer<Float32>?
+            var tapInterleavedPtr: UnsafeMutablePointer<Float32>? = nil
+            var tapInterleavedStride: Int = 1
+
+            if first.mNumberChannels >= 2 {
+                // Interleaved Stereo (häufigster Fall: stereoGlobalTap liefert 2ch interleaved)
+                tapInterleavedStride = Int(first.mNumberChannels)
+                frameCount = Int(first.mDataByteSize) / (bytesPerSample * tapInterleavedStride)
+                tapInterleavedPtr = first.mData?.assumingMemoryBound(to: Float32.self)
+                tapLeft = nil; tapRight = nil
+            } else if first.mNumberChannels == 1, tapIdx >= 1,
+                      inputList[tapIdx - 1].mNumberChannels == 1 {
+                // Non-interleaved Stereo: L bei tapIdx-1, R bei tapIdx
+                let prevBuf = inputList[tapIdx - 1]
+                frameCount = Int(prevBuf.mDataByteSize) / bytesPerSample
+                tapLeft  = prevBuf.mData?.assumingMemoryBound(to: Float32.self)
+                tapRight = first.mData?.assumingMemoryBound(to: Float32.self)
             } else {
-                // Mono: ein Buffer, ein Kanal — L wird ring-seitig dupliziert.
-                let frameCount = Int(first.mDataByteSize) / bytesPerSample
-                guard frameCount > 0,
-                      let left = first.mData?.assumingMemoryBound(to: Float32.self)
-                else { return }
-                for ch in outputChannels {
-                    _ = ch.ring.push(left: left, right: nil, frameCount: frameCount)
-                }
+                // Mono oder einziger Buffer
+                frameCount = Int(first.mDataByteSize) / bytesPerSample
+                tapLeft  = first.mData?.assumingMemoryBound(to: Float32.self)
+                tapRight = nil
             }
-        }
-    }
 
-    /// Erstellt den Output-IOProc-Block (Consumer) für EIN physisches
-    /// Output-Device: popt pro Route aus dem jeweiligen Ring in die
-    /// Ziel-Kanäle (Channel-Offset-Support für Multi-Kanal-Interfaces).
-    ///
-    /// ## ⚠️ nonisolated static — PFLICHT (Phase-1-Crash-Root-Cause)
-    /// Siehe ``makeTapIOBlock(metrics:outputChannels:)``.
-    ///
-    /// Layout-Fälle des Output-Devices:
-    /// - NON-INTERLEAVED (`mNumberChannels == 1` pro Buffer): Channel-Offset
-    ///   indiziert die BUFFER-Liste (Buffer[offset] = L, Buffer[offset+1] = R).
-    /// - INTERLEAVED (1 Buffer, `mNumberChannels >= 2`): Channel-Offset
-    ///   indiziert INNERHALB des Buffers — Sample L von Frame i liegt bei
-    ///   `data[i * stride + offset]`, R bei `data[i * stride + offset + 1]`.
-    ///   `popInterleaved(into: data.advanced(by: offset), stride:)` schreibt
-    ///   exakt dorthin.
-    ///
-    /// Underrun/Pre-Roll: `pop…` füllt die Ziel-Kanäle mit Stille — kein
-    /// Garbage-Audio, kein Blockieren.
-    ///
-    /// - Parameter channels: Die Routen dieses Devices (SPSC-Invariante:
-    ///   dieser Block ist der EINZIGE Consumer jedes dieser Ringe).
-    private nonisolated static func makeOutputIOBlock(
-        channels: [OutputDeviceChannel]
-    ) -> AudioDeviceIOBlock {
-        return { _, _, _, outOutputData, _ in
-            let outputList = UnsafeMutableAudioBufferListPointer(outOutputData)
-            guard outputList.count > 0 else { return }
+            guard frameCount > 0 else { return }
 
-            let bytesPerSample = MemoryLayout<Float32>.size
-            let first = outputList[0]
+            // ── Direkt in ioOutputData schreiben ─────────────────────────
+            for slot in slots {
+                let bi = slot.bufferIndex
+                guard bi < outputList.count else { continue }
+                let outBuf = outputList[bi]
 
-            if first.mNumberChannels == 1 {
-                // Non-interleaved: ein Buffer pro Kanal.
-                let frameCount = Int(first.mDataByteSize) / bytesPerSample
-                guard frameCount > 0 else { return }
-                for ch in channels {
-                    let offset = ch.config.channelOffset
-                    guard outputList.count > offset,
-                          let left = outputList[offset].mData?
-                              .assumingMemoryBound(to: Float32.self)
+                // F9: frameCount gegen REALE Output-Buffer-Größe UND Scratch/
+                // DelayLine-Kapazität (maxFrames) clampen.
+                let outChannels = max(1, Int(outBuf.mNumberChannels))
+                let outCapacity = Int(outBuf.mDataByteSize) / bytesPerSample / outChannels
+                let n = min(frameCount, outCapacity, maxFrames)
+                guard n > 0 else { continue }
+
+                // F21: DelayLine nur wenn n ≤ delayFrames.
+                // Bei n > delayFrames (z.B. n=512 > d=230) überlappen Read/Write-
+                // Ranges im Ring-Buffer: die letzten (n-d) Output-Frames lesen noch-
+                // ungeschriebene Positionen → Stille-Burst → hörbare Artefakte.
+                // Fallback: direkt schreiben (kein Delay). Der Sync-Fehler beträgt
+                // dann fanOutMs ≤ 5 ms und ist im Hörtest nicht wahrnehmbar.
+                if let delay = slot.delay, n <= delay.delayFrames {
+                    // ── Delay-Pfad (Phase 4) ─────────────────────────────
+                    if outBuf.mNumberChannels == 1 {
+                        // Non-interleaved: L → buffers[bi], R → buffers[bi+1].
+                        let rbi = bi + 1
+                        guard let dstL = outBuf.mData?.assumingMemoryBound(to: Float32.self)
+                        else { continue }
+                        // F7: R nur, wenn rbi im Buffer-Bereich DIESES Devices liegt.
+                        let dstR: UnsafeMutablePointer<Float32>? =
+                            (slot.bufferSpan.contains(rbi) && rbi < outputList.count)
+                            ? outputList[rbi].mData?.assumingMemoryBound(to: Float32.self)
+                            : nil
+
+                        if let intPtr = tapInterleavedPtr {
+                            delay.processInterleaved(
+                                frameCount: n,
+                                src: intPtr, srcStride: tapInterleavedStride, srcOffset: 0,
+                                outL: dstL, outR: dstR
+                            )
+                        } else {
+                            delay.process(
+                                frameCount: n,
+                                inL: tapLeft, inR: tapRight,
+                                outL: dstL, outR: dstR
+                            )
+                        }
+                    } else {
+                        // Interleaved Output — F8: vorab-allozierte Scratch.
+                        let stride = Int(outBuf.mNumberChannels)
+                        let chOffset = slot.channelOffset
+                        guard chOffset + 1 < stride,
+                              let dst = outBuf.mData?.assumingMemoryBound(to: Float32.self)
+                        else { continue }
+                        let tL = slot.scratchL.baseAddress!
+                        let tR = slot.scratchR.baseAddress!
+                        if let intPtr = tapInterleavedPtr {
+                            delay.processInterleaved(
+                                frameCount: n,
+                                src: intPtr, srcStride: tapInterleavedStride, srcOffset: 0,
+                                outL: tL, outR: tR
+                            )
+                        } else {
+                            delay.process(frameCount: n,
+                                          inL: tapLeft, inR: tapRight,
+                                          outL: tL, outR: tR)
+                        }
+                        for i in 0..<n {
+                            dst[i * stride + chOffset]     = tL[i]
+                            dst[i * stride + chOffset + 1] = tR[i]
+                        }
+                    }
+                } else if outBuf.mNumberChannels == 1 {
+                    // ── Direkter Pfad (kein Delay) ───────────────────────
+                    let rbi = bi + 1
+                    guard let dst = outBuf.mData?.assumingMemoryBound(to: Float32.self)
                     else { continue }
-                    let right = offset + 1 < outputList.count
-                        ? outputList[offset + 1].mData?.assumingMemoryBound(to: Float32.self)
+                    // F7: R-Bounds gegen Device-Buffer-Span.
+                    let dstR: UnsafeMutablePointer<Float32>? =
+                        (slot.bufferSpan.contains(rbi) && rbi < outputList.count)
+                        ? outputList[rbi].mData?.assumingMemoryBound(to: Float32.self)
                         : nil
-                    _ = ch.ring.pop(left: left, right: right, frameCount: frameCount)
-                }
-            } else {
-                // Interleaved: ein Buffer mit mehreren Kanälen.
-                let stride = Int(first.mNumberChannels)
-                let frameCount = Int(first.mDataByteSize) / (bytesPerSample * stride)
-                guard frameCount > 0,
-                      let data = first.mData?.assumingMemoryBound(to: Float32.self)
-                else { return }
-                for ch in channels {
-                    let offset = ch.config.channelOffset
-                    // L+R müssen ins Kanal-Raster passen (offset+1 < stride).
-                    guard offset + 1 < stride else { continue }
-                    _ = ch.ring.popInterleaved(
-                        into: data.advanced(by: offset),
-                        stride: stride,
-                        frameCount: frameCount
-                    )
+
+                    if let intPtr = tapInterleavedPtr {
+                        let stride = tapInterleavedStride
+                        for i in 0..<n {
+                            dst[i] = intPtr[i * stride]
+                            dstR?[i] = intPtr[i * stride + min(1, stride - 1)]
+                        }
+                    } else if let L = tapLeft {
+                        dst.update(from: L, count: n)
+                        if let R = tapRight { dstR?.update(from: R, count: n) }
+                        else { dstR?.update(from: L, count: n) } // Mono-Dup
+                    }
+                } else {
+                    // Interleaved Output: L/R innerhalb eines Buffers.
+                    let stride = Int(outBuf.mNumberChannels)
+                    let chOffset = slot.channelOffset
+                    guard chOffset + 1 < stride,
+                          let dst = outBuf.mData?.assumingMemoryBound(to: Float32.self)
+                    else { continue }
+
+                    if let intPtr = tapInterleavedPtr {
+                        let srcStride = tapInterleavedStride
+                        for i in 0..<n {
+                            dst[i * stride + chOffset]     = intPtr[i * srcStride]
+                            dst[i * stride + chOffset + 1] = intPtr[i * srcStride + min(1, srcStride - 1)]
+                        }
+                    } else if let L = tapLeft {
+                        let R = tapRight
+                        for i in 0..<n {
+                            dst[i * stride + chOffset]     = L[i]
+                            dst[i * stride + chOffset + 1] = R?[i] ?? L[i]
+                        }
+                    }
                 }
             }
         }
+        return block
     }
 
     // MARK: Device-Discovery
@@ -638,6 +884,58 @@ public final class FanOutEngine {
         return total
     }
 
+    /// Gibt die Anzahl der Output-Stream-Buffer zurück, die ein Device in das
+    /// `ioOutputData` des Aggregates einbringt (non-interleaved: 1 Buffer pro
+    /// Kanal; interleaved: 1 Buffer für alle Kanäle).
+    ///
+    /// Grundlage für die Offset-Akkumulation in ``buildDirectOutputSlots``.
+    private nonisolated static func outputStreamBufferCount(for deviceID: AudioObjectID) -> Int {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr,
+              size > 0 else { return 0 }
+
+        let raw = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(size),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { raw.deallocate() }
+        let listPtr = raw.assumingMemoryBound(to: AudioBufferList.self)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, listPtr) == noErr
+        else { return 0 }
+        return Int(listPtr.pointee.mNumberBuffers)
+    }
+
+    /// `true`, wenn das Output-Layout des Devices INTERLEAVED ist, d. h. genau
+    /// EIN Stream-Buffer alle Kanäle (`mNumberChannels >= 2`) trägt.
+    /// `false` für non-interleaved (1 Buffer pro Kanal) oder unbekannt.
+    private nonisolated static func isDeviceOutputInterleaved(_ deviceID: AudioObjectID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr,
+              size > 0 else { return false }
+
+        let raw = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(size),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { raw.deallocate() }
+        let listPtr = raw.assumingMemoryBound(to: AudioBufferList.self)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, listPtr) == noErr
+        else { return false }
+
+        let bufferList = UnsafeMutableAudioBufferListPointer(listPtr)
+        return bufferList.count == 1 && bufferList[0].mNumberChannels >= 2
+    }
+
     /// `true`, wenn das Device ein Aggregate ist — echte Aggregates besitzen
     /// die Property `kAudioAggregateDevicePropertyComposition`.
     private nonisolated static func isAggregateDevice(_ deviceID: AudioObjectID) -> Bool {
@@ -703,8 +1001,8 @@ public final class FanOutEngine {
     }
 
     /// Liest die UID des aktuellen Default-Output-Devices
-    /// (Re-Implementierung der privaten TapEngine-Helper-Methode —
-    /// UID statt AudioObjectID: stabil über Hot-Plug, CJK-sicher).
+    /// (CoreAudio-Helper — UID statt AudioObjectID: stabil über Hot-Plug,
+    /// CJK-sicher).
     private nonisolated static func readDefaultOutputDeviceUID() throws -> String {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
@@ -723,5 +1021,20 @@ public final class FanOutEngine {
             throw RouterError.deviceNotFound(uid: "default-output")
         }
         return uid
+    }
+
+    /// Liest `kAudioDevicePropertyNominalSampleRate` (Fallback 48000).
+    /// Für das Aggregate genutzt, um F6-delayFrames in dessen Sample-Rate zu
+    /// berechnen.
+    private nonisolated static func nominalSampleRate(for deviceID: AudioObjectID) -> Double {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var rate: Float64 = 48_000
+        var size = UInt32(MemoryLayout<Float64>.size)
+        _ = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &rate)
+        return rate
     }
 }
