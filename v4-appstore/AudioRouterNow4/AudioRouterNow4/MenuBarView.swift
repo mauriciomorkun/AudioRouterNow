@@ -12,8 +12,20 @@
 import SwiftUI
 import AudioRouterKit
 
+/// Wurzel-View des Menu-Bar-Panels (Konzept 4B „Fusion Prominent Wave +
+/// Accordion Expand").
+///
+/// Komponiert von oben nach unten: animierter Wellen-Header, Status-Bar,
+/// optionale TCC-/Fehler-Hinweise, Volume-Slider (nur aktiv), Accordion-
+/// Geräteliste sowie Start/Stop-Button und Footer. Die effektive UI-Phase wird
+/// aus `controller.status` + `controller.isStarting` zu einem ``ARNUIState``
+/// verdichtet und steuert, welche Sektionen erscheinen.
+///
+/// - Note: `.fixedSize(…vertical: true)` ist notwendig, weil ein
+///   `MenuBarExtra(.window)`-Panel sonst keine korrekte Inhaltshöhe erhält.
 struct MenuBarView: View {
 
+    /// Der geteilte Engine-Controller (injiziert von ``AudioRouterNowApp``).
     @EnvironmentObject var controller: EngineController
 
     var body: some View {
@@ -120,6 +132,8 @@ struct MenuBarView: View {
 
     // MARK: Status-Bar (inline, §4.4)
 
+    /// Status-Zeile: Puls-Punkt (Farbe/Animation je Phase) + Text; im Aktiv-
+    /// Zustand zusätzlich der monospaced Callback-Zähler.
     private func statusBar(_ ui: ARNUIState) -> some View {
         HStack(spacing: 7) {
             PulsingDot(color: dotColor(ui), pulsing: ui == .active || ui == .starting)
@@ -137,6 +151,7 @@ struct MenuBarView: View {
         .padding(.vertical, 8)
     }
 
+    /// Farbe des Status-Punkts je Phase (aktiv: mint bei Audio, sonst gelb).
     private func dotColor(_ ui: ARNUIState) -> Color {
         switch ui {
         case .idle:     return ARNColor.statusDotIdle
@@ -146,6 +161,7 @@ struct MenuBarView: View {
         }
     }
 
+    /// Lokalisierter Status-Text je Phase (inkl. Geräte-Zählung im Aktiv-Zustand).
     private func statusText(_ ui: ARNUIState) -> String {
         switch ui {
         case .idle:     return "Kein Routing aktiv"

@@ -1010,6 +1010,15 @@ public final class FanOutEngine {
     // MARK: Device-Discovery
 
     /// Liefert alle verfügbaren (nicht-aggregierten) Output-Devices.
+    ///
+    /// Filtert Aggregate-Devices (inkl. das eigene private Fan-out-Aggregate)
+    /// und Geräte ohne Output-Kanäle heraus, damit die Geräteauswahl in der UI
+    /// nur echte, adressierbare Ziele zeigt.
+    ///
+    /// - Returns: Tupel je Gerät aus persistenter `uid`, User-sichtbarem `name`
+    ///   und `channelCount` (Summe der Output-Kanäle über alle Streams).
+    /// - Note: `nonisolated static` — reine CoreAudio-Abfrage, MainActor-frei
+    ///   vom Kontroll-Layer aufrufbar.
     public nonisolated static func availableOutputDevices()
         -> [(uid: String, name: String, channelCount: Int)]
     {
@@ -1044,7 +1053,11 @@ public final class FanOutEngine {
     }
 
     /// Peak-Pegel eines Output-Slots [0.0 … 1.0 linear]. Polling-sicher.
-    /// Index korrespondiert 1:1 mit ``slotDeviceKeys``.
+    ///
+    /// - Parameter slotIndex: Slot-Index, korrespondiert 1:1 mit ``slotDeviceKeys``.
+    /// - Returns: linearer L/R-Peak seit dem letzten IOProc-Update.
+    /// - Note: Vom MainActor-Poll (20 fps) gelesen; die Werte werden vom IOProc
+    ///   RT-sicher via ``PeakMeters`` (os_unfair_lock) gesetzt.
     public func peakLevel(slotIndex: Int) -> (l: Float32, r: Float32) {
         peaks.level(slotIndex: slotIndex)
     }

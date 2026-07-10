@@ -18,10 +18,23 @@
 
 import SwiftUI
 
+/// Oszilloskop-Header, der echte IOProc-Audiodaten als ±Halbwellen zeichnet.
+///
+/// Baut auf `TimelineView(.animation)` + `Canvas` + `.drawingGroup()`
+/// (Metal-Compositing) für flüssiges Rendern bei bis zu 60 fps. Aktiv liest der
+/// Canvas ``EngineController/waveformSnapshot(count:)`` (die RT-sicheren
+/// (min, max)-Mono-Paare aus der ``WaveformBridge``); im Idle-Zustand läuft eine
+/// subtile Sinus-Fallback-Animation.
+///
+/// Die Kurve wird pro Snapshot auf die maximale Amplitude NORMALISIERT (füllt
+/// stets ~60 % der Höhe), damit auch leise Passagen sichtbar bleiben; unter
+/// ~−40 dBFS gilt als Stille und wird als dünne Nulllinie gezeichnet.
 struct WaveHeaderView: View {
+    /// Effektive UI-Phase (steuert Aktiv-/Idle-Darstellung und Intensität).
     let state: ARNUIState
     @EnvironmentObject private var controller: EngineController
 
+    /// Header-Intensität [0…1] aus dem UI-State — treibt Farbe, Glow und Gradient.
     private var intensity: Double { state.waveIntensity }
 
     var body: some View {
@@ -46,29 +59,37 @@ struct WaveHeaderView: View {
                         let scale = size.height * 0.30   // ±30% von Mitte = 60% der Höhe genutzt
                         let step = size.width / CGFloat(samples.count)
 
-                        // Normalisierung: maximale Amplitude im aktuellen Snapshot finden.
-                        // Unter 0.01 (~−40 dBFS) gilt als Stille → dünne Linie statt
-                        // aufgebauschtem Rauschen.
+                        // Normalisierung: grösste Absolut-Amplitude (|max| bzw.
+                        // |min|) über den GESAMTEN Snapshot bestimmen. Diese dient
+                        // gleich als Divisor → die lauteste Stelle nutzt immer die
+                        // volle Höhe, leise Passagen bleiben trotzdem sichtbar.
                         let maxAmp = samples.reduce(Float32(0)) { acc, s in
                             max(acc, abs(s.max), abs(s.min))
                         }
+                        // Silence-Detection: unter 0.01 (~−40 dBFS) würde die
+                        // Normalisierung reines Grundrauschen bildschirmfüllend
+                        // aufblasen → stattdessen flache Nulllinie zeichnen.
                         let isSilence = maxAmp < 0.01
 
-                        // Vertikale Balken: min→max pro Spalte (±Halbwellen)
+                        // Vertikale Balken: eine Linie von min→max pro Sample-Spalte
+                        // (±Halbwellen um die Nulllinie, wie in Logic/Audacity).
                         var path = Path()
                         for (i, sample) in samples.enumerated() {
                             let x = CGFloat(i) * step
                             if isSilence {
-                                // Stille: dünne horizontale Linie an der Nulllinie
+                                // Stille: dünner 1pt-Strich exakt an der Nulllinie.
                                 path.move(to: CGPoint(x: x, y: midY - 0.5))
                                 path.addLine(to: CGPoint(x: x, y: midY + 0.5))
                             } else {
-                                // Normalisiert auf ±1.0 → füllt immer den vollen Bereich
+                                // Auf [−1, 1] normalisieren (Division durch maxAmp)
+                                // und mit `scale` (= 30 % Höhe) auf Pixel abbilden.
+                                // y wächst nach unten → deshalb midY − n·scale.
                                 let nMax = CGFloat(sample.max / maxAmp)
                                 let nMin = CGFloat(sample.min / maxAmp)
                                 var yMax = midY - nMax * scale
                                 var yMin = midY - nMin * scale
-                                // Mindesthöhe 1pt
+                                // Mindesthöhe 1pt, damit sehr leise Spalten nicht
+                                // zu einem unsichtbaren 0-Pixel-Balken kollabieren.
                                 if yMin - yMax < 1 {
                                     yMax = midY - 0.5
                                     yMin = midY + 0.5

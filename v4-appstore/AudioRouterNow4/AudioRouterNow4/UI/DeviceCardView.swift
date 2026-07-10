@@ -14,10 +14,20 @@ import AudioRouterKit
 
 // MARK: - DeviceCardView
 
+/// Glass-Device-Card für ein einzelnes Output-Ziel.
+///
+/// Zeigt Gerätename, Kanal-Offset und einen Zustandsindikator (Checkbox im
+/// Idle, Spinner beim Start, pulsierender Signal-Punkt im Aktiv-Zustand). Im
+/// Aktiv-Zustand ist die Karte antippbar und klappt per Accordion die
+/// ``ExpandedDeviceDetail`` (Kanal-Chips, L/R-Meter, Stats) auf. Nicht mehr
+/// verbundene Geräte werden abgeblendet, bleiben aber entfernbar.
 struct DeviceCardView: View {
     @EnvironmentObject var controller: EngineController
+    /// Effektive UI-Phase (bestimmt Indikator + Interaktivität).
     let state: ARNUIState
+    /// Das dargestellte Output-Ziel.
     let config: OutputConfig
+    /// Accordion-Zustand (nur im Aktiv-Zustand relevant).
     @State private var expanded = false
 
     private var deviceName: String {
@@ -113,6 +123,8 @@ struct DeviceCardView: View {
 
 // MARK: - ExpandedDeviceDetail
 
+/// Aufgeklappter Detail-Bereich einer ``DeviceCardView``: Kanal-Chips,
+/// L/R-Signal-Meter und das Stats-Grid (Latenz · Puffer · Rate).
 struct ExpandedDeviceDetail: View {
     @EnvironmentObject var controller: EngineController
     let config: OutputConfig

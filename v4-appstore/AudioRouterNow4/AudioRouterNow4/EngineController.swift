@@ -14,9 +14,32 @@ import ServiceManagement
 import SwiftUI
 import os
 
+/// `@MainActor`-`ObservableObject`-Brücke zwischen der RT-``FanOutEngine`` und
+/// der SwiftUI-Menu-Bar-UI.
+///
+/// Der Controller besitzt die Engine, spiegelt deren Status/Metriken in
+/// `@Published`-Properties und übersetzt UI-Aktionen (Start/Stop, Geräte
+/// hinzufügen/entfernen, Volume) in Engine-Aufrufe. Er verwaltet zudem
+/// Persistenz (``OutputConfig`` in UserDefaults), den Device-Lifecycle
+/// (``DeviceLifecycleManager``) und die Login-Item-Registrierung.
+///
+/// ## Threading / Polling (3-Tier)
+/// Die Engine schreibt RT-sicher, der Controller POLLT auf dem MainActor:
+/// - ``pollingTask`` (2 fps, 500 ms): langsame Metriken — Callbacks, TCC-Verdacht,
+///   Volume/Mute.
+/// - ``wavePollTask`` (20 fps, 50 ms): Peak-Level + perceptual ``waveEnergy``
+///   für flüssige Signal-Meter und den Wellen-Header.
+/// - Das Oszilloskop liest ``waveformSnapshot(count:)`` direkt im Canvas bei
+///   bis zu 60 fps (kein `@Published`, kein Polling).
+///
+/// - Warning: Alle Methoden sind MainActor-gebunden. Lifecycle-Callbacks kommen
+///   von einer seriellen CoreAudio-Queue und hüpfen deshalb via `Task { @MainActor }`
+///   zurück (siehe ``startLifecycle()``).
 @MainActor
 final class EngineController: ObservableObject {
 
+    /// Die RT-Audio-Engine (Tap + Fan-out). Nur vom MainActor angesprochen —
+    /// die Engine kapselt den RT-Pfad selbst.
     private let engine = FanOutEngine()
     private let logger = Logger(subsystem: "com.mauriciomorkun.audiorouternow",
                                 category: "EngineController")
@@ -120,6 +143,12 @@ final class EngineController: ObservableObject {
         }
     }
 
+    /// Startet das Routing mit der aktuell persistierten Output-Konfiguration.
+    ///
+    /// Setzt zuerst `isStarting` (UI zeigt „Verbinde Geräte…") und führt den
+    /// blockierenden CoreAudio-Start erst im nächsten MainActor-Tick aus, damit
+    /// SwiftUI den Zwischen-Frame rendern kann. No-Op bei bereits laufendem
+    /// oder gerade startendem Routing.
     func startRouting() {
         guard status != .routing, !isStarting else { return }
         isStarting = true
@@ -165,6 +194,9 @@ final class EngineController: ObservableObject {
         deviceLatencies = result
     }
 
+    /// Stoppt das Routing, reisst alle Ressourcen ab und setzt den UI-Zustand
+    /// zurück. Merkt sich zusätzlich, dass der User BEWUSST gestoppt hat
+    /// (`wasRoutingKey = false`) → kein Auto-Start beim nächsten Launch.
     func stopRouting() {
         pollingTask?.cancel(); pollingTask = nil      // F10
         wavePollTask?.cancel(); wavePollTask = nil
@@ -220,7 +252,9 @@ final class EngineController: ObservableObject {
         }
     }
 
-    /// Vom Polling-Task alle 0,5 s aufgerufen — liest Engine-Metriken.
+    /// Vom ``pollingTask`` alle 0,5 s aufgerufen — spiegelt die langsamen
+    /// Engine-Metriken (Callbacks, TCC-Verdacht, Audio-Empfang, Volume/Mute)
+    /// in die `@Published`-Properties. Peak-Level laufen separat im 20fps-Poll.
     func poll() {
         guard status == .routing else { return }
         isSuspectedTCCDenied = engine.isSuspectedTCCDenied
@@ -233,11 +267,13 @@ final class EngineController: ObservableObject {
         // peakLevels: jetzt im wavePollTask (20fps) — siehe updateWaveEnergy()
     }
 
-    /// Schreibt die Lautstärke auf das System-Default-Output-Gerät (UI-Slider → System).
+    /// Schreibt die Lautstärke auf das System-Default-Output-Gerät.
+    /// - Parameter value: Ziel-Skalar [0.0 … 1.0] vom UI-Volume-Slider.
     func setSystemVolume(_ value: Double) {
         engine.setSystemVolume(Float32(value))
     }
 
+    /// Liest die aktuell verfügbaren Output-Geräte neu ein (Geräteauswahl-UI).
     func refreshAvailableDevices() {
         availableDevices = FanOutEngine.availableOutputDevices()
     }
@@ -259,6 +295,8 @@ final class EngineController: ObservableObject {
         deviceLatencies[config.uid]
     }
 
+    /// Fügt ein Output-Ziel hinzu, persistiert es und wendet die Änderung bei
+    /// laufendem Routing per Warm-Restart an (No-Op bei Duplikat).
     func addOutputConfig(_ config: OutputConfig) {
         guard !outputConfigs.contains(config) else { return }
         outputConfigs.append(config)
@@ -266,6 +304,8 @@ final class EngineController: ObservableObject {
         applyOutputsIfRouting()
     }
 
+    /// Entfernt ein Output-Ziel, persistiert und wendet die Änderung bei
+    /// laufendem Routing per Warm-Restart an.
     func removeOutputConfig(_ config: OutputConfig) {
         outputConfigs.removeAll { $0 == config }
         Self.saveOutputConfigs(outputConfigs)
@@ -317,6 +357,8 @@ final class EngineController: ObservableObject {
         }
     }
 
+    /// Öffnet Systemeinstellungen → Datenschutz → System-Audio-Aufnahme
+    /// (Deep-Link), damit der User die TCC-Berechtigung erteilen kann.
     func openTCCSettings() {
         guard let url = URL(string: FanOutEngine.tccDeepLink) else { return }
         NSWorkspace.shared.open(url)
@@ -372,16 +414,26 @@ final class EngineController: ObservableObject {
         }
         if !newPeaks.isEmpty { peakLevels = newPeaks }
 
-        // 2. Perceptual Energy: linear → dBFS → normalisiert [0,1]
-        // Hörwahrnehmung ist logarithmisch — bei −16 dBFS: perceptual = 0.73 (nicht 0.16)
-        // Skalierung: −60 dBFS → 0.0, 0 dBFS → 1.0
+        // 2. Perceptual Energy: linear → dBFS → normalisiert [0,1].
+        //    Warum nicht der lineare Peak direkt? Menschliches Lautheitsempfinden
+        //    ist logarithmisch: bei −16 dBFS wirkt Musik „gut hörbar", der lineare
+        //    Peak ist dort aber nur 0.16 → die Welle bliebe optisch fast flach.
+        //    Über dBFS wird daraus perceptual ≈ 0.73 → visuell stimmig.
+        //    a) linearer Mittel-Peak über alle Slots, gegen 1.0 geklemmt.
         let linear = min(1, sum / Float32(slots))
+        //    b) in dBFS umrechnen; Floor bei 0.001 verhindert log10(0) = −∞.
+        //       Ergebnis liegt in (−60 … 0] (0.001 ≈ −60 dBFS, 1.0 = 0 dBFS).
         let dBFS = 20.0 * log10(Double(max(linear, 0.001)))   // −∞..0
+        //    c) [−60, 0] dBFS linear auf [0, 1] mappen und clampen.
         let perceptual = Float32(max(0, min(1, (dBFS + 60.0) / 60.0)))
 
-        // 3. EMA: schneller Attack (0.55), langsamer Release (0.10)
+        // 3. EMA-Glättung mit asymmetrischem α (VU-Meter-Charakter):
+        //    steigt der Wert → schneller Attack (α = 0.55, reagiert prompt);
+        //    fällt er → langsamer Release (α = 0.10, klingt weich aus).
+        //    next = α·neu + (1−α)·alt.
         let alpha: Float32 = perceptual > waveEnergy ? 0.55 : 0.10
         let next = alpha * perceptual + (1 - alpha) * waveEnergy
+        // Snap-to-zero verhindert endloses Publish-Churn bei Rest-Epsilon.
         waveEnergy = next < 0.001 ? 0 : next
     }
 
