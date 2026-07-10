@@ -43,7 +43,7 @@ struct WaveHeaderView: View {
                     let sampleCount = max(1, Int(size.width / 2))
                     let samples = controller.waveformSnapshot(count: sampleCount)
                     if !samples.isEmpty {
-                        let scale = size.height * 0.38   // voller Ausschlag = 38% der Höhe
+                        let scale = size.height * 0.75   // voller Ausschlag = 75% der Höhe (~2× grösser)
                         let step = size.width / CGFloat(samples.count)
 
                         // Vertikale Balken: min→max pro Spalte (±Halbwellen)
