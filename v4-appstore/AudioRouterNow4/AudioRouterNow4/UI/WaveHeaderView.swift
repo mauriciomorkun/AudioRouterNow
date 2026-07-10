@@ -43,26 +43,43 @@ struct WaveHeaderView: View {
                     let sampleCount = max(1, Int(size.width / 2))
                     let samples = controller.waveformSnapshot(count: sampleCount)
                     if !samples.isEmpty {
-                        let scale = size.height * 0.75   // voller Ausschlag = 75% der Höhe (~2× grösser)
+                        let scale = size.height * 0.75   // voller Ausschlag = 75% der Höhe
                         let step = size.width / CGFloat(samples.count)
+
+                        // Normalisierung: maximale Amplitude im aktuellen Snapshot finden.
+                        // Unter 0.01 (~−40 dBFS) gilt als Stille → dünne Linie statt
+                        // aufgebauschtem Rauschen.
+                        let maxAmp = samples.reduce(Float32(0)) { acc, s in
+                            max(acc, abs(s.max), abs(s.min))
+                        }
+                        let isSilence = maxAmp < 0.01
 
                         // Vertikale Balken: min→max pro Spalte (±Halbwellen)
                         var path = Path()
                         for (i, sample) in samples.enumerated() {
                             let x = CGFloat(i) * step
-                            var yMax = midY - CGFloat(sample.max) * scale
-                            var yMin = midY - CGFloat(sample.min) * scale
-                            // Mindesthöhe 1pt — Stille bleibt als dünne Linie sichtbar
-                            if yMin - yMax < 1 {
-                                yMax = midY - 0.5
-                                yMin = midY + 0.5
+                            if isSilence {
+                                // Stille: dünne horizontale Linie an der Nulllinie
+                                path.move(to: CGPoint(x: x, y: midY - 0.5))
+                                path.addLine(to: CGPoint(x: x, y: midY + 0.5))
+                            } else {
+                                // Normalisiert auf ±1.0 → füllt immer den vollen Bereich
+                                let nMax = CGFloat(sample.max / maxAmp)
+                                let nMin = CGFloat(sample.min / maxAmp)
+                                var yMax = midY - nMax * scale
+                                var yMin = midY - nMin * scale
+                                // Mindesthöhe 1pt
+                                if yMin - yMax < 1 {
+                                    yMax = midY - 0.5
+                                    yMin = midY + 0.5
+                                }
+                                path.move(to: CGPoint(x: x, y: yMax))
+                                path.addLine(to: CGPoint(x: x, y: yMin))
                             }
-                            path.move(to: CGPoint(x: x, y: yMax))
-                            path.addLine(to: CGPoint(x: x, y: yMin))
                         }
 
                         // Glow: energie-skalierter Blur-Schein hinter der Waveform
-                        if state.isActive, energy > 0.02 {
+                        if state.isActive, energy > 0.02, !isSilence {
                             ctx.drawLayer { glow in
                                 glow.addFilter(.blur(radius: 2.5))
                                 glow.stroke(path, with: .color(ARNColor.accent.opacity(0.25)), lineWidth: 3)
