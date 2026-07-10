@@ -46,6 +46,11 @@ final class EngineController: ObservableObject {
     /// (UI-State „Verbinde Geräte…").
     @Published private(set) var isStarting: Bool = false
 
+    /// Audio-Energie für die WaveHeader-Animation [0.0 … 1.0]. Wird vom
+    /// 20fps-Wave-Poll (50 ms) direkt aus `engine.peakLevel()` gespeist und
+    /// per EMA geglättet (schneller Attack, langsamer Release — VU-Meter).
+    @Published private(set) var waveEnergy: Float32 = 0
+
     @Published private(set) var outputConfigs: [OutputConfig] = []
     @Published private(set) var availableDevices: [(uid: String, name: String, channelCount: Int)] = []
 
@@ -88,6 +93,8 @@ final class EngineController: ObservableObject {
 
     /// F10: Polling läuft unabhängig vom geöffneten Menü.
     private var pollingTask: Task<Void, Never>?
+    /// 20fps-Poll für die audio-reaktive Wellenform (nil, wenn nicht routing).
+    private var wavePollTask: Task<Void, Never>?
     /// F4: Device-Lifecycle-Listener (nil, wenn nicht routing).
     private var lifecycle: DeviceLifecycleManager?
     /// Re-Entry-Schutz für restartRouting().
@@ -160,6 +167,8 @@ final class EngineController: ObservableObject {
 
     func stopRouting() {
         pollingTask?.cancel(); pollingTask = nil      // F10
+        wavePollTask?.cancel(); wavePollTask = nil
+        waveEnergy = 0
         lifecycle?.stop(); lifecycle = nil            // F4
         engine.stop()
         status = engine.status
@@ -328,6 +337,46 @@ final class EngineController: ObservableObject {
                 self?.poll()
             }
         }
+        startWavePoll()
+    }
+
+    /// Startet den 20fps-Wave-Poll (50 ms) für die audio-reaktive Wellenform.
+    /// Liest `engine.peakLevel()` direkt (RT-safe via os_unfair_lock) — kein
+    /// Umweg über das 500ms-`poll()`, das für Animationen zu langsam ist.
+    private func startWavePoll() {
+        wavePollTask?.cancel()
+        wavePollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 50_000_000)   // 50 ms = 20 fps
+                self?.updateWaveEnergy()
+            }
+        }
+    }
+
+    /// Berechnet die Audio-Energie als Mittelwert der Slot-Peaks (L/R gemittelt)
+    /// und glättet per EMA: schneller Attack (α = 0.45), langsamer Release
+    /// (α = 0.12) — VU-Meter-Charakter. Ohne Audio zerfällt der Wert natürlich.
+    private func updateWaveEnergy() {
+        guard status == .routing else { decayWaveEnergy(); return }
+        let slots = engine.slotDeviceKeys.count
+        guard slots > 0 else { decayWaveEnergy(); return }
+        var sum: Float32 = 0
+        for i in 0..<min(slots, 16) {
+            let p = engine.peakLevel(slotIndex: i)
+            sum += (p.l + p.r) / 2
+        }
+        let raw = min(1, sum / Float32(slots))
+        let alpha: Float32 = raw > waveEnergy ? 0.45 : 0.12
+        let next = alpha * raw + (1 - alpha) * waveEnergy
+        waveEnergy = next < 0.001 ? 0 : next
+    }
+
+    /// Natürlicher Zerfall (×0.88/Tick) — Wellen bleiben subtil, kein Publish-
+    /// Churn bei bereits erreichter Null.
+    private func decayWaveEnergy() {
+        guard waveEnergy > 0 else { return }
+        let next = waveEnergy * 0.88
+        waveEnergy = next < 0.001 ? 0 : next
     }
 
     private func startLifecycle() {
