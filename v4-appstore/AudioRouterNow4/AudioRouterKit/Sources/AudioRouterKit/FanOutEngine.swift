@@ -131,6 +131,10 @@ public final class FanOutEngine {
     /// Realtime-sichere Peak-Pegel-Brücke (siehe ``PeakMeters``).
     private let peaks = PeakMeters()
 
+    /// Realtime-sichere Oszilloskop-Brücke (siehe ``WaveformBridge``):
+    /// der IOProc schreibt pro Callback einen (min, max)-Mono-Mix-Wert.
+    private let waveform = WaveformBridge()
+
     /// Slot-Identität pro Peak-Index: `slotDeviceKeys[i]` gehört zu `slots[i]`.
     /// Key-Format `"<uid>:<channelOffset>"` (Composite — mehrere Configs teilen
     /// evtl. dieselbe UID). Wird in ``buildAndStartAggregate`` gesetzt und in
@@ -492,7 +496,8 @@ public final class FanOutEngine {
         // ⚠️ Block via nonisolated static Factory — niemals inline (s. o.).
         // Der Block captured nur `metrics` (Sendable) und `slots` (Wert-Kopie).
         let directBlock = Self.makeDirectIOBlock(
-            metrics: metrics, slots: slots, volumeTracker: volumeTracker, peaks: peaks
+            metrics: metrics, slots: slots, volumeTracker: volumeTracker,
+            peaks: peaks, waveform: waveform
         )
         var newProcID: AudioDeviceIOProcID?
         // nil = CoreAudio-eigener IOThread (eigene Queue → assert-Crash-Regel).
@@ -550,6 +555,7 @@ public final class FanOutEngine {
 
         // Peak-Meter + Slot-Keys zurücksetzen (RT-Pfad ruht nach AudioDeviceStop).
         peaks.reset()
+        waveform.reset()
         slotDeviceKeys = []
         ioBufferFrames = 512
 
@@ -726,7 +732,8 @@ public final class FanOutEngine {
         metrics: TapIOMetrics,
         slots: [DirectOutputSlot],
         volumeTracker: VolumeTracker?,
-        peaks: PeakMeters
+        peaks: PeakMeters,
+        waveform: WaveformBridge
     ) -> AudioDeviceIOBlock {
         // F2: Bei aktiven DelayLines darf Silence NICHT früh raus — sonst wird
         // der Audio-Tail abgeschnitten (Geister-Burst beim nächsten Callback).
@@ -767,7 +774,10 @@ public final class FanOutEngine {
             // F2: Nur früh raus, wenn KEINE DelayLine zu leeren ist.
             guard (!isSilent || anySlotHasDelay), !slots.isEmpty, inputList.count >= 1
             else {
-                if isSilent { peaks.reset() }   // UI-Meter auf 0 bei Stille
+                if isSilent {
+                    peaks.reset()                     // UI-Meter auf 0 bei Stille
+                    waveform.push(min: 0, max: 0)     // Oszilloskop scrollt flach weiter
+                }
                 return
             }
 
@@ -841,6 +851,37 @@ public final class FanOutEngine {
                 }
             }
             peaks.record(l: pkL * vol, r: pkR * vol, slotCount: slots.count)
+
+            // ── Waveform: signed mono Min/Max für Oszilloskop (RT-safe) ──
+            // Gleiche Tap-Quelle wie das Peak-Metering; mono = (L + R) / 2
+            // pro Frame, Min/Max über alle Frames dieses Callbacks. Keine
+            // Allokation, reiner Pointer-Scan (O(n), n ≤ maxFrames).
+            var wMin: Float32 = 0
+            var wMax: Float32 = 0
+            if let intPtr = tapInterleavedPtr {
+                let stride = tapInterleavedStride
+                let rIdx = min(1, stride - 1)
+                for i in 0..<frameCount {
+                    let mono = (intPtr[i * stride] + intPtr[i * stride + rIdx]) * 0.5
+                    if mono < wMin { wMin = mono }
+                    if mono > wMax { wMax = mono }
+                }
+            } else if let L = tapLeft {
+                if let R = tapRight {
+                    for i in 0..<frameCount {
+                        let mono = (L[i] + R[i]) * 0.5
+                        if mono < wMin { wMin = mono }
+                        if mono > wMax { wMax = mono }
+                    }
+                } else {
+                    for i in 0..<frameCount {
+                        let s = L[i]
+                        if s < wMin { wMin = s }
+                        if s > wMax { wMax = s }
+                    }
+                }
+            }
+            waveform.push(min: wMin * vol, max: wMax * vol)
 
             // ── Direkt in ioOutputData schreiben ─────────────────────────
             for slot in slots {
@@ -1006,6 +1047,13 @@ public final class FanOutEngine {
     /// Index korrespondiert 1:1 mit ``slotDeviceKeys``.
     public func peakLevel(slotIndex: Int) -> (l: Float32, r: Float32) {
         peaks.level(slotIndex: slotIndex)
+    }
+
+    /// Oszilloskop-Snapshot: die letzten `count` (min, max)-Mono-Mix-Werte
+    /// (oldest→newest, `count` gegen ``WaveformBridge/capacity`` geklemmt).
+    /// Thread-safe via ``WaveformBridge`` — Polling-sicher bei 60fps.
+    public func waveformSnapshot(count: Int) -> [(min: Float32, max: Float32)] {
+        waveform.snapshot(count: count)
     }
 
     /// Public UID→AudioObjectID Auflösung für den Kontroll-Layer

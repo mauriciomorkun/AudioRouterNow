@@ -2,13 +2,16 @@
 //  WaveHeaderView.swift
 //  AudioRouterNow4
 //
-//  Phase 3 (UI-Layer, Konzept 4B): Animierter 3-Layer-Sinuswellen-Header.
+//  Phase 3 (UI-Layer): Oszilloskop-Header mit ECHTEN Audiodaten.
 //  `TimelineView(.animation)` + `Canvas` + `.drawingGroup()` (Metal-Compositing).
-//  Amplitude und Farbdeckkraft koppeln an `state.waveIntensity`.
 //
-//  Audio-reaktiv: `controller.waveEnergy` (20fps-Wave-Poll, EMA-geglättet)
-//  moduliert Amplitude, Deckkraft, Phase-Push und Glow der Layer — die
-//  Wellenform schwingt mit der tatsächlich abgespielten Musik mit.
+//  Aktiv: Der Canvas liest bei 60fps `controller.waveformSnapshot(count:)` —
+//  die (min, max)-Mono-Mix-Werte, die der IOProc pro Callback in die
+//  RT-sichere `WaveformBridge` schreibt. Gezeichnet werden vertikale Balken
+//  (min→max pro Spalte) um eine Nulllinie — echte ±Halbwellen wie in
+//  Logic Pro / Audacity: Kick-Drums, Transienten und Dynamik sind sichtbar.
+//
+//  Idle: subtile Sinus-Animation als Fallback (keine Audiodaten verfügbar).
 //
 //  Copyright 2026 Mauricio Moraïs da Cunha. Apache License 2.0.
 //
@@ -25,52 +28,63 @@ struct WaveHeaderView: View {
         TimelineView(.animation) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             Canvas { ctx, size in
-                let midY = size.height * 0.62
+                let midY = size.height * 0.55
                 let energy = Double(controller.waveEnergy)
-                let baseIntensity = state.waveIntensity          // 0.0 idle, 1.0 active
-                let reactiveAmp = baseIntensity * energy
 
-                // (Amplitude pt, Wellenlänge pt, Speed rad/s, Phase-Push rad, Deckkraft)
-                // Speed wird bewusst NICHT direkt moduliert: t ist riesig
-                // (Sekunden seit 2001) — `t * (speed + Δ)` ergäbe bei jeder
-                // Energy-Änderung Phasensprünge. Stattdessen schiebt
-                // `energy * push` die Phase bei Beats sanft nach vorn —
-                // gleicher visueller Effekt (Welle läuft bei Beats schneller).
-                // Amplituden: base + reaktiver Boost
-                // Bei energy=0.73 (−16dBFS typisch): Layer1 = 10 + 0.73*45 ≈ 43pt
-                let layers: [(amp: Double, len: Double, speed: Double, push: Double, opacity: Double)] = [
-                    (10 + reactiveAmp * 45, 200, 0.30, 2.4, 0.90),
-                    ( 7 + reactiveAmp * 28, 150, 0.45, 1.6, 0.50 + energy * 0.25),
-                    ( 5 + reactiveAmp * 16, 110, 0.65, 1.0, 0.30 + energy * 0.20),
-                ]
+                // ── Nulllinie (Oszilloskop-Referenz) ─────────────────────
+                var zeroLine = Path()
+                zeroLine.move(to: CGPoint(x: 0, y: midY))
+                zeroLine.addLine(to: CGPoint(x: size.width, y: midY))
+                ctx.stroke(zeroLine, with: .color(Color.white.opacity(0.08)), lineWidth: 0.5)
 
-                for (i, layer) in layers.enumerated() {
-                    var path = Path()
-                    path.move(to: CGPoint(x: 0, y: midY))
-                    var x: CGFloat = 0
-                    let step: CGFloat = 2
-                    while x <= size.width {
-                        let phase = (Double(x) / layer.len) * 2 * .pi
-                            + t * layer.speed + energy * layer.push
-                        let y = midY + sin(phase) * layer.amp * max(0.08, intensity)
-                        path.addLine(to: CGPoint(x: x, y: y))
-                        x += step
-                    }
-                    let tint = (intensity > 0.5 ? ARNColor.accent : ARNColor.accentDim)
-                        .opacity(layer.opacity * (0.35 + 0.65 * intensity))
-                    // Glow: Hauptwelle bekommt einen energie-skalierten
-                    // Blur-Schein — pulsiert bei Bass.
-                    if i == 0, reactiveAmp > 0.02 {
-                        ctx.drawLayer { glow in
-                            glow.addFilter(.blur(radius: 3 + energy * 5))
-                            glow.stroke(
-                                path,
-                                with: .color(ARNColor.accent.opacity(0.35 * reactiveAmp)),
-                                lineWidth: 2.5
-                            )
+                if state.isActive || state.isStarting {
+                    // ── Oszilloskop: echte IOProc-Samples ────────────────
+                    // 2pt pro Sample-Spalte (320pt → 160 Samples ≈ 1,9 s Audio).
+                    let sampleCount = max(1, Int(size.width / 2))
+                    let samples = controller.waveformSnapshot(count: sampleCount)
+                    if !samples.isEmpty {
+                        let scale = size.height * 0.38   // voller Ausschlag = 38% der Höhe
+                        let step = size.width / CGFloat(samples.count)
+
+                        // Vertikale Balken: min→max pro Spalte (±Halbwellen)
+                        var path = Path()
+                        for (i, sample) in samples.enumerated() {
+                            let x = CGFloat(i) * step
+                            var yMax = midY - CGFloat(sample.max) * scale
+                            var yMin = midY - CGFloat(sample.min) * scale
+                            // Mindesthöhe 1pt — Stille bleibt als dünne Linie sichtbar
+                            if yMin - yMax < 1 {
+                                yMax = midY - 0.5
+                                yMin = midY + 0.5
+                            }
+                            path.move(to: CGPoint(x: x, y: yMax))
+                            path.addLine(to: CGPoint(x: x, y: yMin))
                         }
+
+                        // Glow: energie-skalierter Blur-Schein hinter der Waveform
+                        if state.isActive, energy > 0.02 {
+                            ctx.drawLayer { glow in
+                                glow.addFilter(.blur(radius: 2.5))
+                                glow.stroke(path, with: .color(ARNColor.accent.opacity(0.25)), lineWidth: 3)
+                            }
+                        }
+                        let waveColor = ARNColor.accent
+                            .opacity(0.85 * max(0.1, intensity))
+                        ctx.stroke(path, with: .color(waveColor), lineWidth: 1.5)
                     }
-                    ctx.stroke(path, with: .color(tint), lineWidth: 1.5)
+                } else {
+                    // ── Idle-Fallback: subtile Sinus-Animation ───────────
+                    let amp = 6.0 * max(0.08, intensity)
+                    var sinePath = Path()
+                    var x: CGFloat = 0
+                    while x <= size.width {
+                        let phase = (Double(x) / 180.0) * 2 * .pi + t * 0.25
+                        let y = midY + sin(phase) * amp
+                        if x == 0 { sinePath.move(to: CGPoint(x: x, y: y)) }
+                        else { sinePath.addLine(to: CGPoint(x: x, y: y)) }
+                        x += 2
+                    }
+                    ctx.stroke(sinePath, with: .color(ARNColor.accentDim.opacity(0.5)), lineWidth: 1)
                 }
             }
             .drawingGroup()   // Metal-Compositing für ruckelfreie Kurve

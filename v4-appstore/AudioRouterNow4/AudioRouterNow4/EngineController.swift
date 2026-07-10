@@ -248,6 +248,12 @@ final class EngineController: ObservableObject {
         peakLevels["\(config.uid):\(config.channelOffset)"]
     }
 
+    /// Waveform-Snapshot für Oszilloskop-Anzeige. Thread-safe via WaveformBridge —
+    /// wird direkt vom Canvas bei 60fps gelesen (kein @Published, kein Polling).
+    func waveformSnapshot(count: Int) -> [(min: Float32, max: Float32)] {
+        engine.waveformSnapshot(count: count)
+    }
+
     /// Latenz-Info für eine Output-Config (oder `nil`, wenn nicht verfügbar).
     func latency(for config: OutputConfig) -> DeviceLatencyInfo? {
         deviceLatencies[config.uid]
