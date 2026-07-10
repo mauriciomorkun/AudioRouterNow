@@ -230,18 +230,7 @@ final class EngineController: ObservableObject {
         isMuted = vol < 0.001
         currentVolume = isMuted ? currentVolume : Double(vol)  // Volume nicht überschreiben wenn gemutet
 
-        // Peak-Level pro Slot lesen + UI-seitige Release-Glättung (Attack sofort,
-        // Release ~40 %/Tick), damit der Meter bei 500 ms-Polling nicht flackert.
-        var newPeaks: [String: (l: Float32, r: Float32)] = [:]
-        for (i, key) in engine.slotDeviceKeys.enumerated() {
-            let raw = engine.peakLevel(slotIndex: i)
-            let prev = peakLevels[key] ?? (l: 0, r: 0)
-            newPeaks[key] = (
-                l: max(raw.l, prev.l * 0.6),
-                r: max(raw.r, prev.r * 0.6)
-            )
-        }
-        peakLevels = newPeaks
+        // peakLevels: jetzt im wavePollTask (20fps) — siehe updateWaveEnergy()
     }
 
     /// Schreibt die Lautstärke auf das System-Default-Output-Gerät (UI-Slider → System).
@@ -353,21 +342,40 @@ final class EngineController: ObservableObject {
         }
     }
 
-    /// Berechnet die Audio-Energie als Mittelwert der Slot-Peaks (L/R gemittelt)
-    /// und glättet per EMA: schneller Attack (α = 0.45), langsamer Release
-    /// (α = 0.12) — VU-Meter-Charakter. Ohne Audio zerfällt der Wert natürlich.
+    /// Berechnet die Audio-Energie perceptual (dBFS-skaliert) aus den Slot-Peaks
+    /// und glättet per EMA: schneller Attack (α = 0.55), langsamer Release
+    /// (α = 0.10) — VU-Meter-Charakter. Befüllt zusätzlich `peakLevels` bei
+    /// 20fps für flüssige Signal-Meter. Ohne Audio zerfällt der Wert natürlich.
     private func updateWaveEnergy() {
         guard status == .routing else { decayWaveEnergy(); return }
         let slots = engine.slotDeviceKeys.count
         guard slots > 0 else { decayWaveEnergy(); return }
+
+        // 1. Peaks lesen + peakLevels aktualisieren (20fps für Signal-Meter — Fix 2)
+        var newPeaks: [String: (l: Float32, r: Float32)] = [:]
         var sum: Float32 = 0
-        for i in 0..<min(slots, 16) {
+        for (i, key) in engine.slotDeviceKeys.enumerated() where i < 16 {
             let p = engine.peakLevel(slotIndex: i)
+            let prev = peakLevels[key] ?? (l: 0, r: 0)
+            // Peak-Hold: schneller Attack, Release ×0.80/Tick bei 20fps
+            newPeaks[key] = (
+                l: max(p.l, prev.l * 0.80),
+                r: max(p.r, prev.r * 0.80)
+            )
             sum += (p.l + p.r) / 2
         }
-        let raw = min(1, sum / Float32(slots))
-        let alpha: Float32 = raw > waveEnergy ? 0.45 : 0.12
-        let next = alpha * raw + (1 - alpha) * waveEnergy
+        if !newPeaks.isEmpty { peakLevels = newPeaks }
+
+        // 2. Perceptual Energy: linear → dBFS → normalisiert [0,1]
+        // Hörwahrnehmung ist logarithmisch — bei −16 dBFS: perceptual = 0.73 (nicht 0.16)
+        // Skalierung: −60 dBFS → 0.0, 0 dBFS → 1.0
+        let linear = min(1, sum / Float32(slots))
+        let dBFS = 20.0 * log10(Double(max(linear, 0.001)))   // −∞..0
+        let perceptual = Float32(max(0, min(1, (dBFS + 60.0) / 60.0)))
+
+        // 3. EMA: schneller Attack (0.55), langsamer Release (0.10)
+        let alpha: Float32 = perceptual > waveEnergy ? 0.55 : 0.10
+        let next = alpha * perceptual + (1 - alpha) * waveEnergy
         waveEnergy = next < 0.001 ? 0 : next
     }
 

@@ -27,8 +27,8 @@ struct WaveHeaderView: View {
             Canvas { ctx, size in
                 let midY = size.height * 0.62
                 let energy = Double(controller.waveEnergy)
-                // 0 wenn idle/error, voll reaktiv wenn starting/active.
-                let reactiveAmp = intensity * energy
+                let baseIntensity = state.waveIntensity          // 0.0 idle, 1.0 active
+                let reactiveAmp = baseIntensity * energy
 
                 // (Amplitude pt, Wellenlänge pt, Speed rad/s, Phase-Push rad, Deckkraft)
                 // Speed wird bewusst NICHT direkt moduliert: t ist riesig
@@ -36,10 +36,12 @@ struct WaveHeaderView: View {
                 // Energy-Änderung Phasensprünge. Stattdessen schiebt
                 // `energy * push` die Phase bei Beats sanft nach vorn —
                 // gleicher visueller Effekt (Welle läuft bei Beats schneller).
+                // Amplituden: base + reaktiver Boost
+                // Bei energy=0.73 (−16dBFS typisch): Layer1 = 10 + 0.73*45 ≈ 43pt
                 let layers: [(amp: Double, len: Double, speed: Double, push: Double, opacity: Double)] = [
-                    (10 + reactiveAmp * 30, 200, 0.30, 2.4, 0.90),
-                    ( 7 + reactiveAmp * 18, 150, 0.45, 1.6, 0.50 + energy * 0.20),
-                    ( 5 + reactiveAmp * 10, 110, 0.65, 1.0, 0.30 + energy * 0.15),
+                    (10 + reactiveAmp * 45, 200, 0.30, 2.4, 0.90),
+                    ( 7 + reactiveAmp * 28, 150, 0.45, 1.6, 0.50 + energy * 0.25),
+                    ( 5 + reactiveAmp * 16, 110, 0.65, 1.0, 0.30 + energy * 0.20),
                 ]
 
                 for (i, layer) in layers.enumerated() {
