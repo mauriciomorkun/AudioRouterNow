@@ -43,7 +43,7 @@ struct WaveHeaderView: View {
                     let sampleCount = max(1, Int(size.width / 2))
                     let samples = controller.waveformSnapshot(count: sampleCount)
                     if !samples.isEmpty {
-                        let scale = size.height * 0.35   // ±35% von Mitte = 70% der Höhe genutzt
+                        let scale = size.height * 0.30   // ±30% von Mitte = 60% der Höhe genutzt
                         let step = size.width / CGFloat(samples.count)
 
                         // Normalisierung: maximale Amplitude im aktuellen Snapshot finden.
