@@ -23,6 +23,13 @@ public enum RouterError: Error, Equatable, Sendable {
     ///
     /// Recovery: User zu Systemeinstellungen → Datenschutz → Bildschirm- &
     /// System-Audio-Aufnahme führen.
+    ///
+    /// - Note (F15): Dieser Fall wird derzeit NICHT aus der Engine geworfen —
+    ///   TCC-Denied liefert `noErr` + Dauer-Silence (keine public Preflight-API,
+    ///   Guideline 2.5.1). Der Verdacht wird ausschließlich über die
+    ///   Silence-Heuristik (`FanOutEngine.isSuspectedTCCDenied`) erkannt und ist
+    ///   ein reiner UI-Hint. `tccDenied` bleibt im Enum als semantischer Marker
+    ///   für eine spätere, verlässliche Erkennung.
     case tccDenied
 
     /// Das angeforderte Output-Gerät wurde nicht gefunden.
@@ -38,17 +45,24 @@ public enum RouterError: Error, Equatable, Sendable {
     ///   (z. B. `'!dev'` = 560227702 bei verschwundenem Gerät — laut Plan
     ///   ein *erwarteter* Pfad, kein Fatal-Error).
     case tapFailed(status: Int32)
+
+    /// Die Buffer-Anzahl des erstellten Aggregates stimmt nicht mit der
+    /// erwarteten Slot-Mapping-Größe überein — Treiber-Sonderfall oder
+    /// veraltete Sub-Device-Konfiguration.
+    case aggregateLayoutMismatch(expected: Int, actual: Int)
 }
 
 extension RouterError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .tccDenied:
-            return "System audio capture permission was denied."
-        case .deviceNotFound(let uid):
-            return "Audio device not found: \(uid)"
+            return "AudioRouterNow needs System Audio Recording permission. Open System Settings → Privacy & Security → Screen & System Audio Recording."
+        case .deviceNotFound:
+            return "An output device is no longer connected. Remove it from Output Targets or reconnect it."
         case .tapFailed(let status):
-            return "Failed to create process tap (OSStatus \(status))."
+            return "Could not start audio routing: \(OSStatusMapper.describe(status)). Try unplugging and reconnecting the device, then press Start again."
+        case .aggregateLayoutMismatch:
+            return "The audio device reported an unexpected channel layout. Remove the device from Output Targets and add it again."
         }
     }
 }
@@ -75,5 +89,33 @@ public enum RouterStatus: Equatable, Sendable {
     public var isError: Bool {
         if case .error = self { return true }
         return false
+    }
+}
+
+// MARK: - OSStatus Mapper
+
+/// Wandelt bekannte CoreAudio OSStatus-Codes in lesbare Fehlerbeschreibungen um.
+public enum OSStatusMapper {
+    public static func describe(_ status: Int32) -> String {
+        switch status {
+        case 560227702:  return "the audio device was disconnected"       // kAudioHardwareBadDeviceError '!dev'
+        case 560947818:  return "an internal audio object became invalid"  // kAudioHardwareBadObjectError '!obj'
+        case 1937010544: return "the audio system is not running"          // kAudioHardwareNotRunningError 'stop'
+        case 1970171760: return "the operation is not supported by this device"
+        case 1852797029: return "the audio system rejected the operation"
+        case 560226676:  return "the audio format is not supported"        // kAudioDeviceUnsupportedFormatError '!dat'
+        case 2003329396: return "an unspecified audio system error occurred"
+        case 560492391:  return "audio access was denied"                  // kAudioDevicePermissionsError '!hog'
+        case -1:         return "an unexpected error occurred"
+        default:
+            // 4-Char-Code versuchen lesbar zu machen
+            let bytes = [
+                UInt8((status >> 24) & 0xFF), UInt8((status >> 16) & 0xFF),
+                UInt8((status >> 8) & 0xFF),  UInt8(status & 0xFF)
+            ]
+            let chars = bytes.compactMap { $0 >= 32 && $0 < 127 ? Character(UnicodeScalar($0)) : nil }
+            let code = chars.count == 4 ? "'\(String(chars))'" : "OSStatus \(status)"
+            return "audio system error (\(code))"
+        }
     }
 }

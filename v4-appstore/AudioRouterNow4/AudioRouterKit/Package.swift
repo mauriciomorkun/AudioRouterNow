@@ -2,8 +2,8 @@
 //
 // AudioRouterKit — Core-Engine-Package für AudioRouterNow v4.0 (App Store).
 //
-// Phase 2: swift-atomics für den lock-freien SPSC-Ring-Buffer
-// (UnsafeAtomic<UInt32> write_idx/read_idx, v3-Port aus shared_ring.h).
+// Phase 3/4: Keine externen Dependencies. Der Realtime-Pfad ist single-thread
+// (ein Direct-IOProc, siehe FanOutEngine) — kein SPSC-Ring, keine Atomics mehr.
 
 import PackageDescription
 
@@ -20,10 +20,7 @@ let package = Package(
             targets: ["AudioRouterKit"]
         )
     ],
-    dependencies: [
-        // Lock-freie Atomics für den Realtime-Pfad (SPSCRingBuffer).
-        .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0")
-    ],
+    dependencies: [],
     targets: [
         // Swift-6-Sprachmodus (Default bei tools-version 6.0) — Strict
         // Concurrency ist damit verpflichtend aktiv. Explizit dokumentiert
@@ -31,9 +28,7 @@ let package = Package(
         // .enableUpcomingFeature("StrictConcurrency").
         .target(
             name: "AudioRouterKit",
-            dependencies: [
-                .product(name: "Atomics", package: "swift-atomics")
-            ],
+            dependencies: [],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
