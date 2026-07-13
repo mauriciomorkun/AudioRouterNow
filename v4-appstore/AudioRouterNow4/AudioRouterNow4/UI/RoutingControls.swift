@@ -124,8 +124,8 @@ struct RoutingButton: View {
 
     private var title: String {
         switch state {
-        case .idle, .error: return "Routing starten"
-        case .starting:     return "Verbinde…"
+        case .idle, .error: return "Start Routing"
+        case .starting:     return "Connecting…"
         case .active:       return "Stop Routing"
         }
     }
@@ -161,10 +161,10 @@ struct FooterRow: View {
 
     var body: some View {
         HStack {
-            Toggle("Bei Anmeldung starten", isOn: $controller.launchAtLogin)
+            Toggle("Launch at Login", isOn: $controller.launchAtLogin)
                 .toggleStyle(.checkbox).font(.system(size: 11))
             Spacer()
-            Button("Beenden") { NSApplication.shared.terminate(nil) }
+            Button("Quit") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
         }
     }

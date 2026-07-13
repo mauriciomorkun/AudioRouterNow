@@ -336,7 +336,7 @@ struct AddDeviceRow: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "plus.circle.fill").foregroundStyle(ARNColor.accent)
-                Text("Gerät hinzufügen").font(.system(size: 12, weight: .medium))
+                Text("Add device").font(.system(size: 12, weight: .medium))
                 Spacer()
             }
             .padding(10)

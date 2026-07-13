@@ -164,14 +164,14 @@ struct MenuBarView: View {
     /// Lokalisierter Status-Text je Phase (inkl. Geräte-Zählung im Aktiv-Zustand).
     private func statusText(_ ui: ARNUIState) -> String {
         switch ui {
-        case .idle:     return "Kein Routing aktiv"
-        case .starting: return "Verbinde Geräte…"
+        case .idle:     return "No routing active"
+        case .starting: return "Connecting devices…"
         case .active:
             let n = controller.outputConfigs.count
             return controller.hasReceivedAudio
-                ? "Routing → \(n) Gerät\(n == 1 ? "" : "e")"
-                : "Warte auf Audio…"
-        case .error:    return "Fehler"
+                ? "Routing → \(n) device\(n == 1 ? "" : "s")"
+                : "Waiting for audio…"
+        case .error:    return "Error"
         }
     }
 
