@@ -158,14 +158,35 @@ struct RoutingButton: View {
 
 struct FooterRow: View {
     @EnvironmentObject var controller: EngineController
+    @EnvironmentObject private var store: TipJarStore
+    @State private var showTipJar = false
 
     var body: some View {
-        HStack {
-            Toggle("Launch at Login", isOn: $controller.launchAtLogin)
-                .toggleStyle(.checkbox).font(.system(size: 11))
-            Spacer()
-            Button("Quit") { NSApplication.shared.terminate(nil) }
-                .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
+        VStack(spacing: 8) {
+            if showTipJar {
+                TipJarView()
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .bottom)),
+                        removal: .opacity))
+            }
+            HStack {
+                Toggle("Launch at Login", isOn: $controller.launchAtLogin)
+                    .toggleStyle(.checkbox).font(.system(size: 11))
+                Spacer()
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        showTipJar.toggle()
+                    }
+                } label: {
+                    Label(showTipJar ? "Hide" : "Support", systemImage: showTipJar ? "xmark" : "heart")
+                        .font(.system(size: 11))
+                        .foregroundStyle(showTipJar ? Color.secondary : ARNColor.accent)
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Button("Quit") { NSApplication.shared.terminate(nil) }
+                    .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
+            }
         }
     }
 }

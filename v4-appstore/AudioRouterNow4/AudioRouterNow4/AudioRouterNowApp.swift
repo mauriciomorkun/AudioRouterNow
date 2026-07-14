@@ -38,6 +38,9 @@ struct AudioRouterNowApp: App {
     /// Einziger, App-weit lebender Engine-Controller (Main-Thread-gebunden).
     @StateObject private var controller = EngineController()
 
+    /// StoreKit-2-Tip-Jar-Store (Consumable-IAPs, Main-Thread-gebunden).
+    @StateObject private var tipJarStore = TipJarStore()
+
     /// UserDefaults-Key: wurde das Onboarding bereits gezeigt?
     private static let hasShownOnboardingKey = "arn.v4.hasShownOnboarding"
 
@@ -48,6 +51,7 @@ struct AudioRouterNowApp: App {
         MenuBarExtra("AudioRouterNow", image: "ARNMenuBarIcon") {
             MenuBarView()
                 .environmentObject(controller)
+                .environmentObject(tipJarStore)
         }
         .menuBarExtraStyle(.window)
     }

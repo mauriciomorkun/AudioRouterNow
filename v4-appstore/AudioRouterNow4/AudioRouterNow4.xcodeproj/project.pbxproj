@@ -10,10 +10,12 @@
 		13E69707240F7ECC1C33631A /* EngineController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79DF8597C2793331AC6C3E10 /* EngineController.swift */; };
 		2C1D9FC433CAE9DBC56EFA10 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DC71FFDC5CD5CF918BFE01 /* AppDelegate.swift */; };
 		604A0CBD3B3ED10613523F12 /* AudioRouterNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB266406160BB3741B5FE42 /* AudioRouterNowApp.swift */; };
+		67D74A9EB887FCEE754AFC62 /* TipJarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1D29A36F3EEE6DD7C94ABB /* TipJarView.swift */; };
 		7115531B94BA0E9DF2DA87A6 /* AudioRouterKitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B98FDB53F61010BF230A941C /* AudioRouterKitTests.swift */; };
 		7EF9EF1FB2D68DD07B41E847 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 014FD48878E629F533B86187 /* Assets.xcassets */; };
 		830B2A0485BB02ABF88D5200 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D53535CC9DE7CBE38BAABD0E /* PrivacyInfo.xcprivacy */; };
 		A223DE073FC037B8F71FAD2B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5818CC22161C04DE6F2BFFF8 /* Theme.swift */; };
+		B1B587E475FEF3BCC86D5FD7 /* TipJarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A3BA726342865FF0A167C2F /* TipJarStore.swift */; };
 		B8389104B9AB2E8FA8D0A6E1 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECF3D80DBFF34C85BB47CDA /* MenuBarView.swift */; };
 		BA9DB279991C22AF0B95D207 /* DeviceCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4906D1712A3CC1E2C2CE1961 /* DeviceCardView.swift */; };
 		CBAF9FB5F0E9FF3BDB12B7AB /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DB80E3A37B1A7F30F15B621 /* OnboardingView.swift */; };
@@ -29,7 +31,9 @@
 		1ECF3D80DBFF34C85BB47CDA /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		2888E63CBAE6EB83B79D12D6 /* AudioRouterNow4.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AudioRouterNow4.xcconfig; sourceTree = "<group>"; };
 		351B993715D113FB2C7CEA9F /* AudioRouterNow4.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AudioRouterNow4.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3A3BA726342865FF0A167C2F /* TipJarStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TipJarStore.swift; sourceTree = "<group>"; };
 		4906D1712A3CC1E2C2CE1961 /* DeviceCardView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceCardView.swift; sourceTree = "<group>"; };
+		4C1D29A36F3EEE6DD7C94ABB /* TipJarView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TipJarView.swift; sourceTree = "<group>"; };
 		5818CC22161C04DE6F2BFFF8 /* Theme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		590A16E9E07B805F3B464E8B /* RoutingControls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoutingControls.swift; sourceTree = "<group>"; };
 		6B8A940DA67AF1056A027FDA /* WaveHeaderView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WaveHeaderView.swift; sourceTree = "<group>"; };
@@ -77,6 +81,7 @@
 				9EB0851F4CDD5620E066F4E7 /* UI */,
 				B6DC71FFDC5CD5CF918BFE01 /* AppDelegate.swift */,
 				1DB80E3A37B1A7F30F15B621 /* OnboardingView.swift */,
+				3A3BA726342865FF0A167C2F /* TipJarStore.swift */,
 			);
 			path = AudioRouterNow4;
 			sourceTree = "<group>";
@@ -124,6 +129,7 @@
 				6B8A940DA67AF1056A027FDA /* WaveHeaderView.swift */,
 				590A16E9E07B805F3B464E8B /* RoutingControls.swift */,
 				4906D1712A3CC1E2C2CE1961 /* DeviceCardView.swift */,
+				4C1D29A36F3EEE6DD7C94ABB /* TipJarView.swift */,
 			);
 			name = UI;
 			path = UI;
@@ -255,6 +261,8 @@
 				BA9DB279991C22AF0B95D207 /* DeviceCardView.swift in Sources */,
 				2C1D9FC433CAE9DBC56EFA10 /* AppDelegate.swift in Sources */,
 				CBAF9FB5F0E9FF3BDB12B7AB /* OnboardingView.swift in Sources */,
+				B1B587E475FEF3BCC86D5FD7 /* TipJarStore.swift in Sources */,
+				67D74A9EB887FCEE754AFC62 /* TipJarView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
