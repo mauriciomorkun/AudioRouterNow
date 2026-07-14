@@ -39,6 +39,7 @@
 		6B8A940DA67AF1056A027FDA /* WaveHeaderView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WaveHeaderView.swift; sourceTree = "<group>"; };
 		74E9A681D53A6C11F701ABB6 /* AudioRouterNow4.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AudioRouterNow4.entitlements; sourceTree = "<group>"; };
 		79DF8597C2793331AC6C3E10 /* EngineController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineController.swift; sourceTree = "<group>"; };
+		9C999330EEB7309257B66547 /* AudioRouterNow.storekit */ = {isa = PBXFileReference; includeInIndex = 1; path = AudioRouterNow.storekit; sourceTree = "<group>"; };
 		B6DC71FFDC5CD5CF918BFE01 /* AppDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B98FDB53F61010BF230A941C /* AudioRouterKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRouterKitTests.swift; sourceTree = "<group>"; };
 		CEB266406160BB3741B5FE42 /* AudioRouterNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRouterNowApp.swift; sourceTree = "<group>"; };
@@ -82,6 +83,7 @@
 				B6DC71FFDC5CD5CF918BFE01 /* AppDelegate.swift */,
 				1DB80E3A37B1A7F30F15B621 /* OnboardingView.swift */,
 				3A3BA726342865FF0A167C2F /* TipJarStore.swift */,
+				9C999330EEB7309257B66547 /* AudioRouterNow.storekit */,
 			);
 			path = AudioRouterNow4;
 			sourceTree = "<group>";

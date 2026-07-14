@@ -1,0 +1,49 @@
+{
+  "identifier": "f6dca06d-4012-44b1-b347-7e275d8b837e",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "1.99",
+      "familySharable": false,
+      "internalID": "4d63dfbc-5d7e-4365-9363-7cba2b7c9273",
+      "localizations": [
+        {
+          "description": "Support AudioRouterNow with a coffee — thank you! ☕",
+          "displayName": "Buy Me a Coffee",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.mauriciomorkun.audiorouternow4.tip.coffee",
+      "referenceName": "Coffee Tip",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "4.99",
+      "familySharable": false,
+      "internalID": "d72e35c0-8cd4-4891-9766-9979eed830a5",
+      "localizations": [
+        {
+          "description": "Support AudioRouterNow with a beer — cheers! 🍺",
+          "displayName": "Buy Me a Beer",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.mauriciomorkun.audiorouternow4.tip.beer",
+      "referenceName": "Beer Tip",
+      "type": "Consumable"
+    }
+  ],
+  "settings": {
+    "_applicationInternalID": "",
+    "_developerTeamID": "",
+    "_storefront": "USA",
+    "_storeKitErrors": [
+      {"current": "", "enabled": false, "name": "Load Products"}
+    ]
+  },
+  "subscriptionGroups": [],
+  "version": {
+    "major": 2,
+    "minor": 0
+  }
+}
