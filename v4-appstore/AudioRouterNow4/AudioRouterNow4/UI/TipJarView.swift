@@ -35,8 +35,10 @@ struct TipJarView: View {
 
             if store.showThankYou {
                 thankYouView
-            } else if store.products.isEmpty {
+            } else if store.isLoading {
                 loadingView
+            } else if store.products.isEmpty {
+                unavailableView
             } else {
                 productButtons
             }
@@ -72,6 +74,25 @@ struct TipJarView: View {
             Text("Loading…")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var unavailableView: some View {
+        VStack(spacing: 4) {
+            Text("Not available right now")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            if let err = store.loadError {
+                Text(err)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            }
+            Button("Retry") { Task { await store.loadProducts() } }
+                .font(.system(size: 10))
+                .foregroundStyle(ARNColor.accent)
+                .buttonStyle(.plain)
         }
         .padding(.vertical, 4)
     }

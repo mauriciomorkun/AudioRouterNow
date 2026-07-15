@@ -29,8 +29,12 @@ final class TipJarStore: ObservableObject {
 
     // MARK: - Published State
 
-    /// Geladene StoreKit-Produkte (leer = noch nicht geladen oder nicht verfügbar).
+    /// Geladene StoreKit-Produkte (leer solange isLoading=true oder nicht verfügbar).
     @Published private(set) var products: [Product] = []
+    /// Wird auf false gesetzt sobald loadProducts() abgeschlossen hat (Erfolg oder Fehler).
+    @Published private(set) var isLoading = true
+    /// Fehler aus loadProducts() — nil = kein Fehler (nur für Debug-Anzeige).
+    @Published private(set) var loadError: String? = nil
     /// Läuft gerade ein Kauf-Request?
     @Published private(set) var isPurchasing = false
     /// Soll der "Danke!"-State angezeigt werden?
@@ -60,14 +64,18 @@ final class TipJarStore: ObservableObject {
     /// Schlägt still fehl wenn die Produkte in App Store Connect noch nicht
     /// angelegt wurden (leeres Array) — kein Crash, UI zeigt Ladeindikator.
     func loadProducts() async {
+        isLoading = true
+        loadError = nil
         do {
             let fetched = try await Product.products(for: Self.productIDs)
-            // Sortiert nach Preis (Coffee vor Beer)
             self.products = fetched.sorted { $0.price < $1.price }
+            print("[TipJar] Loaded \(fetched.count) products: \(fetched.map(\.id))")
         } catch {
-            // Produkte nicht verfügbar (Sandbox / kein AppStoreConnect-Setup) → kein Fehler
             self.products = []
+            self.loadError = error.localizedDescription
+            print("[TipJar] loadProducts failed: \(error)")
         }
+        isLoading = false
     }
 
     // MARK: - Kauf
