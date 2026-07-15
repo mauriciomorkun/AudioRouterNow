@@ -16,6 +16,13 @@ options:
   deploymentTarget:
     macOS: "14.4"
   createIntermediateGroups: true
+  # StoreKit Configuration File Reference: Pfad relativ zum .xcodeproj-Container.
+  # Default wäre "../../" (xcworkspace-Layout) — das zeigt bei unserem reinen
+  # .xcodeproj ins Leere und der Tip Jar bleibt leer.
+  # "." → Identifier wird "./AudioRouterNow4/AudioRouterNow.storekit", also
+  # container-relativ und korrekt auflösbar. ("" ergäbe "/..." = absolut-artig
+  # und falsch, "../../" ergäbe den ursprünglichen Bug.)
+  schemePathPrefix: "."
 
 configs:
   Debug: debug
@@ -104,5 +111,17 @@ schemes:
         - AudioRouterKitTests
     run:
       config: Debug
+      # StoreKit-2 Local Testing: bindet die StoreKit Configuration File an das
+      # Run-Scheme. OHNE diesen Eintrag gibt Product.products(for:) im Debug-Run
+      # ein leeres Array OHNE Fehler zurück (Tip Jar zeigt "Not available").
+      # Pfad ist relativ zum .xcodeproj-Container (Datei liegt im App-Sources-Ordner
+      # AudioRouterNow4/AudioRouterNow4/AudioRouterNow.storekit).
+      # KRITISCH 1: Muss hier stehen, NICHT nur in der .xcscheme — `xcodegen generate`
+      # überschreibt die Scheme-Datei sonst und die Bindung geht verloren.
+      # KRITISCH 2: options.schemePathPrefix ist auf "." gesetzt (Default wäre
+      # "../../" für xcworkspace-Layouts). Bei einem reinen .xcodeproj muss der
+      # Identifier relativ zum Projekt-Container stehen → sonst zeigt Xcode ins
+      # Leere und Product.products(for:) liefert wieder [] ohne Fehler.
+      storeKitConfiguration: AudioRouterNow4/AudioRouterNow.storekit
     archive:
       config: Release

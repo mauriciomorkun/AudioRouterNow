@@ -23,8 +23,8 @@ final class TipJarStore: ObservableObject {
     // MARK: - Produkt-IDs
 
     static let productIDs: [String] = [
-        "com.mauriciomorkun.audiorouternow4.tip.coffee",
-        "com.mauriciomorkun.audiorouternow4.tip.beer"
+        "com.mauriciomorkun.audiorouternow.tip.coffee",
+        "com.mauriciomorkun.audiorouternow.tip.beer"
     ]
 
     // MARK: - Published State
@@ -66,10 +66,37 @@ final class TipJarStore: ObservableObject {
     func loadProducts() async {
         isLoading = true
         loadError = nil
+        print("[TipJar] loadProducts() requesting IDs: \(Self.productIDs)")
         do {
             let fetched = try await Product.products(for: Self.productIDs)
             self.products = fetched.sorted { $0.price < $1.price }
             print("[TipJar] Loaded \(fetched.count) products: \(fetched.map(\.id))")
+
+            // Diagnose: leeres Array OHNE Fehler ist die häufigste (und stille)
+            // StoreKit-Fehlkonfiguration. Fast immer eine der beiden Ursachen:
+            //   1. Keine StoreKit Configuration am Run-Scheme aktiv
+            //      (project.yml → schemes.run.storeKitConfiguration).
+            //   2. Produkt-IDs stimmen nicht mit der .storekit-Datei / der
+            //      App-Bundle-ID überein.
+            if fetched.isEmpty {
+                let missing = Set(Self.productIDs)
+                print("""
+                [TipJar] ⚠️ 0 products returned WITHOUT an error. \
+                Requested but unknown to StoreKit: \(missing.sorted()). \
+                Check: (a) Run-Scheme has a StoreKit Configuration selected \
+                (Product ▸ Scheme ▸ Edit Scheme ▸ Run ▸ Options ▸ StoreKit Configuration = AudioRouterNow.storekit), \
+                (b) product IDs above match those in AudioRouterNow.storekit, \
+                (c) app bundle ID = com.mauriciomorkun.audiorouternow.
+                """)
+                self.loadError = "No products returned (check StoreKit config / IDs)."
+            } else {
+                // Diagnose: welche angefragten IDs hat StoreKit nicht gefunden?
+                let returned = Set(fetched.map(\.id))
+                let unresolved = Set(Self.productIDs).subtracting(returned)
+                if !unresolved.isEmpty {
+                    print("[TipJar] ⚠️ Some product IDs were not resolved: \(unresolved.sorted())")
+                }
+            }
         } catch {
             self.products = []
             self.loadError = error.localizedDescription

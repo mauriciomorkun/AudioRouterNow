@@ -13,7 +13,7 @@
           "locale": "en_US"
         }
       ],
-      "productID": "com.mauriciomorkun.audiorouternow4.tip.coffee",
+      "productID": "com.mauriciomorkun.audiorouternow.tip.coffee",
       "referenceName": "Coffee Tip",
       "type": "Consumable"
     },
@@ -28,14 +28,14 @@
           "locale": "en_US"
         }
       ],
-      "productID": "com.mauriciomorkun.audiorouternow4.tip.beer",
+      "productID": "com.mauriciomorkun.audiorouternow.tip.beer",
       "referenceName": "Beer Tip",
       "type": "Consumable"
     }
   ],
   "settings": {
     "_applicationInternalID": "",
-    "_developerTeamID": "",
+    "_developerTeamID": "5D52U34B3W",
     "_storefront": "USA",
     "_storeKitErrors": [
       {"current": "", "enabled": false, "name": "Load Products"}

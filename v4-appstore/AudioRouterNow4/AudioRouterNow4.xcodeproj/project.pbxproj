@@ -7,41 +7,44 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		065F6E25379212B086A79456 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 8C5C2457054F5D487E24DED9 /* README.md */; };
+		0CCBC3EA7574CE8AC3FD5878 /* RoutingControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68F846B0D609C9CD99B0D6F8 /* RoutingControls.swift */; };
 		13E69707240F7ECC1C33631A /* EngineController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79DF8597C2793331AC6C3E10 /* EngineController.swift */; };
-		2C1D9FC433CAE9DBC56EFA10 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DC71FFDC5CD5CF918BFE01 /* AppDelegate.swift */; };
+		25FE9F12EC074F1DEFB24802 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F9070C5CFF77A6BF32DE051 /* OnboardingView.swift */; };
+		2EDF2FAC2EF5208A2C40C5BA /* TipJarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BD8323DEC9F4BE9321B532D /* TipJarStore.swift */; };
+		3F46993CF89A935CCA620B10 /* WaveHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACF60009A2D3E78F787E2A27 /* WaveHeaderView.swift */; };
 		604A0CBD3B3ED10613523F12 /* AudioRouterNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB266406160BB3741B5FE42 /* AudioRouterNowApp.swift */; };
-		67D74A9EB887FCEE754AFC62 /* TipJarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1D29A36F3EEE6DD7C94ABB /* TipJarView.swift */; };
+		70FB468AF09A0C617CDCF600 /* DeviceCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26551DEE2CC0C9EC56EBD85D /* DeviceCardView.swift */; };
 		7115531B94BA0E9DF2DA87A6 /* AudioRouterKitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B98FDB53F61010BF230A941C /* AudioRouterKitTests.swift */; };
 		7EF9EF1FB2D68DD07B41E847 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 014FD48878E629F533B86187 /* Assets.xcassets */; };
 		830B2A0485BB02ABF88D5200 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D53535CC9DE7CBE38BAABD0E /* PrivacyInfo.xcprivacy */; };
-		A223DE073FC037B8F71FAD2B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5818CC22161C04DE6F2BFFF8 /* Theme.swift */; };
-		B1B587E475FEF3BCC86D5FD7 /* TipJarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A3BA726342865FF0A167C2F /* TipJarStore.swift */; };
+		9DEE30D68FA6AE19047C4E4D /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 631476EA35031D21D3106EBD /* Theme.swift */; };
+		AF57C12BF149965A25477D90 /* TipJarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CED67DB0AB6D1756E378170 /* TipJarView.swift */; };
 		B8389104B9AB2E8FA8D0A6E1 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECF3D80DBFF34C85BB47CDA /* MenuBarView.swift */; };
-		BA9DB279991C22AF0B95D207 /* DeviceCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4906D1712A3CC1E2C2CE1961 /* DeviceCardView.swift */; };
-		CBAF9FB5F0E9FF3BDB12B7AB /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DB80E3A37B1A7F30F15B621 /* OnboardingView.swift */; };
-		DF25BA5E451DCE314B10A257 /* RoutingControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 590A16E9E07B805F3B464E8B /* RoutingControls.swift */; };
+		B920DDB6A84F690C96624D61 /* AudioRouterNow.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 35BC3881509937A6F008735A /* AudioRouterNow.storekit */; };
+		C2B0674831C4A95053E191BC /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C49B89F76CABE326345D32E6 /* AppDelegate.swift */; };
 		E7B291523E5F9BF03535CA0A /* AudioRouterKit in Frameworks */ = {isa = PBXBuildFile; productRef = EBD933CC0F28D96A5245FFB9 /* AudioRouterKit */; };
 		F746F193A19323256CEA2453 /* AudioRouterKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1AC03CDD32B47CECC1FC638E /* AudioRouterKit */; };
-		FAB2860647CD6F143664B974 /* WaveHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8A940DA67AF1056A027FDA /* WaveHeaderView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		014FD48878E629F533B86187 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		1DB80E3A37B1A7F30F15B621 /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		1ECF3D80DBFF34C85BB47CDA /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
+		26551DEE2CC0C9EC56EBD85D /* DeviceCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCardView.swift; sourceTree = "<group>"; };
 		2888E63CBAE6EB83B79D12D6 /* AudioRouterNow4.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AudioRouterNow4.xcconfig; sourceTree = "<group>"; };
 		351B993715D113FB2C7CEA9F /* AudioRouterNow4.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AudioRouterNow4.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		3A3BA726342865FF0A167C2F /* TipJarStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TipJarStore.swift; sourceTree = "<group>"; };
-		4906D1712A3CC1E2C2CE1961 /* DeviceCardView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceCardView.swift; sourceTree = "<group>"; };
-		4C1D29A36F3EEE6DD7C94ABB /* TipJarView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TipJarView.swift; sourceTree = "<group>"; };
-		5818CC22161C04DE6F2BFFF8 /* Theme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
-		590A16E9E07B805F3B464E8B /* RoutingControls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoutingControls.swift; sourceTree = "<group>"; };
-		6B8A940DA67AF1056A027FDA /* WaveHeaderView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WaveHeaderView.swift; sourceTree = "<group>"; };
+		35BC3881509937A6F008735A /* AudioRouterNow.storekit */ = {isa = PBXFileReference; path = AudioRouterNow.storekit; sourceTree = "<group>"; };
+		5F9070C5CFF77A6BF32DE051 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		631476EA35031D21D3106EBD /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		68F846B0D609C9CD99B0D6F8 /* RoutingControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutingControls.swift; sourceTree = "<group>"; };
+		6BD8323DEC9F4BE9321B532D /* TipJarStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TipJarStore.swift; sourceTree = "<group>"; };
+		6CED67DB0AB6D1756E378170 /* TipJarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TipJarView.swift; sourceTree = "<group>"; };
 		74E9A681D53A6C11F701ABB6 /* AudioRouterNow4.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AudioRouterNow4.entitlements; sourceTree = "<group>"; };
 		79DF8597C2793331AC6C3E10 /* EngineController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineController.swift; sourceTree = "<group>"; };
-		9C999330EEB7309257B66547 /* AudioRouterNow.storekit */ = {isa = PBXFileReference; includeInIndex = 1; path = AudioRouterNow.storekit; sourceTree = "<group>"; };
-		B6DC71FFDC5CD5CF918BFE01 /* AppDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		8C5C2457054F5D487E24DED9 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		ACF60009A2D3E78F787E2A27 /* WaveHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveHeaderView.swift; sourceTree = "<group>"; };
 		B98FDB53F61010BF230A941C /* AudioRouterKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRouterKitTests.swift; sourceTree = "<group>"; };
+		C49B89F76CABE326345D32E6 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		CEB266406160BB3741B5FE42 /* AudioRouterNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRouterNowApp.swift; sourceTree = "<group>"; };
 		D53535CC9DE7CBE38BAABD0E /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		DB30957D7B44C998B9912850 /* AudioRouterKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AudioRouterKit; path = AudioRouterKit; sourceTree = SOURCE_ROOT; };
@@ -72,18 +75,18 @@
 		2708953EA6FF6E22F9CFAD0C /* AudioRouterNow4 */ = {
 			isa = PBXGroup;
 			children = (
+				C49B89F76CABE326345D32E6 /* AppDelegate.swift */,
 				014FD48878E629F533B86187 /* Assets.xcassets */,
+				35BC3881509937A6F008735A /* AudioRouterNow.storekit */,
 				74E9A681D53A6C11F701ABB6 /* AudioRouterNow4.entitlements */,
 				CEB266406160BB3741B5FE42 /* AudioRouterNowApp.swift */,
 				79DF8597C2793331AC6C3E10 /* EngineController.swift */,
 				E8A444C4945C7A89E74FA695 /* Info.plist */,
 				1ECF3D80DBFF34C85BB47CDA /* MenuBarView.swift */,
+				5F9070C5CFF77A6BF32DE051 /* OnboardingView.swift */,
 				D53535CC9DE7CBE38BAABD0E /* PrivacyInfo.xcprivacy */,
-				9EB0851F4CDD5620E066F4E7 /* UI */,
-				B6DC71FFDC5CD5CF918BFE01 /* AppDelegate.swift */,
-				1DB80E3A37B1A7F30F15B621 /* OnboardingView.swift */,
-				3A3BA726342865FF0A167C2F /* TipJarStore.swift */,
-				9C999330EEB7309257B66547 /* AudioRouterNow.storekit */,
+				6BD8323DEC9F4BE9321B532D /* TipJarStore.swift */,
+				F4490B1CCDC5C97AAF3BF8FE /* UI */,
 			);
 			path = AudioRouterNow4;
 			sourceTree = "<group>";
@@ -124,19 +127,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		9EB0851F4CDD5620E066F4E7 /* UI */ = {
-			isa = PBXGroup;
-			children = (
-				5818CC22161C04DE6F2BFFF8 /* Theme.swift */,
-				6B8A940DA67AF1056A027FDA /* WaveHeaderView.swift */,
-				590A16E9E07B805F3B464E8B /* RoutingControls.swift */,
-				4906D1712A3CC1E2C2CE1961 /* DeviceCardView.swift */,
-				4C1D29A36F3EEE6DD7C94ABB /* TipJarView.swift */,
-			);
-			name = UI;
-			path = UI;
-			sourceTree = "<group>";
-		};
 		A2ECA7C1C2E5056182E90407 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
@@ -159,6 +149,19 @@
 				B98FDB53F61010BF230A941C /* AudioRouterKitTests.swift */,
 			);
 			path = AudioRouterKitTests;
+			sourceTree = "<group>";
+		};
+		F4490B1CCDC5C97AAF3BF8FE /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				26551DEE2CC0C9EC56EBD85D /* DeviceCardView.swift */,
+				8C5C2457054F5D487E24DED9 /* README.md */,
+				68F846B0D609C9CD99B0D6F8 /* RoutingControls.swift */,
+				631476EA35031D21D3106EBD /* Theme.swift */,
+				6CED67DB0AB6D1756E378170 /* TipJarView.swift */,
+				ACF60009A2D3E78F787E2A27 /* WaveHeaderView.swift */,
+			);
+			path = UI;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -243,7 +246,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				7EF9EF1FB2D68DD07B41E847 /* Assets.xcassets in Resources */,
+				B920DDB6A84F690C96624D61 /* AudioRouterNow.storekit in Resources */,
 				830B2A0485BB02ABF88D5200 /* PrivacyInfo.xcprivacy in Resources */,
+				065F6E25379212B086A79456 /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -254,17 +259,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C2B0674831C4A95053E191BC /* AppDelegate.swift in Sources */,
 				604A0CBD3B3ED10613523F12 /* AudioRouterNowApp.swift in Sources */,
+				70FB468AF09A0C617CDCF600 /* DeviceCardView.swift in Sources */,
 				13E69707240F7ECC1C33631A /* EngineController.swift in Sources */,
 				B8389104B9AB2E8FA8D0A6E1 /* MenuBarView.swift in Sources */,
-				A223DE073FC037B8F71FAD2B /* Theme.swift in Sources */,
-				FAB2860647CD6F143664B974 /* WaveHeaderView.swift in Sources */,
-				DF25BA5E451DCE314B10A257 /* RoutingControls.swift in Sources */,
-				BA9DB279991C22AF0B95D207 /* DeviceCardView.swift in Sources */,
-				2C1D9FC433CAE9DBC56EFA10 /* AppDelegate.swift in Sources */,
-				CBAF9FB5F0E9FF3BDB12B7AB /* OnboardingView.swift in Sources */,
-				B1B587E475FEF3BCC86D5FD7 /* TipJarStore.swift in Sources */,
-				67D74A9EB887FCEE754AFC62 /* TipJarView.swift in Sources */,
+				25FE9F12EC074F1DEFB24802 /* OnboardingView.swift in Sources */,
+				0CCBC3EA7574CE8AC3FD5878 /* RoutingControls.swift in Sources */,
+				9DEE30D68FA6AE19047C4E4D /* Theme.swift in Sources */,
+				2EDF2FAC2EF5208A2C40C5BA /* TipJarStore.swift in Sources */,
+				AF57C12BF149965A25477D90 /* TipJarView.swift in Sources */,
+				3F46993CF89A935CCA620B10 /* WaveHeaderView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
