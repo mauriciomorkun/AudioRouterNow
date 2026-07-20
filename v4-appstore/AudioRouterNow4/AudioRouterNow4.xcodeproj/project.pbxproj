@@ -32,6 +32,7 @@
 		1ECF3D80DBFF34C85BB47CDA /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		26551DEE2CC0C9EC56EBD85D /* DeviceCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCardView.swift; sourceTree = "<group>"; };
 		2888E63CBAE6EB83B79D12D6 /* AudioRouterNow4.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AudioRouterNow4.xcconfig; sourceTree = "<group>"; };
+		3135543B5EFB799118FADD04 /* AudioRouterNow4-Debug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "AudioRouterNow4-Debug.entitlements"; sourceTree = "<group>"; };
 		351B993715D113FB2C7CEA9F /* AudioRouterNow4.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AudioRouterNow4.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		35BC3881509937A6F008735A /* AudioRouterNow.storekit */ = {isa = PBXFileReference; path = AudioRouterNow.storekit; sourceTree = "<group>"; };
 		5F9070C5CFF77A6BF32DE051 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
@@ -78,6 +79,7 @@
 				C49B89F76CABE326345D32E6 /* AppDelegate.swift */,
 				014FD48878E629F533B86187 /* Assets.xcassets */,
 				35BC3881509937A6F008735A /* AudioRouterNow.storekit */,
+				3135543B5EFB799118FADD04 /* AudioRouterNow4-Debug.entitlements */,
 				74E9A681D53A6C11F701ABB6 /* AudioRouterNow4.entitlements */,
 				CEB266406160BB3741B5FE42 /* AudioRouterNowApp.swift */,
 				79DF8597C2793331AC6C3E10 /* EngineController.swift */,
@@ -444,7 +446,7 @@
 			baseConfigurationReference = 2888E63CBAE6EB83B79D12D6 /* AudioRouterNow4.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = AudioRouterNow4/AudioRouterNow4.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "AudioRouterNow4/AudioRouterNow4-Debug.entitlements";
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
