@@ -135,6 +135,11 @@ public final class FanOutEngine {
     /// der IOProc schreibt pro Callback einen (min, max)-Mono-Mix-Wert.
     private let waveform = WaveformBridge()
 
+    /// RT-sichere Per-Slot-Gain-Brücke (F16). MainActor schreibt, IOProc liest.
+    private let slotGains = SlotGains()
+    /// Gewünschte Gains pro Composite-Key "<uid>:<channelOffset>" — überlebt Warm-Restarts.
+    private var outputGains: [String: Float32] = [:]
+
     /// Slot-Identität pro Peak-Index: `slotDeviceKeys[i]` gehört zu `slots[i]`.
     /// Key-Format `"<uid>:<channelOffset>"` (Composite — mehrere Configs teilen
     /// evtl. dieselbe UID). Wird in ``buildAndStartAggregate`` gesetzt und in
@@ -167,6 +172,28 @@ public final class FanOutEngine {
     /// Kein-Op wenn kein Tracker aktiv oder Gerät kein Software-Volume unterstützt.
     public func setSystemVolume(_ vol: Float32) {
         volumeTracker?.setSystemVolume(vol)
+    }
+
+    /// Setzt alle Per-Device-Gains (Seed vor start()/updateOutputs()). Key = "<uid>:<channelOffset>".
+    public func setOutputGains(_ gains: [String: Float32]) {
+        outputGains = gains
+        reseedSlotGains()
+    }
+
+    /// Live-Update EINES Gains ohne Rebuild. Wirkt im nächsten IOProc-Callback.
+    public func setOutputGain(_ gain: Float32, forKey key: String) {
+        outputGains[key] = gain
+        if let idx = slotDeviceKeys.firstIndex(of: key) {
+            if idx >= SlotGains.maxSlots {
+                logger.warning("F16/W3: Gain für Slot \(idx, privacy: .public) (Key \(key, privacy: .public)) ignoriert — außerhalb SlotGains.maxSlots=\(SlotGains.maxSlots, privacy: .public)")
+                return   // W3.2-Fix: kein Log-Spam bei Slider-Drag; slotGains.set wäre No-Op
+            }
+            slotGains.set(gain, slotIndex: idx)
+        }
+    }
+
+    private func reseedSlotGains() {
+        slotGains.setAll(slotDeviceKeys.map { outputGains[$0] ?? 1.0 })
     }
 
     /// Erstellt eine noch nicht gestartete Engine.
@@ -475,6 +502,14 @@ public final class FanOutEngine {
         // Reihenfolge von resolvableOutputs). Für das UI-Peak-Mapping.
         slotDeviceKeys = resolvableOutputs.map { "\($0.uid):\($0.channelOffset)" }
 
+        reseedSlotGains()   // F16: Slot-Reihenfolge steht jetzt fest, Gains einsäen
+
+        // W3: SlotGains/PeakMeters tragen max. maxSlots Einträge — Slots darüber
+        // laufen still mit Unity-Gain. Sichtbar machen statt stumm degradieren.
+        if slotDeviceKeys.count > SlotGains.maxSlots {
+            logger.warning("F16/W3: \(self.slotDeviceKeys.count, privacy: .public) Output-Slots konfiguriert, SlotGains.maxSlots=\(SlotGains.maxSlots, privacy: .public) — Slots ≥ \(SlotGains.maxSlots, privacy: .public) spielen mit festem Unity-Gain (1.0)")
+        }
+
         // DIAG: Slot-Mapping nach buildDirectOutputSlots loggen
         diagLogger.debug("SlotDiag slots.count=\(slots.count, privacy: .public) expectedBufferCount=\(expectedBufferCount, privacy: .public)")
         for (i, slot) in slots.enumerated() {
@@ -497,7 +532,7 @@ public final class FanOutEngine {
         // Der Block captured nur `metrics` (Sendable) und `slots` (Wert-Kopie).
         let directBlock = Self.makeDirectIOBlock(
             metrics: metrics, slots: slots, volumeTracker: volumeTracker,
-            peaks: peaks, waveform: waveform
+            peaks: peaks, waveform: waveform, slotGains: slotGains
         )
         var newProcID: AudioDeviceIOProcID?
         // nil = CoreAudio-eigener IOThread (eigene Queue → assert-Crash-Regel).
@@ -733,13 +768,22 @@ public final class FanOutEngine {
         slots: [DirectOutputSlot],
         volumeTracker: VolumeTracker?,
         peaks: PeakMeters,
-        waveform: WaveformBridge
+        waveform: WaveformBridge,
+        slotGains: SlotGains
     ) -> AudioDeviceIOBlock {
         // F2: Bei aktiven DelayLines darf Silence NICHT früh raus — sonst wird
         // der Audio-Tail abgeschnitten (Geister-Burst beim nächsten Callback).
         let anySlotHasDelay = slots.contains { $0.delay != nil }
         // F9: Kapazitätsgrenze für Scratch/DelayLine (kein RT-Alloc).
         let maxFrames = maxFramesPerCallback
+
+        // W1: Letzter effektiver Sample-Faktor (vol × gain) pro Slot — für den
+        // linearen Gain-Ramp gegen Zipper-Noise. -1 = Sentinel "noch nie gesetzt"
+        // (erster Callback snappt statt zu rampen — kein Fade-in-Artefakt).
+        // Closure-Capture per Referenz (Heap-Box): Lebensdauer = IOProc-Block,
+        // wird bei jedem Rebuild frisch erzeugt (Slot-Indizes remappen!).
+        // Subscript-Mutation auf uniquely-referenced Array: kein Alloc → RT-safe.
+        var lastSV = [Float32](repeating: -1, count: slots.count)
 
         let block: AudioDeviceIOBlock = { _, inInputData, _, ioOutputData, _ in
             let inputList = UnsafeMutableAudioBufferListPointer(
@@ -884,7 +928,7 @@ public final class FanOutEngine {
             waveform.push(min: wMin * vol, max: wMax * vol)
 
             // ── Direkt in ioOutputData schreiben ─────────────────────────
-            for slot in slots {
+            for (slotIdx, slot) in slots.enumerated() {
                 let bi = slot.bufferIndex
                 guard bi < outputList.count else { continue }
                 let outBuf = outputList[bi]
@@ -895,6 +939,15 @@ public final class FanOutEngine {
                 let outCapacity = Int(outBuf.mDataByteSize) / bytesPerSample / outChannels
                 let n = min(frameCount, outCapacity, maxFrames)
                 guard n > 0 else { continue }
+
+                // F16: effektiver Sample-Faktor = globalVol × Per-Slot-Gain.
+                // W1: linearer Ramp gegen Zipper-Noise (kein harter sv-Sprung).
+                let g = slotGains.gain(slotIndex: slotIdx)
+                let targetSV = vol * g
+                var currentSV = lastSV[slotIdx]
+                if currentSV < 0 { currentSV = targetSV }    // erster Callback: snap
+                let svStep = (targetSV - currentSV) / Float32(n)
+                lastSV[slotIdx] = targetSV
 
                 // F21: DelayLine nur wenn n ≤ delayFrames.
                 // Bei n > delayFrames (z.B. n=512 > d=230) überlappen Read/Write-
@@ -928,9 +981,11 @@ public final class FanOutEngine {
                                 outL: dstL, outR: dstR
                             )
                         }
-                        // Volume anwenden (Non-Interleaved Delay-Pfad)
-                        if vol != 1.0 {
-                            for i in 0..<n { dstL[i] *= vol; dstR?[i] *= vol }
+                        // Volume + Per-Device-Gain anwenden (Non-Interleaved Delay-Pfad)
+                        // W1: linearer Ramp — s += svStep VOR jeder Multiplikation.
+                        if svStep != 0 || currentSV != 1.0 {
+                            var s = currentSV
+                            for i in 0..<n { s += svStep; dstL[i] *= s; dstR?[i] *= s }
                         }
                     } else {
                         // Interleaved Output — F8: vorab-allozierte Scratch.
@@ -952,9 +1007,12 @@ public final class FanOutEngine {
                                           inL: tapLeft, inR: tapRight,
                                           outL: tL, outR: tR)
                         }
+                        // W1: linearer Ramp — s += svStep VOR jeder Multiplikation.
+                        var s = currentSV
                         for i in 0..<n {
-                            dst[i * stride + chOffset]     = tL[i] * vol
-                            dst[i * stride + chOffset + 1] = tR[i] * vol
+                            s += svStep
+                            dst[i * stride + chOffset]     = tL[i] * s
+                            dst[i * stride + chOffset + 1] = tR[i] * s
                         }
                     }
                 } else if outBuf.mNumberChannels == 1 {
@@ -970,14 +1028,20 @@ public final class FanOutEngine {
 
                     if let intPtr = tapInterleavedPtr {
                         let stride = tapInterleavedStride
+                        // W1: linearer Ramp — s += svStep VOR jeder Multiplikation.
+                        var s = currentSV
                         for i in 0..<n {
-                            dst[i] = intPtr[i * stride] * vol
-                            dstR?[i] = intPtr[i * stride + min(1, stride - 1)] * vol
+                            s += svStep
+                            dst[i] = intPtr[i * stride] * s
+                            dstR?[i] = intPtr[i * stride + min(1, stride - 1)] * s
                         }
                     } else if let L = tapLeft {
+                        // W1: linearer Ramp — s += svStep VOR jeder Multiplikation.
+                        var s = currentSV
                         for i in 0..<n {
-                            dst[i] = L[i] * vol
-                            dstR?[i] = (tapRight?[i] ?? L[i]) * vol
+                            s += svStep
+                            dst[i] = L[i] * s
+                            dstR?[i] = (tapRight?[i] ?? L[i]) * s
                         }
                     }
                 } else {
@@ -990,15 +1054,21 @@ public final class FanOutEngine {
 
                     if let intPtr = tapInterleavedPtr {
                         let srcStride = tapInterleavedStride
+                        // W1: linearer Ramp — s += svStep VOR jeder Multiplikation.
+                        var s = currentSV
                         for i in 0..<n {
-                            dst[i * stride + chOffset]     = intPtr[i * srcStride] * vol
-                            dst[i * stride + chOffset + 1] = intPtr[i * srcStride + min(1, srcStride - 1)] * vol
+                            s += svStep
+                            dst[i * stride + chOffset]     = intPtr[i * srcStride] * s
+                            dst[i * stride + chOffset + 1] = intPtr[i * srcStride + min(1, srcStride - 1)] * s
                         }
                     } else if let L = tapLeft {
                         let R = tapRight
+                        // W1: linearer Ramp — s += svStep VOR jeder Multiplikation.
+                        var s = currentSV
                         for i in 0..<n {
-                            dst[i * stride + chOffset]     = L[i] * vol
-                            dst[i * stride + chOffset + 1] = (R?[i] ?? L[i]) * vol
+                            s += svStep
+                            dst[i * stride + chOffset]     = L[i] * s
+                            dst[i * stride + chOffset + 1] = (R?[i] ?? L[i]) * s
                         }
                     }
                 }

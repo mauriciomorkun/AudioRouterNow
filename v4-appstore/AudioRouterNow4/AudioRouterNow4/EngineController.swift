@@ -77,6 +77,10 @@ final class EngineController: ObservableObject {
     @Published private(set) var outputConfigs: [OutputConfig] = []
     @Published private(set) var availableDevices: [(uid: String, name: String, channelCount: Int)] = []
 
+    /// Per-Device-Gain [0…1] pro Composite-Key "<uid>:<channelOffset>" (F16).
+    @Published private(set) var deviceGains: [String: Double] = [:]
+    private static let deviceGainsKey = "arn.v4.deviceGains"
+
     /// M2: Login-Item-Toggle. Spiegelt den SMAppService-Status und registriert/
     /// deregistriert das Login-Item bei Änderung (rollt bei Fehler zurück).
     @Published var launchAtLogin: Bool = (SMAppService.mainApp.status == .enabled) {
@@ -133,6 +137,7 @@ final class EngineController: ObservableObject {
 
     init() {
         outputConfigs = Self.loadOutputConfigs()
+        deviceGains = Self.loadDeviceGains()
         Task { @MainActor in
             refreshAvailableDevices()
         }
@@ -163,6 +168,7 @@ final class EngineController: ObservableObject {
     private func performStart() {
         defer { isStarting = false }
         do {
+            engine.setOutputGains(deviceGains.mapValues(Float32.init))
             try engine.start(outputs: outputConfigs)
             status = engine.status
             if status == .routing {
@@ -239,6 +245,7 @@ final class EngineController: ObservableObject {
         logger.log("restartRouting: Lifecycle-Ereignis → Engine-Neustart")
         engine.stop()
         do {
+            engine.setOutputGains(deviceGains.mapValues(Float32.init))
             try engine.start(outputs: outputConfigs)
             status = engine.status
             bufferFrames = engine.ioBufferFrames
@@ -271,6 +278,20 @@ final class EngineController: ObservableObject {
     /// - Parameter value: Ziel-Skalar [0.0 … 1.0] vom UI-Volume-Slider.
     func setSystemVolume(_ value: Double) {
         engine.setSystemVolume(Float32(value))
+    }
+
+    /// F16: Per-Device-Gain [0…1] für eine Output-Config (Default 1.0 = Unity).
+    func deviceGain(for config: OutputConfig) -> Double {
+        deviceGains["\(config.uid):\(config.channelOffset)"] ?? 1.0
+    }
+
+    /// F16: Setzt den Per-Device-Gain live (kein Warm-Restart) und persistiert ihn.
+    func setDeviceGain(_ value: Double, for config: OutputConfig) {
+        let key = "\(config.uid):\(config.channelOffset)"
+        let clamped = max(0.0, min(1.0, value))
+        deviceGains[key] = clamped
+        Self.saveDeviceGains(deviceGains)
+        engine.setOutputGain(Float32(clamped), forKey: key)   // live, KEIN Restart
     }
 
     /// Liest die aktuell verfügbaren Output-Geräte neu ein (Geräteauswahl-UI).
@@ -339,6 +360,7 @@ final class EngineController: ObservableObject {
                 }
             }
             do {
+                self.engine.setOutputGains(self.deviceGains.mapValues(Float32.init))
                 try await self.engine.updateOutputs(self.outputConfigs)
                 self.status = self.engine.status
                 // Lifecycle für neue UID-Menge neu aufsetzen.
@@ -402,8 +424,13 @@ final class EngineController: ObservableObject {
         // 1. Peaks lesen + peakLevels aktualisieren (20fps für Signal-Meter — Fix 2)
         var newPeaks: [String: (l: Float32, r: Float32)] = [:]
         var sum: Float32 = 0
-        for (i, key) in engine.slotDeviceKeys.enumerated() where i < 16 {
-            let p = engine.peakLevel(slotIndex: i)
+        for (i, key) in engine.slotDeviceKeys.enumerated() where i < SlotGains.maxSlots {
+            // W2: Anzeige-Pegel = IOProc-Peak (post-globalVol) × Per-Device-Gain.
+            // Multiplikation bewusst HIER im MainActor-Poll (20 fps), nicht im
+            // IOProc — der RT-Record bleibt gain-frei (eine Quelle, alle Slots).
+            let raw = engine.peakLevel(slotIndex: i)
+            let gain = Float32(deviceGains[key] ?? 1.0)
+            let p = (l: raw.l * gain, r: raw.r * gain)
             let prev = peakLevels[key] ?? (l: 0, r: 0)
             // Peak-Hold: schneller Attack, Release ×0.80/Tick bei 20fps
             newPeaks[key] = (
@@ -494,6 +521,7 @@ final class EngineController: ObservableObject {
             }
             guard self.status == .routing else { return }
             do {
+                self.engine.setOutputGains(self.deviceGains.mapValues(Float32.init))
                 try await self.engine.updateOutputs(self.outputConfigs)
                 self.status = self.engine.status
                 self.bufferFrames = self.engine.ioBufferFrames
@@ -517,5 +545,12 @@ final class EngineController: ObservableObject {
     private static func saveOutputConfigs(_ configs: [OutputConfig]) {
         guard let data = try? JSONEncoder().encode(configs) else { return }
         UserDefaults.standard.set(data, forKey: outputConfigsKey)
+    }
+
+    private static func loadDeviceGains() -> [String: Double] {
+        (UserDefaults.standard.dictionary(forKey: deviceGainsKey) as? [String: Double]) ?? [:]
+    }
+    private static func saveDeviceGains(_ gains: [String: Double]) {
+        UserDefaults.standard.set(gains, forKey: deviceGainsKey)
     }
 }

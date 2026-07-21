@@ -134,6 +134,7 @@ struct ExpandedDeviceDetail: View {
             Divider().padding(.top, 8)
             ChannelChipsRow(config: config)
             signalMeters
+            DeviceVolumeRow(config: config)
             StatsGrid(config: config)
         }
         .padding(.top, 2)
@@ -346,5 +347,45 @@ struct AddDeviceRow: View {
         }
         .menuStyle(.borderlessButton)
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - DeviceVolumeRow
+
+/// F16: Per-Gerät-Lautstärke [0…1] — multipliziert mit dem globalen System-Volume.
+/// Live-Pfad: Slider → EngineController.setDeviceGain → FanOutEngine.setOutputGain
+/// → SlotGains (os_unfair_lock) → IOProc. Kein Warm-Restart, keine Audio-Lücke.
+private struct DeviceVolumeRow: View {
+    @EnvironmentObject var controller: EngineController
+    let config: OutputConfig
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: iconName)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .frame(width: 12)
+            Slider(
+                value: Binding(
+                    get: { controller.deviceGain(for: config) },
+                    set: { controller.setDeviceGain($0, for: config) }
+                ),
+                in: 0...1
+            )
+            .controlSize(.mini)
+            .tint(Color.accentColor)
+            Text("\(Int(controller.deviceGain(for: config) * 100))%")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .frame(width: 42, alignment: .trailing)
+        }
+    }
+
+    private var iconName: String {
+        let v = controller.deviceGain(for: config)
+        if v > 0.66 { return "speaker.wave.3.fill" }
+        if v > 0.33 { return "speaker.wave.2.fill" }
+        if v > 0.01 { return "speaker.wave.1.fill" }
+        return "speaker.slash.fill"
     }
 }
