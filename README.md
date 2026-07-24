@@ -10,7 +10,7 @@
 ---
 
 [![Build Check](https://github.com/mauriciomorkun/AudioRouterNow/actions/workflows/build.yml/badge.svg)](https://github.com/mauriciomorkun/AudioRouterNow/actions/workflows/build.yml)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/v3%20License-GPL--3.0-blue.svg)](LICENSE) [![License: Apache-2.0](https://img.shields.io/badge/v4%20License-Apache--2.0-green.svg)](v4/LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS%2011%2B-lightgrey?logo=apple)](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 [![Latest Release](https://img.shields.io/github/v/release/mauriciomorkun/AudioRouterNow)](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 
@@ -183,7 +183,7 @@ AudioRouterNow was built as a free, open-source alternative:
 
 | | BlackHole | AudioRouterNow |
 |---|---|---|
-| License | GPL-3.0 | **GPL-3.0** |
+| License | GPL-3.0 | **Apache 2.0** (v4) / GPL-3.0 (v3) |
 | Kernel Extension | Yes | **No** |
 | Security approval | Yes, manual | **No** |
 | System restart | Yes | **No** |
@@ -286,4 +286,5 @@ Bundled open-source components and their licenses: [THIRD_PARTY_NOTICES.md](THIR
 
 ## License
 
-GPL-3.0 License — see [LICENSE](LICENSE)
+- **AudioRouterNow v4** (Swift / App Store) — Apache License 2.0 — see [v4/LICENSE](v4/LICENSE)
+- **AudioRouterNow v3** (Python / HAL, legacy) — GPL-3.0 — see [LICENSE](LICENSE)
