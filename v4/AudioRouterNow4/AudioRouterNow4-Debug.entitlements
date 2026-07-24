@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- DEBUG entitlements — MIT app-sandbox (identisch mit Release).
+         Warum: storekitagent (der macOS-Prozess der StoreKit-Produkte bereitstellt)
+         prüft ob die anfragende App sandboxed ist und verweigert die Antwort an
+         unsandboxed Prozesse. fopen-Fehler (errno=2) kamen vom FALSCHEN PFAD im
+         Scheme, NICHT von der Sandbox — das war die falsche Diagnose.
+         Korrigierter Stand (2026-07-17):
+           - Scheme hat "../../AudioRouterNow4/AudioRouterNow.storekit" (Xcode 26-Format)
+           - Sandbox ist wieder aktiv → storekitagent antwortet mit Produkten
+           - Release verwendet weiterhin AudioRouterNow4.entitlements (identisch) -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+</dict>
+</plist>
