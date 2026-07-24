@@ -19,7 +19,7 @@ jobs:
 
       - name: Build HAL driver
         run: |
-          cd driver
+          cd legacy-v3/driver
           make
           ls -la build/AudioRouterNow.driver/
 
@@ -31,7 +31,7 @@ jobs:
 
       - name: Build helper
         run: |
-          cd helper
+          cd legacy-v3/helper
           make
           ls -la AudioRouterNowHelper
 
@@ -48,5 +48,5 @@ jobs:
 
       - name: Check Python syntax
         run: |
-          python -m py_compile engine/*.py
+          python -m py_compile legacy-v3/engine/*.py
           echo "Python syntax OK"
