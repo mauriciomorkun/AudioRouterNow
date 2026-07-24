@@ -18,9 +18,13 @@ env/
 installer/build_output/
 installer/dist/
 installer/*.spec.bak
+legacy-v3/installer/build_output/
+legacy-v3/installer/dist/
+legacy-v3/installer/*.spec.bak
 
 # DMG Build Artefakte
 installer/dmg_background.png
+legacy-v3/installer/dmg_background.png
 /tmp/*_dmg_staging/
 
 # macOS
@@ -77,9 +81,11 @@ Bildschirmfoto*.png
 
 # Kompilierte Binaries (werden per make gebaut, gehören nicht ins Repo)
 helper/AudioRouterNowHelper
+legacy-v3/helper/AudioRouterNowHelper
 
 # Hilfsskripte
 installer/generate_pdfs.py
+legacy-v3/installer/generate_pdfs.py
 collect_weekly.py
 
 # Insights-Tracker (Excel liegt in iCloud, Script bleibt lokal)
@@ -91,6 +97,8 @@ feedback/
 # Export-Ordner: Grosse Binaries ausschliessen (HTML-Quellen werden committed)
 export/*.gif
 export/*.zip
+legacy-v3/export/*.gif
+legacy-v3/export/*.zip
 AudioRouterNow-Animation/
 AudioRouterNow\ App-Animation.zip
 
@@ -110,7 +118,13 @@ sparkle_priv*
 # Sparkle test app (nicht nötig im Repo)
 vendor/Sparkle/Sparkle\ Test\ App.app/
 vendor/Sparkle/Symbols/
+legacy-v3/vendor/Sparkle/Sparkle\ Test\ App.app/
+legacy-v3/vendor/Sparkle/Symbols/
 .env
+
+# v4 Swift build artifacts
+v4/AudioRouterKit/.build/
+v4/**/.build/
 
 # v4 Signing — private Team ID (never commit)
 *.local.xcconfig

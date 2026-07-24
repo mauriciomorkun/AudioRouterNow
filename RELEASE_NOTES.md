@@ -9,6 +9,74 @@ Each release contains **two sections**:
 
 ---
 
+## AudioRouterNow 4 (v4.0.0, Build 4.0.0) — July 24, 2026
+_Mac App Store — macOS 14.2 or later — Apple Silicon_
+
+### For Everyone
+
+**AudioRouterNow is now on the Mac App Store — no driver, no admin password, no restart.**
+
+AudioRouterNow 4 is a complete rewrite from the ground up in Swift. It does everything v3 did — routes your Mac's audio to multiple outputs at once — but it now installs in seconds from the App Store without asking for your password or installing any driver.
+
+**What's new:**
+
+- **No driver installation.** v4 uses a new Apple technology called Process Taps, which is built into macOS 14.2. No HAL plugin, no kernel extension, no "allow from System Settings." Just launch and go.
+- **Bluetooth output lock.** A small lock icon (🔒) in the footer prevents macOS from switching your audio output when Bluetooth headphones connect. Your routing keeps running without interruption. On by default, one click to disable.
+- **Bluetooth volume keys fixed.** Volume keys now correctly track Bluetooth devices (AirPods, Sony WH-1000XM, Bose QC, and others). Previously the keys had no effect on certain Bluetooth devices while routing.
+- **Live waveform.** The menu shows a real-time level meter so you always know audio is flowing.
+- **Optional Tip Jar.** If AudioRouterNow saves you time, you can buy a Coffee ☕ ($1.99) or Beer 🍺 ($4.99) — entirely optional, the app is fully free without it.
+
+**Requirements:** macOS 14.2 (Sonoma) or later, Apple Silicon.  
+If you're on macOS 11–14.1, [v3.4.4](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.4) still works and is still maintained for critical fixes.
+
+### For Power Users
+
+#### Architecture Change: HAL Plugin → Process Tap
+
+| Aspect | v3 (legacy) | v4 (App Store) |
+|--------|------------|----------------|
+| Audio capture | HAL AudioServerPlugin (virtual device) | `CATapDescription` / Process Tap API |
+| Helper process | `AudioRouterNowHelper` (C daemon) | None — single-process, in-process IOProc |
+| Driver installation | Required (`/Library/Audio/Plug-Ins/HAL/`) | None |
+| Sandbox | No | Full App Store sandbox |
+| Admin password | Required (driver install) | Never |
+| Min macOS | 11.0 (Big Sur) | 14.2 (Sonoma) |
+| License | GPL-3.0 | Apache 2.0 |
+
+#### Key Implementation Details
+
+**FanOutEngine (`AudioRouterKit`)**
+- `ProcessTapCapture` taps the system mix via `AudioObjectSetPropertyData(kAudioHardwarePropertyProcessTapList)` — no HAL plugin, no ring buffer, no SHM
+- `FanOutEngine` owns an in-process Aggregate Device; IOProc runs on CoreAudio's realtime thread
+- Volume applied per-sample via `volumeTracker.volumeScale` with 20 ms gain ramp to prevent clicks
+- Channel count derived from `kAudioDevicePropertyStreamConfiguration` per output device
+
+**VolumeTracker — Bluetooth fix (commit `799d185`)**
+- `findVolumeElement()` probes `kAudioObjectPropertyElementMain` (element 0) first, then channel 1, then channel 2
+- Bluetooth devices (AirPods, Sony WH-1000XM, Bose QC) only expose volume on per-channel elements — element 0 returns `errSecItemNotFound`
+- Software-volume mode for devices with no `kAudioDevicePropertyVolumeScalar` at any element
+- Channel 2 mirroring: writing volume to element 1 also writes to element 2 for stereo symmetry
+- `removeDeviceListeners()` called before `volumeElement` reassignment in `updateDevice()` — listener symmetry guaranteed
+
+**DeviceLifecycleManager — Stable Output Mode (commit `dfc720d`)**
+- `handleDefaultOutputChanged()` checks `lockEnabled` + `lockedDefaultUID` before scheduling restart
+- If locked device ≠ new default: `setDefaultOutputDevice(uid: locked)` via `AudioObjectSetPropertyData(kAudioHardwarePropertyDefaultOutputDevice)` — sandboxed, public HAL API
+- After successful revert: `lastDefaultOutputUID = locked` — triggers guard on next callback, prevents loop
+- If locked device is gone (e.g. physically disconnected): `lockedDefaultUID = newUID` — fall-through to normal restart
+
+**EngineController — UserDefaults persistence (commit `231d5d9`)**
+- `lockOutputDevice: Bool` — `object(forKey:) as? Bool ?? true` (NOT `bool(forKey:)` which returns `false` for missing key — default would be OFF instead of ON)
+- `startLifecycle()` calls `setOutputLock(enabled:lockedUID:)` with current `FanOutEngine.currentDefaultOutputUID()` on every engine start
+
+**Thread safety**
+- `VolumeTracker`: all mutable state behind `DispatchQueue(label: "VolumeTracker", qos: .userInteractive)`
+- `DeviceLifecycleManager`: `DispatchQueue(label: "DeviceLifecycle", qos: .userInitiated)` — sync snapshots for IOProc reads
+- `@MainActor` boundary: `EngineController` publishes to SwiftUI via `@Published` — no direct UI calls from CoreAudio threads
+
+**Audit:** Single-pass Fable 5 audit — all 5 checks PASS (thread safety, listener symmetry, loop prevention, BT volume fallback, App Store sandbox). No second iteration required.
+
+---
+
 ## v3.4.4 — June 30, 2026
 
 ### For Everyone

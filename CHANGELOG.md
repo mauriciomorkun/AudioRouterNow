@@ -9,7 +9,35 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
-## [3.4.4] — 2026-06-30
+## [v4] AudioRouterNow 4 — Mac App Store
+
+> **Versioning note:** v4 follows Apple's App Store versioning (`Version 1.0`, Build `4.0.0`).
+> v3 continues as the legacy open-source release and uses its own semver track.
+
+---
+
+## [4.0.0] — 2026-07-24 · _Mac App Store (macOS 14.2+)_
+
+### Added — Complete Swift Rewrite
+- **Process Tap architecture** — replaces the HAL plugin + C helper + Python stack entirely. Audio is captured via `CATapDescription` (Apple's sandboxed, public Process Tap API) and fanned out through a `CoreAudio` IOProc on an in-process Aggregate Device. No driver installation, no helper process, no admin password required.
+- **Stable Output Mode** — a 🔒 lock toggle (default ON) in the footer prevents macOS from switching the system output when a Bluetooth device auto-connects. Audio routing continues uninterrupted; volume keys remain bound to the locked device. Persisted via UserDefaults.
+- **Bluetooth volume fix** — volume keys now correctly follow Bluetooth devices. `VolumeTracker` probes `kAudioObjectPropertyElementMain` first, then falls back to channel elements 1 and 2 for devices (e.g. AirPods, Sony WH-1000XM series) that only expose per-channel volume scalars. Software-volume mode handles devices with no hardware volume property.
+- **Tip Jar (StoreKit 2)** — optional, non-blocking in-app purchases: Coffee ☕ ($1.99) and Beer 🍺 ($4.99). App is fully functional without purchase.
+- **Live waveform** — animated peak meter in the menu bar header (per-channel RMS + peak hold, 60 fps via `CADisplayLink`).
+- **Animated device cards** — DeviceCard with live volume ring, status indicator, routing latency display.
+- **Accordion routing panel** — progressive disclosure; channel pair selection per device.
+- **macOS 14.2+ only** — required by the Process Tap API (`kAudioHardwarePropertyProcessTapList`).
+- **Apache 2.0 license** — replaces GPL-3.0 for the v4 codebase; App Store compatible.
+- **Sandboxed** — full App Store sandbox. No helper process, no driver, no kernel extension.
+
+### Architecture
+- `AudioRouterKit` — standalone Swift Package (FanOutEngine, VolumeTracker, DeviceLifecycleManager, ProcessTapCapture)
+- `AudioRouterNow4` — SwiftUI + MenuBarExtra app target (EngineController, MenuBarView, WaveHeaderView, DeviceCardView, RoutingControls, TipJarView)
+- Thread model: CoreAudio IOProc on realtime thread; UI on `@MainActor`; lifecycle on dedicated serial queue
+
+---
+
+## [3.4.4] — 2026-06-30 · _Legacy (macOS 11+, direct download)_
 
 ### Fixed
 - Devices with non-ASCII characters in their CoreAudio UID (e.g. CJK characters from serial numbers) are now correctly routed — previously the helper received `\uXXXX` escape sequences instead of actual UTF-8 bytes, causing `find_device_by_uid()` to fail with "not found" despite the device being present and functional
