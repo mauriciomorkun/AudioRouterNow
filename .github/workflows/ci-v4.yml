@@ -20,7 +20,7 @@ jobs:
           xcode-version: '16'
 
       - name: Run AudioRouterKit tests
-        run: swift test --package-path AudioRouterKit
+        run: swift test --package-path v4/AudioRouterKit
 
   xcode-build-test:
     name: xcode-build-test
@@ -38,12 +38,12 @@ jobs:
         run: brew install xcodegen
 
       - name: Generate Xcode project
-        run: xcodegen generate
+        run: xcodegen generate --spec v4/project.yml --project v4/
 
       - name: Build and test app target
         run: >
           xcodebuild
-          -project AudioRouterNow4.xcodeproj
+          -project v4/AudioRouterNow4.xcodeproj
           -scheme AudioRouterNow4
           build test
           CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
