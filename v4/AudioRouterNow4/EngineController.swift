@@ -100,6 +100,24 @@ final class EngineController: ObservableObject {
         }
     }
 
+    /// Feature B (Stable Output Mode): Default-Output-Lock während des Routings.
+    /// Default: ON — macOS-seitige Default-Wechsel (BT-Auto-Connect) werden zurückgesetzt.
+    @Published var lockOutputDevice: Bool = Self.loadLockOutputDevice() {
+        didSet {
+            guard oldValue != lockOutputDevice else { return }
+            UserDefaults.standard.set(lockOutputDevice, forKey: Self.lockOutputDeviceKey)
+            lifecycle?.setOutputLock(
+                enabled: lockOutputDevice,
+                lockedUID: FanOutEngine.currentDefaultOutputUID())
+        }
+    }
+
+    private static let lockOutputDeviceKey = "arn.v4.lockOutputDevice"
+
+    private static func loadLockOutputDevice() -> Bool {
+        UserDefaults.standard.object(forKey: lockOutputDeviceKey) as? Bool ?? true
+    }
+
     /// W5: true, während refreshLaunchAtLoginStatus() den Wert nur SPIEGELT —
     /// didSet darf dann NICHT registrieren/deregistrieren.
     private var isRefreshingLoginStatus = false
@@ -476,7 +494,8 @@ final class EngineController: ObservableObject {
         var uids = Set(outputConfigs.map(\.uid))
         // W3: Default-Output mit überwachen — er ist immer Sub-Device des
         // Aggregates; ein SR-Wechsel dort braucht denselben Warm-Restart.
-        if let defaultUID = FanOutEngine.currentDefaultOutputUID() {
+        let defaultUID = FanOutEngine.currentDefaultOutputUID()
+        if let defaultUID {
             uids.insert(defaultUID)
         }
         let manager = DeviceLifecycleManager(
@@ -489,6 +508,7 @@ final class EngineController: ObservableObject {
             }
         )
         manager.start(routedUIDs: uids)
+        manager.setOutputLock(enabled: lockOutputDevice, lockedUID: defaultUID)
         lifecycle = manager
     }
 

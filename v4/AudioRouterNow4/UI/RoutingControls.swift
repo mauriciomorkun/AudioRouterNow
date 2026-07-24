@@ -184,6 +184,19 @@ struct FooterRow: View {
                 }
                 .buttonStyle(.plain)
                 Spacer()
+                // Feature B: Stable Output Mode Toggle
+                Button {
+                    controller.lockOutputDevice.toggle()
+                } label: {
+                    Image(systemName: controller.lockOutputDevice ? "lock.fill" : "lock.open")
+                        .font(.system(size: 11))
+                        .foregroundStyle(controller.lockOutputDevice ? ARNColor.accent : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(controller.lockOutputDevice
+                    ? "Output locked: macOS can't switch the output device while routing (e.g. on Bluetooth connect)"
+                    : "Output unlocked: macOS may switch the output device automatically")
+                Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
                     .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
             }
