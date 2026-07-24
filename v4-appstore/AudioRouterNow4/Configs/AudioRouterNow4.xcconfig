@@ -5,7 +5,7 @@
 
 MARKETING_VERSION = 4.0.0
 CURRENT_PROJECT_VERSION = 1
-PRODUCT_BUNDLE_IDENTIFIER = com.mauriciomorkun.audiorouternow4
+PRODUCT_BUNDLE_IDENTIFIER = com.mauriciomorkun.audiorouternow
 SWIFT_VERSION = 6.0
 
 // Signing — DEVELOPMENT_TEAM wird in Xcode Signing & Capabilities gesetzt,

@@ -23,8 +23,8 @@ final class TipJarStore: ObservableObject {
     // MARK: - Produkt-IDs
 
     static let productIDs: [String] = [
-        "com.mauriciomorkun.audiorouternow4.tip.coffee",
-        "com.mauriciomorkun.audiorouternow4.tip.beer"
+        "com.mauriciomorkun.audiorouternow.tip.coffee",
+        "com.mauriciomorkun.audiorouternow.tip.beer"
     ]
 
     // MARK: - Published State
@@ -66,11 +66,10 @@ final class TipJarStore: ObservableObject {
     func loadProducts() async {
         isLoading = true
         loadError = nil
-        // Bundle-ID muss dem Produkt-ID-Präfix entsprechen. Ein Mismatch (z.B.
-        // ...audiorouternow statt ...audiorouternow4) führt dazu, dass der
-        // StoreKit-Agent den Katalog nach der falschen App filtert und still []
+        // Bundle-ID muss dem Produkt-ID-Präfix entsprechen. Ein Mismatch führt dazu,
+        // dass der StoreKit-Agent den Katalog nach der falschen App filtert und still []
         // zurückgibt (Root-Cause 2026-07-16). Deshalb hier explizit loggen.
-        print("[TipJar] Bundle ID: \(Bundle.main.bundleIdentifier ?? "nil") — expected prefix: com.mauriciomorkun.audiorouternow4")
+        print("[TipJar] Bundle ID: \(Bundle.main.bundleIdentifier ?? "nil") — expected prefix: com.mauriciomorkun.audiorouternow")
         print("[TipJar] loadProducts() requesting IDs: \(Self.productIDs)")
         do {
             let fetched = try await Product.products(for: Self.productIDs)
@@ -91,7 +90,7 @@ final class TipJarStore: ObservableObject {
                 Check: (a) Run-Scheme has a StoreKit Configuration selected \
                 (Product ▸ Scheme ▸ Edit Scheme ▸ Run ▸ Options ▸ StoreKit Configuration = AudioRouterNow.storekit), \
                 (b) product IDs above match those in AudioRouterNow.storekit, \
-                (c) app bundle ID = com.mauriciomorkun.audiorouternow4.
+                (c) app bundle ID = com.mauriciomorkun.audiorouternow.
                 """)
                 self.loadError = "No products returned (check StoreKit config / IDs)."
             } else {

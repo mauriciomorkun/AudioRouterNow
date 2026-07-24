@@ -13,7 +13,7 @@
           "locale": "en_US"
         }
       ],
-      "productID": "com.mauriciomorkun.audiorouternow4.tip.coffee",
+      "productID": "com.mauriciomorkun.audiorouternow.tip.coffee",
       "referenceName": "Coffee Tip",
       "type": "Consumable"
     },
@@ -28,7 +28,7 @@
           "locale": "en_US"
         }
       ],
-      "productID": "com.mauriciomorkun.audiorouternow4.tip.beer",
+      "productID": "com.mauriciomorkun.audiorouternow.tip.beer",
       "referenceName": "Beer Tip",
       "type": "Consumable"
     }

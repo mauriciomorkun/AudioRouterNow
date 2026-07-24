@@ -66,6 +66,10 @@ v4-appstore/
 MARKETING.md
 MARKETING_*.md
 
+# Marketing-Automation (lokale Scripts + Kalender — nie ins Repo)
+buffer_scheduler.py
+content_calendar.json
+
 # Claude-Konfiguration (interne Anweisungen)
 .claude/
 
@@ -107,3 +111,4 @@ sparkle_priv*
 # Sparkle test app (nicht nötig im Repo)
 vendor/Sparkle/Sparkle\ Test\ App.app/
 vendor/Sparkle/Symbols/
+.env
