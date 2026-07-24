@@ -42,6 +42,21 @@ final class VolumeTracker: @unchecked Sendable {
     private var volumeListenerBlock: AudioObjectPropertyListenerBlock?
     private var muteListenerBlock: AudioObjectPropertyListenerBlock?
 
+    /// Element, auf dem das aktuelle Gerät VolumeScalar exponiert.
+    /// `kAudioObjectPropertyElementMain` (0) oder Kanal-Element 1 (BT-Geräte
+    /// exponieren Volume oft NUR auf den Kanal-Elementen). Nur auf `queue` berühren.
+    private var volumeElement: AudioObjectPropertyElement = kAudioObjectPropertyElementMain
+
+    /// false = Gerät hat auf KEINEM Element ein Volume-Property (Fixed-Volume-BT,
+    /// HDMI) → Software-Volume-Modus: der ARN-Slider steuert `softwareVolume`,
+    /// das direkt als `volumeScale` in den IOProc fließt. Nur auf `queue` berühren.
+    private var hasHardwareVolume = true
+
+    /// Interner Software-Gain [0…1] für den Software-Volume-Modus.
+    /// Überlebt Default-Device-Wechsel innerhalb einer Tracker-Lebensdauer.
+    /// Nur auf `queue` berühren.
+    private var softwareVolume: Float32 = 1.0
+
     private let logger = Logger(
         subsystem: "com.mauriciomorkun.audiorouternow",
         category: "VolumeTracker"
@@ -117,6 +132,14 @@ final class VolumeTracker: @unchecked Sendable {
         }
 
         removeDeviceListeners()
+        if let element = Self.findVolumeElement(for: newID) {
+            volumeElement = element
+            hasHardwareVolume = true
+        } else {
+            volumeElement = AudioObjectPropertyElement(kAudioObjectPropertyElementMain)
+            hasHardwareVolume = false
+            logger.log("VolumeTracker: Gerät ohne Volume-Property → Software-Volume-Modus")
+        }
         currentDeviceID = newID
         addDeviceListeners(to: newID)
         readEffectiveVolume(for: newID)
@@ -128,7 +151,7 @@ final class VolumeTracker: @unchecked Sendable {
         var volAddr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyVolumeScalar,
             mScope: kAudioObjectPropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
+            mElement: volumeElement
         )
         if AudioObjectHasProperty(deviceID, &volAddr) {
             let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
@@ -161,7 +184,7 @@ final class VolumeTracker: @unchecked Sendable {
             var addr = AudioObjectPropertyAddress(
                 mSelector: kAudioDevicePropertyVolumeScalar,
                 mScope: kAudioObjectPropertyScopeOutput,
-                mElement: kAudioObjectPropertyElementMain
+                mElement: volumeElement
             )
             AudioObjectRemovePropertyListenerBlock(id, &addr, queue, block)
             volumeListenerBlock = nil
@@ -176,6 +199,31 @@ final class VolumeTracker: @unchecked Sendable {
             muteListenerBlock = nil
         }
         currentDeviceID = AudioObjectID(kAudioObjectUnknown)
+    }
+
+    // MARK: Element-Auflösung (Kanal-Fallback für BT-Geräte)
+
+    /// Findet das Element, auf dem das Gerät `kAudioDevicePropertyVolumeScalar`
+    /// (Output-Scope) exponiert: erst `elementMain` (0), dann Kanal-Element 1.
+    /// BT-Geräte exponieren Volume häufig NUR auf den Kanal-Elementen.
+    /// - Returns: das gefundene Element, oder `nil` wenn das Gerät gar kein
+    ///   Volume-Property besitzt (→ Software-Volume-Modus).
+    private static func findVolumeElement(
+        for deviceID: AudioObjectID
+    ) -> AudioObjectPropertyElement? {
+        let candidates: [AudioObjectPropertyElement] = [
+            AudioObjectPropertyElement(kAudioObjectPropertyElementMain),
+            1,
+        ]
+        for element in candidates {
+            var addr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyVolumeScalar,
+                mScope: kAudioObjectPropertyScopeOutput,
+                mElement: element
+            )
+            if AudioObjectHasProperty(deviceID, &addr) { return element }
+        }
+        return nil
     }
 
     // MARK: Volume-Lese-Logik (läuft auf `queue`)
@@ -199,20 +247,25 @@ final class VolumeTracker: @unchecked Sendable {
             return
         }
 
-        // 2. Volume-Scalar lesen
+        // Software-Volume-Modus: Gerät hat kein Volume-Property (Fixed-Volume-BT,
+        // HDMI) → interner Gain statt Unity-Fallback.
+        guard hasHardwareVolume else {
+            setVolumeInternal(softwareVolume)
+            return
+        }
+
+        // Volume-Scalar lesen (elementMain ODER Kanal 1 — siehe findVolumeElement)
         var volAddr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyVolumeScalar,
             mScope: kAudioObjectPropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
+            mElement: volumeElement
         )
         var vol: Float32 = 1.0
         var volSize = UInt32(MemoryLayout<Float32>.size)
-        if AudioObjectHasProperty(deviceID, &volAddr),
-           AudioObjectGetPropertyData(deviceID, &volAddr, 0, nil, &volSize, &vol) == noErr {
+        if AudioObjectGetPropertyData(deviceID, &volAddr, 0, nil, &volSize, &vol) == noErr {
             setVolumeInternal(max(0, min(1, vol)))
-            logger.debug("VolumeTracker: volume=\(vol, privacy: .public)")
+            logger.debug("VolumeTracker: volume=\(vol, privacy: .public) (element=\(self.volumeElement, privacy: .public))")
         } else {
-            // Gerät unterstützt kein Software-Volume (z.B. HDMI) → kein Gain-Attenuation
             setVolumeInternal(1.0)
         }
     }
@@ -228,20 +281,49 @@ final class VolumeTracker: @unchecked Sendable {
     // MARK: Volume setzen (für UI-Slider → System)
 
     /// Schreibt `vol` auf das aktuelle Default-Output-Gerät.
-    /// Läuft auf der normalen UI-Queue — kein RT-Kontext.
+    /// Element-Fallback: elementMain oder Kanal 1 (+ Spiegelung auf Kanal 2).
+    /// Software-Volume-Modus: Gerät ohne Volume-Property → interner Gain
+    /// (`softwareVolume` → `volumeScale` → IOProc).
     func setSystemVolume(_ vol: Float32) {
-        let id = queue.sync { currentDeviceID }
+        let v = max(0, min(1, vol))
+        let (id, isSoftware, element) = queue.sync {
+            (currentDeviceID, !hasHardwareVolume, volumeElement)
+        }
         guard id != AudioObjectID(kAudioObjectUnknown) else { return }
-        var v = max(0, min(1, vol))
+
+        if isSoftware {
+            queue.async { [weak self] in
+                guard let self else { return }
+                self.softwareVolume = v
+                self.setVolumeInternal(v)
+            }
+            return
+        }
+
+        writeVolume(v, deviceID: id, element: element)
+        if element == 1 {
+            writeVolume(v, deviceID: id, element: 2)
+        }
+    }
+
+    /// Hardware-Write eines VolumeScalar auf ein konkretes Element.
+    private func writeVolume(
+        _ vol: Float32,
+        deviceID: AudioObjectID,
+        element: AudioObjectPropertyElement
+    ) {
+        var v = vol
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyVolumeScalar,
             mScope: kAudioObjectPropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
+            mElement: element
         )
-        guard AudioObjectHasProperty(id, &addr) else { return }
+        guard AudioObjectHasProperty(deviceID, &addr) else { return }
         var settable: DarwinBoolean = false
-        AudioObjectIsPropertySettable(id, &addr, &settable)
-        guard settable.boolValue else { return }
-        AudioObjectSetPropertyData(id, &addr, 0, nil, UInt32(MemoryLayout<Float32>.size), &v)
+        guard AudioObjectIsPropertySettable(deviceID, &addr, &settable) == noErr,
+              settable.boolValue else { return }
+        AudioObjectSetPropertyData(
+            deviceID, &addr, 0, nil, UInt32(MemoryLayout<Float32>.size), &v
+        )
     }
 }
