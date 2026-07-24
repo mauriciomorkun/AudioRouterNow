@@ -67,6 +67,12 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
     /// für die Re-Appear-Erkennung (war weg, ist jetzt wieder da → Restart).
     private var lastKnownMissingUIDs: Set<String> = []
 
+    // ── Stable Output Mode (Feature B) — NUR auf `queue` berühren ──
+    /// true = Default-Output-Wechsel werden auf `lockedDefaultUID` zurückgesetzt.
+    private var lockEnabled = false
+    /// UID des Geräts, das als Default-Output "festgenagelt" ist.
+    private var lockedDefaultUID: String?
+
     // ── M4: Sample-Rate-Listener ──
     /// Pro geroutetem Device ein registrierter SR-Listener-Block (für Remove).
     private var srListenerBlocks: [(deviceID: AudioObjectID, block: AudioObjectPropertyListenerBlock)] = []
@@ -193,9 +199,21 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
             }
             srListenerBlocks = []
             lastKnownMissingUIDs = []
+            lockEnabled = false
+            lockedDefaultUID = nil
 
             isListening = false
             logger.log("DeviceLifecycle gestoppt")
+        }
+    }
+
+    /// Stable Output Mode: aktiviert/deaktiviert den Default-Output-Lock.
+    /// Thread-safe (Queue-Hop), jederzeit aufrufbar.
+    public func setOutputLock(enabled: Bool, lockedUID: String?) {
+        queue.async { [self] in
+            lockEnabled = enabled
+            lockedDefaultUID = lockedUID
+            logger.log("StableOutput: lock=\(enabled, privacy: .public)")
         }
     }
 
@@ -204,9 +222,22 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
     private func handleDefaultOutputChanged() {
         let newUID = Self.currentDefaultOutputUID()
         guard newUID != lastDefaultOutputUID else { return }
+
+        // ── Stable Output Mode (Feature B) ──────────────────────────────
+        if lockEnabled, let locked = lockedDefaultUID, newUID != locked {
+            if Self.setDefaultOutputDevice(uid: locked) {
+                logger.log("StableOutput: Default-Wechsel abgefangen → zurück auf gelocktes Gerät")
+                lastDefaultOutputUID = locked
+                return
+            }
+            // Gelocktes Gerät nicht mehr auflösbar → Lock folgt neuem Default
+            logger.log("StableOutput: gelocktes Gerät nicht verfügbar → Lock folgt neuem Default")
+            lockedDefaultUID = newUID
+        }
+
         lastDefaultOutputUID = newUID
         logger.log("Default-Output gewechselt → Restart (debounced 2s)")
-        scheduleRestart(after: Self.btSettleDelay)   // BT-Kaskaden-Karenz
+        scheduleRestart(after: Self.btSettleDelay)
     }
 
     private func handleDevicesChanged() {
@@ -316,6 +347,22 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
         }
         guard err == noErr, deviceID != kAudioObjectUnknown else { return nil }
         return deviceID
+    }
+
+    /// Setzt das System-Default-Output-Gerät auf die gegebene UID.
+    /// Öffentliche HAL-API, sandbox-kompatibel.
+    /// - Returns: true bei Erfolg, false wenn UID nicht auflösbar oder Set fehlschlägt.
+    private static func setDefaultOutputDevice(uid: String) -> Bool {
+        guard let deviceID = deviceIDForUID(uid) else { return false }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var id = deviceID
+        let err = AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
+            UInt32(MemoryLayout<AudioObjectID>.size), &id)
+        return err == noErr
     }
 
     private static func currentDefaultOutputUID() -> String? {
