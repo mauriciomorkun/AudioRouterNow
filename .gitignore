@@ -115,3 +115,7 @@ vendor/Sparkle/Symbols/
 # v4 Signing — private Team ID (never commit)
 *.local.xcconfig
 Signing.local.xcconfig
+
+# v4-appstore/ — private local staging dir (superseded by v4/ in the repo).
+# Contains IMPLEMENTATION_PLAN*.md and other private planning docs — never commit.
+v4-appstore/
