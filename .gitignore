@@ -62,7 +62,6 @@ AUDIT_REPORT.md
 BACKLOG.md
 PLAN.md
 projekt.md
-v4-appstore/
 MARKETING.md
 MARKETING_*.md
 
@@ -112,3 +111,7 @@ sparkle_priv*
 vendor/Sparkle/Sparkle\ Test\ App.app/
 vendor/Sparkle/Symbols/
 .env
+
+# v4 Signing — private Team ID (never commit)
+*.local.xcconfig
+Signing.local.xcconfig

@@ -1,0 +1,3 @@
+// Copy this file to Signing.local.xcconfig (gitignored) and fill in your Apple Team ID.
+// Do NOT commit Signing.local.xcconfig — it contains your private Team ID.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE
