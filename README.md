@@ -4,6 +4,11 @@
 
 # AudioRouterNow
 
+> **Current version: [AudioRouterNow 4](v4/) — Swift rewrite, Mac App Store**
+> Legacy Python/HAL version: [v3 (legacy-v3/)](legacy-v3/)
+
+---
+
 [![Build Check](https://github.com/mauriciomorkun/AudioRouterNow/actions/workflows/build.yml/badge.svg)](https://github.com/mauriciomorkun/AudioRouterNow/actions/workflows/build.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS%2011%2B-lightgrey?logo=apple)](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
