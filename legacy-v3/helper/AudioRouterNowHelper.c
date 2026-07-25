@@ -694,11 +694,15 @@ static AudioDeviceID find_device_by_uid(const char *uid)
     if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &addr,
                                        0, NULL, &size) != noErr) return kAudioDeviceUnknown;
 
-    UInt32 count = size / sizeof(AudioDeviceID);
     AudioDeviceID *devices = (AudioDeviceID *)malloc(size);
     if (!devices) return kAudioDeviceUnknown;
 
-    AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &size, devices);
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL,
+                                   &size, devices) != noErr) {
+        free(devices);
+        return kAudioDeviceUnknown;
+    }
+    UInt32 count = size / sizeof(AudioDeviceID);  /* CoreAudio kann size verkleinern */
 
     AudioDeviceID result = kAudioDeviceUnknown;
     for (UInt32 i = 0; i < count; i++) {
@@ -725,10 +729,14 @@ static AudioDeviceID find_audio_router_device(void) {
     UInt32 size = 0;
     if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &addr, 0, NULL, &size) != noErr)
         return kAudioDeviceUnknown;
-    int n = (int)(size / sizeof(AudioDeviceID));
     AudioDeviceID *list = malloc(size);
     if (!list) return kAudioDeviceUnknown;
-    AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &size, list);
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL,
+                                   &size, list) != noErr) {
+        free(list);
+        return kAudioDeviceUnknown;
+    }
+    int n = (int)(size / sizeof(AudioDeviceID));  /* CoreAudio kann size verkleinern */
 
     AudioObjectPropertyAddress uid_addr = {
         kAudioDevicePropertyDeviceUID,
@@ -773,11 +781,15 @@ static AudioDeviceID find_default_output_device(void)
     if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &addr,
                                        0, NULL, &size) != noErr) return kAudioDeviceUnknown;
 
-    UInt32 count = size / sizeof(AudioDeviceID);
     AudioDeviceID *devices = (AudioDeviceID *)malloc(size);
     if (!devices) return kAudioDeviceUnknown;
 
-    AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &size, devices);
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL,
+                                   &size, devices) != noErr) {
+        free(devices);
+        return kAudioDeviceUnknown;
+    }
+    UInt32 count = size / sizeof(AudioDeviceID);  /* CoreAudio kann size verkleinern */
 
     AudioDeviceID result = kAudioDeviceUnknown;
 
@@ -1151,6 +1163,23 @@ static int find_output_slot_locked(const char *uid, uint32_t ch_offset)
     return -1;
 }
 
+/* Duplikat-Check fuer output_add: matcht auch IN-FLIGHT Slots (uid gesetzt,
+ * active noch false — Phase 3a committet mit active=false, Phase 3c setzt
+ * active erst nach bis zu ~700 ms CoreAudio-Arbeit). Ohne diesen Check kann
+ * ein paralleles output_add fuer dasselbe (uid, ch_offset) einen zweiten
+ * Slot belegen → doppelter IOProc → doppeltes Audio. */
+static int find_occupied_slot_locked(const char *uid, uint32_t ch_offset)
+{
+    for (int i = 0; i < g_n_outputs; i++) {
+        if (g_outputs[i].uid[0] != '\0' &&
+            strcmp(g_outputs[i].uid, uid) == 0 &&
+            g_outputs[i].ch_offset == ch_offset) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 /*
  * Tombstoning-Helper. Alle MUESSEN unter g_outputs_lock aufgerufen werden.
  */
@@ -1207,9 +1236,9 @@ static int output_add(const char *uid, uint32_t ch_offset)
 {
     /* ── Phase 1: Prepare unter Lock (schnell) ── */
     pthread_mutex_lock(&g_outputs_lock);
-    if (find_output_slot_locked(uid, ch_offset) >= 0) {
+    if (find_occupied_slot_locked(uid, ch_offset) >= 0) {
         pthread_mutex_unlock(&g_outputs_lock);
-        return 0;  /* idempotent */
+        return 0;  /* idempotent (auch gegen in-flight Slots) */
     }
     /* Tombstoning: Kapazitaet = "gibt es einen freien Slot?" — nicht mehr
      * g_n_outputs (High-Water-Mark, schrumpft nie). */
@@ -1323,7 +1352,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
     pthread_mutex_lock(&g_outputs_lock);
 
     /* Race-Re-Check: kam in Phase 2 ein Duplikat rein oder ist Kapazitaet voll? */
-    if (find_output_slot_locked(uid, ch_offset) >= 0) {
+    if (find_occupied_slot_locked(uid, ch_offset) >= 0) {
         pthread_mutex_unlock(&g_outputs_lock);
         fprintf(stdout, "Helper: '%s' wurde in Phase 2 bereits hinzugefuegt\n", uid);
         return 0;
@@ -1506,6 +1535,16 @@ static void sr_reinit_all_outputs(void) {
     ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
     if (!ring) return;
     uint32_t new_sr = atomic_load_explicit(&ring->sample_rate, memory_order_acquire);
+    /* SHM ist 0666 — sample_rate ist von fremden Prozessen beschreibbar.
+     * Whitelist erzwingen; verhindert u.a. new_sr=0 → base_ratio-NaN-Pfad. */
+    static const uint32_t ok_rates[] = {44100, 48000, 88200, 96000, 176400, 192000};
+    bool sr_valid = false;
+    for (size_t k = 0; k < sizeof(ok_rates)/sizeof(ok_rates[0]); k++)
+        if (new_sr == ok_rates[k]) { sr_valid = true; break; }
+    if (!sr_valid) {
+        fprintf(stderr, "Helper: sr_reinit — ungueltige Ring-SR %u ignoriert\n", new_sr);
+        return;
+    }
     fprintf(stdout, "Helper: Sample-Rate geaendert auf %u Hz — pruefe Outputs\n", new_sr);
     uint32_t w = atomic_load_explicit(&ring->write_idx, memory_order_acquire);
 
@@ -2751,11 +2790,15 @@ static void *config_thread_main(void *arg)
     (void)arg;
     while (atomic_load_explicit(&g_config_running, memory_order_acquire) &&
            atomic_load_explicit(&g_running, memory_order_acquire)) {
+        /* Defensiv: fd einmal snapshotten — main() schliesst den fd beim
+         * Shutdown; ein negativer Wert darf nie in FD_SET/select/accept. */
+        int lfd = g_config_listen_fd;
+        if (lfd < 0) break;
         fd_set rfds;
         FD_ZERO(&rfds);
-        FD_SET(g_config_listen_fd, &rfds);
+        FD_SET(lfd, &rfds);
         struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
-        int sel = select(g_config_listen_fd + 1, &rfds, NULL, NULL, &tv);
+        int sel = select(lfd + 1, &rfds, NULL, NULL, &tv);
         if (sel <= 0) {
             if (sel < 0 && errno != EINTR) {
                 usleep(100000);
@@ -2763,7 +2806,7 @@ static void *config_thread_main(void *arg)
             continue;
         }
 
-        int cfd = accept(g_config_listen_fd, NULL, NULL);
+        int cfd = accept(lfd, NULL, NULL);
         if (cfd < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) continue;
             fprintf(stderr, "Helper: accept() Fehler (errno=%d)\n", errno);
@@ -2903,9 +2946,13 @@ int main(int argc, char *argv[])
     if (!atomic_load_explicit(&g_running, memory_order_acquire)) {
         atomic_store_explicit(&g_config_running, 0, memory_order_release);
         if (g_config_listen_fd >= 0) {
+            /* ERST joinen (Thread beendet sich via g_config_running/g_running
+             * binnen ~100 ms), DANN fd schliessen — sonst kann der Thread
+             * FD_SET(-1)/select(-1) auf dem geschlossenen fd ausfuehren
+             * (Out-of-Bounds-Write im fd_set). */
+            pthread_join(g_config_thread, NULL);
             close(g_config_listen_fd);
             g_config_listen_fd = -1;
-            pthread_join(g_config_thread, NULL);
             unlink(g_config_socket_path);
         }
         return 0;
@@ -2996,9 +3043,10 @@ int main(int argc, char *argv[])
         pthread_join(g_volume_thread, NULL);
     }
     if (g_config_listen_fd >= 0) {
+        /* ERST joinen, DANN fd schliessen — siehe Early-Exit-Pfad. */
+        pthread_join(g_config_thread, NULL);
         close(g_config_listen_fd);
         g_config_listen_fd = -1;
-        pthread_join(g_config_thread, NULL);
         unlink(g_config_socket_path);
     }
 
