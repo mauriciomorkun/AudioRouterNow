@@ -175,8 +175,16 @@ class Healer:
         if resp is not None and resp.get("ok") is True:
             logger.info("Healer: reconnect_output OK für '%s' Ch%d",
                         output.name, output.ch_offset + 1)
-            # Stall-Samples zurücksetzen — warten ob es hält
+            # Stall-Samples zurücksetzen — warten ob es hält.
+            # WICHTIG: failures/Backoff trotzdem erhöhen. Ein 'ok' vom Helper
+            # heißt nur, dass der Befehl ausgeführt wurde. Bleibt der Stall
+            # bestehen, würde sonst alle 600ms erneut reconnected und der
+            # Circuit Breaker nie auslösen (failures bliebe 0). Bei echter
+            # Erholung setzt der not-stalled-Zweig failures ohnehin auf 0.
             cb.stall_samples = 0
+            cb.failures += 1
+            backoff = BACKOFF_SECONDS[min(cb.failures - 1, len(BACKOFF_SECONDS) - 1)]
+            cb.open_until = now + backoff
             return
 
         if resp is not None:
