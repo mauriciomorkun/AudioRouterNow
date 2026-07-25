@@ -2,17 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AudioRouterNow — Speakers, Headphones & Interfaces. All at Once.</title>
-  <meta name="description" content="Send your Mac's sound to speakers, headphones, and your interface at once. One click. Volume works. Setup stays after reboot. Free, open-source menu bar app for Apple Silicon.">
-  <meta property="og:title" content="AudioRouterNow — Speakers, Headphones & Interfaces. All at Once.">
-  <meta property="og:description" content="Speakers, headphones, and your interface — all at once. One click, volume works, setup stays. Free & open source.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>AudioRouterNow — Speakers, Headphones &amp; Interfaces. All at Once.</title>
+  <meta name="description" content="Send your Mac's sound to speakers, headphones, and your interface at once. One click. Volume works. Setup stays after reboot. Free on the Mac App Store. macOS 14.2+, Apple Silicon.">
+  <meta property="og:title" content="AudioRouterNow — Speakers, Headphones &amp; Interfaces. All at Once.">
+  <meta property="og:description" content="Speakers, headphones, and your interface — all at once. One click, volume works, setup stays. Free &amp; open source.">
   <meta property="og:image" content="https://audiorouternow.mauriciomorkun.com/screenshot.png">
   <meta property="og:url" content="https://audiorouternow.mauriciomorkun.com">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="AudioRouterNow — Speakers, Headphones & Interfaces. All at Once.">
-  <meta name="twitter:description" content="Speakers, headphones, and your interface — all at once. One click, volume works, setup stays. Free & open source.">
+  <meta name="twitter:title" content="AudioRouterNow — Speakers, Headphones &amp; Interfaces. All at Once.">
+  <meta name="twitter:description" content="Speakers, headphones, and your interface — all at once. One click, volume works, setup stays. Free &amp; open source.">
   <meta name="twitter:image" content="https://audiorouternow.mauriciomorkun.com/screenshot.png">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -131,6 +131,9 @@
       letter-spacing: .01em;
     }
 
+    .star-badge { margin-bottom: 1rem; }
+    .star-badge img { vertical-align: middle; }
+
     /* ── SCREENSHOT ── */
     .screenshot-wrap {
       max-width: 680px;
@@ -139,7 +142,6 @@
     }
     .screenshot-wrap img {
       width: 100%;
-      height: auto;
       border-radius: 12px;
       border: 1px solid var(--border);
       box-shadow: 0 32px 80px rgba(0,0,0,.7);
@@ -152,6 +154,7 @@
       margin: 0 auto clamp(3rem, 7vw, 5rem);
       padding: 0 1.5rem;
       border: none;
+      background: #000;
       border-top: 1px solid var(--border);
     }
 
@@ -193,6 +196,23 @@
       line-height: 1.6;
     }
 
+    /* ── TRUST STRIP ── */
+    .trust-strip {
+      max-width: 680px;
+      margin: 0 auto clamp(2rem, 5vw, 3rem);
+      padding: 0 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: .5rem 1.5rem;
+    }
+    .trust-strip span {
+      font-size: .8rem;
+      color: var(--muted);
+      letter-spacing: .01em;
+    }
+    .trust-strip span::first-letter { color: var(--accent); }
+
     /* ── REQUIREMENTS ── */
     .requirements-wrap {
       max-width: 680px;
@@ -221,7 +241,7 @@
       margin-bottom: .2rem;
     }
 
-    .req-value { color: var(--text); font-weight: 500; }
+    .req-value { color: var(--text); font-weight: 500; overflow-wrap: break-word; }
 
     /* ── FOOTER ── */
     footer {
@@ -239,62 +259,18 @@
     .footer-links a { margin: 0 .5rem; }
 
     /* ── CRYPTO DONATIONS ── */
-    .crypto-donations {
-      margin-top: 1.5rem;
-      display: inline-flex;
-      flex-direction: column;
-      gap: .45rem;
-      text-align: left;
-    }
-    .crypto-label {
-      font-size: .7rem;
-      color: var(--faint);
-      text-align: center;
-      letter-spacing: .04em;
-      margin-bottom: .15rem;
-    }
-    .crypto-row {
-      display: flex;
-      align-items: center;
-      gap: .5rem;
-      font-size: .72rem;
-      font-family: monospace;
-    }
-    .crypto-coin {
-      color: #555;
-      font-weight: 600;
-      min-width: 2.2rem;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: .68rem;
-      letter-spacing: .04em;
-      text-transform: uppercase;
-    }
-    .crypto-addr {
-      color: #444;
-      letter-spacing: .01em;
-    }
-    .crypto-hint {
-      color: #333;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: .65rem;
-      font-style: italic;
-    }
-    .copy-btn {
-      background: none;
-      border: 1px solid #222;
-      color: #333;
-      font-size: .6rem;
-      padding: .15rem .4rem;
-      border-radius: 4px;
-      cursor: pointer;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-      letter-spacing: .02em;
-      transition: color .15s, border-color .15s;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    .copy-btn:hover { color: #555; border-color: #333; }
-    .copy-btn.copied { color: var(--accent); border-color: var(--accent); }
+    .crypto-donations { margin-top: 1.5rem; display: flex; flex-direction: column; gap: .5rem; width: 100%; max-width: 480px; margin-left: auto; margin-right: auto; }
+    .crypto-label { font-size: .8rem; color: var(--muted); text-align: center; margin-bottom: .25rem; }
+    .crypto-row { display: flex; flex-direction: column; gap: .375rem; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: .625rem .75rem; }
+    .crypto-top { display: flex; align-items: center; gap: .625rem; }
+    .crypto-coin { flex: 0 0 auto; color: var(--accent); font-weight: 600; font-size: .9rem; width: 1.4rem; }
+    .crypto-name { flex: 1 1 auto; font-size: .85rem; font-weight: 600; color: var(--text); }
+    .crypto-addr { font-family: monospace; font-size: .77rem; color: var(--faint); word-break: break-all; padding-left: calc(1.4rem + .625rem); user-select: all; }
+    .crypto-hint { font-size: .68rem; color: var(--faint); font-style: italic; white-space: nowrap; }
+    .copy-btn { flex: 0 0 auto; background: transparent; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: .75rem; padding: .25rem .625rem; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, sans-serif; transition: all .15s ease; white-space: nowrap; }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .copy-btn.copied { background: var(--accent); color: #000; border-color: var(--accent); }
+    @media (max-width: 480px) { .crypto-addr { font-size: .72rem; } }
 
     /* ── MM LOGO ── */
     .mm-logo {
@@ -310,62 +286,213 @@
       .btn-primary, .btn-ghost { width: 100%; justify-content: center; }
       .cta-row { flex-direction: column; width: 100%; max-width: 320px; }
       .requirements { flex-direction: column; gap: 1rem; }
+      /* Mobile: SHA-256 Hash truncaten statt Card durchbrechen */
+      .req-value--hash { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       /* Mobile: tagline <br> weglassen — verhindert orphan dash */
       .hero .tagline br { display: none; }
-      /* Mobile: mehr Platz für fixed MM-Logo + BMC-Button unten */
-      footer { padding-bottom: 6.5rem; }
-      .mm-logo img { height: 36px; width: auto; }
+      /* Mobile: kompakte Bottom-Bar für MM-Logo + BMC-Widget */
+      footer { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
+      body::after {
+        content: "";
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        height: calc(56px + env(safe-area-inset-bottom, 0px));
+        background: rgba(10, 10, 10, 0.72);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border-top: 1px solid rgba(64, 220, 165, 0.15);
+        z-index: 998;
+        pointer-events: none;
+      }
+      .mm-logo { bottom: 11px; left: 16px; z-index: 1000; }
+      .mm-logo img { height: 32px; width: auto; }
+      #bmc-wbtn, #bmc-wbtn-container {
+        bottom: 8px !important;
+        right: 16px !important;
+        z-index: 1000 !important;
+      }
+      body::after {
+        transition: opacity 0.3s ease, transform 0.3s ease;
+      }
+      .mm-logo {
+        transition: opacity 0.3s ease, transform 0.3s ease;
+      }
+      #bmc-wbtn {
+        transition: opacity 0.3s ease, transform 0.3s ease !important;
+      }
+      body.is-scrolling::after {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      body.is-scrolling .mm-logo {
+        opacity: 0;
+        transform: translateY(10px);
+        pointer-events: none;
+      }
+      body.is-scrolling #bmc-wbtn {
+        opacity: 0 !important;
+        transform: translateY(10px) !important;
+        pointer-events: none !important;
+      }
     }
 
     /* BMC Widget: Auto-Popup-Bubble unterdrücken — nur Round-Button sichtbar */
     #bmc-wbtn > div:not(#bmc-wbtn-container) { display: none !important; }
+
+    /* ── HERO ANIMATION ── */
+    @keyframes arh_floaty { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-2.5%) } }
+    @keyframes arh_flow { from { stroke-dashoffset: 0 } to { stroke-dashoffset: -32 } }
+    @keyframes arh_sourceEmit { 0% { r: 22; opacity: .5 } 70% { opacity: 0 } 100% { r: 82; opacity: 0 } }
+    @keyframes arh_corePulse { 0%, 100% { r: 14; opacity: .9 } 50% { r: 17.5; opacity: 1 } }
+    @keyframes arh_ringPulse { 0%, 100% { opacity: .5 } 50% { opacity: 1 } }
+    @keyframes arh_conePulse { 0%, 100% { opacity: .72 } 45% { opacity: 1 } }
+    @keyframes arh_wave { 0% { opacity: 0 } 12% { opacity: .95 } 55% { opacity: 0 } 100% { opacity: 0 } }
+    @keyframes arh_haloPulse { 0%, 100% { opacity: .5 } 50% { opacity: 1 } }
+    @media (prefers-reduced-motion: reduce) { .arh-anim { animation: none !important } }
+
+    /* ── APP STORE BADGE ── */
+    .as-badge-wrap { display: inline-block; text-decoration: none; margin-bottom: .75rem; transition: opacity .15s, transform .1s; opacity: .88; }
+    .as-badge-wrap:hover { opacity: 1; transform: translateY(-1px); }
+    .as-badge-inner { display: inline-flex; align-items: center; gap: 12px; background: #0d0d0d; border: 1.5px solid rgba(255,255,255,.2); border-radius: 12px; padding: 10px 22px 10px 17px; }
+    .as-badge-apple { font-size: 28px; color: white; line-height: 1; font-family: -apple-system, system-ui, sans-serif; }
+    .as-badge-text { display: flex; flex-direction: column; align-items: flex-start; }
+    .as-badge-text small { display: block; font-size: 10.5px; color: rgba(255,255,255,.62); letter-spacing: .03em; line-height: 1.4; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 400; }
+    .as-badge-text strong { display: block; font-size: 20px; color: white; letter-spacing: -.025em; line-height: 1.2; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 700; }
+    .badge-meta { font-size: .74rem; color: #4a4a4a; letter-spacing: .02em; margin-bottom: 1.5rem; }
+
+    /* ── LEGACY GATE ── */
+    .legacy-gate { margin-top: 1.25rem; text-align: center; width: 100%; max-width: 380px; }
+    .legacy-gate summary { cursor: pointer; font-size: .78rem; color: #3a3a3a; list-style: none; user-select: none; padding: .35rem .6rem; border-radius: 6px; display: inline-block; transition: color .15s, background .15s; }
+    .legacy-gate summary::-webkit-details-marker, .legacy-gate summary::marker { display: none; }
+    .legacy-gate summary:hover { color: var(--muted); background: rgba(255,255,255,.03); }
+    .legacy-gate[open] summary { color: var(--muted); }
+    .legacy-gate-body { margin-top: .875rem; padding: 1rem 1.25rem; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; text-align: left; }
+    .legacy-gate-body p { font-size: .8rem; color: var(--muted); line-height: 1.65; margin-bottom: .875rem; }
+    .legacy-gate-body .btn-ghost { font-size: .82rem; padding: .55rem .95rem; }
+    .legacy-cta-row { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .875rem; }
+
+    /* ── SCREENSHOTS GALLERY ── */
+    .screenshots-section { margin: 0 auto clamp(4rem, 9vw, 6rem); overflow: hidden; }
+    .screenshots-label { text-align: center; font-size: .72rem; color: var(--faint); letter-spacing: .07em; text-transform: uppercase; margin-bottom: .875rem; padding: 0 1.5rem; }
+    .screenshots-scroll { display: flex; gap: 1rem; overflow-x: auto; padding: 0 1.5rem 1rem; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .screenshots-scroll::-webkit-scrollbar { display: none; }
+    .ss-item { flex: 0 0 auto; width: clamp(260px, 70vw, 480px); scroll-snap-align: start; }
+    .ss-item img { width: 100%; height: clamp(380px, 85vw, 560px); object-fit: cover; object-position: top; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 16px 48px rgba(0,0,0,.6); display: block; }
+    .ss-item figcaption { margin-top: .5rem; font-size: .72rem; color: var(--faint); text-align: center; }
+    .ss-label { padding: 0 0 .875rem; text-align: left; }
+    .ss-title { display: block; font-size: 1rem; font-weight: 700; color: #fff; letter-spacing: -.02em; margin-bottom: .2rem; line-height: 1.2; }
+    .ss-subtitle { display: block; font-size: .75rem; color: var(--faint); line-height: 1.4; }
+    .ss-item:first-child { margin-left: auto; }
+    .ss-item:last-child { margin-right: auto; }
+
+    /* ── DEMO VIDEO ── */
+    .demo-section { margin: 0 auto clamp(2rem, 6vw, 4rem); padding: 0 1.5rem; }
+    .demo-section video { max-width: min(680px, 100%); width: 100%; border-radius: 14px; border: 1px solid var(--border); box-shadow: 0 16px 48px rgba(0,0,0,.7); display: block; margin: 0 auto; }
   </style>
+  <script async src="https://analytics.mauriciomorkun.com/script.js" data-website-id="c1e0a739-8930-479c-9f0e-cbc6a45f7321"></script>
 </head>
 <body>
 
   <!-- HERO -->
   <section class="hero">
-    <img class="app-icon" src="icon.png" alt="AudioRouterNow" width="512" height="512">
-    <h1>AudioRouterNow</h1>
-    <p class="tagline">
-      Speakers, headphones, your interface —<br>
-      <strong>every output at once.</strong> One click. It stays.
-    </p>
-    <div class="cta-row">
-      <a class="btn-primary"
-         href="https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.4/AudioRouterNow.dmg">
-        ↓&nbsp;&nbsp;Download for Mac
-      </a>
-      <a class="btn-ghost"
-         href="https://github.com/mauriciomorkun/AudioRouterNow"
-         target="_blank" rel="noopener noreferrer">
-        ★&nbsp;&nbsp;View on GitHub
-      </a>
+    <div id="arh-root" style="display:flex;flex-direction:column;align-items:center;gap:40px;width:100%;background:transparent;">
+      <div style="position:relative;width:min(58vmin,240px);aspect-ratio:1;animation:arh_floaty 5s ease-in-out infinite;" class="arh-anim">
+        <div class="arh-anim" style="position:absolute;inset:6%;border-radius:24%;background:var(--accent,#3fe0b8);filter:blur(42px);opacity:.3;animation:arh_haloPulse var(--cycle,1.8s) ease-in-out infinite;"></div>
+        <svg viewBox="0 0 1000 1000" style="position:relative;width:100%;height:100%;display:block;">
+          <defs>
+            <filter id="arh_ngl" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="5" result="b"></feGaussianBlur>
+              <feMerge><feMergeNode in="b"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+            </filter>
+            <radialGradient id="arh_face" cx="50%" cy="38%" r="75%">
+              <stop offset="0%" stop-color="#0a1c18"></stop>
+              <stop offset="100%" stop-color="#03100d"></stop>
+            </radialGradient>
+          </defs>
+          <rect x="40" y="40" width="920" height="920" rx="215" ry="215" fill="url(#arh_face)" stroke="#123a31" stroke-width="2"></rect>
+          <g style="fill:none;stroke:var(--accent,#3fe0b8);stroke-width:8;opacity:.38;stroke-linecap:round;" filter="url(#arh_ngl)">
+            <path d="M500,845 C 360,720 175,600 165,415"></path>
+            <path d="M500,845 C 470,730 400,600 392,415"></path>
+            <path d="M500,845 C 540,730 612,600 620,415"></path>
+            <path d="M500,845 C 650,720 835,600 845,415"></path>
+          </g>
+          <g class="arh-anim" style="fill:none;stroke:var(--accent-bright,#7ff0d6);stroke-width:8;stroke-linecap:round;stroke-dasharray:5 27;animation:arh_flow var(--flow,.9s) linear infinite;" filter="url(#arh_ngl)">
+            <path d="M500,845 C 360,720 175,600 165,415"></path>
+            <path d="M500,845 C 470,730 400,600 392,415"></path>
+            <path d="M500,845 C 540,730 612,600 620,415"></path>
+            <path d="M500,845 C 650,720 835,600 845,415"></path>
+          </g>
+          <g class="arh-anim" style="fill:var(--accent,#34cda6);animation:arh_conePulse var(--cycle,1.8s) ease-in-out infinite;animation-delay:.2s;" filter="url(#arh_ngl)">
+            <path d="M110,330 L220,330 L194,415 L136,415 Z"></path>
+            <path d="M337,330 L447,330 L421,415 L363,415 Z"></path>
+            <path d="M565,330 L675,330 L649,415 L591,415 Z"></path>
+            <path d="M790,330 L900,330 L874,415 L816,415 Z"></path>
+          </g>
+          <g style="fill:none;stroke:var(--accent,#3fe0b8);stroke-width:5;stroke-linecap:round;" filter="url(#arh_ngl)">
+            <path class="arh-anim" d="M128.6,324 A42,42 0 0,1 201.4,324" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.32s;"></path>
+            <path class="arh-anim" d="M104.4,310 A70,70 0 0,1 225.6,310" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.48s;"></path>
+            <path class="arh-anim" d="M80.1,296 A98,98 0 0,1 249.9,296" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.64s;"></path>
+            <path class="arh-anim" d="M355.6,324 A42,42 0 0,1 428.4,324" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.32s;"></path>
+            <path class="arh-anim" d="M331.4,310 A70,70 0 0,1 452.6,310" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.48s;"></path>
+            <path class="arh-anim" d="M307.1,296 A98,98 0 0,1 476.9,296" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.64s;"></path>
+            <path class="arh-anim" d="M583.6,324 A42,42 0 0,1 656.4,324" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.32s;"></path>
+            <path class="arh-anim" d="M559.4,310 A70,70 0 0,1 680.6,310" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.48s;"></path>
+            <path class="arh-anim" d="M535.1,296 A98,98 0 0,1 704.9,296" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.64s;"></path>
+            <path class="arh-anim" d="M808.6,324 A42,42 0 0,1 881.4,324" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.32s;"></path>
+            <path class="arh-anim" d="M784.4,310 A70,70 0 0,1 905.6,310" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.48s;"></path>
+            <path class="arh-anim" d="M760.1,296 A98,98 0 0,1 929.9,296" style="opacity:0;animation:arh_wave var(--cycle,1.8s) ease-out infinite;animation-delay:.64s;"></path>
+          </g>
+          <circle class="arh-anim" cx="500" cy="850" r="22" style="fill:none;stroke:var(--accent,#3fe0b8);stroke-width:4;animation:arh_sourceEmit var(--cycle,1.8s) ease-out infinite;" filter="url(#arh_ngl)"></circle>
+          <circle class="arh-anim" cx="500" cy="850" r="46" style="fill:none;stroke:var(--accent,#3fe0b8);stroke-width:6;animation:arh_ringPulse var(--cycle,1.8s) ease-in-out infinite;" filter="url(#arh_ngl)"></circle>
+          <circle class="arh-anim" cx="500" cy="850" r="15" style="fill:var(--accent-bright,#8ff3da);animation:arh_corePulse var(--cycle,1.8s) ease-in-out infinite;" filter="url(#arh_ngl)"></circle>
+        </svg>
+      </div>
+      <div style="text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center;">
+        <div style="font-size:clamp(34px,7vw,64px);font-weight:800;letter-spacing:-.03em;color:#f3fffb;line-height:1;">AudioRouterNow</div>
+        <div style="font-size:clamp(11px,2.2vw,15px);letter-spacing:.2em;text-transform:uppercase;font-weight:600;color:var(--accent,#3fe0b8);opacity:.85;">One source · every output · at once</div>
+      </div>
     </div>
-    <p class="meta">v3.4.4 &nbsp;·&nbsp; macOS 11+ &nbsp;·&nbsp; Apple Silicon &nbsp;·&nbsp; Free forever</p>
-    <p class="meta" style="margin-top:.5rem;font-family:monospace;font-size:.72rem;color:#333">
-      brew install --cask mauriciomorkun/tap/audiorouternow
+    <script>(function(){var e=document.getElementById('arh-root');if(!e)return;e.style.setProperty('--accent-bright','#7ff0d6');e.style.setProperty('--cycle','1.800s');e.style.setProperty('--flow','0.900s');})();</script>
+    <p class="tagline">
+      Route your Mac's audio to <strong>headphones, speakers and interfaces — all at once.</strong><br>
+      No driver. No restart. Sandboxed. Free.
     </p>
+    <!-- App Store Badge — primary CTA (Smart Gate) -->
+    <!-- TODO after Apple approval: update href + remove "Under Review" text -->
+    <a class="as-badge-wrap" href="https://apps.apple.com/search?term=AudioRouterNow" target="_blank" rel="noopener noreferrer" id="app-store-link" aria-label="Download on the Mac App Store">
+      <div class="as-badge-inner">
+        <span class="as-badge-apple"></span>
+        <span class="as-badge-text">
+          <small>Download on the</small>
+          <strong>Mac App Store</strong>
+        </span>
+      </div>
+    </a>
+    <p class="badge-meta">Under Review &nbsp;&middot;&nbsp; macOS 14.2+ &nbsp;&middot;&nbsp; Free</p>
+
+    <!-- Smart Gate: v3 fallback for older macOS + open source users -->
+    <details class="legacy-gate">
+      <summary>Running macOS 11–14.1? Or prefer open source? ›</summary>
+      <div class="legacy-gate-body">
+        <p>AudioRouterNow v3.4.4 runs on macOS 11 Big Sur and later. It uses a HAL audio driver instead of the sandboxed Process Tap API — a one-time admin password is required to install the driver.</p>
+        <div class="legacy-cta-row">
+          <a class="btn-ghost" href="https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.4/AudioRouterNow.dmg">↓ Download v3.4.4</a>
+          <a class="btn-ghost" href="https://github.com/mauriciomorkun/AudioRouterNow" target="_blank" rel="noopener noreferrer">★ GitHub</a>
+        </div>
+        <p style="font-size:.72rem;color:var(--faint);margin-bottom:0">macOS 11+ &nbsp;&middot;&nbsp; Apple Silicon &nbsp;&middot;&nbsp; GPL-3.0 &nbsp;&middot;&nbsp; Free<br>
+        <span style="font-family:monospace;font-size:.68rem">brew install --cask mauriciomorkun/tap/audiorouternow</span></p>
+      </div>
+    </details>
+
   </section>
 
-  <!-- SCREENSHOT -->
-  <div class="screenshot-wrap">
-    <picture>
-      <source srcset="screenshot.webp" type="image/webp">
-      <img src="screenshot.png"
-           alt="AudioRouterNow menu bar showing two active audio routes simultaneously"
-           width="1200" height="1073" loading="lazy" decoding="async">
-    </picture>
-  </div>
-
-  <!-- DEMO GIF -->
-  <div class="screenshot-wrap" style="margin-top:clamp(1.5rem,4vw,2.5rem)">
-    <p style="font-size:.72rem;color:var(--faint);text-align:center;margin-bottom:.75rem;
-              letter-spacing:.07em;text-transform:uppercase;">See it in action</p>
-    <img src="demo.gif"
-         alt="AudioRouterNow demo — activating multiple audio outputs in real time"
-         width="1483" height="1152" loading="lazy" decoding="async"
-         style="height:auto">
+  <!-- DEMO VIDEO -->
+  <!-- Source: demo.mp4 (1.4 MB h264/yuv420p, converted from AppStore demo GIF) -->
+  <!-- File lives on server at /opt/audiorouternow/demo.mp4 — not in git (binary media) -->
+  <div class="demo-section">
+    <video autoplay loop muted playsinline>
+      <source src="demo.mp4" type="video/mp4">
+    </video>
   </div>
 
   <hr class="section-divider">
@@ -378,21 +505,59 @@
       <p>Speakers, headphones, your studio interface — all playing together. And your volume keys still work, unlike macOS Multi-Output.</p>
     </div>
     <div class="feature">
+      <span class="feature-icon">🔒</span>
+      <h3>Sandboxed. No driver.</h3>
+      <p>Built on Apple's Process Tap API — no HAL plugin, no kernel extension, no admin password. One click in the App Store, done.</p>
+    </div>
+    <div class="feature">
       <span class="feature-icon">⚡</span>
       <h3>One click. It remembers.</h3>
       <p>Pick outputs from the menu bar. Plug in a device, it shows up instantly. Reboot — your setup is still there.</p>
     </div>
     <div class="feature">
-      <span class="feature-icon">🔒</span>
-      <h3>No kernel extension</h3>
-      <p>Built on Apple's AudioServerPlugin API — no kext, no approval, no restart needed. Installs in seconds.</p>
-    </div>
-    <div class="feature">
       <span class="feature-icon">✂️</span>
-      <h3>Not a mixer. On purpose.</h3>
-      <p>No mixer. No routing diagram. No per-app rules. One source, every output — that's the whole app.</p>
+      <h3>Not a mixer. No restart.</h3>
+      <p>No mixer, no routing diagram, no per-app rules. Pick your outputs, click once, done — no restart, no setup wizard.</p>
     </div>
   </section>
+
+  <!-- APP STORE SCREENSHOTS -->
+  <!-- Images (ss_*.jpg) live on server only — gitignored binary assets -->
+  <div class="screenshots-section">
+    <p class="screenshots-label">AudioRouterNow 4 &#8212; in action</p>
+    <div class="screenshots-scroll">
+      <figure class="ss-item">
+        <div class="ss-label">
+          <strong class="ss-title">One source. Every output.</strong>
+          <span class="ss-subtitle">Route to any combination of outputs</span>
+        </div>
+        <img src="ss_routing.jpg" alt="AudioRouterNow routing to 4 devices simultaneously" width="892" height="1516" loading="lazy" decoding="async">
+      </figure>
+      <figure class="ss-item">
+        <div class="ss-label">
+          <strong class="ss-title">Pick the exact channels.</strong>
+          <span class="ss-subtitle">Select exact channel pairs per interface</span>
+        </div>
+        <img src="ss_tipjar.jpg" alt="AudioRouterNow &#8212; free with optional tip jar" width="892" height="1342" loading="lazy" decoding="async">
+      </figure>
+      <figure class="ss-item">
+        <div class="ss-label">
+          <strong class="ss-title">Full control. No driver.</strong>
+          <span class="ss-subtitle">Per-device L/R meters &#183; latency &#183; sample rate</span>
+        </div>
+        <img src="ss_fullcontrol.jpg" alt="Per-device level meters and latency display" width="892" height="1576" loading="lazy" decoding="async">
+      </figure>
+      <figure class="ss-item">
+        <div class="ss-label">
+          <strong class="ss-title">Free forever.</strong>
+          <span class="ss-subtitle">Optional tip jar &#8212; no subscription, ever.</span>
+        </div>
+        <img src="ss_channels.jpg" alt="Select exact channel pairs per device" width="892" height="1188" loading="lazy" decoding="async">
+      </figure>
+    </div>
+  </div>
+
+  <hr class="section-divider">
 
   <!-- SCOPE NOTE -->
   <p style="max-width:480px;margin:0 auto clamp(4rem,9vw,6rem);padding:0 1.5rem;
@@ -400,12 +565,21 @@
     Want to mix sources, add effects, or route per app? Get Loopback or Audio Hijack. AudioRouterNow does one thing: one source, every selected output.
   </p>
 
+  <!-- TRUST STRIP -->
+  <div class="trust-strip">
+    <span>✓ Sandboxed by Apple</span>
+    <span>✓ Free forever</span>
+    <span>✓ No account required</span>
+    <span>✓ No subscription</span>
+    <span>✓ Open-source roots</span>
+  </div>
+
   <!-- REQUIREMENTS -->
   <div class="requirements-wrap">
     <div class="requirements">
       <div class="req-item">
         <span class="req-label">System</span>
-        <span class="req-value">macOS 11.0 Big Sur or later</span>
+        <span class="req-value">macOS 14.2 Sonoma or later</span>
       </div>
       <div class="req-item">
         <span class="req-label">Architecture</span>
@@ -413,15 +587,15 @@
       </div>
       <div class="req-item">
         <span class="req-label">Version</span>
-        <span class="req-value">3.4.4</span>
+        <span class="req-value">4.0 · App Store</span>
       </div>
       <div class="req-item">
         <span class="req-label">License</span>
-        <span class="req-value">GPL-3.0 — Free &amp; Open Source</span>
+        <span class="req-value">Apache 2.0 — Free &amp; Open Source</span>
       </div>
       <div class="req-item">
-        <span class="req-label">SHA-256</span>
-        <span class="req-value" style="font-family:monospace;font-size:.78rem;color:#666">65e1ac5a8d340ae71ba5ab3c1b7eb54f251980c20d48e797ec65a69e8c8231b2</span>
+        <span class="req-label">Distribution</span>
+        <span class="req-value">Mac App Store · Sandboxed</span>
       </div>
     </div>
   </div>
@@ -431,6 +605,7 @@
     <p><strong>Impressum</strong></p>
     <p>Mauricio Morkun &nbsp;·&nbsp; Uespelterwee 9 &nbsp;·&nbsp; L-5740 Filsdorf &nbsp;·&nbsp; Luxembourg</p>
     <p><a href="mailto:dev@mauriciomorkun.com">dev@mauriciomorkun.com</a></p>
+    <p style="margin-top:.5rem;margin-bottom:.75rem;font-size:.72rem;color:#333">AudioRouterNow started as <a href="https://github.com/mauriciomorkun/AudioRouterNow" style="color:#3a3a3a;text-decoration:none;border-bottom:1px solid #2a2a2a" target="_blank" rel="noopener">open source (GPL-3.0)</a> — legacy v3.4.4 available for macOS 11+</p>
     <div class="footer-links">
       <a href="https://github.com/mauriciomorkun/AudioRouterNow">GitHub</a>
       <a href="https://github.com/mauriciomorkun/AudioRouterNow/blob/main/THIRD_PARTY_NOTICES.md">Third-party notices</a>
@@ -440,20 +615,29 @@
     <div class="crypto-donations">
       <p class="crypto-label">or donate crypto</p>
       <div class="crypto-row">
-        <span class="crypto-coin">BTC</span>
-        <span class="crypto-addr">bc1qaa58vwf5d70rve7fp6svlygupkx6tf37g2qujt</span>
-        <button class="copy-btn" onclick="copyAddr(this,'bc1qaa58vwf5d70rve7fp6svlygupkx6tf37g2qujt')">copy</button>
+        <div class="crypto-top">
+          <span class="crypto-coin">₿</span>
+          <span class="crypto-name">Bitcoin</span>
+          <button class="copy-btn" onclick="copyAddr(this,'bc1qaa58vwf5d70rve7fp6svlygupkx6tf37g2qujt')">copy</button>
+        </div>
+        <div class="crypto-addr">bc1qaa58vwf5d70rve7fp6svlygupkx6tf37g2qujt</div>
       </div>
       <div class="crypto-row">
-        <span class="crypto-coin">ETH</span>
-        <span class="crypto-addr">0x72BEd7d6db5ffEDbd306196f3300FCDaa44a207f</span>
-        <span class="crypto-hint">(Base / Arbitrum preferred)</span>
-        <button class="copy-btn" onclick="copyAddr(this,'0x72BEd7d6db5ffEDbd306196f3300FCDaa44a207f')">copy</button>
+        <div class="crypto-top">
+          <span class="crypto-coin">Ξ</span>
+          <span class="crypto-name">Ethereum</span>
+          <span class="crypto-hint">Base / Arbitrum preferred</span>
+          <button class="copy-btn" onclick="copyAddr(this,'0x72BEd7d6db5ffEDbd306196f3300FCDaa44a207f')">copy</button>
+        </div>
+        <div class="crypto-addr">0x72BEd7d6db5ffEDbd306196f3300FCDaa44a207f</div>
       </div>
       <div class="crypto-row">
-        <span class="crypto-coin">SOL</span>
-        <span class="crypto-addr">E93EUW1XoUsqjR3ifvydJv93dkc7SoRt2UBdkGbfMTMN</span>
-        <button class="copy-btn" onclick="copyAddr(this,'E93EUW1XoUsqjR3ifvydJv93dkc7SoRt2UBdkGbfMTMN')">copy</button>
+        <div class="crypto-top">
+          <span class="crypto-coin">◎</span>
+          <span class="crypto-name">Solana</span>
+          <button class="copy-btn" onclick="copyAddr(this,'E93EUW1XoUsqjR3ifvydJv93dkc7SoRt2UBdkGbfMTMN')">copy</button>
+        </div>
+        <div class="crypto-addr">E93EUW1XoUsqjR3ifvydJv93dkc7SoRt2UBdkGbfMTMN</div>
       </div>
     </div>
   </footer>
@@ -467,12 +651,12 @@
   <script>
     function copyAddr(btn, addr) {
       navigator.clipboard.writeText(addr).then(function() {
-        btn.textContent = 'Copied!';
+        btn.textContent = 'copied ✓';
         btn.classList.add('copied');
         setTimeout(function() {
           btn.textContent = 'copy';
           btn.classList.remove('copied');
-        }, 2000);
+        }, 1200);
       });
     }
   </script>
@@ -487,6 +671,19 @@
     data-position="Right"
     data-x_margin="18"
     data-y_margin="18"></script>
+
+  <!-- Mobile scroll hide: bottom bar + MM logo + BMC -->
+  <script>
+    (function() {
+      if (!window.matchMedia('(max-width:480px)').matches) return;
+      var t, b = document.body;
+      window.addEventListener('scroll', function() {
+        b.classList.add('is-scrolling');
+        clearTimeout(t);
+        t = setTimeout(function() { b.classList.remove('is-scrolling'); }, 600);
+      }, { passive: true });
+    })();
+  </script>
 
 </body>
 </html>
