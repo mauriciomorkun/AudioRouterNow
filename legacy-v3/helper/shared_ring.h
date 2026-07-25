@@ -112,11 +112,13 @@ arn_ring_set_sample_rate(ARNSharedRing *ring, uint32_t new_sr) {
     /* GUARD: NO-OP wenn SR bereits uebereinstimmt — verhindert spurious sr_change_gen-Inkremente */
     uint32_t old_sr = atomic_load_explicit(&ring->sample_rate, memory_order_acquire);
     if (old_sr == new_sr) return;
-    atomic_store_explicit(&ring->write_idx, 0u, memory_order_seq_cst);
-    /* H5: read_idx muss ebenfalls auf 0 gesetzt werden — sonst ist
-     * write_idx = 0 < read_idx (alter Wert) → unsigned underflow →
-     * space = riesige Zahl → Producer kann nicht schreiben (Ring scheinbar voll). */
-    atomic_store_explicit(&ring->read_idx,  0u, memory_order_seq_cst);
+    /* Indizes NICHT anfassen: write_idx gehoert dem Producer-RT-Thread,
+     * read_idx dem Consumer-RT-Thread (SPSC-Kontrakt). Ein Reset von einem
+     * dritten Thread verliert Updates gegen laufende read/write-Aufrufe
+     * (read_idx > write_idx → avail-Underflow → Consumer liest ~2^32 Samples
+     * Muell). Monotone Indizes benoetigen keinen Reset; das Flushen erledigt
+     * der Helper beim sr_change_gen-Wechsel (sr_reinit_all_outputs setzt
+     * local_ridx auf den aktuellen write_idx). */
     atomic_store_explicit(&ring->sample_rate, new_sr, memory_order_release);
     atomic_fetch_add_explicit(&ring->sr_change_gen, 1u, memory_order_release);
 }
@@ -135,7 +137,10 @@ arn_ring_write(ARNSharedRing *ring, const float *samples, uint32_t count)
 {
     uint32_t widx  = atomic_load_explicit(&ring->write_idx, memory_order_relaxed);
     uint32_t ridx  = atomic_load_explicit(&ring->read_idx,  memory_order_acquire);
-    uint32_t space = ring->capacity - (widx - ridx);   /* unsigned sub = korrekt */
+    /* Kompilezeit-Konstante statt Shared-Memory-Feld: der Peer-Prozess darf
+     * die Hot-Path-Geometrie nicht beeinflussen (SHM ist 0666). capacity nur
+     * einmalig beim Attach gegen ARN_RING_CAPACITY validieren. */
+    uint32_t space = ARN_RING_CAPACITY - (widx - ridx);
 
     if (space < count) {
         return 0u;  /* Ring voll — Frame verwerfen */
