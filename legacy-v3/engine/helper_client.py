@@ -149,13 +149,25 @@ class HelperClient:
                     " — shutdown und Neustart"
                 )
                 try:
-                    self._send_no_lock({"cmd": "shutdown"})
-                except Exception:
-                    pass
+                    payload = {"cmd": "shutdown"}
+                    tok = self._auth_token or self._load_token()
+                    if tok:
+                        payload["token"] = tok
+                    resp = self._send_no_lock(payload)
+                    if resp.get("error") == "auth" and self._load_token():
+                        payload["token"] = self._auth_token
+                        resp = self._send_no_lock(payload)
+                    if not resp.get("ok"):
+                        logger.warning(f"I-5: Zombie-Helper lehnt shutdown ab: {resp}")
+                except Exception as e:
+                    logger.warning(f"I-5: Zombie-Helper shutdown fehlgeschlagen: {e}")
                 # Kurz warten bis der alte Prozess weg ist
                 deadline = time.monotonic() + 5.0
                 while time.monotonic() < deadline and self._is_socket_alive():
                     time.sleep(0.2)
+                if self._is_socket_alive():
+                    logger.error("I-5: Zombie-Helper laesst sich nicht beenden — Abbruch")
+                    return False
                 # Jetzt regulären Spawn-Pfad nehmen (Socket ist tot)
             else:
                 logger.info("Helper Socket erreichbar — warte auf SHM-Bereitschaft")
@@ -183,9 +195,10 @@ class HelperClient:
             try:
                 log_dir = Path.home() / "Library" / "Logs" / "AudioRouterNow"
                 log_dir.mkdir(parents=True, exist_ok=True)
-                log_out = open(log_dir / "helper.log", "ab", buffering=0)
-                log_err = open(log_dir / "helper.err", "ab", buffering=0)
+                log_out = log_err = None
                 try:
+                    log_out = open(log_dir / "helper.log", "ab", buffering=0)
+                    log_err = open(log_dir / "helper.err", "ab", buffering=0)
                     proc = subprocess.Popen(
                         [str(binary)],
                         stdout=log_out,
@@ -194,8 +207,10 @@ class HelperClient:
                         start_new_session=True,
                     )
                 finally:
-                    log_out.close()
-                    log_err.close()
+                    if log_out is not None:
+                        log_out.close()
+                    if log_err is not None:
+                        log_err.close()
                 with self._lock:
                     self._proc = proc
                     self._spawned_by_us = True
