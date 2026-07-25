@@ -155,6 +155,10 @@ def cmd_set_outputs(uid_offset_pairs: list):
         print(f"  {key}: {value}")
     print()
 
+    if result.get("error") or result.get("ok") is False:
+        print("FEHLER: Helper hat set_outputs abgelehnt (siehe Antwort oben).")
+        sys.exit(1)
+
 
 def cmd_start_helper():
     """Startet den Helper-Daemon (falls noch nicht aktiv)."""
@@ -172,8 +176,8 @@ def cmd_start_helper():
         print("Helper laeuft.")
     else:
         print("FEHLER: Helper konnte nicht gestartet werden.")
-        print("  Logs: /tmp/audiorouter.helper.log")
-        print("  Fehler: /tmp/audiorouter.helper.err")
+        print("  Logs: ~/Library/Logs/AudioRouterNow/helper.log")
+        print("  Fehler: ~/Library/Logs/AudioRouterNow/helper.err")
         sys.exit(1)
 
 
@@ -185,10 +189,23 @@ def cmd_stop_helper():
         print(f"FEHLER: helper_client konnte nicht importiert werden: {e}")
         sys.exit(1)
 
+    import time
+
     helper = HelperClient()
+    if not helper.ping():
+        print("FEHLER: Helper nicht erreichbar — nichts zu stoppen.")
+        print("  Tipp: python cli.py --ping")
+        sys.exit(1)
     print("Sende Shutdown an Helper...")
     helper.shutdown()
-    print("Shutdown-Kommando gesendet.")
+    # Kurz warten — der Helper beendet sich asynchron nach der Antwort.
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline and helper.ping():
+        time.sleep(0.2)
+    if helper.ping():
+        print("WARNUNG: Helper antwortet weiterhin (Shutdown abgelehnt oder von launchd neu gestartet).")
+        sys.exit(1)
+    print("Shutdown-Kommando gesendet — Helper gestoppt.")
     print("Hinweis: Wenn launchd den Helper verwaltet, wird er ggf. neu gestartet.")
 
 
