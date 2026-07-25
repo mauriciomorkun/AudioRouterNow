@@ -57,8 +57,8 @@ extension RouterError: LocalizedError {
         switch self {
         case .tccDenied:
             return "AudioRouterNow needs System Audio Recording permission. Open System Settings → Privacy & Security → Screen & System Audio Recording."
-        case .deviceNotFound:
-            return "An output device is no longer connected. Remove it from Output Targets or reconnect it."
+        case .deviceNotFound(let uid):
+            return "Output device '\(uid)' is no longer connected. Remove it from Output Targets or reconnect it."
         case .tapFailed(let status):
             return "Could not start audio routing: \(OSStatusMapper.describe(status)). Try unplugging and reconnecting the device, then press Start again."
         case .aggregateLayoutMismatch:

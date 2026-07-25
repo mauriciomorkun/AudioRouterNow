@@ -102,7 +102,7 @@ final class EngineController: ObservableObject {
 
     /// Feature B (Stable Output Mode): Default-Output-Lock während des Routings.
     /// Default: ON — macOS-seitige Default-Wechsel (BT-Auto-Connect) werden zurückgesetzt.
-    @Published var lockOutputDevice: Bool = Self.loadLockOutputDevice() {
+    @Published var lockOutputDevice: Bool = EngineController.loadLockOutputDevice() {
         didSet {
             guard oldValue != lockOutputDevice else { return }
             UserDefaults.standard.set(lockOutputDevice, forKey: Self.lockOutputDeviceKey)
