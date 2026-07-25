@@ -10,6 +10,7 @@ Verwendung:
     ok   = open_mail_with_report(path)
 """
 import json
+import logging
 import platform
 import re
 import subprocess
@@ -412,8 +413,16 @@ end tell
             ["osascript", "-e", script],
             capture_output=True, text=True, timeout=20,
         )
+        if result.returncode != 0:
+            logging.getLogger(__name__).warning(
+                "osascript Mail compose failed (rc=%d): %s",
+                result.returncode, (result.stderr or "").strip(),
+            )
         return result.returncode == 0
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "open_mail_with_report failed: %s: %s", type(e).__name__, e
+        )
         return False
 
 
