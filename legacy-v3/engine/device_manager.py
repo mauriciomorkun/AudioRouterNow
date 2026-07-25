@@ -229,6 +229,10 @@ class DeviceManager:
         # Flattern bei Geraeten, die waehrend der Enumeration kurz auftauchen.
         # uid -> Anzahl aufeinanderfolgender Scans, in denen das Geraet neu war.
         self._pending_new_devices: Dict[str, int] = {}
+        # Erster Scan (in start()) darf NICHT debounced werden — sonst ist die
+        # Device-Liste direkt nach start() leer (cli --list-devices, initiales
+        # Menu in menu_bar_app).
+        self._first_scan = True
 
     def start(self):
         with self._lock:
@@ -315,13 +319,19 @@ class DeviceManager:
         # Scan (count >= 2, ~4s) wirklich als "added" melden. Removals werden
         # weiterhin SOFORT gemeldet (kein Debounce bei Removals).
         added = set()
-        for uid in added_raw:
-            count = self._pending_new_devices.get(uid, 0) + 1
-            if count >= 2:
-                added.add(uid)
-                self._pending_new_devices.pop(uid, None)
-            else:
-                self._pending_new_devices[uid] = count
+        if self._first_scan:
+            # Initialer Scan: Debounce ueberspringen — alle Geraete sind hier
+            # zwangslaeufig "neu"; mit Debounce waere _known nach start() leer.
+            self._first_scan = False
+            added = set(added_raw)
+        else:
+            for uid in added_raw:
+                count = self._pending_new_devices.get(uid, 0) + 1
+                if count >= 2:
+                    added.add(uid)
+                    self._pending_new_devices.pop(uid, None)
+                else:
+                    self._pending_new_devices[uid] = count
         # Pending-Eintraege aufraeumen, deren Geraet wieder verschwunden ist.
         for uid in list(self._pending_new_devices.keys()):
             if uid not in added_raw:
