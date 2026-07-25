@@ -63,6 +63,11 @@ class HealthMonitor:
         self._raw_level_streak: int = 0
         self._current_reported_level: str = "healthy"
         self._last_raw_level: str = "healthy"
+        # Delta-basierte One-Shot-Events (SHM-Reconnect, Underrun-Burst) fuer
+        # DEGRADE_STREAK Polls latchen — sonst kann ein Ein-Sample-Event den
+        # 2-Sample-Streak nie erfuellen und wird still verworfen.
+        self._reconnect_latch: int = 0
+        self._underrun_latch: int = 0
         # Pro Output: letzter absoluter underruns-Wert (für Delta-Berechnung)
         self._last_underruns: dict = {}   # key: (uid, ch_offset) -> int
         self._last_reconnect_count: int = 0
@@ -165,7 +170,7 @@ class HealthMonitor:
         if not ioproc_alive and audio_flowing:
             reasons.append("IOProc not responding (age > 500ms)")
 
-        if ring_fill < 0.10:
+        if audio_flowing and ring_fill < 0.10:
             # M2: stabiler Key — Füllstand ins Debug-Log.
             reasons.append("Ring buffer critically low")
             logger.debug("Health: ring fill %.0f%%", ring_fill * 100.0)
@@ -179,9 +184,22 @@ class HealthMonitor:
         any_drift      = any(abs(o.src_ratio_ppm) > 600 for o in outputs)
         fill_critical  = (ring_fill < 0.10 or ring_fill > 0.95) and audio_flowing
 
-        if (not ioproc_alive and audio_flowing) or any_stalled or reconnect_delta > 0:
+        # Delta-basierte One-Shot-Events fuer DEGRADE_STREAK Polls latchen —
+        # ein Ein-Sample-Event (Delta gegen letzten Poll) kann den 2-Sample-
+        # Streak sonst nie erfuellen (raw_level faellt im naechsten Poll
+        # zurueck und der Streak resettet).
+        if reconnect_delta > 0:
+            self._reconnect_latch = DEGRADE_STREAK
+        elif self._reconnect_latch > 0:
+            self._reconnect_latch -= 1
+        if any_underrun:
+            self._underrun_latch = DEGRADE_STREAK
+        elif self._underrun_latch > 0:
+            self._underrun_latch -= 1
+
+        if (not ioproc_alive and audio_flowing) or any_stalled or self._reconnect_latch > 0:
             raw_level = "critical"
-        elif any_underrun or any_drift or fill_critical:
+        elif self._underrun_latch > 0 or any_drift or fill_critical:
             raw_level = "degraded"
         else:
             raw_level = "healthy"
