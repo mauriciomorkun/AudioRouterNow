@@ -116,7 +116,7 @@ def load_config() -> AppConfig:
         if "popover_migrated" not in data:
             save_config(config)
         return config
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError, OSError) as e:
         logger.warning(f"Konfigurationsdatei konnte nicht gelesen werden: {e} — Standardwerte")
         return AppConfig()
 
@@ -145,7 +145,11 @@ def save_config(config: AppConfig):
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     existing = json.load(f)
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(
+                    f"Bestehende Config nicht lesbar ({e}) — Merge-Save verwirft "
+                    f"unbekannte Felder neuerer Versionen"
+                )
                 existing = {}
         # Merge: unbekannte Felder aus existing erhalten, bekannte überschreiben.
         merged = {**existing, **config.to_dict()}
