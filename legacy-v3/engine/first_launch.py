@@ -328,11 +328,22 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
         progress_file = Path(_ppath)
         progress_file.write_text("0")
     except OSError:
-        progress_file = Path("/tmp/.arn_install_progress")
+        # H-7: KEIN fester /tmp-Pfad als Fallback — das Install-Script schreibt
+        # als root in diese Datei; ein preplaced Symlink koennte den Root-Write
+        # umleiten. Stattdessen mkstemp im Per-User-TMPDIR, dann ~/.audiorouter.
         try:
+            _pfd, _ppath = _tempfile.mkstemp(prefix='.arn_progress_')
+            os.close(_pfd)
+            progress_file = Path(_ppath)
             progress_file.write_text("0")
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning("Progress-Datei nicht erstellbar: %s — Fallback ~/.audiorouter.", exc)
+            progress_file = Path.home() / ".audiorouter" / ".arn_install_progress"
+            try:
+                progress_file.parent.mkdir(parents=True, exist_ok=True)
+                progress_file.write_text("0")
+            except OSError:
+                pass
 
     script_file: "Path | None" = None  # type: ignore[assignment]
 
@@ -343,7 +354,8 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
     shell_script = (
         f"#!/bin/bash\n"
         f"echo 1 > {q_progress}\n"                        # Kopiere…
-        f"cp -rf {q_source} {q_dst}\n"
+        f"rm -rf {q_dst}\n"                               # stale Bundle entfernen — BSD cp kopiert sonst IN das existierende Verzeichnis (ABI-Reinstall)
+        f"cp -Rf {q_source} {q_dst} || {{ echo 9 > {q_progress}; exit 1; }}\n"
         f"echo 2 > {q_progress}\n"                        # Neustart…
         f"killall coreaudiod || true\n"
         f"echo 3 > {q_progress}\n"                        # Script done
@@ -365,8 +377,9 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
         shell_cmd = f"/bin/bash {shlex.quote(str(script_file))}"
     else:
         shell_cmd = (
-            f"cp -rf {shlex.quote(str(source))} {shlex.quote(str(DRIVER_INSTALL_PATH))} "
-            f"&& killall coreaudiod || true"
+            f"rm -rf {shlex.quote(str(DRIVER_INSTALL_PATH))} && "
+            f"cp -Rf {shlex.quote(str(source))} {shlex.quote(str(DRIVER_INSTALL_PATH))} "
+            f"|| exit 1; killall coreaudiod || true"
         )
 
     applescript = f'do shell script "{shell_cmd}" with administrator privileges'
@@ -505,11 +518,18 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
 
     # Sign the installed driver (ad-hoc, best-effort — kein admin nötig)
     logger.info("Signing installed driver (ad-hoc)...")
-    subprocess.run(
+    _cs = subprocess.run(
         ["codesign", "--force", "--deep", "--sign", "-", str(DRIVER_INSTALL_PATH)],
         check=False,
         capture_output=True,
+        text=True,
     )
+    if _cs.returncode != 0:
+        logger.warning(
+            "Ad-hoc codesign of installed driver failed (rc=%d): %s — "
+            "coreaudiod may refuse to load the driver.",
+            _cs.returncode, _cs.stderr.strip(),
+        )
 
     return True, ""
 
@@ -754,7 +774,7 @@ def uninstall_all() -> tuple[bool, str]:
     if DRIVER_INSTALL_PATH.exists():
         shell_cmd = (
             f"rm -rf {shlex.quote(str(DRIVER_INSTALL_PATH))} "
-            f"&& killall coreaudiod || true"
+            f"|| exit 1; killall coreaudiod || true"
         )
         applescript = (
             f'do shell script "{shell_cmd}" with administrator privileges'
