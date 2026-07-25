@@ -29,7 +29,7 @@ struct PulsingDot: View {
             .animation(pulsing
                 ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
                 : .default, value: animate)
-            .onAppear { animate = true }
+            .onAppear { animate = pulsing }
             .onChange(of: pulsing) { _, newValue in animate = newValue }
     }
 }

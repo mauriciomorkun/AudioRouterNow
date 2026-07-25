@@ -79,7 +79,7 @@ final class VolumeTracker: @unchecked Sendable {
             AudioObjectID(kAudioObjectSystemObject), &addr, queue, block
         )
         // Initialwert synchron lesen (auf queue, damit spätere Callbacks serialisiert sind).
-        queue.sync { [weak self] in self?.updateDevice() }
+        queue.sync { [weak self] in self?.isStopped = false; self?.updateDevice() }
     }
 
     /// Stoppt den Tracker und entfernt alle Property-Listener.
@@ -97,18 +97,26 @@ final class VolumeTracker: @unchecked Sendable {
             defaultDeviceListenerBlock = nil
         }
         // Volume- + Mute-Listener vom aktuellen Device entfernen (sync, damit in-flight Callbacks enden)
-        queue.sync { [weak self] in self?.removeDeviceListeners() }
+        queue.sync { [weak self] in self?.isStopped = true; self?.removeDeviceListeners() }
         // Zurück auf Unity (kein Gain) nach Stopp
         setVolumeInternal(1.0)
     }
 
     // MARK: Listener-Callbacks (läuft auf `queue`)
 
+    /// true nach stop(): unterdrückt Late-Callbacks, die der HAL nach
+    /// AudioObjectRemovePropertyListenerBlock noch auf `queue` dispatchen kann
+    /// (sonst re-registriert updateDevice() Listener, die nie mehr entfernt
+    /// werden, und überschreibt den volumeScale-Reset). Nur auf `queue` anfassen.
+    private var isStopped = false
+
     private func onDefaultDeviceChanged() {
+        guard !isStopped else { return }
         updateDevice()
     }
 
     private func onVolumeChanged(deviceID: AudioObjectID) {
+        guard !isStopped else { return }
         readEffectiveVolume(for: deviceID)
     }
 

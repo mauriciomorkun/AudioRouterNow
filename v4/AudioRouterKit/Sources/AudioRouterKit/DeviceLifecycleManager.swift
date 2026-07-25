@@ -63,6 +63,11 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
     private var pendingRestart: DispatchWorkItem?
     private var isListening = false
 
+    /// Generation-Token: entwertet verzögerte Blocks älterer start()-Sessions.
+    /// stop()+start() setzt isListening wieder auf true — das allein reicht
+    /// als Guard für die 1-s/2-s-Delay-Blocks nicht.
+    private var startGeneration = 0
+
     /// L1: UIDs, die beim letzten `handleDevicesChanged` gefehlt haben —
     /// für die Re-Appear-Erkennung (war weg, ist jetzt wieder da → Restart).
     private var lastKnownMissingUIDs: Set<String> = []
@@ -155,10 +160,15 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
             // M4: Sample-Rate-Listener mit 1 s Verzögerung registrieren.
             // Verhindert Startup-Feedback: beim Aggregate-Aufbau springt die
             // SR der Sub-Devices kurz → würde ohne Gate sofort einen Restart auslösen.
+            startGeneration &+= 1
+            let generation = startGeneration
             queue.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                 // W7: stop() kann innerhalb der 1 s gelaufen sein — dann hier
                 // NICHTS mehr registrieren (Listener würden nie entfernt → Leak).
-                guard let self, self.isListening else { return }
+                // Zusätzlich gegen stop()+start()-Restarts: nur die JÜNGSTE
+                // Session darf registrieren (Generation-Token), sonst registriert
+                // ein staler Block Listener für ALTE routedUIDs.
+                guard let self, self.isListening, self.startGeneration == generation else { return }
                 self.registerSRListeners(for: routedUIDs)
                 self.srListenersActive = true
             }
@@ -316,8 +326,12 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
             // Wiedereröffnung nach 2 s (Rebuild ≈ 0.2–1 s).
             self.srListenersActive = false
             self.onSampleRateChanged?()
+            let generation = self.startGeneration
             self.queue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                guard let self, self.isListening else { return }
+                // Gate nur wiedereröffnen, wenn kein stop()/start()-Zyklus
+                // dazwischen lag — sonst öffnet dieser stale Block das Gate
+                // der NEUEN Session zu früh (M4-Startup-Schutz umgangen).
+                guard let self, self.isListening, self.startGeneration == generation else { return }
                 self.srListenersActive = true
             }
         }

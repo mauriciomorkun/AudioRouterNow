@@ -377,9 +377,14 @@ final class EngineController: ObservableObject {
                     self.warmRestartForSampleRateChange()
                 }
             }
+            guard self.status == .routing else { return }
             do {
                 self.engine.setOutputGains(self.deviceGains.mapValues(Float32.init))
                 try await self.engine.updateOutputs(self.outputConfigs)
+                // stopRouting() kann während des 200-ms-Settle-Awaits gelaufen
+                // sein (K1-Abbruch in der Engine, kein Throw) → Lifecycle NICHT
+                // neu aufsetzen, sonst läuft ein Output-Lock-Manager im Idle.
+                guard self.status == .routing else { return }
                 self.status = self.engine.status
                 // Lifecycle für neue UID-Menge neu aufsetzen.
                 self.lifecycle?.stop()
@@ -543,6 +548,9 @@ final class EngineController: ObservableObject {
             do {
                 self.engine.setOutputGains(self.deviceGains.mapValues(Float32.init))
                 try await self.engine.updateOutputs(self.outputConfigs)
+                // stopRouting() während des 200-ms-Settle-Awaits (K1-Abbruch)
+                // → gecleartes @Published-State nicht wieder befüllen.
+                guard self.status == .routing else { return }
                 self.status = self.engine.status
                 self.bufferFrames = self.engine.ioBufferFrames
                 self.captureDeviceLatencies()

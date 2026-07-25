@@ -61,8 +61,8 @@ extension RouterError: LocalizedError {
             return "Output device '\(uid)' is no longer connected. Remove it from Output Targets or reconnect it."
         case .tapFailed(let status):
             return "Could not start audio routing: \(OSStatusMapper.describe(status)). Try unplugging and reconnecting the device, then press Start again."
-        case .aggregateLayoutMismatch:
-            return "The audio device reported an unexpected channel layout. Remove the device from Output Targets and add it again."
+        case .aggregateLayoutMismatch(let expected, let actual):
+            return "The audio device reported an unexpected channel layout (expected \(expected) buffers, got \(actual)). Remove the device from Output Targets and add it again."
         }
     }
 }
