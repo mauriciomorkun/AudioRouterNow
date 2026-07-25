@@ -252,7 +252,7 @@ if [[ -n "$HELPER_DST" ]]; then
         --sign "$SIGN_IDENTITY" \
         --options runtime \
         --timestamp \
-        "$HELPER_DST" || warn "Helper-Binary Signierung fehlgeschlagen"
+        "$HELPER_DST" || fail "Helper-Binary Signierung fehlgeschlagen"
 fi
 
 # Schritt 4c: Driver-Binary explizit signieren — MUSS vor Bundle-Signing (Schritt 4d) erfolgen!
@@ -265,7 +265,7 @@ if [[ -n "$DRIVER_BIN" ]]; then
         --sign "$SIGN_IDENTITY" \
         --options runtime \
         --timestamp \
-        "$DRIVER_BIN" || warn "Driver-Binary Signierung fehlgeschlagen"
+        "$DRIVER_BIN" || fail "Driver-Binary Signierung fehlgeschlagen"
     ok "Driver-Binary signiert: $DRIVER_BIN"
 else
     warn "AudioRouterNowDriver nicht gefunden — Bundle-Signierung könnte fehlschlagen"
@@ -437,6 +437,7 @@ if [[ -f "$DMG_MOUNT/.background.png" ]]; then
     cp "$DMG_MOUNT/.background.png" "$DMG_MOUNT/.background/background.png"
     ok ".background/background.png erstellt"
 
+    ASCRIPT_EXIT=0
     ASCRIPT_OUT=$(osascript 2>&1 << ASEOF
 tell application "Finder"
     set theVol to disk "$APP_NAME"
@@ -466,8 +467,7 @@ tell application "Finder"
     end try
 end tell
 ASEOF
-    )
-    ASCRIPT_EXIT=$?
+    ) || ASCRIPT_EXIT=$?
 
     if [[ $ASCRIPT_EXIT -eq 0 ]]; then
         ok "Hintergrund via Finder AppleScript gesetzt"
@@ -488,11 +488,18 @@ osascript -e "tell application \"Finder\"" \
           -e "end tell" 2>/dev/null || true
 sleep 1
 
-hdiutil detach "$DMG_MOUNT" -quiet 2>/dev/null || true
+# Detach mit Retry — Finder haelt das Volume nach der AppleScript-Phase oft
+# noch kurz busy. Das fertige DMG erst ersetzen, wenn der Ersatz existiert.
+for _i in 1 2 3 4 5; do
+    if hdiutil detach "$DMG_MOUNT" -quiet 2>/dev/null; then break; fi
+    sleep 2
+done
+[[ ! -d "$DMG_MOUNT" ]] || fail "Volume liess sich nicht auswerfen: $DMG_MOUNT"
 
-# UDRW → UDZO
-rm -f "$DMG_OUTPUT"
-hdiutil convert "$DMG_RW" -format UDZO -o "$DMG_OUTPUT" -quiet
+# UDRW → UDZO: erst in Temp-Datei konvertieren, dann atomar ersetzen
+rm -f "${DMG_OUTPUT}.tmp.dmg"
+hdiutil convert "$DMG_RW" -format UDZO -o "${DMG_OUTPUT}.tmp.dmg" -quiet
+mv -f "${DMG_OUTPUT}.tmp.dmg" "$DMG_OUTPUT"
 rm -f "$DMG_RW"
 ok "Hintergrund-Fix abgeschlossen"
 
@@ -519,10 +526,11 @@ ok "DMG signiert: $DMG_OUTPUT"
 
 # --- Notarisierung (Apple Notary Service) ------------------------------------
 log "Sende DMG zur Apple-Notarisierung (kann 2-5 Minuten dauern)..."
+NOTARY_EXIT=0
 NOTARY_OUTPUT=$(xcrun notarytool submit "$DMG_OUTPUT" \
     --keychain-profile "$NOTARIZE_PROFILE" \
     --wait \
-    2>&1)
+    2>&1) || NOTARY_EXIT=$?
 echo "$NOTARY_OUTPUT"
 
 if echo "$NOTARY_OUTPUT" | grep -q "status: Accepted"; then
