@@ -257,9 +257,15 @@ static void arn_shm_init(void)
         atomic_fetch_add_explicit(&ring->sr_change_gen, 1u, memory_order_release);
         os_log(gLog, "SHM: Verbunden (Helper-Ring) — %s (%zu Bytes)", ARN_SHM_NAME, ARN_SHM_SIZE);
     } else {
-        /* Ring noch nicht initialisiert (Helper in Vorbereitung) — selbst init. */
-        arn_ring_init(ring);
-        os_log(gLog, "SHM: Verbunden + Ring initialisiert — %s", ARN_SHM_NAME);
+        /* Ring noch nicht initialisiert — der Helper besitzt das Segment und
+         * initialisiert es gerade. NICHT selbst arn_ring_init() aufrufen (das
+         * memset()t das gesamte Segment und raced mit der Helper-Init;
+         * instance_id/volume_q16 wuerden ausgeloescht). Als not-ready
+         * behandeln — Retry-/Watch-Thread versucht es in 500 ms erneut. */
+        os_log(gLog, "SHM: Segment noch nicht initialisiert — warte auf Helper");
+        munmap(ptr, ARN_SHM_SIZE);
+        close(fd);
+        return;
     }
 
     gSHMFD   = fd;
@@ -652,14 +658,21 @@ static OSStatus ARN_Initialize(AudioServerPlugInDriverRef inDriver,
     if (atomic_load_explicit(&gSHMRing, memory_order_acquire) == NULL) {
         /* Helper noch nicht bereit — Hintergrund-Thread startet Retry alle 500ms */
         atomic_store_explicit(&gSHMRetryRunning, 1, memory_order_release);
-        pthread_create(&gSHMRetryThread, NULL, arn_shm_retry_thread, NULL);
-        os_log(gLog, "SHM: Helper noch nicht bereit, Retry-Thread gestartet");
+        if (pthread_create(&gSHMRetryThread, NULL, arn_shm_retry_thread, NULL) != 0) {
+            atomic_store_explicit(&gSHMRetryRunning, 0, memory_order_release);
+            os_log_error(gLog, "SHM: Retry-Thread konnte nicht gestartet werden");
+        } else {
+            os_log(gLog, "SHM: Helper noch nicht bereit, Retry-Thread gestartet");
+        }
     }
 
     /* Watch-Thread starten: erkennt spaetere Helper-Neustarts (neues SHM-Segment)
      * und biegt gSHMRing atomar auf das neue Segment um. */
     atomic_store_explicit(&gSHMWatchRunning, 1, memory_order_release);
-    pthread_create(&gSHMWatchThread, NULL, arn_shm_watch_thread, NULL);
+    if (pthread_create(&gSHMWatchThread, NULL, arn_shm_watch_thread, NULL) != 0) {
+        atomic_store_explicit(&gSHMWatchRunning, 0, memory_order_release);
+        os_log_error(gLog, "SHM: Watch-Thread konnte nicht gestartet werden");
+    }
 
     os_log(gLog, "AudioRouterNow: Initialize OK (SR=%.0f, Buffer=%u)",
            gSampleRate, gBufferFrameSize);
@@ -1122,9 +1135,15 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
                         CFStringCreateWithCString(NULL, "Audio Router Mute",
                                                   kCFStringEncodingUTF8);
                     break;
-                default:
-                    *((CFStringRef *)outData) = NULL;
+                case kObjectID_PlugIn:
+                    *((CFStringRef *)outData) =
+                        CFStringCreateWithCString(NULL, "AudioRouterNow",
+                                                  kCFStringEncodingUTF8);
                     break;
+                default:
+                    /* NIE NULL mit noErr zurueckgeben — Clients (coreaudiod)
+                     * CFRetain'en den Wert und crashen auf NULL. */
+                    return kAudioHardwareUnknownPropertyError;
             }
             written = sizeof(CFStringRef);
             break;
@@ -1306,11 +1325,13 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
             WRITE_SCALAR(UInt32, 0);
             break;
 
-        case kAudioDevicePropertyBufferFrameSize:
+        case kAudioDevicePropertyBufferFrameSize: {
             pthread_mutex_lock(&gStateMutex);
-            WRITE_SCALAR(UInt32, gBufferFrameSize);
+            UInt32 bfs = gBufferFrameSize;
             pthread_mutex_unlock(&gStateMutex);
+            WRITE_SCALAR(UInt32, bfs);
             break;
+        }
 
         case kAudioDevicePropertyBufferFrameSizeRange: {
             if (inDataSize < sizeof(AudioValueRange)) return kAudioHardwareBadPropertySizeError;
@@ -1322,11 +1343,13 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
             break;
         }
 
-        case kAudioDevicePropertyNominalSampleRate:
+        case kAudioDevicePropertyNominalSampleRate: {
             pthread_mutex_lock(&gStateMutex);
-            WRITE_SCALAR(Float64, gSampleRate);
+            Float64 sr = gSampleRate;
             pthread_mutex_unlock(&gStateMutex);
+            WRITE_SCALAR(Float64, sr);
             break;
+        }
 
         case kAudioDevicePropertyAvailableNominalSampleRates: {
             UInt32 needed = (UInt32)(kNumSupportedSampleRates * sizeof(AudioValueRange));
@@ -1389,10 +1412,14 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
             if (inDataSize < need) return kAudioHardwareBadPropertySizeError;
             AudioBufferList *bl = (AudioBufferList *)outData;
             if (inAddress->mScope == kAudioObjectPropertyScopeOutput) {
+                pthread_mutex_lock(&gStateMutex);
+                UInt32 cfgBFS = gBufferFrameSize;
+                pthread_mutex_unlock(&gStateMutex);
                 bl->mNumberBuffers = 1;
                 bl->mBuffers[0].mNumberChannels = kChannelsPerFrame;
-                bl->mBuffers[0].mDataByteSize   =
-                    kChannelsPerFrame * (kBitsPerChannel / 8);
+                /* Byte-Groesse eines vollen IO-Buffers, nicht eines einzelnen
+                 * Frames — Clients dimensionieren danach ihre Buffer. */
+                bl->mBuffers[0].mDataByteSize   = cfgBFS * kBytesPerFrame;
                 bl->mBuffers[0].mData           = NULL;
             } else {
                 bl->mNumberBuffers = 0; /* keine Input-Streams */
@@ -1406,11 +1433,13 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
             break;
 
         /* ====================== Stream ================================ */
-        case kAudioStreamPropertyIsActive:
+        case kAudioStreamPropertyIsActive: {
             pthread_mutex_lock(&gStateMutex);
-            WRITE_SCALAR(UInt32, gStreamIsActive ? 1u : 0u);
+            UInt32 act = gStreamIsActive ? 1u : 0u;
             pthread_mutex_unlock(&gStateMutex);
+            WRITE_SCALAR(UInt32, act);
             break;
+        }
 
         case kAudioStreamPropertyDirection:
             WRITE_SCALAR(UInt32, 0); /* 0 == Output */
