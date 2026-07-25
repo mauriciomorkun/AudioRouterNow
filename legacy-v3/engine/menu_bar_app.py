@@ -1038,6 +1038,19 @@ class AudioRouterApp(rumps.App):
             except Exception:
                 pass
             rumps.alert(title="Uninstall incomplete", message=msg, ok="OK")
+            # In _uninstall zerstoerte Infrastruktur wiederherstellen — sonst
+            # ist die App bis zum Neustart ein Zombie (kein Health-Poll, kein
+            # Volume-Listener, Helper bleibt gestoppt).
+            try:
+                register_volume_listener(self._on_volume_changed)
+            except Exception as e:
+                logger.debug("Volume-Listener Re-Registrierung fehlgeschlagen: %s", e)
+            self._health_poll_stop = threading.Event()
+            self._health_poll_thread = threading.Thread(
+                target=self._health_poll_loop, name="health-poll", daemon=True)
+            self._health_poll_thread.start()
+            threading.Thread(target=self._helper.ensure_running,
+                             name="arn-uninstall-recover", daemon=True).start()
             self._ui_timer.start()
 
     def _quit_app(self, sender):
@@ -1101,7 +1114,12 @@ class AudioRouterApp(rumps.App):
             scanned = {d.name for d in self._device_manager.get_output_devices()}
             intended = self._active_device_names | self._unavailable_devices
             self._unavailable_devices = intended - scanned
-            self._active_device_names = self._active_device_names & scanned
+            reappeared = (intended & scanned) - self._active_device_names
+            self._active_device_names = intended & scanned
+            if reappeared:
+                logger.info("Hot-Plug: Geraete wieder verfuegbar: %s",
+                            ", ".join(sorted(reappeared)))
+                self._apply_active_outputs()
             self._refresh_view()
 
         # F8: Status-Update via Status-Cache statt blockierendem Socket-Ping
@@ -1495,42 +1513,42 @@ class AudioRouterApp(rumps.App):
             cancel="Dismiss",
         )
         if response == 1:
-            try:
-                result = subprocess.run(
-                    [
-                        "osascript", "-e",
-                        'do shell script "launchctl kickstart -k system/com.apple.audio.coreaudiod"'
-                        ' with administrator privileges',
-                    ],
-                    capture_output=True,
-                    timeout=30,
-                )
-                if result.returncode == 0:
-                    logger.info("coreaudiod erfolgreich neu gestartet via osascript")
-                    rumps.notification(
-                        title="AudioRouterNow",
-                        subtitle="",
-                        message="Audio system restarted. Reconnecting outputs…",
+            def _restart_coreaudiod():
+                try:
+                    result = subprocess.run(
+                        [
+                            "osascript", "-e",
+                            'do shell script "launchctl kickstart -k system/com.apple.audio.coreaudiod"'
+                            ' with administrator privileges',
+                        ],
+                        capture_output=True,
+                        timeout=120,  # Admin-Passwort-Dialog kann >30s dauern
                     )
-                    # Outputs nach kurzer Pause neu verbinden.
-                    # K2: kein _auto_start_if_configured() aus Background-Thread —
-                    # Flag setzen, der UI-Timer ruft es auf dem Main-Thread auf.
-                    def _reconnect():
-                        import time as _time
-                        _time.sleep(3.0)
+                    if result.returncode == 0:
+                        logger.info("coreaudiod erfolgreich neu gestartet via osascript")
+                        self._enqueue_notification(
+                            "AudioRouterNow",
+                            "Audio system restarted. Reconnecting outputs…")
+                        time.sleep(3.0)
+                        # K2: Flag setzen — der UI-Timer ruft
+                        # _auto_start_if_configured() auf dem Main-Thread auf.
                         self._needs_reconnect_autostart = True
-                    threading.Thread(target=_reconnect, name="spin-reconnect", daemon=True).start()
-                else:
-                    err = result.stderr.decode(errors="replace").strip()
-                    logger.warning("coreaudiod-Neustart fehlgeschlagen: %s", err)
-                    rumps.alert(
-                        title="AudioRouterNow — Restart Failed",
-                        message="Could not restart the audio system.\n\n"
-                                "Please restart your Mac if the issue persists.",
-                        ok="OK",
-                    )
-            except Exception as e:
-                logger.error("coreaudiod-Neustart Exception: %s", e)
+                    else:
+                        err = result.stderr.decode(errors="replace").strip()
+                        logger.warning("coreaudiod-Neustart fehlgeschlagen: %s", err)
+                        self._enqueue_notification(
+                            "AudioRouterNow — Restart Failed",
+                            "Could not restart the audio system. "
+                            "Please restart your Mac if the issue persists.")
+                except subprocess.TimeoutExpired:
+                    logger.error("coreaudiod-Neustart: osascript Timeout (Passwort-Dialog?)")
+                    self._enqueue_notification(
+                        "AudioRouterNow — Restart Failed",
+                        "The restart timed out. Please try again.")
+                except Exception as e:
+                    logger.error("coreaudiod-Neustart Exception: %s", e)
+            threading.Thread(target=_restart_coreaudiod,
+                             name="coreaudiod-restart", daemon=True).start()
 
     def _handle_media_key(self, event):
         """
@@ -1661,7 +1679,13 @@ class AudioRouterApp(rumps.App):
                     specs.append(OutputSpec(uid=uid, ch_offset=off))
 
         resp = self._helper.set_outputs(specs)
-        if resp is not None and resp.get('error') == 'not_ready':
+        if resp is None:
+            # Helper unreachable — KEIN Erfolg: applied-Keys/Donation-Hint nicht
+            # anfassen, Retry-Mechanik nicht beenden. Der Reconnect-Pfad
+            # (dead→alive-Transition) ruft die Konfiguration erneut auf.
+            logger.warning("Helper antwortet nicht — set_outputs fehlgeschlagen")
+            return False
+        if resp.get('error') == 'not_ready':
             # Helper socket is up but SHM not yet ready — schedule retry via timer
             logger.info("Helper SHM noch nicht bereit — warte auf Bereitschaft (auto-retry)")
             self._needs_reconfigure = True
