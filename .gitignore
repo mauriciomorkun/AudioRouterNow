@@ -136,3 +136,10 @@ v4-appstore/
 
 # Persönliche To-Do-Liste (lokal, kein Repo-Inhalt)
 TODO.md
+
+# Landing-page media assets — binary files served directly from server
+# demo.mp4: h264 video converted from App Store demo GIF (1.4 MB, at /opt/audiorouternow/)
+# ss_*.jpg: App Store screenshots (served from server, not committed)
+landing-page/demo.gif
+landing-page/demo.mp4
+landing-page/ss_*.jpg
