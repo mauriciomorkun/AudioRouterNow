@@ -38,7 +38,7 @@ jobs:
         run: brew install xcodegen
 
       - name: Generate Xcode project
-        run: xcodegen generate --spec v4/project.yml --project v4/
+        run: v4/scripts/xcodegen.sh
 
       - name: Build and test app target
         run: >
