@@ -136,13 +136,17 @@ def get_default_output_muted() -> bool:
         )
         muted = ctypes.c_uint32(0)
         sz    = ctypes.c_uint32(4)
-        CA.AudioObjectGetPropertyData(
+        ret = CA.AudioObjectGetPropertyData(
             ctypes.c_uint32(dev_id),
             ctypes.byref(addr),
             ctypes.c_uint32(0), None,
             ctypes.byref(sz),
             ctypes.byref(muted),
         )
+        if ret != 0:
+            # Kein Mute-Property (z.B. virtuelles Device): Volume-Fallback-Mute
+            # von set_muted() erkennen statt blind False zu melden.
+            return get_default_output_volume() <= 0.0
         return bool(muted.value)
     except Exception:
         return False
@@ -169,12 +173,14 @@ def set_default_output_device(device_name: str) -> tuple[bool, str]:
             _kAudioObjectPropertyElementMain,
         )
         sz = ctypes.c_uint32(0)
-        CA.AudioObjectGetPropertyDataSize(
+        status = CA.AudioObjectGetPropertyDataSize(
             ctypes.c_uint32(_kAudioObjectSystemObject),
             ctypes.byref(addr),
             ctypes.c_uint32(0), None,
             ctypes.byref(sz),
         )
+        if status != 0:
+            return False, f"AudioObjectGetPropertyDataSize failed (OSStatus {status})."
         count = sz.value // 4
         if count == 0:
             return False, "No audio devices found in CoreAudio."
@@ -597,6 +603,9 @@ _vol_listener = None                 # type: ignore[assignment]
 _vol_listener_device_id: int = 0
 _vol_listener_selector: int = 0      # Property-Selector, auf dem registriert wurde
 _vol_listener_user_cb = None         # vom Aufrufer gesetzter Python-Callback
+# RemovePropertyListener garantiert NICHT, dass in-flight Callbacks beendet
+# sind — abgemeldete Thunks hier dauerhaft am Leben halten statt GC.
+_retired_listeners: list = []
 
 # _pre_mute_volume: zuletzt bekannte Lautstaerke vor dem Muten — fuer Restore.
 _pre_mute_volume: float = 1.0
@@ -978,6 +987,10 @@ def unregister_volume_listener() -> None:
     except Exception as e:
         logger.debug(f"unregister_volume_listener Fehler: {e}")
     finally:
+        # RemovePropertyListener garantiert NICHT, dass in-flight Callbacks
+        # beendet sind — alten Thunk am Leben halten statt GC zu ueberlassen.
+        if _vol_listener is not None:
+            _retired_listeners.append(_vol_listener)
         _vol_listener = None
         _vol_listener_device_id = 0
         _vol_listener_selector = 0
