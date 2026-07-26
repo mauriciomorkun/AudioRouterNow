@@ -4,7 +4,7 @@
 
 # AudioRouterNow
 
-> **Current version: [AudioRouterNow 4](v4/) — Swift rewrite, Mac App Store**
+> **Current version: [AudioRouterNow 4](v4/) — Swift rewrite, Mac App Store** *(Under Review)*
 > Legacy Python/HAL version: [v3 (legacy-v3/)](legacy-v3/)
 
 ---
