@@ -15,7 +15,7 @@ struct OnboardingView: View {
 
     let onContinue: (Bool) -> Void  // Bool = launchAtLogin gewünscht
 
-    @State private var launchAtLogin: Bool = true
+    @State private var launchAtLogin: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -70,12 +70,12 @@ struct OnboardingView: View {
 
             Divider()
 
-            // Launch-at-Login Checkbox
+            // Launch-at-Login Checkbox — opt-in only (Guideline 2.4.5(iii))
             Toggle(isOn: $launchAtLogin) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Launch AudioRouterNow at Login")
                         .font(.body)
-                    Text("Start automatically when you log in to your Mac.")
+                    Text("Optional: start automatically when you log in. You can change this later in the menu.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
