@@ -16,6 +16,13 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
+## [4.0.1] — 2026-08-05 · _Mac App Store (macOS 14.2+)_ — Re-Submit Build 3
+
+### Fixed
+- **Launch at Login defaults to off** — the onboarding toggle was previously checked by default, causing the app to register as a Login Item without explicit user consent. The toggle now defaults to unchecked; users must actively opt in. Fixes Apple Review rejection (Guideline 2.4.5(iii)).
+
+---
+
 ## [4.0.0] — 2026-07-24 · _Mac App Store (macOS 14.2+)_
 
 ### Added — Complete Swift Rewrite
