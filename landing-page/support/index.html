@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Support — AudioRouterNow</title>
+  <meta name="description" content="Support for AudioRouterNow. Setup help, troubleshooting, FAQ, and how to contact the developer for questions or bug reports.">
+  <meta name="robots" content="index, follow">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="canonical" href="https://audiorouternow.mauriciomorkun.com/support/">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0a0a0a;
+      --surface: #111111;
+      --border:  #1e1e1e;
+      --text:    #ffffff;
+      --muted:   #888888;
+      --faint:   #444444;
+      --accent:  #40DCA5;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+      padding: clamp(2rem, 6vw, 5rem) 1.5rem clamp(4rem, 10vw, 7rem);
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: .85rem;
+      margin-bottom: 2.5rem;
+      transition: color .15s;
+    }
+    .back-link:hover { color: var(--accent); }
+
+    .page-title {
+      font-size: clamp(1.6rem, 5vw, 2.2rem);
+      font-weight: 700;
+      letter-spacing: -.03em;
+      line-height: 1.15;
+      margin-bottom: .5rem;
+      color: var(--text);
+    }
+
+    .last-updated {
+      font-size: .78rem;
+      color: var(--faint);
+      margin-bottom: 3rem;
+    }
+
+    /* Contact box */
+    .contact-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 3rem;
+    }
+    .contact-label {
+      font-size: .7rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: .5rem;
+    }
+    .contact-box p {
+      font-size: .9rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .contact-box strong { color: var(--text); }
+    .contact-box a { color: var(--accent); }
+
+    /* Sections */
+    .section {
+      margin-bottom: 2.5rem;
+      padding-bottom: 2.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .section:last-child { border-bottom: none; }
+
+    h2 {
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -.01em;
+      color: var(--text);
+      margin-bottom: .75rem;
+    }
+
+    h3 {
+      font-size: .92rem;
+      font-weight: 600;
+      color: var(--text);
+      margin: 1.25rem 0 .4rem;
+    }
+    h3:first-of-type { margin-top: .5rem; }
+
+    p {
+      font-size: .9rem;
+      color: var(--muted);
+      margin-bottom: .75rem;
+    }
+    p:last-child { margin-bottom: 0; }
+
+    ul {
+      list-style: none;
+      padding: 0;
+      margin: .5rem 0 .75rem;
+    }
+    li {
+      font-size: .9rem;
+      color: var(--muted);
+      padding-left: 1.2rem;
+      position: relative;
+      margin-bottom: .35rem;
+    }
+    li::before {
+      content: "·";
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    ol {
+      padding-left: 1.3rem;
+      margin: .5rem 0 .75rem;
+    }
+    ol li {
+      padding-left: .3rem;
+      list-style: decimal;
+    }
+    ol li::before { content: none; }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+
+    strong { color: var(--text); font-weight: 600; }
+
+    code {
+      font-family: 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: .82em;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: .1em .35em;
+      color: var(--accent);
+    }
+
+    /* Footer */
+    .page-footer {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: .75rem;
+    }
+    .page-footer p { font-size: .75rem; color: var(--faint); margin: 0; }
+    .page-footer a { color: var(--faint); }
+    .page-footer a:hover { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <a class="back-link" href="/">← AudioRouterNow</a>
+
+    <h1 class="page-title">Support</h1>
+    <p class="last-updated">AudioRouterNow for Mac &nbsp;·&nbsp; Last updated: 7 August 2026</p>
+
+    <div class="contact-box">
+      <div class="contact-label">Need help?</div>
+      <p><strong>Email us directly at <a href="mailto:dev@mauriciomorkun.com">dev@mauriciomorkun.com</a>.</strong> We read every message and usually reply within a couple of days. Prefer to file a public bug report? Use <a href="https://github.com/mauriciomorkun/AudioRouterNow/issues" target="_blank" rel="noopener">GitHub Issues</a>.</p>
+    </div>
+
+    <div class="section">
+      <h2>Getting Started</h2>
+      <p>AudioRouterNow lives in your menu bar — it has no Dock icon and no main window. After launching, look for the <strong>AudioRouterNow icon in the menu bar</strong> at the top of your screen and click it to open the control panel.</p>
+      <ol>
+        <li>Click the AudioRouterNow icon in the menu bar.</li>
+        <li>Select the output devices you want to hear at the same time (e.g. speakers + headphones + your audio interface).</li>
+        <li>Press <strong>Start</strong>. On first start, macOS asks for permission to capture system audio — this is required and is explained below.</li>
+        <li>Your Mac's sound now plays through every selected device simultaneously. Your volume keys keep working.</li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>Requirements</h2>
+      <ul>
+        <li><strong>macOS 14.2 (Sonoma) or later</strong> — required for Apple's Process Tap API.</li>
+        <li><strong>Apple Silicon Mac</strong> (M1 or newer).</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2>Troubleshooting</h2>
+
+      <h3>No sound from the selected devices?</h3>
+      <ul>
+        <li>Make sure routing is actually running — the status line at the top of the menu tells you the current state.</li>
+        <li>Confirm each device you expect is checked in the menu and physically connected / powered on.</li>
+        <li>Check the volume on each individual output device (some interfaces and speakers have their own hardware volume).</li>
+      </ul>
+
+      <h3>macOS didn't ask for permission, or capture isn't working</h3>
+      <p>AudioRouterNow needs the <strong>System Audio Recording</strong> permission to route sound. If you declined it, open <strong>System Settings → Privacy &amp; Security → Microphone / Audio Recording</strong> and enable AudioRouterNow, then start routing again. Nothing is ever recorded or stored — the permission is only used to capture audio in real time.</p>
+
+      <h3>Some apps produce no sound (Apple Music Lossless, Netflix, TV+)</h3>
+      <p>Certain services use <strong>DRM</strong> that blocks <em>any</em> app from capturing their audio. This is a macOS limitation, not a bug in AudioRouterNow, and it cannot be worked around.</p>
+
+      <h3>Bluetooth and wired outputs sound slightly out of sync</h3>
+      <p>Bluetooth devices (e.g. AirPods) add ~150–200 ms of codec latency. For music this is generally unnoticeable; for video, lip sync may be slightly off when mixing Bluetooth with wired outputs.</p>
+
+      <h3>The app doesn't launch at login (or launches when I don't want it to)</h3>
+      <p>Launch at login is entirely optional and off by default. Toggle <strong>"Launch AudioRouterNow at Login"</strong> in the menu at any time to turn it on or off. You can also manage it in <strong>System Settings → General → Login Items</strong>.</p>
+    </div>
+
+    <div class="section">
+      <h2>Frequently Asked Questions</h2>
+
+      <h3>Is AudioRouterNow really free?</h3>
+      <p>Yes — completely free, with no ads and no subscription. An optional Tip Jar (Coffee ☕ $1.99 / Beer 🍺 $4.99) is available if you'd like to support development. It's a one-time, entirely optional purchase.</p>
+
+      <h3>Does it record or send my audio anywhere?</h3>
+      <p>No. All audio processing happens locally on your Mac. Nothing is recorded, stored, or transmitted. See our <a href="/privacy/">Privacy Policy</a> for details.</p>
+
+      <h3>Why does it need audio-recording permission?</h3>
+      <p>To route sound to multiple outputs, the app must capture the system audio stream in real time using Apple's Process Tap API. This capture is never saved and never leaves your device.</p>
+
+      <h3>Can I change my output devices while routing?</h3>
+      <p>Yes. Add or remove devices from the menu at any time — routing adjusts on the fly without needing a restart.</p>
+
+      <h3>Where can I report a bug or request a feature?</h3>
+      <p>Email <a href="mailto:dev@mauriciomorkun.com">dev@mauriciomorkun.com</a> or open an issue on <a href="https://github.com/mauriciomorkun/AudioRouterNow/issues" target="_blank" rel="noopener">GitHub</a>. Please include your macOS version and Mac model so we can help faster.</p>
+    </div>
+
+    <div class="section">
+      <h2>Contact</h2>
+      <p>
+        Mauricio Morkun (Mauricio Morais da Cunha)<br>
+        Uespelterwee 9 · L-5740 Filsdorf · Luxembourg<br>
+        <a href="mailto:dev@mauriciomorkun.com">dev@mauriciomorkun.com</a>
+      </p>
+      <p>We aim to answer all support requests within a few business days.</p>
+    </div>
+
+    <div class="page-footer">
+      <p>© 2026 Mauricio Morkun &nbsp;·&nbsp; <a href="/">AudioRouterNow</a> &nbsp;·&nbsp; <a href="/privacy/">Privacy</a></p>
+      <p><a href="https://github.com/mauriciomorkun/AudioRouterNow" target="_blank" rel="noopener">GitHub</a></p>
+    </div>
+
+  </div>
+</body>
+</html>
