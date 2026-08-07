@@ -164,8 +164,8 @@ AudioRouterNow uses a ~170 ms ring buffer for stability. It is not suitable for 
   latency (~150–200 ms). For music-only listening this is generally not noticeable. For
   video playback, lip sync may be slightly off. Per-device latency compensation using
   CoreAudio's `kAudioDevicePropertyLatency` API is planned for v3.5.
-- **macOS 14.2+ only for future versions**: The next major version (v4.0) will require
-  macOS 14.2+ due to Process Taps API usage.
+- **macOS 14.4+ only for v4**: AudioRouterNow v4 (App Store) requires macOS 14.4+
+  due to the Process Taps API (`CATapDescription`). v3 continues to support macOS 11+.
 
 ---
 
