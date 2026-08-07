@@ -16,6 +16,16 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
+## [4.0.2] — 2026-08-07 · _Mac App Store (macOS 14.2+)_ — Re-Submit Build 4
+
+### Fixed
+- **Login Item is now unregistered unless explicitly opted in** — a Login Item registered by an earlier build (before the opt-in default) survived app updates because macOS binds `SMAppService` registrations to the bundle ID, not the binary. On every launch the app now enforces a compliance gate: unless the user has explicitly enabled "Launch at Login", any existing registration is removed. This fully resolves the recurring Apple Review rejection (Guideline 2.4.5(iii)) — the previous build only changed the default for *new* installs and could not clear a pre-existing registration. Explicit opt-in is tracked via a dedicated `launchAtLoginExplicitlyOptedIn` flag set only by a deliberate user action (onboarding checkbox or menu toggle).
+
+### Changed
+- **Support page** — added a dedicated support page at `audiorouternow.mauriciomorkun.com/support/` with a getting-started guide, troubleshooting, FAQ, and direct contact (email + GitHub Issues). Resolves Apple Review note (Guideline 1.5) that the previous Support URL (GitHub Issues) did not present usable support information.
+
+---
+
 ## [4.0.1] — 2026-08-05 · _Mac App Store (macOS 14.2+)_ — Re-Submit Build 3
 
 ### Fixed
