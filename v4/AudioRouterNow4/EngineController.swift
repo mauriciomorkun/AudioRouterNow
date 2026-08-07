@@ -81,11 +81,30 @@ final class EngineController: ObservableObject {
     @Published private(set) var deviceGains: [String: Double] = [:]
     private static let deviceGainsKey = "arn.v4.deviceGains"
 
+    /// Guideline 2.4.5(iii): Explizites User-Opt-In für das Login-Item.
+    /// - `true`  → User hat das Login-Item AKTIV gewünscht (Onboarding ODER Menü).
+    /// - `false` → User hat es AKTIV abgelehnt.
+    /// - Key fehlt → User hat NIE entschieden (frischer Install, Onboarding-Toggle
+    ///   nie berührt). In diesem Fall DARF kein Login-Item registriert bleiben.
+    ///
+    /// Dieser Key ist die einzige Quelle der Wahrheit dafür, ob eine
+    /// SMAppService-Registrierung mit Consent gedeckt ist. Ohne ihn würde eine
+    /// aus einem früheren Build stammende (an die Bundle-ID gebundene, App-Updates
+    /// überlebende) Registrierung ohne Zustimmung weiterlaufen → Rejection.
+    static let launchAtLoginOptedInKey = "arn.v4.launchAtLoginExplicitlyOptedIn"
+
     /// M2: Login-Item-Toggle. Spiegelt den SMAppService-Status und registriert/
     /// deregistriert das Login-Item bei Änderung (rollt bei Fehler zurück).
+    /// Jede toggle-getriebene Änderung persistiert zugleich das explizite
+    /// Opt-In (Guideline 2.4.5(iii)) — nur eine bewusste User-Aktion darf das
+    /// Login-Item registrieren.
     @Published var launchAtLogin: Bool = (SMAppService.mainApp.status == .enabled) {
         didSet {
             guard oldValue != launchAtLogin, !isRefreshingLoginStatus else { return }
+            // Der Toggle ist eine bewusste User-Aktion → explizites Opt-In/-Out
+            // festhalten, damit ensureLoginItemCompliance() beim nächsten Start
+            // die Registrierung als gedeckt (bzw. abgelehnt) erkennt.
+            UserDefaults.standard.set(launchAtLogin, forKey: Self.launchAtLoginOptedInKey)
             do {
                 if launchAtLogin {
                     try SMAppService.mainApp.register()
@@ -95,7 +114,11 @@ final class EngineController: ObservableObject {
             } catch {
                 logger.error("LoginItem toggle failed: \(String(describing: error), privacy: .public)")
                 // Zurückrollen ohne didSet erneut zu triggern
+                isRefreshingLoginStatus = true
                 launchAtLogin = (SMAppService.mainApp.status == .enabled)
+                isRefreshingLoginStatus = false
+                // Opt-In-Key an den tatsächlichen (zurückgerollten) Status angleichen.
+                UserDefaults.standard.set(launchAtLogin, forKey: Self.launchAtLoginOptedInKey)
             }
         }
     }
@@ -133,6 +156,39 @@ final class EngineController: ObservableObject {
         isRefreshingLoginStatus = false
     }
 
+    /// Guideline 2.4.5(iii) — Compliance-Gate für das Login-Item.
+    ///
+    /// Läuft ganz zu Beginn von ``init()``, VOR jeder anderen Login-Item-Aktion.
+    /// Prinzip: Eine SMAppService-Registrierung darf NUR bestehen, wenn der User
+    /// sie explizit gewünscht hat (Opt-In-Key `true`). In JEDEM anderen Fall —
+    /// explizites Nein ODER „nie entschieden" (Key fehlt, z.B. residuale
+    /// Registrierung aus einem früheren Build) — wird deregistriert.
+    ///
+    /// Weil SMAppService-Registrierungen an die Bundle-ID gebunden sind und
+    /// App-Updates überleben, ist dies der einzige zuverlässige Weg, ein ohne
+    /// Zustimmung „mitgeschlepptes" Login-Item zu beseitigen.
+    ///
+    /// - Note: `unregister()` ist ein No-Op, wenn nichts registriert ist —
+    ///   der Aufruf ist damit auch beim frischen Install unbedenklich.
+    private static func ensureLoginItemCompliance() {
+        let optedIn = UserDefaults.standard.object(forKey: launchAtLoginOptedInKey) as? Bool
+        if optedIn == true {
+            return   // Explizites Ja → Registrierung ist durch Consent gedeckt.
+        }
+        // Kein Opt-In (nie entschieden) ODER explizites Nein → Login-Item
+        // darf nicht (mehr) registriert sein.
+        if SMAppService.mainApp.status == .enabled {
+            do {
+                try SMAppService.mainApp.unregister()
+            } catch {
+                // Nicht kritisch: beim nächsten Start erneut versucht.
+                Logger(subsystem: "com.mauriciomorkun.audiorouternow",
+                       category: "EngineController")
+                    .error("ensureLoginItemCompliance: unregister failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
     private static let outputConfigsKey = "arn.v4.outputConfigs"
     private static let wasRoutingKey = "arn.v4.wasRouting"
 
@@ -154,6 +210,16 @@ final class EngineController: ObservableObject {
     private var needsSRRestart = false
 
     init() {
+        // Guideline 2.4.5(iii) — MUSS als Allererstes laufen, VOR jeder anderen
+        // Login-Item-Interaktion: eine ohne Consent bestehende (z.B. aus einem
+        // früheren Build residuale) SMAppService-Registrierung wird hier
+        // deregistriert. Der Property-Initializer von `launchAtLogin` hat den
+        // Status bereits eingelesen — er wird direkt danach neu gespiegelt.
+        Self.ensureLoginItemCompliance()
+        // Gespiegelten Toggle-Wert an den (ggf. gerade bereinigten) Ist-Zustand
+        // angleichen, ohne didSet-Seiteneffekte auszulösen.
+        refreshLaunchAtLoginStatus()
+
         outputConfigs = Self.loadOutputConfigs()
         deviceGains = Self.loadDeviceGains()
         Task { @MainActor in
