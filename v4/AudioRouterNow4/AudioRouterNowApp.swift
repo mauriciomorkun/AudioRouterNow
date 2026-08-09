@@ -111,20 +111,15 @@ struct AudioRouterNowApp: App {
         onboardingDelegate = delegate
         onboardingWindow = window
 
-        window.contentView = NSHostingView(rootView: OnboardingView(onContinue: { [weak window] launchAtLogin in
+        window.contentView = NSHostingView(rootView: OnboardingView(onContinue: { [weak window] (_: Bool) in
             UserDefaults.standard.set(true, forKey: key)
-            // Guideline 2.4.5(iii): Die Onboarding-Auswahl ist eine bewusste
-            // User-Entscheidung → explizites Opt-In/-Out persistieren, damit
-            // ensureLoginItemCompliance() sie als gedeckt (bzw. abgelehnt) erkennt.
-            UserDefaults.standard.set(launchAtLogin,
-                                      forKey: EngineController.launchAtLoginOptedInKey)
-            if launchAtLogin {
-                try? SMAppService.mainApp.register()
-            } else {
-                // Sicherheitshalber: falls aus einem früheren Build residual
-                // registriert, hier explizit entfernen.
-                try? SMAppService.mainApp.unregister()
-            }
+            // Guideline 2.4.5(iii): OnboardingView no longer presents a
+            // Launch at Login checkbox — onContinue always receives false.
+            // Explicitly record non-consent and remove any residual Login Item
+            // registration that may have been left by an older build.
+            // SMAppService.unregister() is a no-op when nothing is registered.
+            UserDefaults.standard.set(false, forKey: EngineController.launchAtLoginOptedInKey)
+            try? SMAppService.mainApp.unregister()
             window?.close()
         }))
 
