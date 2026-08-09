@@ -16,6 +16,17 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
+## [4.0.3] — 2026-08-09 · _Mac App Store (macOS 14.4+)_ — Re-Submit Build 5
+
+### Fixed
+- **Launch at Login removed from onboarding** — the "Launch at Login" checkbox has been removed from the first-launch onboarding screen entirely. Showing any auto-launch control at startup — even unchecked — was interpreted by Apple Review as the app presenting auto-launch capability at first launch (Guideline 2.4.5(iii)). Launch at Login is now exclusively controlled via the dedicated menu toggle, which requires an explicit deliberate user action and is always off by default. The `ensureLoginItemCompliance()` gate (introduced in Build 4) remains active on every app launch, ensuring no Login Item can exist without explicit user consent.
+
+### Changed
+- **App Store screenshot** — replaced screenshot that showed the Support Tip Jar with visible pricing ($1.99 / $4.99). App Store screenshots may not include price references per Guideline 2.3.7. The new screenshot shows the app in its standard routing state.
+- **App Review Notes** — added screen recording demonstrating the complete user flow and a successful sandbox in-app purchase (Guideline 2.1(b) requirement).
+
+---
+
 ## [4.0.2] — 2026-08-07 · _Mac App Store (macOS 14.4+)_ — Re-Submit Build 4
 
 ### Fixed

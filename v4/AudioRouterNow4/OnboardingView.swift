@@ -13,9 +13,10 @@ import ServiceManagement
 
 struct OnboardingView: View {
 
-    let onContinue: (Bool) -> Void  // Bool = launchAtLogin gewünscht
-
-    @State private var launchAtLogin: Bool = false
+    /// Callback when user continues. Bool is always false — Launch at Login is
+    /// never enabled from onboarding (Guideline 2.4.5(iii)). The user can enable
+    /// it at any time via the dedicated menu toggle, which requires explicit consent.
+    let onContinue: (Bool) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -70,22 +71,13 @@ struct OnboardingView: View {
 
             Divider()
 
-            // Launch-at-Login Checkbox — opt-in only (Guideline 2.4.5(iii))
-            Toggle(isOn: $launchAtLogin) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Launch AudioRouterNow at Login")
-                        .font(.body)
-                    Text("Optional: start automatically when you log in. You can change this later in the menu.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .toggleStyle(.checkbox)
-
             // Continue Button
+            // Launch at Login is NOT presented here (Guideline 2.4.5(iii)).
+            // The dedicated menu toggle is the single opt-in point — it requires
+            // an explicit user action and is always off by default.
             HStack {
                 Spacer()
-                Button(action: { onContinue(launchAtLogin) }) {
+                Button(action: { onContinue(false) }) {
                     Text("Continue")
                         .frame(minWidth: 80)
                 }
