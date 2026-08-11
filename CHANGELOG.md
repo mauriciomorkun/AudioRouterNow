@@ -16,6 +16,14 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
+## [4.0.4] — 2026-08-11 · _Mac App Store (macOS 14.4+)_ — Re-Submit Build 6
+
+### Fixed
+- **App Store screenshot headline** — the replacement screenshot introduced in Build 5 still contained the words "free" and "Free forever" in the headline text ("A free & easy to use alternative to paid routing apps. Free forever. Open source."). Apple's Guideline 2.3.7 explicitly states that "references to free or discounted services are considered a price reference and are not appropriate for app metadata." Headline replaced with "Route your Mac's audio to multiple outputs simultaneously." and subtitle "Open source · No drivers · No setup required" — no pricing language of any kind.
+- **Build archive stale-cache issue** — Build 5 was archived without running "Product > Clean Build Folder" in Xcode beforehand. Xcode reused cached compiled objects from Derived Data, causing the binary to include the old OnboardingView UI (with the Launch at Login checkbox) despite the source code being correct. For Build 6, Derived Data was fully deleted (`~/Library/Developer/Xcode/DerivedData/`) before archiving, and the app was verified locally (no checkbox visible in onboarding) prior to submission.
+
+---
+
 ## [4.0.3] — 2026-08-09 · _Mac App Store (macOS 14.4+)_ — Re-Submit Build 5
 
 ### Fixed
