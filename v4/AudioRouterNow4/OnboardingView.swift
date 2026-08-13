@@ -9,7 +9,6 @@
 //
 
 import SwiftUI
-import ServiceManagement
 
 struct OnboardingView: View {
 
