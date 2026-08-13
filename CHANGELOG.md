@@ -1,5 +1,15 @@
 # Changelog
 
+## [4.0.0 (7)] — 2026-08-13
+
+### Fixed
+- Guideline 2.4.5(iii): Replaced implicit UserDefaults-based consent check with
+  explicit per-build NSAlert consent dialog for Launch at Login. Consent is now
+  tied to the current build number, preventing stale UserDefaults from previous
+  test sessions from silently re-enabling auto-launch after app updates.
+  `ensureLoginItemCompliance()` now clears outdated consent keys and always
+  unregisters unless consent was explicitly granted for the current build.
+
 All notable changes to AudioRouterNow are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).

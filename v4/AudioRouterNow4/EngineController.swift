@@ -93,6 +93,22 @@ final class EngineController: ObservableObject {
     /// überlebende) Registrierung ohne Zustimmung weiterlaufen → Rejection.
     static let launchAtLoginOptedInKey = "arn.v4.launchAtLoginExplicitlyOptedIn"
 
+    /// Guideline 2.4.5(iii): Build-Nummer, für die der Consent zuletzt erteilt
+    /// wurde. Consent gilt nur, wenn er FÜR DEN AKTUELLEN BUILD vergeben wurde —
+    /// so kann veralteter UserDefaults-State aus früheren Test-Sessions kein
+    /// stilles Wieder-Aktivieren des Auto-Launch nach App-Updates auslösen.
+    static let launchAtLoginConsentBuildKey = "arn.v4.launchAtLoginConsentBuildNumber"
+
+    private static var currentBuildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+    }
+
+    private static func hasValidLaunchAtLoginConsent() -> Bool {
+        let optedIn = UserDefaults.standard.object(forKey: launchAtLoginOptedInKey) as? Bool
+        let consentBuild = UserDefaults.standard.string(forKey: launchAtLoginConsentBuildKey)
+        return optedIn == true && consentBuild == currentBuildNumber
+    }
+
     /// M2: Login-Item-Toggle. Spiegelt den SMAppService-Status und registriert/
     /// deregistriert das Login-Item bei Änderung (rollt bei Fehler zurück).
     /// Jede toggle-getriebene Änderung persistiert zugleich das explizite
@@ -105,6 +121,11 @@ final class EngineController: ObservableObject {
             // festhalten, damit ensureLoginItemCompliance() beim nächsten Start
             // die Registrierung als gedeckt (bzw. abgelehnt) erkennt.
             UserDefaults.standard.set(launchAtLogin, forKey: Self.launchAtLoginOptedInKey)
+            if launchAtLogin {
+                UserDefaults.standard.set(Self.currentBuildNumber, forKey: Self.launchAtLoginConsentBuildKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.launchAtLoginConsentBuildKey)
+            }
             do {
                 if launchAtLogin {
                     try SMAppService.mainApp.register()
@@ -119,6 +140,11 @@ final class EngineController: ObservableObject {
                 isRefreshingLoginStatus = false
                 // Opt-In-Key an den tatsächlichen (zurückgerollten) Status angleichen.
                 UserDefaults.standard.set(launchAtLogin, forKey: Self.launchAtLoginOptedInKey)
+                if launchAtLogin {
+                    UserDefaults.standard.set(Self.currentBuildNumber, forKey: Self.launchAtLoginConsentBuildKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: Self.launchAtLoginConsentBuildKey)
+                }
             }
         }
     }
@@ -156,32 +182,54 @@ final class EngineController: ObservableObject {
         isRefreshingLoginStatus = false
     }
 
+    /// Guideline 2.4.5(iii) — Expliziter Consent-Dialog vor erstmaliger Aktivierung
+    /// pro Build. Wird vom UI-Toggle aufgerufen statt `launchAtLogin` direkt zu setzen.
+    ///
+    /// Zeigt einen NSAlert wenn kein gültiger Consent für den aktuellen Build
+    /// existiert. Bei "Enable" wird Consent mit der aktuellen Build-Nummer
+    /// persistiert und das Login-Item registriert. Bei "Cancel" bleibt der
+    /// Toggle deaktiviert.
+    ///
+    /// Falls gültiger Consent bereits vorhanden ist (z.B. nach App-Restart),
+    /// wird `launchAtLogin` direkt aktiviert ohne Dialog.
+    func requestLaunchAtLoginEnable() {
+        guard !Self.hasValidLaunchAtLoginConsent() else {
+            launchAtLogin = true  // Consent für diesen Build bereits erteilt → direkt aktivieren
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Launch at Login"
+        alert.informativeText = "AudioRouterNow will automatically start when you log in. You can disable this at any time from the menu."
+        alert.addButton(withTitle: "Enable")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .informational
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        // User hat explizit zugestimmt → Consent + Build-Nummer persistieren
+        UserDefaults.standard.set(true, forKey: Self.launchAtLoginOptedInKey)
+        UserDefaults.standard.set(Self.currentBuildNumber, forKey: Self.launchAtLoginConsentBuildKey)
+        launchAtLogin = true  // → didSet → SMAppService.register()
+    }
+
     /// Guideline 2.4.5(iii) — Compliance-Gate für das Login-Item.
     ///
     /// Läuft ganz zu Beginn von ``init()``, VOR jeder anderen Login-Item-Aktion.
-    /// Prinzip: Eine SMAppService-Registrierung darf NUR bestehen, wenn der User
-    /// sie explizit gewünscht hat (Opt-In-Key `true`). In JEDEM anderen Fall —
-    /// explizites Nein ODER „nie entschieden" (Key fehlt, z.B. residuale
-    /// Registrierung aus einem früheren Build) — wird deregistriert.
+    /// Consent gilt nur wenn er explizit FÜR DEN AKTUELLEN BUILD erteilt wurde.
+    /// Veralteter Consent (anderer Build, früheres Testing) wird als kein Consent
+    /// gewertet — SMAppService wird deregistriert, stale Keys bereinigt.
     ///
-    /// Weil SMAppService-Registrierungen an die Bundle-ID gebunden sind und
-    /// App-Updates überleben, ist dies der einzige zuverlässige Weg, ein ohne
-    /// Zustimmung „mitgeschlepptes" Login-Item zu beseitigen.
-    ///
-    /// - Note: `unregister()` ist ein No-Op, wenn nichts registriert ist —
-    ///   der Aufruf ist damit auch beim frischen Install unbedenklich.
+    /// - Note: `unregister()` ist ein No-Op, wenn nichts registriert ist.
     private static func ensureLoginItemCompliance() {
-        let optedIn = UserDefaults.standard.object(forKey: launchAtLoginOptedInKey) as? Bool
-        if optedIn == true {
-            return   // Explizites Ja → Registrierung ist durch Consent gedeckt.
+        if hasValidLaunchAtLoginConsent() {
+            return  // Gültiger Consent für diesen Build → Registration ist gedeckt.
         }
-        // Kein Opt-In (nie entschieden) ODER explizites Nein → Login-Item
-        // darf nicht (mehr) registriert sein.
+        // Kein Consent, veralteter Consent (anderer Build) oder nie gesetzt
+        // → Stale Keys bereinigen + deregistrieren.
+        UserDefaults.standard.removeObject(forKey: launchAtLoginOptedInKey)
+        UserDefaults.standard.removeObject(forKey: launchAtLoginConsentBuildKey)
         if SMAppService.mainApp.status == .enabled {
             do {
                 try SMAppService.mainApp.unregister()
             } catch {
-                // Nicht kritisch: beim nächsten Start erneut versucht.
                 Logger(subsystem: "com.mauriciomorkun.audiorouternow",
                        category: "EngineController")
                     .error("ensureLoginItemCompliance: unregister failed: \(String(describing: error), privacy: .public)")

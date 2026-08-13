@@ -170,7 +170,16 @@ struct FooterRow: View {
                         removal: .opacity))
             }
             HStack {
-                Toggle("Launch at Login", isOn: $controller.launchAtLogin)
+                Toggle("Launch at Login", isOn: Binding(
+                    get: { controller.launchAtLogin },
+                    set: { newValue in
+                        if newValue {
+                            controller.requestLaunchAtLoginEnable()  // Consent-Gate
+                        } else {
+                            controller.launchAtLogin = false  // Deaktivieren immer direkt
+                        }
+                    }
+                ))
                     .toggleStyle(.checkbox).font(.system(size: 11))
                 Spacer()
                 Button {
