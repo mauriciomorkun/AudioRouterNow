@@ -73,6 +73,9 @@ MARKETING_*.md
 buffer_scheduler.py
 content_calendar.json
 
+# Marketing-Dokumentation (Pitches, Outreach, Assets — NIEMALS ins Repo)
+docs/marketing/
+
 # Claude-Konfiguration (interne Anweisungen)
 .claude/
 
