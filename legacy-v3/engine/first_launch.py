@@ -351,9 +351,14 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
     q_progress = shlex.quote(str(progress_file))
     q_source   = shlex.quote(str(source))
     q_dst      = shlex.quote(str(DRIVER_INSTALL_PATH))
+    q_dst_dir  = shlex.quote(str(DRIVER_INSTALL_PATH.parent))
     shell_script = (
         f"#!/bin/bash\n"
         f"echo 1 > {q_progress}\n"                        # Kopiere…
+        # GitHub #1: /Library/Audio/Plug-Ins/HAL/ existiert nicht auf jedem Mac —
+        # es wird erst angelegt, wenn ein HAL-Plugin installiert wird. `cp` erzeugt
+        # keine Elternverzeichnisse und scheitert dann mit ENOENT.
+        f"mkdir -p {q_dst_dir} || {{ echo 9 > {q_progress}; exit 1; }}\n"
         f"rm -rf {q_dst}\n"                               # stale Bundle entfernen — BSD cp kopiert sonst IN das existierende Verzeichnis (ABI-Reinstall)
         f"cp -Rf {q_source} {q_dst} || {{ echo 9 > {q_progress}; exit 1; }}\n"
         f"echo 2 > {q_progress}\n"                        # Neustart…
@@ -376,7 +381,9 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
     if script_file is not None:
         shell_cmd = f"/bin/bash {shlex.quote(str(script_file))}"
     else:
+        # GitHub #1: mkdir -p muss auch im Fallback laufen (siehe shell_script oben).
         shell_cmd = (
+            f"mkdir -p {shlex.quote(str(DRIVER_INSTALL_PATH.parent))} && "
             f"rm -rf {shlex.quote(str(DRIVER_INSTALL_PATH))} && "
             f"cp -Rf {shlex.quote(str(source))} {shlex.quote(str(DRIVER_INSTALL_PATH))} "
             f"|| exit 1; killall coreaudiod || true"
@@ -654,11 +661,28 @@ def check_and_install() -> bool:
         return False
 
     # Safety check: is the driver actually there now?
+    # GitHub #1: this used to claim the driver "was installed but is missing",
+    # which is self-contradictory and left users with nothing to act on. The
+    # installer reports success, so reaching this branch means the copy silently
+    # failed — log the state and tell the user what to check.
     if not is_driver_installed():
+        hal_dir = DRIVER_INSTALL_PATH.parent
+        logger.error(
+            "Post-install verification failed. %s exists=%s, %s exists=%s",
+            hal_dir, hal_dir.exists(),
+            DRIVER_INSTALL_PATH, DRIVER_INSTALL_PATH.exists(),
+        )
         msg = (
-            "The driver was installed but is missing at the expected path:\n"
-            f"{DRIVER_INSTALL_PATH}\n\n"
-            "Please restart AudioRouterNow."
+            "The driver could not be installed.\n\n"
+            f"Expected location:\n{DRIVER_INSTALL_PATH}\n\n"
+            "This usually means the copy step failed silently. You can check "
+            "manually in Terminal:\n\n"
+            f"    ls -la {hal_dir}\n\n"
+            "If that folder does not exist, create it and restart the app:\n\n"
+            f"    sudo mkdir -p {hal_dir}\n\n"
+            "If the problem persists, please open an issue with the output of "
+            "the commands above and the log file at:\n"
+            "    ~/.audiorouter/logs/audiorouter.log"
         )
         _show_error_dialog(msg)
         return False

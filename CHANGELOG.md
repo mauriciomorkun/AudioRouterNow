@@ -84,6 +84,27 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
+## [3.4.5] — unreleased · _Legacy (macOS 11+, direct download)_
+
+### Fixed
+- **Driver installation failed on first launch when `/Library/Audio/Plug-Ins/HAL/` did
+  not exist** ([#1](https://github.com/mauriciomorkun/AudioRouterNow/issues/1)). `cp`
+  does not create parent directories, so the copy aborted with ENOENT on systems where
+  no HAL plug-in had ever been installed. The installer now runs `mkdir -p` on the
+  target directory first, in both the script and the fallback path.
+- The post-install verification dialog no longer shows the self-contradictory message
+  *"The driver was installed but is missing at the expected path"*. It now states that
+  the installation failed, prints the exact commands to diagnose (`ls -la`) and work
+  around (`sudo mkdir -p`) the problem, and points to the log file. The actual state of
+  both paths is written to the log.
+
+> **Note on 3.4.0–3.4.4:** the installer script ended with `echo`, so its exit code was
+> always 0 regardless of whether `cp` succeeded. A failed copy was reported as success.
+> The error check (`cp -Rf … || exit 1`) was committed in `7f951d4` but never shipped in
+> a release — 3.4.5 is the first release to contain it.
+
+---
+
 ## [3.4.4] — 2026-06-30 · _Legacy (macOS 11+, direct download)_
 
 ### Fixed
