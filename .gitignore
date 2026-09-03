@@ -124,6 +124,13 @@ vendor/Sparkle/Symbols/
 legacy-v3/vendor/Sparkle/Sparkle\ Test\ App.app/
 legacy-v3/vendor/Sparkle/Symbols/
 .env
+# Backups von .env (z.B. .env.bak-20260902-160000) enthalten echte Tokens
+.env.*
+!.env.example
+# Backups des Content-Kalenders (content_calendar.json ist selbst ignoriert)
+content_calendar.json.bak*
+# Hilfsskript zum Token-Wechsel, rein lokal
+update_buffer_token.sh
 
 # v4 Swift build artifacts
 v4/AudioRouterKit/.build/
