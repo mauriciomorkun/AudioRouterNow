@@ -72,6 +72,7 @@ MARKETING_*.md
 # Marketing-Automation (lokale Scripts + Kalender — nie ins Repo)
 buffer_scheduler.py
 content_calendar.json
+buffer_drafts.json
 
 # Marketing-Dokumentation (Pitches, Outreach, Assets — NIEMALS ins Repo)
 docs/marketing/
