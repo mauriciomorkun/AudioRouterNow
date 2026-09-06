@@ -73,6 +73,7 @@ MARKETING_*.md
 buffer_scheduler.py
 content_calendar.json
 buffer_drafts.json
+buffer_promote.log
 
 # Marketing-Dokumentation (Pitches, Outreach, Assets — NIEMALS ins Repo)
 docs/marketing/
