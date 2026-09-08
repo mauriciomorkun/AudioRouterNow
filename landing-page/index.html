@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>AudioRouterNow — Speakers, Headphones &amp; Interfaces. All at Once.</title>
+  <title>AudioRouterNow: Speakers, Headphones &amp; Interfaces. All at Once.</title>
   <meta name="description" content="Send your Mac's sound to speakers, headphones, and your interface at once. One click. Volume works. Setup stays after reboot. Free on the Mac App Store. macOS 14.4+, Apple Silicon.">
-  <meta property="og:title" content="AudioRouterNow — Speakers, Headphones &amp; Interfaces. All at Once.">
+  <meta property="og:title" content="AudioRouterNow: Speakers, Headphones &amp; Interfaces. All at Once.">
   <!-- PRE-LAUNCH: og/twitter description nennt das Launch-Datum (Link-Previews vor dem 08.09.).
-       Nach Release zurücksetzen auf: "Speakers, headphones, and your interface — all at once.
+       Nach Release zurücksetzen auf: "Speakers, headphones, and your interface, all at once.
        One click, volume works, setup stays. Free &amp; open source." -->
-  <meta property="og:description" content="Speakers, headphones, and your interface — all at once. One click, volume works, setup stays. Free &amp; open source — launching September 8, 2026.">
+  <meta property="og:description" content="Speakers, headphones, and your interface, all at once. One click, volume works, setup stays. Free &amp; open source, launching September 8, 2026.">
   <meta property="og:image" content="https://audiorouternow.mauriciomorkun.com/screenshot.png">
   <meta property="og:url" content="https://audiorouternow.mauriciomorkun.com">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="AudioRouterNow — Speakers, Headphones &amp; Interfaces. All at Once.">
-  <meta name="twitter:description" content="Speakers, headphones, and your interface — all at once. One click, volume works, setup stays. Free &amp; open source — launching September 8, 2026.">
+  <meta name="twitter:title" content="AudioRouterNow: Speakers, Headphones &amp; Interfaces. All at Once.">
+  <meta name="twitter:description" content="Speakers, headphones, and your interface, all at once. One click, volume works, setup stays. Free &amp; open source, launching September 8, 2026.">
   <meta name="twitter:image" content="https://audiorouternow.mauriciomorkun.com/screenshot.png">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -291,7 +291,7 @@
       .requirements { flex-direction: column; gap: 1rem; }
       /* Mobile: SHA-256 Hash truncaten statt Card durchbrechen */
       .req-value--hash { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      /* Mobile: tagline <br> weglassen — verhindert orphan dash */
+      /* Mobile: tagline <br> weglassen, verhindert orphan dash */
       .hero .tagline br { display: none; }
       /* Mobile: kompakte Bottom-Bar für MM-Logo + BMC-Widget */
       footer { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
@@ -339,7 +339,7 @@
       }
     }
 
-    /* BMC Widget: Auto-Popup-Bubble unterdrücken — nur Round-Button sichtbar */
+    /* BMC Widget: Auto-Popup-Bubble unterdrücken, nur Round-Button sichtbar */
     #bmc-wbtn > div:not(#bmc-wbtn-container) { display: none !important; }
 
     /* ── HERO ANIMATION ── */
@@ -466,17 +466,17 @@
     </div>
     <script>(function(){var e=document.getElementById('arh-root');if(!e)return;e.style.setProperty('--accent-bright','#7ff0d6');e.style.setProperty('--cycle','1.800s');e.style.setProperty('--flow','0.900s');})();</script>
     <p class="tagline">
-      Route your Mac's audio to <strong>headphones, speakers and interfaces — all at once.</strong><br>
+      Route your Mac's audio to <strong>headphones, speakers and interfaces, all at once.</strong><br>
       No driver. No restart. Sandboxed. Free.
     </p>
-    <!-- ══ PRE-LAUNCH BLOCK — komplett entfernen nach Release (08.09.2026, 06:00 CEST) ══ -->
+    <!-- ══ PRE-LAUNCH BLOCK: komplett entfernen nach Release (08.09.2026, 06:00 CEST) ══ -->
     <p class="launch-pill" id="launch-pill">
       <span class="launch-dot"></span>
       <span>Launching September&nbsp;8, 2026</span>
     </p>
     <!-- ══ ENDE PRE-LAUNCH BLOCK ══ -->
 
-    <!-- App Store Badge — primary CTA -->
+    <!-- App Store Badge: primary CTA -->
     <!-- Nach Release: class="as-badge-wrap" (is-pending entfernen), href + target + rel wieder aktivieren -->
     <a class="as-badge-wrap is-pending" id="app-store-link" aria-label="AudioRouterNow launches on the Mac App Store on September 8, 2026" aria-disabled="true">
       <div class="as-badge-inner">
@@ -489,7 +489,7 @@
     </a>
     <p class="badge-meta">macOS 14.4+ &nbsp;&middot;&nbsp; Free &nbsp;&middot;&nbsp; Open Source (Apache 2.0)</p>
 
-    <!-- ══ PRE-LAUNCH COUNTDOWN — mit obigem Block entfernen ══ -->
+    <!-- ══ PRE-LAUNCH COUNTDOWN: mit obigem Block entfernen ══ -->
     <p class="launch-countdown" id="launch-countdown"></p>
     <script>
       (function () {
@@ -511,13 +511,13 @@
     <!-- ══ ENDE COUNTDOWN ══ -->
 
     <!-- Smart Gate: v3 fallback for older macOS. NOTE (08.09.2026): summary text
-         must never imply the App Store build isn't open source — it is
+         must never imply the App Store build isn't open source (it is)
          (Apache 2.0, see badge-meta above). This gate is only about macOS
          version fallback / preferring the GPL-3.0 direct download. -->
     <details class="legacy-gate">
       <summary>Running macOS 11–14.1? Or looking for the source code? ›</summary>
       <div class="legacy-gate-body">
-        <p>AudioRouterNow v3.4.4 runs on macOS 11 Big Sur and later. It uses a HAL audio driver instead of the sandboxed Process Tap API — a one-time admin password is required to install the driver.</p>
+        <p>AudioRouterNow v3.4.4 runs on macOS 11 Big Sur and later. It uses a HAL audio driver instead of the sandboxed Process Tap API. A one-time admin password is required to install the driver.</p>
         <div class="legacy-cta-row">
           <a class="btn-ghost" href="https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.4/AudioRouterNow.dmg">↓ Download v3.4.4</a>
         </div>
@@ -536,7 +536,7 @@
 
   <!-- DEMO VIDEO -->
   <!-- Source: demo.mp4 (1.4 MB h264/yuv420p, converted from AppStore demo GIF) -->
-  <!-- File lives on server at /opt/audiorouternow/demo.mp4 — not in git (binary media) -->
+  <!-- File lives on server at /opt/audiorouternow/demo.mp4, not in git (binary media) -->
   <div class="demo-section">
     <video autoplay loop muted playsinline>
       <source src="demo.mp4" type="video/mp4">
@@ -550,27 +550,27 @@
     <div class="feature">
       <span class="feature-icon">🔀</span>
       <h3>Every output at once</h3>
-      <p>Speakers, headphones, your studio interface — all playing together. And your volume keys still work, unlike macOS Multi-Output.</p>
+      <p>Speakers, headphones, your studio interface, all playing together. And your volume keys still work, unlike macOS Multi-Output.</p>
     </div>
     <div class="feature">
       <span class="feature-icon">🔒</span>
       <h3>Sandboxed. No driver.</h3>
-      <p>Built on Apple's Process Tap API — no HAL plugin, no kernel extension, no admin password. One click in the App Store, done.</p>
+      <p>Built on Apple's Process Tap API: no HAL plugin, no kernel extension, no admin password. One click in the App Store, done.</p>
     </div>
     <div class="feature">
       <span class="feature-icon">⚡</span>
       <h3>One click. It remembers.</h3>
-      <p>Pick outputs from the menu bar. Plug in a device, it shows up instantly. Reboot — your setup is still there.</p>
+      <p>Pick outputs from the menu bar. Plug in a device, it shows up instantly. Reboot. Your setup is still there.</p>
     </div>
     <div class="feature">
       <span class="feature-icon">✂️</span>
       <h3>Not a mixer. No restart.</h3>
-      <p>No mixer, no routing diagram, no per-app rules. Pick your outputs, click once, done — no restart, no setup wizard.</p>
+      <p>No mixer, no routing diagram, no per-app rules. Pick your outputs, click once, done. No restart, no setup wizard.</p>
     </div>
   </section>
 
   <!-- APP STORE SCREENSHOTS -->
-  <!-- Images (ss_*.jpg) live on server only — gitignored binary assets -->
+  <!-- Images (ss_*.jpg) live on server only, gitignored binary assets -->
   <div class="screenshots-section">
     <p class="screenshots-label">AudioRouterNow 4 &#8212; in action</p>
     <div class="screenshots-scroll">
@@ -639,7 +639,7 @@
       </div>
       <div class="req-item">
         <span class="req-label">License</span>
-        <span class="req-value">Apache 2.0 — Free &amp; Open Source</span>
+        <span class="req-value">Apache 2.0 (Free &amp; Open Source)</span>
       </div>
       <div class="req-item">
         <span class="req-label">Distribution</span>
@@ -653,7 +653,7 @@
     <p><strong>Impressum</strong></p>
     <p>Mauricio Morkun &nbsp;·&nbsp; Uespelterwee 9 &nbsp;·&nbsp; L-5740 Filsdorf &nbsp;·&nbsp; Luxembourg</p>
     <p><a href="mailto:dev@mauriciomorkun.com">dev@mauriciomorkun.com</a></p>
-    <p style="margin-top:.5rem;margin-bottom:.75rem;font-size:.72rem;color:#333">AudioRouterNow started as <a href="https://github.com/mauriciomorkun/AudioRouterNow" style="color:#3a3a3a;text-decoration:none;border-bottom:1px solid #2a2a2a" target="_blank" rel="noopener">open source (GPL-3.0)</a> — legacy v3.4.4 available for macOS 11+</p>
+    <p style="margin-top:.5rem;margin-bottom:.75rem;font-size:.72rem;color:#333">AudioRouterNow started as <a href="https://github.com/mauriciomorkun/AudioRouterNow" style="color:#3a3a3a;text-decoration:none;border-bottom:1px solid #2a2a2a" target="_blank" rel="noopener">open source (GPL-3.0)</a>. Legacy v3.4.4 available for macOS 11+</p>
     <div class="footer-links">
       <a href="https://github.com/mauriciomorkun/AudioRouterNow">GitHub</a>
       <a href="https://twitter.com/mauriciomorkun" target="_blank" rel="noopener">X / Twitter</a>
