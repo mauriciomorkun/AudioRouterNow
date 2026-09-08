@@ -4,7 +4,7 @@
 //
 //  Public API surface für AudioRouterNow v4.0 (App Store Rewrite).
 //
-//  Phase 0: Typ-Definitionen ohne CoreAudio-Abhängigkeit — kompiliert und
+//  Phase 0: Typ-Definitionen ohne CoreAudio-Abhängigkeit, kompiliert und
 //  testet ohne echte Hardware. Die eigentliche Engine (Process Tap,
 //  Fan-out, PI-Regler) folgt in Phase 1–3 gemäß IMPLEMENTATION_PLAN.md.
 //
@@ -24,7 +24,7 @@ public enum RouterError: Error, Equatable, Sendable {
     /// Recovery: User zu Systemeinstellungen → Datenschutz → Bildschirm- &
     /// System-Audio-Aufnahme führen.
     ///
-    /// - Note (F15): Dieser Fall wird derzeit NICHT aus der Engine geworfen —
+    /// - Note (F15): Dieser Fall wird derzeit NICHT aus der Engine geworfen, 
     ///   TCC-Denied liefert `noErr` + Dauer-Silence (keine public Preflight-API,
     ///   Guideline 2.5.1). Der Verdacht wird ausschließlich über die
     ///   Silence-Heuristik (`FanOutEngine.isSuspectedTCCDenied`) erkannt und ist
@@ -42,12 +42,12 @@ public enum RouterError: Error, Equatable, Sendable {
     /// `AudioHardwareCreateProcessTap` ist fehlgeschlagen.
     ///
     /// - Parameter status: Der zugrunde liegende CoreAudio-`OSStatus`
-    ///   (z. B. `'!dev'` = 560227702 bei verschwundenem Gerät — laut Plan
+    ///   (z. B. `'!dev'` = 560227702 bei verschwundenem Gerät, laut Plan
     ///   ein *erwarteter* Pfad, kein Fatal-Error).
     case tapFailed(status: Int32)
 
     /// Die Buffer-Anzahl des erstellten Aggregates stimmt nicht mit der
-    /// erwarteten Slot-Mapping-Größe überein — Treiber-Sonderfall oder
+    /// erwarteten Slot-Mapping-Größe überein, Treiber-Sonderfall oder
     /// veraltete Sub-Device-Konfiguration.
     case aggregateLayoutMismatch(expected: Int, actual: Int)
 }

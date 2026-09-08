@@ -2,7 +2,7 @@
 //  RoutingControls.swift
 //  AudioRouterNow4
 //
-//  Phase 3 (UI-Layer, Konzept 4B): Steuer-Elemente — pulsierender Status-Dot,
+//  Phase 3 (UI-Layer, Konzept 4B): Steuer-Elemente, pulsierender Status-Dot,
 //  Mint-Spinner, globaler Volume-Slider, State-Button (Start/Verbinde/Stop)
 //  und Footer-Zeile (Launch-at-Login · Beenden).
 //

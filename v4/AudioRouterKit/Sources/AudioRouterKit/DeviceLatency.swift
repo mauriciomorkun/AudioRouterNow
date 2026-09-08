@@ -1,7 +1,7 @@
 //  DeviceLatency.swift
 //  AudioRouterKit
 //
-//  Phase 4 — CoreAudio-Latenz-Abfragen pro Output-Device.
+//  Phase 4, CoreAudio-Latenz-Abfragen pro Output-Device.
 //
 //  Copyright 2026 Mauricio Moraïs da Cunha. Apache License 2.0.
 
@@ -35,7 +35,7 @@ public struct DeviceLatencyInfo: Sendable {
         return Double(totalFrames) / sampleRate
     }
 
-    /// Latenz für Fan-Out-Synchronisation — OHNE `safetyFrames`.
+    /// Latenz für Fan-Out-Synchronisation, OHNE `safetyFrames`.
     ///
     /// `kAudioDevicePropertySafetyOffset` ist ein Pre-Scheduling-Buffer
     /// (z. B. für Spatial Audio / APC auf MacBook-Lautsprechern) und kann
@@ -50,8 +50,8 @@ public struct DeviceLatencyInfo: Sendable {
 
 /// Liest alle Output-Latenz-Quellen eines CoreAudio-Devices aus.
 ///
-/// Gibt eine ``DeviceLatencyInfo`` zurück — niemals nil (Fallback: 0 Frames).
-/// Nicht RT-safe (allocations inside) — nur beim `start()` aufrufen, nie im IOProc.
+/// Gibt eine ``DeviceLatencyInfo`` zurück, niemals nil (Fallback: 0 Frames).
+/// Nicht RT-safe (allocations inside), nur beim `start()` aufrufen, nie im IOProc.
 public func readDeviceLatency(deviceID: AudioObjectID) -> DeviceLatencyInfo {
     DeviceLatencyInfo(
         deviceFrames: readUInt32Frames(deviceID, kAudioDevicePropertyLatency, kAudioObjectPropertyScopeOutput),

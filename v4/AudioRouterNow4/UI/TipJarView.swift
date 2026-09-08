@@ -2,7 +2,7 @@
 //  TipJarView.swift
 //  AudioRouterNow4
 //
-//  Kompaktes Tip-Jar UI — erscheint wenn User "♥ Support" im Footer antippt.
+//  Kompaktes Tip-Jar UI, erscheint wenn User "♥ Support" im Footer antippt.
 //  Zeigt zwei Kauf-Buttons (Coffee / Beer), Loading- und Thank-You-State.
 //
 //  Copyright 2026 Mauricio Moraïs da Cunha. Apache License 2.0.

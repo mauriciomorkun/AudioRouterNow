@@ -2,8 +2,8 @@
 //  TipJarStore.swift
 //  AudioRouterNow4
 //
-//  StoreKit 2 Tip Jar — lädt Consumable-IAP-Produkte und verarbeitet Käufe.
-//  Thread-Safety: @MainActor — alle @Published Properties auf Main Thread.
+//  StoreKit 2 Tip Jar, lädt Consumable-IAP-Produkte und verarbeitet Käufe.
+//  Thread-Safety: @MainActor, alle @Published Properties auf Main Thread.
 //
 //  Copyright 2026 Mauricio Moraïs da Cunha. Apache License 2.0.
 //
@@ -33,7 +33,7 @@ final class TipJarStore: ObservableObject {
     @Published private(set) var products: [Product] = []
     /// Wird auf false gesetzt sobald loadProducts() abgeschlossen hat (Erfolg oder Fehler).
     @Published private(set) var isLoading = true
-    /// Fehler aus loadProducts() — nil = kein Fehler (nur für Debug-Anzeige).
+    /// Fehler aus loadProducts(), nil = kein Fehler (nur für Debug-Anzeige).
     @Published private(set) var loadError: String? = nil
     /// Läuft gerade ein Kauf-Request?
     @Published private(set) var isPurchasing = false
@@ -62,7 +62,7 @@ final class TipJarStore: ObservableObject {
     /// Lädt die konfigurierten IAP-Produkte aus dem App Store.
     ///
     /// Schlägt still fehl wenn die Produkte in App Store Connect noch nicht
-    /// angelegt wurden (leeres Array) — kein Crash, UI zeigt Ladeindikator.
+    /// angelegt wurden (leeres Array), kein Crash, UI zeigt Ladeindikator.
     func loadProducts() async {
         isLoading = true
         loadError = nil
@@ -139,7 +139,7 @@ final class TipJarStore: ObservableObject {
             case .pending:
                 break  // Warten auf externe Genehmigung (Family Sharing etc.)
             case .userCancelled:
-                break  // Kein Fehler — User hat abgebrochen
+                break  // Kein Fehler, User hat abgebrochen
             @unknown default:
                 break
             }

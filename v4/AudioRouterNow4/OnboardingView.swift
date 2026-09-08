@@ -12,7 +12,7 @@ import SwiftUI
 
 struct OnboardingView: View {
 
-    /// Callback when user continues. Bool is always false — Launch at Login is
+    /// Callback when user continues. Bool is always false, Launch at Login is
     /// never enabled from onboarding (Guideline 2.4.5(iii)). The user can enable
     /// it at any time via the dedicated menu toggle, which requires explicit consent.
     let onContinue: (Bool) -> Void
@@ -72,7 +72,7 @@ struct OnboardingView: View {
 
             // Continue Button
             // Launch at Login is NOT presented here (Guideline 2.4.5(iii)).
-            // The dedicated menu toggle is the single opt-in point — it requires
+            // The dedicated menu toggle is the single opt-in point, it requires
             // an explicit user action and is always off by default.
             HStack {
                 Spacer()

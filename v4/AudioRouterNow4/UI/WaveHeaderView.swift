@@ -5,10 +5,10 @@
 //  Phase 3 (UI-Layer): Oszilloskop-Header mit ECHTEN Audiodaten.
 //  `TimelineView(.animation)` + `Canvas` + `.drawingGroup()` (Metal-Compositing).
 //
-//  Aktiv: Der Canvas liest bei 60fps `controller.waveformSnapshot(count:)` —
+//  Aktiv: Der Canvas liest bei 60fps `controller.waveformSnapshot(count:)`, 
 //  die (min, max)-Mono-Mix-Werte, die der IOProc pro Callback in die
 //  RT-sichere `WaveformBridge` schreibt. Gezeichnet werden vertikale Balken
-//  (min→max pro Spalte) um eine Nulllinie — echte ±Halbwellen wie in
+//  (min→max pro Spalte) um eine Nulllinie, echte ±Halbwellen wie in
 //  Logic Pro / Audacity: Kick-Drums, Transienten und Dynamik sind sichtbar.
 //
 //  Idle: subtile Sinus-Animation als Fallback (keine Audiodaten verfügbar).
@@ -34,7 +34,7 @@ struct WaveHeaderView: View {
     let state: ARNUIState
     @EnvironmentObject private var controller: EngineController
 
-    /// Header-Intensität [0…1] aus dem UI-State — treibt Farbe, Glow und Gradient.
+    /// Header-Intensität [0…1] aus dem UI-State, treibt Farbe, Glow und Gradient.
     private var intensity: Double { state.waveIntensity }
 
     var body: some View {

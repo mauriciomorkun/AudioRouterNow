@@ -1,4 +1,4 @@
-# AudioRouterNow v4 — UI-Layer-Dokumentation
+# AudioRouterNow v4: UI-Layer-Dokumentation
 
 Konzept 4B „Fusion Prominent Wave + Accordion Expand" (Session 5).
 Kompakte Referenz für den SwiftUI-Layer. Ergänzt `../ARCHITECTURE.md` und die
@@ -18,7 +18,7 @@ Alle Views beziehen den `EngineController` per `@EnvironmentObject`. Der
 `ARNUIState` wird EINMAL in `MenuBarView.body` berechnet und an die Kinder
 durchgereicht.
 
-## ARNUIState — State-Machine
+## ARNUIState: State-Machine
 
 ```swift
 enum ARNUIState: Equatable { case idle, starting, active, error(RouterError) }
@@ -67,7 +67,7 @@ Die Peak-Werte kommen bereits UI-geglättet aus `EngineController.poll()`
 (Attack sofort, Release ~40 %/Tick), damit der Meter bei 500-ms-Polling nicht
 flackert.
 
-## WaveHeaderView — Animation
+## WaveHeaderView: Animation
 
 - `TimelineView(.animation)` liefert eine kontinuierliche Zeitbasis; `Canvas`
   zeichnet drei Sinus-Layer (Amplitude/Wellenlänge/Speed/Deckkraft je Layer).
@@ -77,7 +77,7 @@ flackert.
 - `.animation(.easeInOut(0.4), value: intensity)` blendet den State-Wechsel weich.
 - Höhe 112 pt, Titel-Overlay oben links (`waveform`-Icon + „AudioRouterNow").
 
-## DeviceCardView — Accordion
+## DeviceCardView: Accordion
 
 - Glass-Card (`.ultraThinMaterial`, Radius 10). Tap toggelt `expanded` NUR im
   `.active`-State (`spring(response: 0.32, dampingFraction: 0.82)`).
@@ -96,7 +96,7 @@ flackert.
 - `AddDeviceRow`: `Menu` aus `availableDevices`; bei Multi-Kanal-Geräten ein
   Eintrag pro Kanalpaar (`OutputConfig(uid:channelOffset:)`).
 
-## RoutingButton — 3 States
+## RoutingButton: 3 States
 
 | State | Icon | Titel | Hintergrund | Text | Rand |
 |-------|------|-------|-------------|------|------|
@@ -112,11 +112,10 @@ flackert.
 Diese Session-5-Properties/-Methoden treiben die neue UI (Signaturen siehe
 `../EngineController.swift`):
 
-- `isStarting: Bool` — treibt `ARNUIState.starting` (STARTING-Frame).
-- `peakLevels: [String:(l,r)]` + `peak(for: OutputConfig) -> (l,r)?` —
-  Composite-Key `"<uid>:<channelOffset>"`, geglättet, für Signal-Meter/Dot.
-- `bufferFrames: Int` — IO-Buffer-Grösse für `StatsGrid`.
-- `deviceLatencies: [String:DeviceLatencyInfo]` + `latency(for:)` — Latenz/Rate
+- `isStarting: Bool`, treibt `ARNUIState.starting` (STARTING-Frame).
+- `peakLevels: [String:(l,r)]` + `peak(for: OutputConfig) -> (l,r)?`, Composite-Key `"<uid>:<channelOffset>"`, geglättet, für Signal-Meter/Dot.
+- `bufferFrames: Int`, IO-Buffer-Grösse für `StatsGrid`.
+- `deviceLatencies: [String:DeviceLatencyInfo]` + `latency(for:)`, Latenz/Rate
   für `StatsGrid`.
-- `startRouting()` — split: setzt `isStarting`, `performStart()` im nächsten Tick.
+- `startRouting()`, split: setzt `isStarting`, `performStart()` im nächsten Tick.
 </content>

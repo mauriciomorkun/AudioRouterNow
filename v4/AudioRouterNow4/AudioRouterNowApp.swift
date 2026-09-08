@@ -2,10 +2,10 @@
 //  AudioRouterNowApp.swift
 //  AudioRouterNow4
 //
-//  AudioRouterNow v4.0 — App Store Edition (Process Taps Architektur)
+//  AudioRouterNow v4.0, App Store Edition (Process Taps Architektur)
 //  Phase 1: EngineController als StateObject injiziert für Test-UI.
 //
-//  LSUIElement-App: kein Dock-Icon, kein WindowGroup — die App lebt
+//  LSUIElement-App: kein Dock-Icon, kein WindowGroup, die App lebt
 //  ausschliesslich in der Menüleiste.
 //
 //  Session 3: Onboarding (M3) + Login-Item-Registrierung (M2).
@@ -27,7 +27,7 @@ import ServiceManagement
 /// Verantwortlichkeiten:
 /// - MenuBarExtra-Scene mit Custom-Template-Icon aufbauen.
 /// - Beim ersten Start das Onboarding-Fenster zeigen (via AppKit, siehe
-///   ``showOnboarding(key:)``) — `@StateObject` ist im `init` noch nicht
+///   ``showOnboarding(key:)``), `@StateObject` ist im `init` noch nicht
 ///   zugänglich, deshalb der Umweg über ``AppDelegate``.
 @main
 struct AudioRouterNowApp: App {
@@ -72,7 +72,7 @@ struct AudioRouterNowApp: App {
     }
 
     // W6: Statische Referenzen halten Fenster + Delegate am Leben.
-    /// Starke Referenz auf das Onboarding-Fenster — ohne sie würde das nicht
+    /// Starke Referenz auf das Onboarding-Fenster, ohne sie würde das nicht
     /// über `WindowGroup` verwaltete `NSWindow` sofort deallokiert.
     @MainActor private static var onboardingWindow: NSWindow?
     /// Starke Referenz auf den Fenster-Delegate (analog `onboardingWindow`).
@@ -114,7 +114,7 @@ struct AudioRouterNowApp: App {
         window.contentView = NSHostingView(rootView: OnboardingView(onContinue: { [weak window] (_: Bool) in
             UserDefaults.standard.set(true, forKey: key)
             // Guideline 2.4.5(iii): OnboardingView no longer presents a
-            // Launch at Login checkbox — onContinue always receives false.
+            // Launch at Login checkbox, onContinue always receives false.
             // Explicitly record non-consent and remove any residual Login Item
             // registration that may have been left by an older build.
             // SMAppService.unregister() is a no-op when nothing is registered.
@@ -128,7 +128,7 @@ struct AudioRouterNowApp: App {
     }
 }
 
-/// W6: Fenster-Delegate für das Onboarding — setzt das hasShownOnboarding-Flag
+/// W6: Fenster-Delegate für das Onboarding, setzt das hasShownOnboarding-Flag
 /// bei JEDEM Schließ-Pfad (auch X-Button) und gibt statische Referenzen frei.
 @MainActor
 private final class OnboardingWindowDelegate: NSObject, NSWindowDelegate {

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-generate_icon.py — AudioRouterNow v4.0 App Icon Generator
+generate_icon.py, AudioRouterNow v4.0 App Icon Generator
 Generiert alle macOS App Store Icon-Größen aus einem 1024x1024 Master.
 
 Aufruf: python3 scripts/generate_icon.py
@@ -199,6 +199,6 @@ if __name__ == "__main__":
     project_root = script_dir.parent
     output = project_root / "AudioRouterNow4" / "Assets.xcassets" / "AppIcon.appiconset"
 
-    print(f"AudioRouterNow v4.0 — App Icon Generator")
+    print(f"AudioRouterNow v4.0, App Icon Generator")
     print(f"Output: {output}\n")
     generate_all(output)

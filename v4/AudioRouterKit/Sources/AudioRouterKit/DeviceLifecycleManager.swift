@@ -2,11 +2,11 @@
 //  DeviceLifecycleManager.swift
 //  AudioRouterKit
 //
-//  Phase 3/4 — Device-Lifecycle: Default-Output-Wechsel, Disconnect,
+//  Phase 3/4, Device-Lifecycle: Default-Output-Wechsel, Disconnect,
 //  coreaudiod-Restart. Minimal-Reconciliation via debounced Engine-Restart.
 //
 //  v3-Lektion H3: Property-Listener-Callbacks laufen NUR auf einer seriellen
-//  Queue — niemals synchron zurück in CoreAudio (Re-Entry-Deadlock).
+//  Queue, niemals synchron zurück in CoreAudio (Re-Entry-Deadlock).
 //
 //  Copyright 2026 Mauricio Moraïs da Cunha. Apache License 2.0.
 //
@@ -32,9 +32,9 @@ public enum DeviceState: Equatable, Sendable {
 /// Reconcile-Code laufen ausschließlich dort.
 public final class DeviceLifecycleManager: @unchecked Sendable {
 
-    /// Settle-Karenz für HDMI/DisplayPort (Display-Sleep-Flattern) — 3 s.
+    /// Settle-Karenz für HDMI/DisplayPort (Display-Sleep-Flattern), 3 s.
     public static let hdmiSettleDelay: TimeInterval = 3.0
-    /// Settle-Karenz für Bluetooth-Reconnect-Kaskaden — 2 s.
+    /// Settle-Karenz für Bluetooth-Reconnect-Kaskaden, 2 s.
     public static let btSettleDelay: TimeInterval = 2.0
 
     /// Liefert die transportspezifische Settle-Karenz.
@@ -57,22 +57,22 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
     /// Geräts (optional). Wird auf `queue` aufgerufen.
     private let onSampleRateChanged: (@Sendable () -> Void)?
 
-    // ── Zustand — NUR auf `queue` berühren ──
+    // ── Zustand, NUR auf `queue` berühren ──
     private var routedUIDs: Set<String> = []
     private var lastDefaultOutputUID: String?
     private var pendingRestart: DispatchWorkItem?
     private var isListening = false
 
     /// Generation-Token: entwertet verzögerte Blocks älterer start()-Sessions.
-    /// stop()+start() setzt isListening wieder auf true — das allein reicht
+    /// stop()+start() setzt isListening wieder auf true, das allein reicht
     /// als Guard für die 1-s/2-s-Delay-Blocks nicht.
     private var startGeneration = 0
 
-    /// L1: UIDs, die beim letzten `handleDevicesChanged` gefehlt haben —
+    /// L1: UIDs, die beim letzten `handleDevicesChanged` gefehlt haben, 
     /// für die Re-Appear-Erkennung (war weg, ist jetzt wieder da → Restart).
     private var lastKnownMissingUIDs: Set<String> = []
 
-    // ── Stable Output Mode (Feature B) — NUR auf `queue` berühren ──
+    // ── Stable Output Mode (Feature B), NUR auf `queue` berühren ──
     /// true = Default-Output-Wechsel werden auf `lockedDefaultUID` zurückgesetzt.
     private var lockEnabled = false
     /// UID des Geräts, das als Default-Output "festgenagelt" ist.
@@ -131,7 +131,7 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
             guard !isListening else { return }
             self.routedUIDs = routedUIDs
             lastDefaultOutputUID = Self.currentDefaultOutputUID()
-            // W1: Baseline für Re-Appear — Geräte, die JETZT schon fehlen,
+            // W1: Baseline für Re-Appear, Geräte, die JETZT schon fehlen,
             // sofort erfassen. Sonst greift die Re-Appear-Erkennung erst nach
             // dem ersten handleDevicesChanged-Event NACH dem Start.
             lastKnownMissingUIDs = routedUIDs.subtracting(Self.presentDeviceUIDs())
@@ -163,7 +163,7 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
             startGeneration &+= 1
             let generation = startGeneration
             queue.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                // W7: stop() kann innerhalb der 1 s gelaufen sein — dann hier
+                // W7: stop() kann innerhalb der 1 s gelaufen sein, dann hier
                 // NICHTS mehr registrieren (Listener würden nie entfernt → Leak).
                 // Zusätzlich gegen stop()+start()-Restarts: nur die JÜNGSTE
                 // Session darf registrieren (Generation-Token), sonst registriert
@@ -254,7 +254,7 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
         let present = Self.presentDeviceUIDs()
         let missing = routedUIDs.subtracting(present)
 
-        // L1: Re-Appear — ein Gerät war zuvor missing, ist jetzt wieder da → Restart.
+        // L1: Re-Appear, ein Gerät war zuvor missing, ist jetzt wieder da → Restart.
         // (Der reguläre Verschwinden-Pfad unten deckt nur das Wegfallen ab; ohne
         // Re-Appear würde ein während der Session wieder eingestecktes Gerät nie
         // re-integriert.)
@@ -314,14 +314,14 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
         }
     }
 
-    /// Debounce (500 ms) für den SR-getriggerten Warm-Restart — vermeidet ein
+    /// Debounce (500 ms) für den SR-getriggerten Warm-Restart, vermeidet ein
     /// Restart-Flattern, wenn mehrere Devices ihre SR quasi-gleichzeitig ändern.
     private func scheduleSRRestart() {
         pendingSRRestart?.cancel()
         let item = DispatchWorkItem { [weak self] in
             guard let self, self.isListening else { return }
             self.logger.debug("M4: Sample rate changed → warm restart")
-            // W2: Gate SOFORT schließen — der ausgelöste Warm-Restart kann
+            // W2: Gate SOFORT schließen, der ausgelöste Warm-Restart kann
             // die SR der Sub-Devices selbst nochmal ändern → Ping-Pong-Loop.
             // Wiedereröffnung nach 2 s (Rebuild ≈ 0.2–1 s).
             self.srListenersActive = false
@@ -329,7 +329,7 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
             let generation = self.startGeneration
             self.queue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                 // Gate nur wiedereröffnen, wenn kein stop()/start()-Zyklus
-                // dazwischen lag — sonst öffnet dieser stale Block das Gate
+                // dazwischen lag, sonst öffnet dieser stale Block das Gate
                 // der NEUEN Session zu früh (M4-Startup-Schutz umgangen).
                 guard let self, self.isListening, self.startGeneration == generation else { return }
                 self.srListenersActive = true

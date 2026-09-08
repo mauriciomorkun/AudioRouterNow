@@ -262,7 +262,7 @@ final class VolumeTracker: @unchecked Sendable {
             return
         }
 
-        // Volume-Scalar lesen (elementMain ODER Kanal 1 — siehe findVolumeElement)
+        // Volume-Scalar lesen (elementMain ODER Kanal 1, siehe findVolumeElement)
         var volAddr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyVolumeScalar,
             mScope: kAudioObjectPropertyScopeOutput,

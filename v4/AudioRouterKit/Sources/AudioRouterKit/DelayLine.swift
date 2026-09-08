@@ -1,7 +1,7 @@
 //  DelayLine.swift
 //  AudioRouterKit
 //
-//  Phase 4 — Latency-Compensation Delay-Line für den Direct-IOProc.
+//  Phase 4, Latency-Compensation Delay-Line für den Direct-IOProc.
 //
 //  Single-Thread-Invariante: NUR vom IOProc-Thread aufgerufen (push + pop im
 //  selben Callback). Keine Locks, keine Atomics, keine Allokationen im Pfad.
@@ -15,7 +15,7 @@ import Foundation
 /// Funktionsprinzip: Der interne Buffer wird mit `delayFrames` Stille
 /// vorbelegt. Bei jedem `process()`-Aufruf wird zunächst das "alte" Audio
 /// (= genau `delayFrames` Frames alt) ausgelesen und dann das neue Audio
-/// eingeschrieben — netto: Ausgabe ist um `delayFrames` Frames verzögert.
+/// eingeschrieben, netto: Ausgabe ist um `delayFrames` Frames verzögert.
 ///
 /// ## Single-Thread-Invariante
 /// `process()` darf ausschließlich vom IOProc-Thread aufgerufen werden.

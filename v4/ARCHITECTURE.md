@@ -1,4 +1,4 @@
-# AudioRouterNow v4 — Architektur-Dokumentation
+# AudioRouterNow v4: Architektur-Dokumentation
 
 Stand: 2026-07-09 · Konzept 4B (MenuBar UI Redesign, Session 5)
 
@@ -71,26 +71,26 @@ Wichtige Methoden (public):
 | `stop()` | IOProc stoppen, Tap + Aggregate abbauen, Peaks/Keys zurücksetzen |
 | `setSystemVolume(_:)` | Lautstärke auf Default-Output schreiben |
 | `peakLevel(slotIndex:) -> (l,r)` | Peak-Pegel eines Slots (Polling-sicher) |
-| `availableOutputDevices()` | `static` — verfügbare Ausgabegeräte (uid/name/channelCount) |
-| `deviceID(forUID:)` | `static` — UID → `AudioObjectID` |
-| `currentDefaultOutputUID()` | `static` — aktuelles Default-Output-Gerät |
+| `availableOutputDevices()` | `static`, verfügbare Ausgabegeräte (uid/name/channelCount) |
+| `deviceID(forUID:)` | `static`, UID → `AudioObjectID` |
+| `currentDefaultOutputUID()` | `static`, aktuelles Default-Output-Gerät |
 
 RT-relevante Details des IOProc (`ioProcImpl`, ab ca. Zeile 729):
 - Tap-Quelle wird interleaved oder non-interleaved erkannt (Stereo/Mono).
-- Ein einziger Source-Peak (post-Volume) wird pro Callback berechnet — eine
-  O(n)-Passage über die Frames — und via `peaks.record(...)` publiziert.
+- Ein einziger Source-Peak (post-Volume) wird pro Callback berechnet, eine
+  O(n)-Passage über die Frames, und via `peaks.record(...)` publiziert.
 - Anschliessend schreibt der Callback pro Slot direkt in `ioOutputData`.
 - Keine Allokation, kein Lock ausser der `os_unfair_lock`-Sektion in `PeakMeters`.
 
-### PeakMeters — RT-Safety-Pattern
+### PeakMeters: RT-Safety-Pattern
 
 `PeakMeters` (siehe `PeakMeters.swift`) ist die RT-sichere Brücke zwischen dem
 IOProc-Thread (Single-Writer) und dem MainActor-Polling (Single-Reader).
 
 RT-Safety-Vertrag:
 - `storage` (`UnsafeMutableBufferPointer<Float32>`, `maxSlots * 2 = 32` Werte)
-  wird EINMAL im `init` alloziert und erst im `deinit` — nach `AudioDeviceStop`,
-  wenn der RT-Pfad ruht — freigegeben. Keine Allokation im Audio-Pfad.
+  wird EINMAL im `init` alloziert und erst im `deinit`, nach `AudioDeviceStop`,
+  wenn der RT-Pfad ruht, freigegeben. Keine Allokation im Audio-Pfad.
 - Jeder Zugriff (`record` / `level` / `reset`) ist genau eine
   `os_unfair_lock`-Sektion (< 100 ns), keine Blockierung, kein `malloc`.
 - `@unchecked Sendable`: der geteilte Zustand ist ausschliesslich über `_lock`
@@ -127,7 +127,7 @@ Restart). Settle-Delays: HDMI 3 s, Bluetooth 2 s.
 
 ### EngineController
 
-`@MainActor final class EngineController: ObservableObject` — der einzige
+`@MainActor final class EngineController: ObservableObject`, der einzige
 Berührungspunkt der UI mit der Engine. Spiegelt Engine-Status in `@Published`-
 Properties, pollt Metriken/Peaks alle 0,5 s, persistiert die Output-Config und
 orchestriert Warm-Restarts.
@@ -164,7 +164,7 @@ Public Methoden (UI-Consumer):
 | `latency(for:) -> DeviceLatencyInfo?` | Latenz einer Config |
 | `openTCCSettings()` | Systemeinstellungen (Audio-Recording) öffnen |
 
-### UI-Layer — Datei-Übersicht
+### UI-Layer: Datei-Übersicht
 
 | Datei | Zweck |
 |-------|-------|
@@ -192,7 +192,7 @@ Details siehe `UI/README.md`.
 - STARTING hat Vorrang vor dem gespiegelten `status` (deshalb der `startRouting()`-
   Split, siehe unten).
 - `waveIntensity`: 1.0 für `starting`/`active` (voller Wellen-Header), sonst 0.0
-  (gedimmt) — koppelt Amplitude und Header-Gradient.
+  (gedimmt), koppelt Amplitude und Header-Gradient.
 - `error(RouterError)` trägt Associated Value; Vergleiche wie `ui == .active`
   nutzen die synthetisierte `Equatable`-Konformanz (`RouterError` ist bereits
   `Equatable`).
@@ -228,7 +228,7 @@ würden sonst kollidieren. `slotDeviceKeys` in der Engine bildet denselben Key
 1:1 zum Slot-Index. Zugriff nur über `EngineController.peak(for:)`.
 
 ### Ein Source-Peak (kein per-Slot-Peak)
-Alle Slots teilen dieselbe Tap-Quelle — `channelOffset` selektiert nur den
+Alle Slots teilen dieselbe Tap-Quelle, `channelOffset` selektiert nur den
 Output-Kanal, verändert aber nicht das Quellsignal. Darum berechnet der IOProc
 genau EINEN Source-Peak pro Callback und schreibt ihn (identisch) auf alle
 `slotCount` Slots. Das hält die RT-Passage bei O(n) statt O(n·slots).
@@ -246,17 +246,17 @@ ist auf Phase 5 (F16) verschoben.
 
 ## Laufzeit-Tests vor Release
 
-Der Peak-Metering-Einbau berührt den RT-Pfad — vor jedem Release-Build sind
+Der Peak-Metering-Einbau berührt den RT-Pfad, vor jedem Release-Build sind
 folgende manuelle Prüfungen Pflicht (keine automatisierbaren Tests):
 
-1. **RT-Safety / Audio-Glitch** — Routing starten, Musik abspielen: kein
+1. **RT-Safety / Audio-Glitch**, Routing starten, Musik abspielen: kein
    Knackser/Dropout nach dem Peak-Einbau. `record()` darf den IOProc nicht
    spürbar verlängern.
-2. **Thread-Sanitizer (TSan)** — Product → Scheme → Diagnostics → Thread
+2. **Thread-Sanitizer (TSan)**, Product → Scheme → Diagnostics → Thread
    Sanitizer aktivieren, Routing starten/stoppen, Geräte an-/abstecken: keine
    Data-Race-Reports rund um `PeakMeters`/`VolumeTracker`.
-3. **UI-States** — IDLE → Start → STARTING → ACTIVE → Expand → Stop vollständig
+3. **UI-States**, IDLE → Start → STARTING → ACTIVE → Expand → Stop vollständig
    durchklicken; Signal-Meter reagieren beim Abspielen.
-4. **Xcode-Previews** — alle neuen Views (`WaveHeaderView` Idle/Active,
+4. **Xcode-Previews**, alle neuen Views (`WaveHeaderView` Idle/Active,
    `DeviceCardView`, `SignalMeter`, `RoutingButton`) im Canvas rendern.
 </content>

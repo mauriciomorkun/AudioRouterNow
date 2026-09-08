@@ -2,7 +2,7 @@
 //  EngineController.swift
 //  AudioRouterNow4
 //
-//  Phase 2/4: ObservableObject-Wrapper um FanOutEngine — Status/Metriken für
+//  Phase 2/4: ObservableObject-Wrapper um FanOutEngine, Status/Metriken für
 //  SwiftUI, Output-Config-Persistenz, Device-Lifecycle & MainActor-Polling.
 //
 //  Copyright 2026 Mauricio Moraïs da Cunha. Apache License 2.0.
@@ -25,7 +25,7 @@ import os
 ///
 /// ## Threading / Polling (3-Tier)
 /// Die Engine schreibt RT-sicher, der Controller POLLT auf dem MainActor:
-/// - ``pollingTask`` (2 fps, 500 ms): langsame Metriken — Callbacks, TCC-Verdacht,
+/// - ``pollingTask`` (2 fps, 500 ms): langsame Metriken, Callbacks, TCC-Verdacht,
 ///   Volume/Mute.
 /// - ``wavePollTask`` (20 fps, 50 ms): Peak-Level + perceptual ``waveEnergy``
 ///   für flüssige Signal-Meter und den Wellen-Header.
@@ -38,7 +38,7 @@ import os
 @MainActor
 final class EngineController: ObservableObject {
 
-    /// Die RT-Audio-Engine (Tap + Fan-out). Nur vom MainActor angesprochen —
+    /// Die RT-Audio-Engine (Tap + Fan-out). Nur vom MainActor angesprochen, 
     /// die Engine kapselt den RT-Pfad selbst.
     private let engine = FanOutEngine()
     private let logger = Logger(subsystem: "com.mauriciomorkun.audiorouternow",
@@ -60,7 +60,7 @@ final class EngineController: ObservableObject {
     /// IO-Buffer-Grösse (Frames) des aktiven Aggregates.
     @Published private(set) var bufferFrames: Int = 512
 
-    /// Peak-Pegel pro Output-Slot. Key = `"<uid>:<channelOffset>"` (Composite —
+    /// Peak-Pegel pro Output-Slot. Key = `"<uid>:<channelOffset>"` (Composite, 
     /// mehrere Configs desselben Geräts kollidieren sonst). Über ``peak(for:)``
     /// lesen, statt den Key manuell zu bilden.
     @Published private(set) var peakLevels: [String: (l: Float32, r: Float32)] = [:]
@@ -71,7 +71,7 @@ final class EngineController: ObservableObject {
 
     /// Audio-Energie für die WaveHeader-Animation [0.0 … 1.0]. Wird vom
     /// 20fps-Wave-Poll (50 ms) direkt aus `engine.peakLevel()` gespeist und
-    /// per EMA geglättet (schneller Attack, langsamer Release — VU-Meter).
+    /// per EMA geglättet (schneller Attack, langsamer Release, VU-Meter).
     @Published private(set) var waveEnergy: Float32 = 0
 
     @Published private(set) var outputConfigs: [OutputConfig] = []
@@ -94,7 +94,7 @@ final class EngineController: ObservableObject {
     static let launchAtLoginOptedInKey = "arn.v4.launchAtLoginExplicitlyOptedIn"
 
     /// Guideline 2.4.5(iii): Build-Nummer, für die der Consent zuletzt erteilt
-    /// wurde. Consent gilt nur, wenn er FÜR DEN AKTUELLEN BUILD vergeben wurde —
+    /// wurde. Consent gilt nur, wenn er FÜR DEN AKTUELLEN BUILD vergeben wurde, 
     /// so kann veralteter UserDefaults-State aus früheren Test-Sessions kein
     /// stilles Wieder-Aktivieren des Auto-Launch nach App-Updates auslösen.
     static let launchAtLoginConsentBuildKey = "arn.v4.launchAtLoginConsentBuildNumber"
@@ -112,7 +112,7 @@ final class EngineController: ObservableObject {
     /// M2: Login-Item-Toggle. Spiegelt den SMAppService-Status und registriert/
     /// deregistriert das Login-Item bei Änderung (rollt bei Fehler zurück).
     /// Jede toggle-getriebene Änderung persistiert zugleich das explizite
-    /// Opt-In (Guideline 2.4.5(iii)) — nur eine bewusste User-Aktion darf das
+    /// Opt-In (Guideline 2.4.5(iii)), nur eine bewusste User-Aktion darf das
     /// Login-Item registrieren.
     @Published var launchAtLogin: Bool = (SMAppService.mainApp.status == .enabled) {
         didSet {
@@ -150,7 +150,7 @@ final class EngineController: ObservableObject {
     }
 
     /// Feature B (Stable Output Mode): Default-Output-Lock während des Routings.
-    /// Default: ON — macOS-seitige Default-Wechsel (BT-Auto-Connect) werden zurückgesetzt.
+    /// Default: ON, macOS-seitige Default-Wechsel (BT-Auto-Connect) werden zurückgesetzt.
     @Published var lockOutputDevice: Bool = EngineController.loadLockOutputDevice() {
         didSet {
             guard oldValue != lockOutputDevice else { return }
@@ -167,7 +167,7 @@ final class EngineController: ObservableObject {
         UserDefaults.standard.object(forKey: lockOutputDeviceKey) as? Bool ?? true
     }
 
-    /// W5: true, während refreshLaunchAtLoginStatus() den Wert nur SPIEGELT —
+    /// W5: true, während refreshLaunchAtLoginStatus() den Wert nur SPIEGELT, 
     /// didSet darf dann NICHT registrieren/deregistrieren.
     private var isRefreshingLoginStatus = false
 
@@ -182,7 +182,7 @@ final class EngineController: ObservableObject {
         isRefreshingLoginStatus = false
     }
 
-    /// Guideline 2.4.5(iii) — Expliziter Consent-Dialog vor erstmaliger Aktivierung
+    /// Guideline 2.4.5(iii), Expliziter Consent-Dialog vor erstmaliger Aktivierung
     /// pro Build. Wird vom UI-Toggle aufgerufen statt `launchAtLogin` direkt zu setzen.
     ///
     /// Zeigt einen NSAlert wenn kein gültiger Consent für den aktuellen Build
@@ -210,12 +210,12 @@ final class EngineController: ObservableObject {
         launchAtLogin = true  // → didSet → SMAppService.register()
     }
 
-    /// Guideline 2.4.5(iii) — Compliance-Gate für das Login-Item.
+    /// Guideline 2.4.5(iii), Compliance-Gate für das Login-Item.
     ///
     /// Läuft ganz zu Beginn von ``init()``, VOR jeder anderen Login-Item-Aktion.
     /// Consent gilt nur wenn er explizit FÜR DEN AKTUELLEN BUILD erteilt wurde.
     /// Veralteter Consent (anderer Build, früheres Testing) wird als kein Consent
-    /// gewertet — SMAppService wird deregistriert, stale Keys bereinigt.
+    /// gewertet, SMAppService wird deregistriert, stale Keys bereinigt.
     ///
     /// - Note: `unregister()` ist ein No-Op, wenn nichts registriert ist.
     private static func ensureLoginItemCompliance() {
@@ -258,11 +258,11 @@ final class EngineController: ObservableObject {
     private var needsSRRestart = false
 
     init() {
-        // Guideline 2.4.5(iii) — MUSS als Allererstes laufen, VOR jeder anderen
+        // Guideline 2.4.5(iii), MUSS als Allererstes laufen, VOR jeder anderen
         // Login-Item-Interaktion: eine ohne Consent bestehende (z.B. aus einem
         // früheren Build residuale) SMAppService-Registrierung wird hier
         // deregistriert. Der Property-Initializer von `launchAtLogin` hat den
-        // Status bereits eingelesen — er wird direkt danach neu gespiegelt.
+        // Status bereits eingelesen, er wird direkt danach neu gespiegelt.
         Self.ensureLoginItemCompliance()
         // Gespiegelten Toggle-Wert an den (ggf. gerade bereinigten) Ist-Zustand
         // angleichen, ohne didSet-Seiteneffekte auszulösen.
@@ -391,7 +391,7 @@ final class EngineController: ObservableObject {
         }
     }
 
-    /// Vom ``pollingTask`` alle 0,5 s aufgerufen — spiegelt die langsamen
+    /// Vom ``pollingTask`` alle 0,5 s aufgerufen, spiegelt die langsamen
     /// Engine-Metriken (Callbacks, TCC-Verdacht, Audio-Empfang, Volume/Mute)
     /// in die `@Published`-Properties. Peak-Level laufen separat im 20fps-Poll.
     func poll() {
@@ -403,7 +403,7 @@ final class EngineController: ObservableObject {
         isMuted = vol < 0.001
         currentVolume = isMuted ? currentVolume : Double(vol)  // Volume nicht überschreiben wenn gemutet
 
-        // peakLevels: jetzt im wavePollTask (20fps) — siehe updateWaveEnergy()
+        // peakLevels: jetzt im wavePollTask (20fps), siehe updateWaveEnergy()
     }
 
     /// Schreibt die Lautstärke auf das System-Default-Output-Gerät.
@@ -437,7 +437,7 @@ final class EngineController: ObservableObject {
         peakLevels["\(config.uid):\(config.channelOffset)"]
     }
 
-    /// Waveform-Snapshot für Oszilloskop-Anzeige. Thread-safe via WaveformBridge —
+    /// Waveform-Snapshot für Oszilloskop-Anzeige. Thread-safe via WaveformBridge, 
     /// wird direkt vom Canvas bei 60fps gelesen (kein @Published, kein Polling).
     func waveformSnapshot(count: Int) -> [(min: Float32, max: Float32)] {
         engine.waveformSnapshot(count: count)
@@ -467,7 +467,7 @@ final class EngineController: ObservableObject {
 
     /// M1: Bei laufendem Routing die Output-Änderung per Warm-Restart anwenden
     /// (Tap bleibt bestehen, kein neuer TCC-Prompt). Im Idle-Zustand ist das ein
-    /// No-Op — die neue Config greift beim nächsten `startRouting()`.
+    /// No-Op, die neue Config greift beim nächsten `startRouting()`.
     private func applyOutputsIfRouting() {
         guard status == .routing else { return }
         if isUpdatingOutputs {
@@ -537,7 +537,7 @@ final class EngineController: ObservableObject {
     }
 
     /// Startet den 20fps-Wave-Poll (50 ms) für die audio-reaktive Wellenform.
-    /// Liest `engine.peakLevel()` direkt (RT-safe via os_unfair_lock) — kein
+    /// Liest `engine.peakLevel()` direkt (RT-safe via os_unfair_lock), kein
     /// Umweg über das 500ms-`poll()`, das für Animationen zu langsam ist.
     private func startWavePoll() {
         wavePollTask?.cancel()
@@ -551,20 +551,20 @@ final class EngineController: ObservableObject {
 
     /// Berechnet die Audio-Energie perceptual (dBFS-skaliert) aus den Slot-Peaks
     /// und glättet per EMA: schneller Attack (α = 0.55), langsamer Release
-    /// (α = 0.10) — VU-Meter-Charakter. Befüllt zusätzlich `peakLevels` bei
+    /// (α = 0.10), VU-Meter-Charakter. Befüllt zusätzlich `peakLevels` bei
     /// 20fps für flüssige Signal-Meter. Ohne Audio zerfällt der Wert natürlich.
     private func updateWaveEnergy() {
         guard status == .routing else { decayWaveEnergy(); return }
         let slots = engine.slotDeviceKeys.count
         guard slots > 0 else { decayWaveEnergy(); return }
 
-        // 1. Peaks lesen + peakLevels aktualisieren (20fps für Signal-Meter — Fix 2)
+        // 1. Peaks lesen + peakLevels aktualisieren (20fps für Signal-Meter, Fix 2)
         var newPeaks: [String: (l: Float32, r: Float32)] = [:]
         var sum: Float32 = 0
         for (i, key) in engine.slotDeviceKeys.enumerated() where i < SlotGains.maxSlots {
             // W2: Anzeige-Pegel = IOProc-Peak (post-globalVol) × Per-Device-Gain.
             // Multiplikation bewusst HIER im MainActor-Poll (20 fps), nicht im
-            // IOProc — der RT-Record bleibt gain-frei (eine Quelle, alle Slots).
+            // IOProc, der RT-Record bleibt gain-frei (eine Quelle, alle Slots).
             let raw = engine.peakLevel(slotIndex: i)
             let gain = Float32(deviceGains[key] ?? 1.0)
             let p = (l: raw.l * gain, r: raw.r * gain)
@@ -601,7 +601,7 @@ final class EngineController: ObservableObject {
         waveEnergy = next < 0.001 ? 0 : next
     }
 
-    /// Natürlicher Zerfall (×0.88/Tick) — Wellen bleiben subtil, kein Publish-
+    /// Natürlicher Zerfall (×0.88/Tick), Wellen bleiben subtil, kein Publish-
     /// Churn bei bereits erreichter Null.
     private func decayWaveEnergy() {
         guard waveEnergy > 0 else { return }
@@ -611,7 +611,7 @@ final class EngineController: ObservableObject {
 
     private func startLifecycle() {
         var uids = Set(outputConfigs.map(\.uid))
-        // W3: Default-Output mit überwachen — er ist immer Sub-Device des
+        // W3: Default-Output mit überwachen, er ist immer Sub-Device des
         // Aggregates; ein SR-Wechsel dort braucht denselben Warm-Restart.
         let defaultUID = FanOutEngine.currentDefaultOutputUID()
         if let defaultUID {
@@ -634,12 +634,12 @@ final class EngineController: ObservableObject {
     /// M4: Sample-Rate-Wechsel auf einem gerouteten Device → Warm-Restart
     /// (Tap bleibt, kein TCC-Prompt). Fällt bei Fehler auf Full-Restart zurück.
     private func warmRestartForSampleRateChange() {
-        // K2: Gleicher Re-Entry-Guard wie applyOutputsIfRouting — verhindert
+        // K2: Gleicher Re-Entry-Guard wie applyOutputsIfRouting, verhindert
         // parallele Warm-Restarts (M4+M1 gleichzeitig → IOProc-/Scratch-Leak).
         guard status == .routing else { return }
         if isUpdatingOutputs {
             // W8-Analog: SR-Wechsel während laufendem Warm-Restart NICHT
-            // verwerfen — nach dessen Abschluss nachholen.
+            // verwerfen, nach dessen Abschluss nachholen.
             needsSRRestart = true
             return
         }

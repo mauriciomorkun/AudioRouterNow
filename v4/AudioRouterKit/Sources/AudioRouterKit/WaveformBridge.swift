@@ -36,12 +36,12 @@ final class WaveformBridge: @unchecked Sendable {
     private var _lock = os_unfair_lock_s()
 
     /// Vorab-allozierter Backing-Store, interleaved als `[min0, max0, min1, max1, …]`.
-    /// Einmalige Allokation im `init` — im Audio-Pfad wird NIE alloziert.
+    /// Einmalige Allokation im `init`, im Audio-Pfad wird NIE alloziert.
     private let storage: UnsafeMutableBufferPointer<Float32>
 
     /// Monoton wachsender Schreib-Cursor (Anzahl je gepushter Paare). Wird nur
     /// vom IOProc-Pfad unter `_lock` inkrementiert; via Bitmaske auf `capacity`
-    /// zurückgefaltet. Overflow ist unkritisch (`&+=`, wrapping) — nur die
+    /// zurückgefaltet. Overflow ist unkritisch (`&+=`, wrapping), nur die
     /// unteren `log2(capacity)` Bits werden ausgewertet.
     private var writeIndex: Int = 0
 
@@ -81,7 +81,7 @@ final class WaveformBridge: @unchecked Sendable {
     /// - Parameter count: gewünschte Anzahl; auf `[0, capacity]` geklemmt.
     /// - Returns: `count` (min, max)-Paare, das letzte Element ist das neueste.
     /// - Note: Vom MainActor bei bis zu 60 fps aufgerufen (Single-Reader).
-    ///   Reserviert das Ergebnis-Array VOR der Lock-Sektion nicht — die
+    ///   Reserviert das Ergebnis-Array VOR der Lock-Sektion nicht, die
     ///   Allokation liegt HIER (Reader-Seite, unkritisch), nie im Audio-Pfad.
     func snapshot(count: Int) -> [(min: Float32, max: Float32)] {
         let n = Swift.max(0, Swift.min(count, Self.capacity))

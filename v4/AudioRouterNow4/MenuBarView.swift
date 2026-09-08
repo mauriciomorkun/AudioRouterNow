@@ -3,7 +3,7 @@
 //  AudioRouterNow4
 //
 //  Phase 3 (UI-Layer, Konzept 4B "Fusion Prominent Wave + Accordion Expand"):
-//  Container-View — animierter Wellen-Header, Status-Bar, Volume-Slider,
+//  Container-View, animierter Wellen-Header, Status-Bar, Volume-Slider,
 //  Accordion-Geräteliste, State-Button und Footer.
 //
 //  Copyright 2026 Mauricio Moraïs da Cunha. Apache License 2.0.
@@ -74,7 +74,7 @@ struct MenuBarView: View {
         }
         .frame(width: 320)
         // Bug-Fix: MenuBarExtra(.window)-Panel erhält sonst keine korrekte
-        // Inhaltshöhe — fixedSize erzwingt die ideale vertikale Größe.
+        // Inhaltshöhe, fixedSize erzwingt die ideale vertikale Größe.
         .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             // W5: SMAppService-Status bei jedem Öffnen neu spiegeln
@@ -93,7 +93,7 @@ struct MenuBarView: View {
     // MARK: Geräteliste
 
     /// IDLE/ERROR: alle verfügbaren Geräte als togglebare Checkbox-Zeilen
-    /// (plus nicht mehr verbundene, aber noch konfigurierte Geräte —
+    /// (plus nicht mehr verbundene, aber noch konfigurierte Geräte, 
     /// damit stale Configs entfernbar bleiben).
     /// STARTING/ACTIVE: laufende Outputs als Accordion-Cards + AddDeviceRow.
     @ViewBuilder

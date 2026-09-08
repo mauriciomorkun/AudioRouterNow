@@ -15,7 +15,7 @@ import os
 /// Zähler, die der Realtime-IOProc beschreibt und der MainActor liest.
 ///
 /// `OSAllocatedUnfairLock` statt lock-freier Atomics: nur zwei
-/// Int-Inkremente pro Callback, MainActor pollt selten — akzeptabel.
+/// Int-Inkremente pro Callback, MainActor pollt selten, akzeptabel.
 /// Der eigentliche Audio-Pfad (Direct-IOProc) berührt diese Box gar nicht
 /// als Ring: er kopiert direkt inInputData→ioOutputData und meldet hier
 /// nur die Silence-Heuristik/UI-Metriken.
@@ -30,7 +30,7 @@ final class TapIOMetrics: @unchecked Sendable {
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     /// Wird aus dem IOProc-Callback aufgerufen (NICHT MainActor).
-    /// Kein throw, kein Allocation-lastiger Pfad — nur zählen.
+    /// Kein throw, kein Allocation-lastiger Pfad, nur zählen.
     func record(callbackWasSilent: Bool) {
         state.withLock { s in
             s.totalCallbacks += 1

@@ -251,7 +251,7 @@ struct StatsGrid: View {
 
 /// IDLE/ERROR-State: Checkbox-Zeile für ein verfügbares Gerät.
 /// Multi-Kanal-Geräte (channelCount > 2) erhalten eine Zeile pro
-/// Kanal-Paar (Ch1-2, Ch3-4, …) — jedes Paar einzeln togglebar.
+/// Kanal-Paar (Ch1-2, Ch3-4, …), jedes Paar einzeln togglebar.
 struct DeviceSelectionRow: View {
     @EnvironmentObject var controller: EngineController
     let uid: String
@@ -352,7 +352,7 @@ struct AddDeviceRow: View {
 
 // MARK: - DeviceVolumeRow
 
-/// F16: Per-Gerät-Lautstärke [0…1] — multipliziert mit dem globalen System-Volume.
+/// F16: Per-Gerät-Lautstärke [0…1], multipliziert mit dem globalen System-Volume.
 /// Live-Pfad: Slider → EngineController.setDeviceGain → FanOutEngine.setOutputGain
 /// → SlotGains (os_unfair_lock) → IOProc. Kein Warm-Restart, keine Audio-Lücke.
 private struct DeviceVolumeRow: View {

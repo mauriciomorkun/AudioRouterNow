@@ -1,6 +1,6 @@
-// SlotGains.swift — AudioRouterKit
+// SlotGains.swift, AudioRouterKit
 // RT-sichere Per-Slot-Gain-Brücke (F16).
-// Richtung: MainActor schreibt (set/setAll), IOProc liest (gain) — invertiert zu PeakMeters.
+// Richtung: MainActor schreibt (set/setAll), IOProc liest (gain), invertiert zu PeakMeters.
 // Synchronisation: os_unfair_lock (<100 ns Hold-Time, RT-kompatibel).
 // Kein Alloc, kein ARC-Traffic im IOProc-Pfad.
 

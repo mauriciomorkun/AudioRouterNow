@@ -78,7 +78,7 @@ struct RouterStatusTests {
 }
 
 // MARK: - FanOutEngine (CI-safe: Fehler-Pfade)
-// Hardware-abhängige Tests laufen auf echtem Mac — CI testet nur Fehler-Pfade.
+// Hardware-abhängige Tests laufen auf echtem Mac, CI testet nur Fehler-Pfade.
 
 @Suite("FanOutEngine (CI-safe: Fehler-Pfade)")
 struct FanOutEngineTests {
