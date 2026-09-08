@@ -111,7 +111,7 @@ bundled as indirect dependencies. License text identical to PyObjC above (MIT).
 
 These libraries are bundled as indirect dependencies of the Python stdlib
 (`ssl` module). AudioRouterNow does **not** make any network connections using
-OpenSSL — it is present solely because the Python runtime links against it.
+OpenSSL, it is present solely because the Python runtime links against it.
 
 Full license: https://github.com/openssl/openssl/blob/master/LICENSE.txt
 
@@ -180,5 +180,5 @@ part of macOS and are governed by the macOS Software License Agreement:
 - AppKit / Foundation (menu bar UI)
 - CoreFoundation
 
-These frameworks are not redistributed — they are loaded from the operating
+These frameworks are not redistributed, they are loaded from the operating
 system at runtime.

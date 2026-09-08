@@ -4,7 +4,7 @@
 
 # AudioRouterNow
 
-> **Current version: [AudioRouterNow 4](v4/) — Swift rewrite, Mac App Store** *(Re-Submitting — Build 4)*
+> **Current version: [AudioRouterNow 4](v4/), Swift rewrite, Mac App Store** *(Re-Submitting, Build 4)*
 > Legacy Python/HAL version: [v3 (legacy-v3/)](legacy-v3/)
 
 ---
@@ -14,17 +14,17 @@
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS%2011%2B-lightgrey?logo=apple)](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 [![Latest Release](https://img.shields.io/github/v/release/mauriciomorkun/AudioRouterNow)](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 
-> **Latest release: [v3.4.4](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.4)** — [Download AudioRouterNow.dmg](https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.4/AudioRouterNow.dmg)
+> **Latest release: [v3.4.4](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.4)**, [Download AudioRouterNow.dmg](https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.4/AudioRouterNow.dmg)
 
-**Play macOS system audio through every output at once — speakers, headphones, and interfaces together.**
+**Play macOS system audio through every output at once, speakers, headphones, and interfaces together.**
 
-AudioRouterNow is a free, open-source macOS menu bar app. It sends one audio source to every output simultaneously. One click, your volume keys keep working, your setup survives reboots — no restarts, no Terminal, no external tools.
+AudioRouterNow is a free, open-source macOS menu bar app. It sends one audio source to every output simultaneously. One click, your volume keys keep working, your setup survives reboots, no restarts, no Terminal, no external tools.
 
 > Built by [Mauricio Morkun](https://audiorouternow.mauriciomorkun.com) · Free forever · [Support via ☕](https://www.buymeacoffee.com/mauriciomorkun)
 
 ![AudioRouterNow menu showing two active outputs simultaneously](docs/screenshot.png)
 
-![AudioRouterNow demo — selecting multiple outputs in real time](docs/demo.gif)
+![AudioRouterNow demo, selecting multiple outputs in real time](docs/demo.gif)
 
 ---
 
@@ -33,7 +33,7 @@ AudioRouterNow is a free, open-source macOS menu bar app. It sends one audio sou
 macOS only routes system audio to one output at a time. AudioRouterNow breaks that limitation:
 
 - Send system audio to **Out 1/2 and Out 3/4 simultaneously** on a multi-output interface
-- Route to **multiple interfaces at once** — e.g. a USB interface + built-in speakers at the same time
+- Route to **multiple interfaces at once**, e.g. a USB interface + built-in speakers at the same time
 - Auto-detects all connected audio interfaces and their channel counts
 - Hot-plug: plug in a new interface → it appears in the menu instantly
 - Works with USB, Thunderbolt, HDMI, and internal audio
@@ -42,7 +42,7 @@ macOS only routes system audio to one output at a time. AudioRouterNow breaks th
 
 ## How it works
 
-AudioRouterNow uses a **custom HAL audio driver** (Apple AudioServerPlugin) — no kernel extension, no security approval, no restart required.
+AudioRouterNow uses a **custom HAL audio driver** (Apple AudioServerPlugin), no kernel extension, no security approval, no restart required.
 
 ```
 macOS System Audio
@@ -64,32 +64,32 @@ macOS System Audio
 
 ## Features
 
-- **Menu bar interface** — click `🎛️`, check the outputs you want, done
-- **Multi-output routing** — any number of devices simultaneously
-- **Cross-interface** — route to outputs across different devices at the same time
-- **Channel pair selection** — for multi-channel interfaces, choose exactly which output pair to use (Out 1-2, Out 3-4, Out 5-6…) via submenu
-- **Hot-plug detection** — devices appear and disappear in real time
-- **Remembers your setup** — selected outputs and channel pairs are restored on next launch
-- **One-click system audio switch** — switches macOS system output to Audio Router natively (CoreAudio, no AppleScript)
-- **No external tools** — no Homebrew, no SwitchAudioSource, no Terminal
+- **Menu bar interface**, click `🎛️`, check the outputs you want, done
+- **Multi-output routing**, any number of devices simultaneously
+- **Cross-interface**, route to outputs across different devices at the same time
+- **Channel pair selection**, for multi-channel interfaces, choose exactly which output pair to use (Out 1-2, Out 3-4, Out 5-6…) via submenu
+- **Hot-plug detection**, devices appear and disappear in real time
+- **Remembers your setup**, selected outputs and channel pairs are restored on next launch
+- **One-click system audio switch**, switches macOS system output to Audio Router natively (CoreAudio, no AppleScript)
+- **No external tools**, no Homebrew, no SwitchAudioSource, no Terminal
 
 ---
 
 ## Requirements
 
 - macOS 11 (Big Sur) or later
-- Apple Silicon (arm64) — Intel Macs are not supported by the prebuilt binary. The entire app must be rebuilt from source (Apple Silicon only).
+- Apple Silicon (arm64), Intel Macs are not supported by the prebuilt binary. The entire app must be rebuilt from source (Apple Silicon only).
 
 ---
 
 ## Installation
 
-**Option A — Direct download**
+**Option A, Direct download**
 
 1. Download [`AudioRouterNow.dmg` (v3.4.4)](https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.4/AudioRouterNow.dmg) from [Releases](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 2. Open the DMG and drag the app to Applications
-3. Launch the app — macOS will ask for your password once to install the audio driver
-4. `🎛️` appears in your menu bar — you're done
+3. Launch the app, macOS will ask for your password once to install the audio driver
+4. `🎛️` appears in your menu bar, you're done
 
 No Terminal. No restart. No security approval.
 
@@ -101,7 +101,7 @@ shasum -a 256 ~/Downloads/AudioRouterNow.dmg
 # 65e1ac5a8d340ae71ba5ab3c1b7eb54f251980c20d48e797ec65a69e8c8231b2
 ```
 
-**Option B — Homebrew Cask (optional)**
+**Option B, Homebrew Cask (optional)**
 
 ```sh
 brew install --cask mauriciomorkun/tap/audiorouternow
@@ -120,7 +120,7 @@ AudioRouterNow installs the following components (requires admin password once):
 | Configuration | `~/.audiorouter/config.json` | Your saved settings |
 | Logs | `~/Library/Logs/AudioRouterNow/` | Troubleshooting |
 
-No LaunchAgent is installed — the menu bar app manages the helper directly.
+No LaunchAgent is installed, the menu bar app manages the helper directly.
 
 ---
 
@@ -128,7 +128,7 @@ No LaunchAgent is installed — the menu bar app manages the helper directly.
 
 1. Click `🎛️` in the menu bar
 2. Click **"System Audio → Audio Router"** to make Audio Router the macOS system output
-3. Check the output devices you want to route to — routing starts automatically the moment a device is selected
+3. Check the output devices you want to route to, routing starts automatically the moment a device is selected
 4. Audio now plays through all selected outputs simultaneously
 5. Uncheck a device to stop routing to it; check another to add it on the fly
 
@@ -139,7 +139,7 @@ No LaunchAgent is installed — the menu bar app manages the helper directly.
 **No sound?**
 1. Check that "Audio Router" is selected as System Output (System Settings → Sound)
 2. Make sure at least one output device is checked in the menu
-3. Look for the status indicator at the top of the menu — it shows exactly what's missing
+3. Look for the status indicator at the top of the menu, it shows exactly what's missing
 
 **"Helper not responding" in menu?**
 Click the status line to restart the helper. If it persists, quit and relaunch the app.
@@ -209,7 +209,7 @@ sudo make install && sudo make reload
 # 2. Build the native helper (C daemon)
 cd ../helper
 make
-# Produces ./AudioRouterNowHelper — the menu bar app launches this directly
+# Produces ./AudioRouterNowHelper, the menu bar app launches this directly
 
 # 3. Run the Python menu bar app
 cd ../engine
@@ -225,7 +225,7 @@ cd installer && ./build.sh
 # Output: ~/Desktop/AudioRouterNow.dmg
 ```
 
-> The HAL driver must be built first — run `make` in the `driver/` directory before running `build.sh`.
+> The HAL driver must be built first, run `make` in the `driver/` directory before running `build.sh`.
 
 ---
 
@@ -261,15 +261,15 @@ AudioRouterNow collects **no data** about you or your system:
 
 - No telemetry, no analytics, no crash reporting
 - No network connections of any kind
-- Configuration is stored locally in `~/.audiorouter/` — never transmitted
-- The app bundle includes OpenSSL libraries as an indirect Python runtime dependency — they are **not used for any network communication**
+- Configuration is stored locally in `~/.audiorouter/`, never transmitted
+- The app bundle includes OpenSSL libraries as an indirect Python runtime dependency, they are **not used for any network communication**
 
 ---
 
 ## Support
 
 AudioRouterNow is free and will stay free.  
-If it saves you time, you can [buy me a coffee ☕](https://www.buymeacoffee.com/mauriciomorkun) — entirely optional.
+If it saves you time, you can [buy me a coffee ☕](https://www.buymeacoffee.com/mauriciomorkun), entirely optional.
 
 **Crypto donations:**  
 `BTC` bc1qaa58vwf5d70rve7fp6svlygupkx6tf37g2qujt  
@@ -286,5 +286,5 @@ Bundled open-source components and their licenses: [THIRD_PARTY_NOTICES.md](THIR
 
 ## License
 
-- **AudioRouterNow v4** (Swift / App Store) — Apache License 2.0 — see [v4/LICENSE](v4/LICENSE)
-- **AudioRouterNow v3** (Python / HAL, legacy) — GPL-3.0 — see [LICENSE](LICENSE)
+- **AudioRouterNow v4** (Swift / App Store), Apache License 2.0, see [v4/LICENSE](v4/LICENSE)
+- **AudioRouterNow v3** (Python / HAL, legacy), GPL-3.0, see [LICENSE](LICENSE)

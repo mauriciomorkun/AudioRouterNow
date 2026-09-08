@@ -1,6 +1,6 @@
 # Contributing to AudioRouterNow
 
-Thank you for considering a contribution — it means a lot for a solo project.
+Thank you for considering a contribution, it means a lot for a solo project.
 
 ## Bug reports
 
@@ -22,9 +22,9 @@ Open a [GitHub Issue](../../issues/new?template=feature_request.md) and describe
 
 ### Code style
 
-- **C code** — C11, no external dependencies, clang-tidy clean
-- **Python** — compatible with Python 3.10+, no new third-party dependencies without prior discussion
-- **Commit messages** — conventional commits preferred (`fix:`, `feat:`, `chore:`)
+- **C code**, C11, no external dependencies, clang-tidy clean
+- **Python**, compatible with Python 3.10+, no new third-party dependencies without prior discussion
+- **Commit messages**, conventional commits preferred (`fix:`, `feat:`, `chore:`)
 
 ### Architecture notes
 
@@ -36,7 +36,7 @@ The project has three components that interact closely:
 | Audio Routing Daemon | `helper/` | C |
 | Menu Bar App | `engine/` | Python |
 
-Changes to the shared-memory ring buffer (`helper/shared_ring.h`) or IPC protocol affect all three — please open an issue first to discuss before touching those.
+Changes to the shared-memory ring buffer (`helper/shared_ring.h`) or IPC protocol affect all three, please open an issue first to discuss before touching those.
 
 ## Development tooling
 

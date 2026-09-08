@@ -1,6 +1,6 @@
 # Changelog
 
-## [4.0.0 (7)] — 2026-08-13
+## [4.0.0 (7)], 2026-08-13
 
 ### Fixed
 - Guideline 2.4.5(iii): Replaced implicit UserDefaults-based consent check with
@@ -19,72 +19,72 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
-## [v4] AudioRouterNow 4 — Mac App Store
+## [v4] AudioRouterNow 4, Mac App Store
 
 > **Versioning note:** v4 follows Apple's App Store versioning (`Version 1.0`, Build `4.0.0`).
 > v3 continues as the legacy open-source release and uses its own semver track.
 
 ---
 
-## [4.0.4] — 2026-08-11 · _Mac App Store (macOS 14.4+)_ — Re-Submit Build 6
+## [4.0.4], 2026-08-11 · _Mac App Store (macOS 14.4+)_, Re-Submit Build 6
 
 ### Fixed
-- **App Store screenshot headline** — the replacement screenshot introduced in Build 5 still contained the words "free" and "Free forever" in the headline text ("A free & easy to use alternative to paid routing apps. Free forever. Open source."). Apple's Guideline 2.3.7 explicitly states that "references to free or discounted services are considered a price reference and are not appropriate for app metadata." Headline replaced with "Route your Mac's audio to multiple outputs simultaneously." and subtitle "Open source · No drivers · No setup required" — no pricing language of any kind.
-- **Build archive stale-cache issue** — Build 5 was archived without running "Product > Clean Build Folder" in Xcode beforehand. Xcode reused cached compiled objects from Derived Data, causing the binary to include the old OnboardingView UI (with the Launch at Login checkbox) despite the source code being correct. For Build 6, Derived Data was fully deleted (`~/Library/Developer/Xcode/DerivedData/`) before archiving, and the app was verified locally (no checkbox visible in onboarding) prior to submission.
+- **App Store screenshot headline**, the replacement screenshot introduced in Build 5 still contained the words "free" and "Free forever" in the headline text ("A free & easy to use alternative to paid routing apps. Free forever. Open source."). Apple's Guideline 2.3.7 explicitly states that "references to free or discounted services are considered a price reference and are not appropriate for app metadata." Headline replaced with "Route your Mac's audio to multiple outputs simultaneously." and subtitle "Open source · No drivers · No setup required", no pricing language of any kind.
+- **Build archive stale-cache issue**, Build 5 was archived without running "Product > Clean Build Folder" in Xcode beforehand. Xcode reused cached compiled objects from Derived Data, causing the binary to include the old OnboardingView UI (with the Launch at Login checkbox) despite the source code being correct. For Build 6, Derived Data was fully deleted (`~/Library/Developer/Xcode/DerivedData/`) before archiving, and the app was verified locally (no checkbox visible in onboarding) prior to submission.
 
 ---
 
-## [4.0.3] — 2026-08-09 · _Mac App Store (macOS 14.4+)_ — Re-Submit Build 5
+## [4.0.3], 2026-08-09 · _Mac App Store (macOS 14.4+)_, Re-Submit Build 5
 
 ### Fixed
-- **Launch at Login removed from onboarding** — the "Launch at Login" checkbox has been removed from the first-launch onboarding screen entirely. Showing any auto-launch control at startup — even unchecked — was interpreted by Apple Review as the app presenting auto-launch capability at first launch (Guideline 2.4.5(iii)). Launch at Login is now exclusively controlled via the dedicated menu toggle, which requires an explicit deliberate user action and is always off by default. The `ensureLoginItemCompliance()` gate (introduced in Build 4) remains active on every app launch, ensuring no Login Item can exist without explicit user consent.
-- **Removed unreachable `SMAppService.register()` branch from onboarding callback** — after the checkbox removal, the `onContinue` callback in `AudioRouterNowApp` still contained an `if launchAtLogin { register() }` branch that could never execute (OnboardingView always passes `false`). Removed to eliminate any static-analysis ambiguity: `register()` is now called exclusively from the explicit menu-toggle `didSet`. The onboarding callback now unconditionally sets the opt-in key to `false` and calls `unregister()` (no-op if nothing is registered) to clear any residual registration from older builds.
+- **Launch at Login removed from onboarding**, the "Launch at Login" checkbox has been removed from the first-launch onboarding screen entirely. Showing any auto-launch control at startup, even unchecked, was interpreted by Apple Review as the app presenting auto-launch capability at first launch (Guideline 2.4.5(iii)). Launch at Login is now exclusively controlled via the dedicated menu toggle, which requires an explicit deliberate user action and is always off by default. The `ensureLoginItemCompliance()` gate (introduced in Build 4) remains active on every app launch, ensuring no Login Item can exist without explicit user consent.
+- **Removed unreachable `SMAppService.register()` branch from onboarding callback**, after the checkbox removal, the `onContinue` callback in `AudioRouterNowApp` still contained an `if launchAtLogin { register() }` branch that could never execute (OnboardingView always passes `false`). Removed to eliminate any static-analysis ambiguity: `register()` is now called exclusively from the explicit menu-toggle `didSet`. The onboarding callback now unconditionally sets the opt-in key to `false` and calls `unregister()` (no-op if nothing is registered) to clear any residual registration from older builds.
 
 ### Changed
-- **App Store screenshot** — replaced screenshot that showed the Support Tip Jar with visible pricing ($1.99 / $4.99). App Store screenshots may not include price references per Guideline 2.3.7. The new screenshot shows the app in its standard routing state.
-- **App Review Notes** — added screen recording demonstrating the complete user flow and a successful sandbox in-app purchase (Guideline 2.1(b) requirement).
+- **App Store screenshot**, replaced screenshot that showed the Support Tip Jar with visible pricing ($1.99 / $4.99). App Store screenshots may not include price references per Guideline 2.3.7. The new screenshot shows the app in its standard routing state.
+- **App Review Notes**, added screen recording demonstrating the complete user flow and a successful sandbox in-app purchase (Guideline 2.1(b) requirement).
 
 ---
 
-## [4.0.2] — 2026-08-07 · _Mac App Store (macOS 14.4+)_ — Re-Submit Build 4
+## [4.0.2], 2026-08-07 · _Mac App Store (macOS 14.4+)_, Re-Submit Build 4
 
 ### Fixed
-- **Login Item is now unregistered unless explicitly opted in** — a Login Item registered by an earlier build (before the opt-in default) survived app updates because macOS binds `SMAppService` registrations to the bundle ID, not the binary. On every launch the app now enforces a compliance gate: unless the user has explicitly enabled "Launch at Login", any existing registration is removed. This fully resolves the recurring Apple Review rejection (Guideline 2.4.5(iii)) — the previous build only changed the default for *new* installs and could not clear a pre-existing registration. Explicit opt-in is tracked via a dedicated `launchAtLoginExplicitlyOptedIn` flag set only by a deliberate user action (onboarding checkbox or menu toggle).
+- **Login Item is now unregistered unless explicitly opted in**, a Login Item registered by an earlier build (before the opt-in default) survived app updates because macOS binds `SMAppService` registrations to the bundle ID, not the binary. On every launch the app now enforces a compliance gate: unless the user has explicitly enabled "Launch at Login", any existing registration is removed. This fully resolves the recurring Apple Review rejection (Guideline 2.4.5(iii)), the previous build only changed the default for *new* installs and could not clear a pre-existing registration. Explicit opt-in is tracked via a dedicated `launchAtLoginExplicitlyOptedIn` flag set only by a deliberate user action (onboarding checkbox or menu toggle).
 
 ### Changed
-- **Support page** — added a dedicated support page at `audiorouternow.mauriciomorkun.com/support/` with a getting-started guide, troubleshooting, FAQ, and direct contact (email + GitHub Issues). Resolves Apple Review note (Guideline 1.5) that the previous Support URL (GitHub Issues) did not present usable support information.
+- **Support page**, added a dedicated support page at `audiorouternow.mauriciomorkun.com/support/` with a getting-started guide, troubleshooting, FAQ, and direct contact (email + GitHub Issues). Resolves Apple Review note (Guideline 1.5) that the previous Support URL (GitHub Issues) did not present usable support information.
 
 ---
 
-## [4.0.1] — 2026-08-05 · _Mac App Store (macOS 14.4+)_ — Re-Submit Build 3
+## [4.0.1], 2026-08-05 · _Mac App Store (macOS 14.4+)_, Re-Submit Build 3
 
 ### Fixed
-- **Launch at Login defaults to off** — the onboarding toggle was previously checked by default, causing the app to register as a Login Item without explicit user consent. The toggle now defaults to unchecked; users must actively opt in. Fixes Apple Review rejection (Guideline 2.4.5(iii)).
+- **Launch at Login defaults to off**, the onboarding toggle was previously checked by default, causing the app to register as a Login Item without explicit user consent. The toggle now defaults to unchecked; users must actively opt in. Fixes Apple Review rejection (Guideline 2.4.5(iii)).
 
 ---
 
-## [4.0.0] — 2026-07-24 · _Mac App Store (macOS 14.4+)_
+## [4.0.0], 2026-07-24 · _Mac App Store (macOS 14.4+)_
 
-### Added — Complete Swift Rewrite
-- **Process Tap architecture** — replaces the HAL plugin + C helper + Python stack entirely. Audio is captured via `CATapDescription` (Apple's sandboxed, public Process Tap API) and fanned out through a `CoreAudio` IOProc on an in-process Aggregate Device. No driver installation, no helper process, no admin password required.
-- **Stable Output Mode** — a 🔒 lock toggle (default ON) in the footer prevents macOS from switching the system output when a Bluetooth device auto-connects. Audio routing continues uninterrupted; volume keys remain bound to the locked device. Persisted via UserDefaults.
-- **Bluetooth volume fix** — volume keys now correctly follow Bluetooth devices. `VolumeTracker` probes `kAudioObjectPropertyElementMain` first, then falls back to channel elements 1 and 2 for devices (e.g. AirPods, Sony WH-1000XM series) that only expose per-channel volume scalars. Software-volume mode handles devices with no hardware volume property.
-- **Tip Jar (StoreKit 2)** — optional, non-blocking in-app purchases: Coffee ☕ ($1.99) and Beer 🍺 ($4.99). App is fully functional without purchase.
-- **Live waveform** — animated peak meter in the menu bar header (per-channel RMS + peak hold, 60 fps via `CADisplayLink`).
-- **Animated device cards** — DeviceCard with live volume ring, status indicator, routing latency display.
-- **Accordion routing panel** — progressive disclosure; channel pair selection per device.
-- **macOS 14.4+ only** — required by the Process Tap API (`kAudioHardwarePropertyProcessTapList`).
-- **Apache 2.0 license** — replaces GPL-3.0 for the v4 codebase; App Store compatible.
-- **Sandboxed** — full App Store sandbox. No helper process, no driver, no kernel extension.
+### Added, Complete Swift Rewrite
+- **Process Tap architecture**, replaces the HAL plugin + C helper + Python stack entirely. Audio is captured via `CATapDescription` (Apple's sandboxed, public Process Tap API) and fanned out through a `CoreAudio` IOProc on an in-process Aggregate Device. No driver installation, no helper process, no admin password required.
+- **Stable Output Mode**, a 🔒 lock toggle (default ON) in the footer prevents macOS from switching the system output when a Bluetooth device auto-connects. Audio routing continues uninterrupted; volume keys remain bound to the locked device. Persisted via UserDefaults.
+- **Bluetooth volume fix**, volume keys now correctly follow Bluetooth devices. `VolumeTracker` probes `kAudioObjectPropertyElementMain` first, then falls back to channel elements 1 and 2 for devices (e.g. AirPods, Sony WH-1000XM series) that only expose per-channel volume scalars. Software-volume mode handles devices with no hardware volume property.
+- **Tip Jar (StoreKit 2)**, optional, non-blocking in-app purchases: Coffee ☕ ($1.99) and Beer 🍺 ($4.99). App is fully functional without purchase.
+- **Live waveform**, animated peak meter in the menu bar header (per-channel RMS + peak hold, 60 fps via `CADisplayLink`).
+- **Animated device cards**, DeviceCard with live volume ring, status indicator, routing latency display.
+- **Accordion routing panel**, progressive disclosure; channel pair selection per device.
+- **macOS 14.4+ only**, required by the Process Tap API (`kAudioHardwarePropertyProcessTapList`).
+- **Apache 2.0 license**, replaces GPL-3.0 for the v4 codebase; App Store compatible.
+- **Sandboxed**, full App Store sandbox. No helper process, no driver, no kernel extension.
 
 ### Architecture
-- `AudioRouterKit` — standalone Swift Package (FanOutEngine, VolumeTracker, DeviceLifecycleManager, ProcessTapCapture)
-- `AudioRouterNow4` — SwiftUI + MenuBarExtra app target (EngineController, MenuBarView, WaveHeaderView, DeviceCardView, RoutingControls, TipJarView)
+- `AudioRouterKit`, standalone Swift Package (FanOutEngine, VolumeTracker, DeviceLifecycleManager, ProcessTapCapture)
+- `AudioRouterNow4`, SwiftUI + MenuBarExtra app target (EngineController, MenuBarView, WaveHeaderView, DeviceCardView, RoutingControls, TipJarView)
 - Thread model: CoreAudio IOProc on realtime thread; UI on `@MainActor`; lifecycle on dedicated serial queue
 
 ---
 
-## [3.4.5] — unreleased · _Legacy (macOS 11+, direct download)_
+## [3.4.5], unreleased · _Legacy (macOS 11+, direct download)_
 
 ### Fixed
 - **Driver installation failed on first launch when `/Library/Audio/Plug-Ins/HAL/` did
@@ -101,51 +101,51 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 > **Note on 3.4.0–3.4.4:** the installer script ended with `echo`, so its exit code was
 > always 0 regardless of whether `cp` succeeded. A failed copy was reported as success.
 > The error check (`cp -Rf … || exit 1`) was committed in `7f951d4` but never shipped in
-> a release — 3.4.5 is the first release to contain it.
+> a release, 3.4.5 is the first release to contain it.
 
 ---
 
-## [3.4.4] — 2026-06-30 · _Legacy (macOS 11+, direct download)_
+## [3.4.4], 2026-06-30 · _Legacy (macOS 11+, direct download)_
 
 ### Fixed
-- Devices with non-ASCII characters in their CoreAudio UID (e.g. CJK characters from serial numbers) are now correctly routed — previously the helper received `\uXXXX` escape sequences instead of actual UTF-8 bytes, causing `find_device_by_uid()` to fail with "not found" despite the device being present and functional
+- Devices with non-ASCII characters in their CoreAudio UID (e.g. CJK characters from serial numbers) are now correctly routed, previously the helper received `\uXXXX` escape sequences instead of actual UTF-8 bytes, causing `find_device_by_uid()` to fail with "not found" despite the device being present and functional
 
 ---
 
-## [3.4.3] — 2026-06-30
+## [3.4.3], 2026-06-30
 
 ### Fixed
-- NSPopover is now the default menu for all users, including fresh installs — `use_popover_menu` default changed from `False` to `True`
-- Existing users who had the old NSMenu persisted in their config now automatically receive the NSPopover after updating — one-time migration via `popover_migrated` flag in `AppConfig`; fires once on first launch, immediately persisted to survive force-quit/crash; a manual revert to `use_popover_menu: false` is respected afterwards
-- Uninstaller no longer freezes the app for 30+ seconds — `uninstall_all()` now runs in a background thread with a polling timer; the UI stays responsive throughout
+- NSPopover is now the default menu for all users, including fresh installs, `use_popover_menu` default changed from `False` to `True`
+- Existing users who had the old NSMenu persisted in their config now automatically receive the NSPopover after updating, one-time migration via `popover_migrated` flag in `AppConfig`; fires once on first launch, immediately persisted to survive force-quit/crash; a manual revert to `use_popover_menu: false` is respected afterwards
+- Uninstaller no longer freezes the app for 30+ seconds, `uninstall_all()` now runs in a background thread with a polling timer; the UI stays responsive throughout
 - Reentrancy guard on the Uninstall menu item prevents double-trigger when the menu stays open (NSPopover)
-- App now reliably quits after a successful uninstall — `rumps.quit_application()` called from the main thread after the background worker completes
+- App now reliably quits after a successful uninstall, `rumps.quit_application()` called from the main thread after the background worker completes
 
 ---
 
-## [3.4.2] — 2026-06-29
+## [3.4.2], 2026-06-29
 
 ### Added
-- Help → Status Guide — native `NSAlert` colour legend explaining all three menu bar icon states (🟢 routing active, 🟡 warning, 🔴 error) and the scenarios that trigger each
-- Persistent `NSPopover` menu (behind `use_popover_menu` flag) — the menu now stays open after each click so you can select multiple outputs and change settings without reopening it; closes on outside click
-- Brand logo asset set in `assets/logo/` — Inline and Stacked variants, Black and White, each as SVG + PNG
+- Help → Status Guide, native `NSAlert` colour legend explaining all three menu bar icon states (🟢 routing active, 🟡 warning, 🔴 error) and the scenarios that trigger each
+- Persistent `NSPopover` menu (behind `use_popover_menu` flag), the menu now stays open after each click so you can select multiple outputs and change settings without reopening it; closes on outside click
+- Brand logo asset set in `assets/logo/`, Inline and Stacked variants, Black and White, each as SVG + PNG
 
 ### Fixed
-- Audio now audible on all fan-out outputs after routing switch — HW volume of physical targets was frozen at previous (often near-zero) level; now carried across from the previous system default on every switch
-- No more ~10 s audio drop-out on other outputs when a 3rd device is added — healer grace period (2 s) prevents unnecessary reconnect during coreaudiod transport restart
+- Audio now audible on all fan-out outputs after routing switch, HW volume of physical targets was frozen at previous (often near-zero) level; now carried across from the previous system default on every switch
+- No more ~10 s audio drop-out on other outputs when a 3rd device is added, healer grace period (2 s) prevents unnecessary reconnect during coreaudiod transport restart
 - Devices without software volume control (hardware-pot interfaces) correctly skipped during volume propagation
-- Menu bar icon stays green when audio routes fine despite an unavailable configured device — turns orange only when zero outputs are available (status text keeps the `(N unavailable)` counter)
-- Three NSPopover follow-up warnings resolved — status rows clickable inside the popover, status line updates live while the popover is open, and a 0.15 s flicker guard on icon toggle
-- Action items in NSPopover (Quit, Status Guide, docs, etc.) no longer render with spurious checkboxes — only toggle items (output devices, sample rate, safe mode) use checkbox style
-- Channel pairs for multi-channel devices are now always visible in the NSPopover, even when the device is inactive — sub-rows (Ch 1-2, Ch 3-4, …) appear greyed-out so users can discover channel selection before activating the device
+- Menu bar icon stays green when audio routes fine despite an unavailable configured device, turns orange only when zero outputs are available (status text keeps the `(N unavailable)` counter)
+- Three NSPopover follow-up warnings resolved, status rows clickable inside the popover, status line updates live while the popover is open, and a 0.15 s flicker guard on icon toggle
+- Action items in NSPopover (Quit, Status Guide, docs, etc.) no longer render with spurious checkboxes, only toggle items (output devices, sample rate, safe mode) use checkbox style
+- Channel pairs for multi-channel devices are now always visible in the NSPopover, even when the device is inactive, sub-rows (Ch 1-2, Ch 3-4, …) appear greyed-out so users can discover channel selection before activating the device
 
 ### Changed
 - Version number is now single-sourced from `engine/version.py`
-- Config save now merges with existing file instead of overwriting — unknown fields (e.g. feature flags from newer versions) survive round-trips through older installed app versions (`APP_VERSION = "3.4.2"`) — `installer/AudioRouterNow.spec`, `installer/build_local.sh`, and `driver/resources/Info.plist` all derive from it; build fails on divergence (4 previously hardcoded strings eliminated)
+- Config save now merges with existing file instead of overwriting, unknown fields (e.g. feature flags from newer versions) survive round-trips through older installed app versions (`APP_VERSION = "3.4.2"`), `installer/AudioRouterNow.spec`, `installer/build_local.sh`, and `driver/resources/Info.plist` all derive from it; build fails on divergence (4 previously hardcoded strings eliminated)
 
 ---
 
-## [3.4.1] — 2026-06-25
+## [3.4.1], 2026-06-25
 
 ### Fixed
 - Routing status now reflects actual IOProc state, not saved device selection
@@ -155,12 +155,12 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
-## [3.4.0] — 2026-06-13
+## [3.4.0], 2026-06-13
 
 ### Fixed
 - Audio no longer silent after fresh installation (SHM permissions: `umask(0)` + `0666` world-readable)
-- Audio clock deadlock resolved — `GetZeroTimeStamp` now uses a freely-running `mach_absolute_time()` clock
-- Zombie helper prevention — stale helper processes from previous versions are automatically detected and replaced on launch
+- Audio clock deadlock resolved, `GetZeroTimeStamp` now uses a freely-running `mach_absolute_time()` clock
+- Zombie helper prevention, stale helper processes from previous versions are automatically detected and replaced on launch
 - Version negotiation between app and helper prevents split-brain after updates
 
 ### Changed
@@ -169,14 +169,14 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
-## [3.3.1] — 2026-06-11
+## [3.3.1], 2026-06-11
 
 ### Fixed
 - Version string inconsistency: helper, driver, and app now all report `3.3.1`
 
 ---
 
-## [3.3.0] — 2026-06-11
+## [3.3.0], 2026-06-11
 
 ### Added
 - Automated health monitoring with self-healing (Healer module)
@@ -188,7 +188,7 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
-## [3.2.0] — 2026-06-10
+## [3.2.0], 2026-06-10
 
 ### Added
 - First stable release with full audio routing
@@ -200,5 +200,5 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ## Earlier versions (v2.x)
 
-v2.9.0, v2.8.x, v2.7.0 — Pre-release development iterations.  
+v2.9.0, v2.8.x, v2.7.0, Pre-release development iterations.  
 Not publicly documented; architecture was significantly revised for v3.x.

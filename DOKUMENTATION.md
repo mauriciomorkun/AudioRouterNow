@@ -1,11 +1,11 @@
-# AudioRouterNow — Vollständige Projekt-Dokumentation
+# AudioRouterNow: Vollständige Projekt-Dokumentation
 
-**Stand:** 10. Juni 2026 (Kapitel 46 — v3.2.0 Stability & Security Release)
+**Stand:** 10. Juni 2026 (Kapitel 46, v3.2.0 Stability & Security Release)
 **Version:** 3.2.0  
 **Autor:** Mauricio Morkun  
 **Lizenz:** GPL-3.0  
 
-> **Schnelle Versions-Übersicht:** Siehe [`RELEASE_NOTES.md`](RELEASE_NOTES.md) — zweigeteilt in "For Everyone" (Klartext) und "For Power Users" (technische Details). Diese Datei enthält die vollständige Architektur- und Implementierungsdokumentation.
+> **Schnelle Versions-Übersicht:** Siehe [`RELEASE_NOTES.md`](RELEASE_NOTES.md), zweigeteilt in "For Everyone" (Klartext) und "For Power Users" (technische Details). Diese Datei enthält die vollständige Architektur- und Implementierungsdokumentation.
 
 ---
 
@@ -17,52 +17,52 @@
 4. [Engine (engine/)](#4-engine-engine)
 5. [Installer (installer/)](#5-installer-installer)
 6. [Konfiguration & Persistenz](#6-konfiguration--persistenz)
-7. [Volume & Mute — Signalweg](#7-volume--mute--signalweg)
+7. [Volume & Mute, Signalweg](#7-volume--mute--signalweg)
 8. [Multi-Channel Multi-Output Routing](#8-multi-channel-multi-output-routing)
 9. [Build & Installation](#9-build--installation)
 10. [Implementierte Features (Entwicklungs-Chronik)](#10-implementierte-features-entwicklungs-chronik)
 11. [Bekannte Limitierungen](#11-bekannte-limitierungen)
 12. [Dateistruktur](#12-dateistruktur)
-13. [Qualitäts-Audit & Fixes — 23. Mai 2026](#13-qualitäts-audit--fixes--23-mai-2026)
-14. [Native C Helper — Architektur v2.0](#14-native-c-helper--architektur-v20)
-15. [5-Wave Bugfix-Plan — Mai 2026](#15-5-wave-bugfix-plan--mai-2026)
-16. [Volume-Keyboard-Fix — Mai 2026](#16-volume-keyboard-fix--mai-2026)
-17. [Sandbox-Compliance Fix — v2.1 (29. Mai 2026)](#17-sandbox-compliance-fix--v21-29-mai-2026)
+13. [Qualitäts-Audit & Fixes, 23. Mai 2026](#13-qualitäts-audit--fixes--23-mai-2026)
+14. [Native C Helper, Architektur v2.0](#14-native-c-helper--architektur-v20)
+15. [5-Wave Bugfix-Plan, Mai 2026](#15-5-wave-bugfix-plan--mai-2026)
+16. [Volume-Keyboard-Fix, Mai 2026](#16-volume-keyboard-fix--mai-2026)
+17. [Sandbox-Compliance Fix, v2.1 (29. Mai 2026)](#17-sandbox-compliance-fix--v21-29-mai-2026)
 18. [User-Onboarding & UX-Layer (v2.2)](#18-user-onboarding--ux-layer-v22)
-19. [Bugfix-Welle v2.3 — Initialisierungsreihenfolge & Stabilität (30. Mai 2026)](#19-bugfix-welle-v23--initialisierungsreihenfolge--stabilität-30-mai-2026)
-20. [macOS-26-Kompatibilitäts-Fix — StartIO + GetZeroTimeStamp (30. Mai 2026)](#20-macos-26-kompatibilitäts-fix--startio--getzerotimestamp-30-mai-2026)
+19. [Bugfix-Welle v2.3, Initialisierungsreihenfolge & Stabilität (30. Mai 2026)](#19-bugfix-welle-v23--initialisierungsreihenfolge--stabilität-30-mai-2026)
+20. [macOS-26-Kompatibilitäts-Fix, StartIO + GetZeroTimeStamp (30. Mai 2026)](#20-macos-26-kompatibilitäts-fix--startio--getzerotimestamp-30-mai-2026)
 21. [Persistenter Keep-Alive IOProc + Leichtgewichtiger Retry (v2.5.0)](#21-persistenter-keep-alive-ioproc--leichtgewichtiger-retry-v250)
 22. [Keep-Alive Migration Python → C-Helper + Orphan-Fix (v2.6.0)](#22-keep-alive-migration-python--c-helper--orphan-fix-v260)
-23. [Sicherheits- & Korrektheit-Audit v2.7.0 — 31. Mai 2026](#23-sicherheits---korrektheit-audit-v270--31-mai-2026)
-24. [Sicherheits-Audit v2.8 — Alle Findings implementiert](#24-sicherheits-audit-v28--alle-findings-implementiert)
-25. [Release v2.8.0 — Vollständige Audit-Implementierung & Aktueller Stand (31. Mai 2026)](#25-release-v280--vollständige-audit-implementierung--aktueller-stand-31-mai-2026)
-26. [Hotfix v2.8.1 — Kratzen nach Multi-Output-Konfiguration behoben](#26-hotfix-v281--kratzen-nach-multi-output-konfiguration-behoben)
-27. [Self-Healing Layer — Brainstorming & Konzept (1. Juni 2026)](#27-self-healing-layer--brainstorming--konzept-1-juni-2026)
-28. [Self-Healing Layer v1.0 — Implementierung (v2.9.0)](#28-self-healing-layer-v10--implementierung-v290)
-29. [v3.0 Optimierungsplan — 15 Verbesserungen (Ausführungsplan)](#29-v30-optimierungsplan--15-verbesserungen-ausführungsplan)
-30. [v3.0 Optimierungsplan — Vollständige Implementierung (2. Juni 2026)](#30-v30-optimierungsplan--vollständige-implementierung-2-juni-2026)
+23. [Sicherheits- & Korrektheit-Audit v2.7.0, 31. Mai 2026](#23-sicherheits---korrektheit-audit-v270--31-mai-2026)
+24. [Sicherheits-Audit v2.8, Alle Findings implementiert](#24-sicherheits-audit-v28--alle-findings-implementiert)
+25. [Release v2.8.0, Vollständige Audit-Implementierung & Aktueller Stand (31. Mai 2026)](#25-release-v280--vollständige-audit-implementierung--aktueller-stand-31-mai-2026)
+26. [Hotfix v2.8.1, Kratzen nach Multi-Output-Konfiguration behoben](#26-hotfix-v281--kratzen-nach-multi-output-konfiguration-behoben)
+27. [Self-Healing Layer, Brainstorming & Konzept (1. Juni 2026)](#27-self-healing-layer--brainstorming--konzept-1-juni-2026)
+28. [Self-Healing Layer v1.0, Implementierung (v2.9.0)](#28-self-healing-layer-v10--implementierung-v290)
+29. [v3.0 Optimierungsplan, 15 Verbesserungen (Ausführungsplan)](#29-v30-optimierungsplan--15-verbesserungen-ausführungsplan)
+30. [v3.0 Optimierungsplan, Vollständige Implementierung (2. Juni 2026)](#30-v30-optimierungsplan--vollständige-implementierung-2-juni-2026)
 31. [v3.0 Build & Release (2. Juni 2026)](#31-v30-build--release-2-juni-2026)
-32. [Hotfix — SRC Drift Warning Threshold (2. Juni 2026)](#32-hotfix--src-drift-warning-threshold-2-juni-2026)
-33. [v3.0 Build #2 — Hotfix eingebaut (2. Juni 2026)](#33-v30-build-2--hotfix-eingebaut-2-juni-2026)
+32. [Hotfix, SRC Drift Warning Threshold (2. Juni 2026)](#32-hotfix--src-drift-warning-threshold-2-juni-2026)
+33. [v3.0 Build #2, Hotfix eingebaut (2. Juni 2026)](#33-v30-build-2--hotfix-eingebaut-2-juni-2026)
 34. [Feature: Visueller Fortschritts-Balken bei Treiber-Installation (2. Juni 2026)](#34-feature-visueller-fortschritts-balken-bei-treiber-installation-2-juni-2026)
-35. [v3.0 Build #3 — Progress-Bar-Feature (2. Juni 2026)](#35-v30-build-3--progress-bar-feature-2-juni-2026)
-36. [v3.0 Build #4 — Türkis-Akzentfarbe (2. Juni 2026)](#36-v30-build-4--türkis-akzentfarbe-2-juni-2026)
-37. [Bugfix — App startet nicht (tkinter fehlt) + Build #5 (2. Juni 2026)](#37-bugfix--app-startet-nicht-tkinter-fehlt--build-5-2-juni-2026)
-38. [Fix — Progress-Bar Farbe (türkis) + Timing + Build #6 (3. Juni 2026)](#38-fix--progress-bar-farbe-türkis--timing-bleibt-bis-wizard--build-6-3-juni-2026)
-39. [Stabilitäts-Fix-Batch — MacBook-Freeze Behebung (3. Juni 2026)](#39-stabilitäts-fix-batch--macbook-freeze-behebung)
-40. [Entwicklungs-Chronik — 29. Mai bis 3. Juni 2026](#40-entwicklungs-chronik--29-mai-bis-3-juni-2026)
-41. [Build #7 — Stability-Hardened Release (3. Juni 2026)](#41-build-7--stability-hardened-release-3-juni-2026)
+35. [v3.0 Build #3, Progress-Bar-Feature (2. Juni 2026)](#35-v30-build-3--progress-bar-feature-2-juni-2026)
+36. [v3.0 Build #4, Türkis-Akzentfarbe (2. Juni 2026)](#36-v30-build-4--türkis-akzentfarbe-2-juni-2026)
+37. [Bugfix, App startet nicht (tkinter fehlt) + Build #5 (2. Juni 2026)](#37-bugfix--app-startet-nicht-tkinter-fehlt--build-5-2-juni-2026)
+38. [Fix, Progress-Bar Farbe (türkis) + Timing + Build #6 (3. Juni 2026)](#38-fix--progress-bar-farbe-türkis--timing-bleibt-bis-wizard--build-6-3-juni-2026)
+39. [Stabilitäts-Fix-Batch, MacBook-Freeze Behebung (3. Juni 2026)](#39-stabilitäts-fix-batch--macbook-freeze-behebung)
+40. [Entwicklungs-Chronik, 29. Mai bis 3. Juni 2026](#40-entwicklungs-chronik--29-mai-bis-3-juni-2026)
+41. [Build #7, Stability-Hardened Release (3. Juni 2026)](#41-build-7--stability-hardened-release-3-juni-2026)
 42. [Post-Launch Strategie & Roadmap](#42-post-launch-strategie--roadmap)
-- [Kapitel 43 — Kompatibilitäts-Analyse](#kapitel-43--kompatibilitäts-analyse-2026-06-04)
-- [Kapitel 44 — P16 src_frac_ridx Overflow-Fix (v3.1.1, 9. Juni 2026)](#kapitel-44--p16-src_frac_ridx-overflow-fix-v311-9-juni-2026)
-- [Kapitel 45 — Diagnostic Report Feature (v3.1.2, 9. Juni 2026)](#kapitel-45--diagnostic-report-feature-v312-9-juni-2026)
-- [Kapitel 46 — v3.2.0 Stability & Security Release](#kapitel-46--v320-stability--security-release)
+- [Kapitel 43, Kompatibilitäts-Analyse](#kapitel-43--kompatibilitäts-analyse-2026-06-04)
+- [Kapitel 44, P16 src_frac_ridx Overflow-Fix (v3.1.1, 9. Juni 2026)](#kapitel-44--p16-src_frac_ridx-overflow-fix-v311-9-juni-2026)
+- [Kapitel 45, Diagnostic Report Feature (v3.1.2, 9. Juni 2026)](#kapitel-45--diagnostic-report-feature-v312-9-juni-2026)
+- [Kapitel 46, v3.2.0 Stability & Security Release](#kapitel-46--v320-stability--security-release)
 
 ---
 
 ## 1. Projektübersicht
 
-AudioRouterNow ist eine **kostenlose, Open-Source macOS Menu-Bar-App**, die System-Audio gleichzeitig auf mehrere Audio-Interfaces leitet. Der Benutzer wählt beliebig viele Ausgabegeräte und Kanal-Paare — der Ton erscheint auf allen gleichzeitig, in Echtzeit.
+AudioRouterNow ist eine **kostenlose, Open-Source macOS Menu-Bar-App**, die System-Audio gleichzeitig auf mehrere Audio-Interfaces leitet. Der Benutzer wählt beliebig viele Ausgabegeräte und Kanal-Paare, der Ton erscheint auf allen gleichzeitig, in Echtzeit.
 
 ### Kernprinzip (v2.0)
 
@@ -73,7 +73,7 @@ macOS System-Audio
 [Audio Router] ← virtuelles Gerät (HAL-Treiber)
        │
        │  POSIX Shared Memory (/audiorouter_shm)
-       │  Lock-Free Ring Buffer — Float32 PCM, 48kHz, 16384 Samples
+       │  Lock-Free Ring Buffer, Float32 PCM, 48kHz, 16384 Samples
        ▼
 [C Helper: AudioRouterNowHelper] ← CoreAudio IOProc pro Device
        │
@@ -144,8 +144,8 @@ Die v1-Architektur (Python Socket + `sounddevice`) wurde vollständig durch den 
 | `arn-volume-poll` | C Helper | SRC-Ratio, read_idx, SHM-Reconnect |
 | `arn-config-accept` | C Helper | Unix Socket Config-Listener |
 | `arn_shm_retry_thread` | HAL-Treiber | Hintergrund-Retry alle 500ms bis Helper SHM anlegt (v2.1) |
-| `arn_shm_watch_thread` | HAL-Treiber | Inode-Vergleich alle 2s — erkennt Helper-Neustart, swappt `gSHMRing` atomar (v2.3) |
-| `arn-keepalive-ioproc` | C Helper | No-Op RT-Callback auf dem virtuellen Device — hält `gDeviceIsRunning=1` (v2.6) |
+| `arn_shm_watch_thread` | HAL-Treiber | Inode-Vergleich alle 2s, erkennt Helper-Neustart, swappt `gSHMRing` atomar (v2.3) |
+| `arn-keepalive-ioproc` | C Helper | No-Op RT-Callback auf dem virtuellen Device, hält `gDeviceIsRunning=1` (v2.6) |
 | `audiorouter-device-scanner` | DeviceManager | Hot-Plug Erkennung |
 
 ---
@@ -170,29 +170,29 @@ Das HAL-Plugin ist eine **C-COM-API** (`AudioServerPlugInDriverInterface` Vtable
 PlugIn (ID=1)
   └── Box (ID=2)
         └── Device "Audio Router" (ID=3)
-              ├── Stream Output (ID=4)  — Float32, Stereo, 48kHz
-              ├── Volume Control (ID=5) — Scalar 0.0–1.0, dB -96–0
-              └── Mute Control (ID=6)   — Bool
+              ├── Stream Output (ID=4) , Float32, Stereo, 48kHz
+              ├── Volume Control (ID=5), Scalar 0.0–1.0, dB -96–0
+              └── Mute Control (ID=6)  , Bool
 ```
 
 ### IPC-Architektur (POSIX Shared Memory)
 
-Der RT-IO-Callback darf **niemals blockieren**. Ab v2.0 wird kein Syscall und kein Lock im Hot-Path verwendet — der Treiber schreibt direkt in einen POSIX Shared Memory Ring Buffer:
+Der RT-IO-Callback darf **niemals blockieren**. Ab v2.0 wird kein Syscall und kein Lock im Hot-Path verwendet, der Treiber schreibt direkt in einen POSIX Shared Memory Ring Buffer:
 
 - **`arn_ring_write()`** in `shared_ring.h`: prüft verfügbaren Platz (`capacity - (write_idx - read_idx)`), schreibt Samples, atomic release store auf `write_idx`
 - **`gSHMRing`**: globaler Pointer auf `ARNSharedRing`, gemapt via `mmap()` nach `shm_open()`
 
-**Ab v2.1 — SHM-Ownership-Umkehr (Sandbox-Compliance):**
+**Ab v2.1, SHM-Ownership-Umkehr (Sandbox-Compliance):**
 
-Der `_coreaudiod`-Prozess, der AudioServerPlugins lädt, läuft in einer Apple-Sandbox. Diese Sandbox blockiert `shm_open(O_CREAT)` — der Treiber kann das SHM-Segment nicht selbst anlegen. Außerdem scheitert `fchmod()` still und `umask(0)` hat keine Wirkung im Sandbox-Kontext.
+Der `_coreaudiod`-Prozess, der AudioServerPlugins lädt, läuft in einer Apple-Sandbox. Diese Sandbox blockiert `shm_open(O_CREAT)`, der Treiber kann das SHM-Segment nicht selbst anlegen. Außerdem scheitert `fchmod()` still und `umask(0)` hat keine Wirkung im Sandbox-Kontext.
 
 **Lösung:** Architektur-Umkehr:
-- **Helper erstellt das SHM** beim Start — er läuft als normaler User ohne Sandbox-Einschränkungen. `fchmod(fd, 0666)` setzt die Permissions für Cross-User-Zugriff.
-- **Driver verbindet sich nur** — `shm_open(O_RDWR, 0)` ohne `O_CREAT`. Kein Schreibzugriff auf Segment-Erstellung.
+- **Helper erstellt das SHM** beim Start, er läuft als normaler User ohne Sandbox-Einschränkungen. `fchmod(fd, 0666)` setzt die Permissions für Cross-User-Zugriff.
+- **Driver verbindet sich nur**, `shm_open(O_RDWR, 0)` ohne `O_CREAT`. Kein Schreibzugriff auf Segment-Erstellung.
 - **Hintergrund-Retry-Thread (`arn_shm_retry_thread`)**: Falls der Helper beim Driver-Load noch nicht gestartet ist, startet der Treiber einen Retry-Thread der alle 500ms `arn_shm_init()` aufruft bis `gSHMRing` gesetzt ist.
-- **`arn_shm_cleanup()`** unlinkt das SHM nicht mehr — der Helper ist Eigentümer und verwaltet den Lifecycle.
+- **`arn_shm_cleanup()`** unlinkt das SHM nicht mehr, der Helper ist Eigentümer und verwaltet den Lifecycle.
 
-Der C Helper liest auf der anderen Seite des Ring Buffers — kein Python, kein Socket im Audio-Pfad.
+Der C Helper liest auf der anderen Seite des Ring Buffers, kein Python, kein Socket im Audio-Pfad.
 
 ### Volume & Mute im Treiber
 
@@ -207,9 +207,9 @@ uint32_t q16 = (uint32_t)(v * 65536.0f);
 if (gSHMRing) atomic_store_explicit(&gSHMRing->volume_q16, q16, memory_order_release);
 ```
 
-Das RT-Scaling (`samples[i] *= vol`) im `DoIOOperation`-Callback wurde entfernt (Wave 2 Fix, 28. Mai 2026) — der C Helper übernimmt die einzige Volume-Skalierung via `volume_q16`.
+Das RT-Scaling (`samples[i] *= vol`) im `DoIOOperation`-Callback wurde entfernt (Wave 2 Fix, 28. Mai 2026), der C Helper übernimmt die einzige Volume-Skalierung via `volume_q16`.
 
-### Volume HUD — PropertiesChanged
+### Volume HUD, PropertiesChanged
 
 Damit macOS die System-Lautstärke-Anzeige (HUD) aktualisiert, muss der Treiber `gPlugInHost->PropertiesChanged()` aufrufen. Implementiert in `SetPropertyData` für alle drei settable Properties:
 
@@ -256,7 +256,7 @@ Compiler-Flags: `-arch arm64 -arch x86_64 -mmacosx-version-min=11.0 -O2 -fvisibi
 | `cli.py` | CLI-Interface (Debug) |
 | `requirements.txt` | Python-Abhängigkeiten |
 
-> `routing_engine.py` und `socket_receiver.py` wurden in Phase 7 (Wave 5) entfernt — v1-Relikte der Python-Socket-Architektur.
+> `routing_engine.py` und `socket_receiver.py` wurden in Phase 7 (Wave 5) entfernt, v1-Relikte der Python-Socket-Architektur.
 
 ### menu_bar_app.py
 
@@ -303,7 +303,7 @@ def _process_pending_updates(self, timer):
 Für Devices mit >2 Kanälen wird ein **Submenu** mit einem Eintrag pro Stereo-Paar erstellt. Jedes Paar ist unabhängig togglebar (Mehrfach-Auswahl):
 
 ```
-☑  Komplete Audio 6 — Ch 1-2, Ch 3-4        ← Haupteintrag
+☑  Komplete Audio 6, Ch 1-2, Ch 3-4        ← Haupteintrag
    ├── ☑  Ch 1-2                              ← Submenu-Eintrag
    ├── ☑  Ch 3-4                              ← Submenu-Eintrag
    └── ☐  Ch 5-6                              ← Submenu-Eintrag
@@ -341,7 +341,7 @@ def _auto_start_if_configured(self):
     self._routing_engine.start()
 ```
 
-Beim **ersten Start** (keine gespeicherten Devices) passiert nichts — der User muss manuell auswählen. Beim **zweiten Start** (Devices gespeichert) startet alles automatisch.
+Beim **ersten Start** (keine gespeicherten Devices) passiert nichts, der User muss manuell auswählen. Beim **zweiten Start** (Devices gespeichert) startet alles automatisch.
 
 ### routing_engine.py
 
@@ -402,7 +402,7 @@ def on_frames(self, frames: np.ndarray):
 ### socket_receiver.py
 
 - **Socket:** `AF_UNIX, SOCK_STREAM`, Pfad `/tmp/audiorouter.sock`
-- **Permissions:** `chmod 0o777` — nötig damit `_coreaudiod` (anderer User) connecten darf
+- **Permissions:** `chmod 0o777`, nötig damit `_coreaudiod` (anderer User) connecten darf
 - **Block-Protokoll:** Genau 4096 Bytes pro Block (512 Frames × 2 Ch × 4 Bytes Float32)
 - **Reconnect:** Bei Verbindungstrennung sofort wieder auf neue Verbindung warten
 - **Shutdown:** `server.close()` weckt `accept()` auf → sauberer Stop
@@ -422,9 +422,9 @@ Direkte CoreAudio-Aufrufe via `ctypes` (kein AppleScript, kein externes Tool). F
 | `is_audio_router_default()` | True wenn aktueller Default-Output == "Audio Router" |
 | `get_audio_router_sample_rate()` | Aktuelle Sample-Rate des virtuellen Devices (Fallback: 48000) |
 | `get_device_supported_sample_rates(uid)` | Unterstützte Sample-Raten eines Devices anhand UID |
-| `ensure_router_keepalive()` | **v2.5** Persistenter No-Op-IOProc — **Stub ab v2.6**, Keep-Alive läuft jetzt im C-Helper (`keepalive_ioproc`); API-Kompatibilität bleibt erhalten |
-| `stop_router_keepalive()` | **v2.5** Stoppt Keep-Alive IOProc — **Stub ab v2.6**, Lifecycle wird durch `helper.shutdown()` gesteuert |
-| `start_audio_router_device()` | **(veraltet seit v2.5)** Ruft `AudioDeviceStart(id, NULL)` auf — ersetzt durch `ensure_router_keepalive()` |
+| `ensure_router_keepalive()` | **v2.5** Persistenter No-Op-IOProc, **Stub ab v2.6**, Keep-Alive läuft jetzt im C-Helper (`keepalive_ioproc`); API-Kompatibilität bleibt erhalten |
+| `stop_router_keepalive()` | **v2.5** Stoppt Keep-Alive IOProc, **Stub ab v2.6**, Lifecycle wird durch `helper.shutdown()` gesteuert |
+| `start_audio_router_device()` | **(veraltet seit v2.5)** Ruft `AudioDeviceStart(id, NULL)` auf, ersetzt durch `ensure_router_keepalive()` |
 | `_get_default_output_device_id()` | Interne Hilfsfunktion: Device-ID des Standard-Outputs |
 | `_find_audio_router_device_id()` | Interne Hilfsfunktion: Device-ID des "Audio Router" virtuellen Devices |
 
@@ -437,7 +437,7 @@ _kAudioHardwarePropertyDefaultOutputDevice             = 0x644F7574  # 'dOut'
 _kAudioObjectPropertyScopeOutput                       = 0x6F757470  # 'outp'
 ```
 
-**Fail-Open-Prinzip:** Alle Volume/Mute-Leseoperationen geben bei Fehler `1.0` / `False` zurück — kein unbeabsichtigtes Muting bei CoreAudio-Fehler.
+**Fail-Open-Prinzip:** Alle Volume/Mute-Leseoperationen geben bei Fehler `1.0` / `False` zurück, kein unbeabsichtigtes Muting bei CoreAudio-Fehler.
 
 ---
 
@@ -454,7 +454,7 @@ _kAudioObjectPropertyScopeOutput                       = 0x6F757470  # 'outp'
 | `AudioRouterNow.icns` | App-Icon (teal Routing-Baum, alle Größen) |
 | `AudioRouterNow_dmg.icns` | DMG-Datei-Icon (App-Icon + Teal Download-Badge) |
 
-### build.sh — Ablauf
+### build.sh, Ablauf
 
 ```
 1. Voraussetzungen prüfen (python3, clang, DRIVER_BUILD vorhanden)
@@ -480,7 +480,7 @@ _kAudioObjectPropertyScopeOutput                       = 0x6F757470  # 'outp'
 9. DMG-Datei-Icon setzen (AppKit NSWorkspace.setIcon_forFile_options_)
 ```
 
-### Code-Signierung — Warum ohne --deep?
+### Code-Signierung, Warum ohne --deep?
 
 PyInstaller bündelt Homebrew-Python (andere Team-ID als die App). macOS Sequoia+ verweigert das Laden bei Team-ID-Konflikten. `--deep` scheitert zudem an `dist-info`-Verzeichnissen von pip-Paketen (keine validen Code-Bundles).
 
@@ -491,7 +491,7 @@ PyInstaller bündelt Homebrew-Python (andere Team-ID als die App). macOS Sequoia
 4. Executable mit Entitlements signieren
 5. Bundle-Toplevel signieren
 
-**Entitlements:** `com.apple.security.cs.disable-library-validation = true` — erlaubt das Laden von Bibliotheken mit verschiedenen Team-IDs.
+**Entitlements:** `com.apple.security.cs.disable-library-validation = true`, erlaubt das Laden von Bibliotheken mit verschiedenen Team-IDs.
 
 ### DMG-Layout
 
@@ -512,12 +512,12 @@ Icon-Positionen:
 - Subtiler Teal-Radialglow (Gaußscher Blur, Radius 500px) in der Fenstermitte
 - Teal-Linie am oberen Rand (2px, abgestuft)
 - **Weiße Label-Texte** direkt ins Bild gezeichnet an den exakten Icon-Positionen:
-  - "AudioRouterNow" — Helvetica 26px, zentriert bei X=320px, Y=552px
-  - "Applications" — Helvetica 26px, zentriert bei X=1040px, Y=552px
+  - "AudioRouterNow", Helvetica 26px, zentriert bei X=320px, Y=552px
+  - "Applications", Helvetica 26px, zentriert bei X=1040px, Y=552px
 
 **Warum Labels im Bild?**  
-macOS Finder rendert Icon-Labels immer in der System-Farbe (grau in Light Mode, helles Grau in Dark Mode) — unabhängig vom Hintergrundbild. Es gibt keine öffentliche API (AppleScript, .DS_Store, plist), um die Label-Textfarbe zu überschreiben.  
-**Workaround:** Finder-Labels auf `text size 10` (Minimum, kaum sichtbar) setzen; weiße Labels ins Hintergrundbild an die exakten Pixel-Positionen zeichnen. Ergebnis: weiße, lesbare Labels auf dunklem Hintergrund — unabhängig vom System-Erscheinungsbild des Users.
+macOS Finder rendert Icon-Labels immer in der System-Farbe (grau in Light Mode, helles Grau in Dark Mode), unabhängig vom Hintergrundbild. Es gibt keine öffentliche API (AppleScript, .DS_Store, plist), um die Label-Textfarbe zu überschreiben.  
+**Workaround:** Finder-Labels auf `text size 10` (Minimum, kaum sichtbar) setzen; weiße Labels ins Hintergrundbild an die exakten Pixel-Positionen zeichnen. Ergebnis: weiße, lesbare Labels auf dunklem Hintergrund, unabhängig vom System-Erscheinungsbild des Users.
 
 ### Icons
 
@@ -572,9 +572,9 @@ Device-**Namen** statt Indizes werden gespeichert, weil sich Indizes nach Neusta
 
 ---
 
-## 7. Volume & Mute — Signalweg
+## 7. Volume & Mute, Signalweg
 
-Ab v2.0 läuft die Lautstärkesteuerung auf **zwei klar getrennten Ebenen** — ohne Python-Polling und ohne doppelte Skalierung.
+Ab v2.0 läuft die Lautstärkesteuerung auf **zwei klar getrennten Ebenen**, ohne Python-Polling und ohne doppelte Skalierung.
 
 ### Ebene 1: HAL-Treiber (C, SetPropertyData)
 
@@ -662,7 +662,7 @@ def _callback(outdata, frames, time_info, status):
 
 ### Beispiel
 
-User wählt: **Komplete Audio 6 — Ch 1-2 + Ch 3-4** und **MacBook Lautsprecher**
+User wählt: **Komplete Audio 6, Ch 1-2 + Ch 3-4** und **MacBook Lautsprecher**
 
 → 2 Streams werden geöffnet:
 - Stream A: `Komplete Audio 6`, 4 Channels → schreibt in `[:,0:2]` UND `[:,2:4]`
@@ -705,7 +705,7 @@ Der Build-Prozess dauert ~2–5 Minuten (PyInstaller bündelt ~200MB Python-Runt
 1. `AudioRouterNow.dmg` öffnen
 2. `AudioRouterNow.app` in `Applications` ziehen
 3. App starten → macOS fragt einmalig nach Passwort (Treiber-Installation)
-4. Fertig — `🎛️` erscheint in der Menüleiste
+4. Fertig, `🎛️` erscheint in der Menüleiste
 
 ### Treiber-Update (nach C-Quellcode-Änderungen)
 
@@ -728,10 +728,10 @@ sudo make install && sudo make reload
 
 ### Phase 2: Multi-Channel Multi-Output
 
-**Problem:** User konnte mehrere Interfaces wählen, aber nicht mehrere Kanal-Paare desselben Interfaces — `sd.OutputStream` schlug beim zweiten Versuch auf demselben Device fehl.
+**Problem:** User konnte mehrere Interfaces wählen, aber nicht mehrere Kanal-Paare desselben Interfaces, `sd.OutputStream` schlug beim zweiten Versuch auf demselben Device fehl.
 
 **Implementierung:**
-- `_device_offsets: Dict[str, List[int]]` — mehrere Offsets pro Device speichern
+- `_device_offsets: Dict[str, List[int]]`, mehrere Offsets pro Device speichern
 - RoutingEngine: `defaultdict`-Gruppierung nach `device_index` → ein einziger Multi-Channel-Stream
 - Menu: Submenu pro Multi-Channel-Device; jedes Kanal-Paar unabhängig togglebar
 - `config.py`: Migration `int` → `List[int]`
@@ -780,16 +780,16 @@ sudo make install && sudo make reload
 **Iteration 1:** Hintergrundbild mit Titel, Untertitel, Drag-Pfeil, dekorativen Kurven, Footer.  
 **Problem:** Fenster öffnete zu klein (Titel abgeschnitten). DMG-Hintergrundbild ist ein statisches Bitmap ohne CSS-Layout-Engine.
 
-**Entscheidung:** "Option A" — schlichtes, responsives Design ohne positionsabhängige Textelemente.
+**Entscheidung:** "Option A", schlichtes, responsives Design ohne positionsabhängige Textelemente.
 
 **Iteration 2:** Nur Gradient + Teal-Glow.  
-**Problem:** Icon-Labels (Finder-gesteuert) erschienen dunkelgrau auf schwarzem Hintergrund — kaum lesbar.
+**Problem:** Icon-Labels (Finder-gesteuert) erschienen dunkelgrau auf schwarzem Hintergrund, kaum lesbar.
 
 **Ursache:** macOS Finder rendert Icon-Labels in der System-Farbe unabhängig vom Hintergrundbild. Keine öffentliche API zum Überschreiben.
 
 **Endlösung:** Finder-Labels auf `text size 10` (Minimum), weiße Labels direkt ins Hintergrundbild an die berechneten Pixel-Positionen gezeichnet.
 
-### Phase 7: Architektur-Migration — Native C Helper (Mai 2026)
+### Phase 7: Architektur-Migration, Native C Helper (Mai 2026)
 
 **Motivation:** Die v1-Architektur (Python `SocketReceiver` + `sounddevice`) hatte mehrere strukturelle Schwächen: Python-GIL-Druckschwankungen im Audio-Pfad, Socket-Latenz (~1ms + Jitter), doppeltes Volume-Scaling (Treiber + Python), sowie Abhängigkeit von `numpy`/`sounddevice` im RT-kritischen Pfad.
 
@@ -803,7 +803,7 @@ Driver → POSIX Shared Memory (Lock-Free Ring Buffer) → C Helper (AudioRouter
 
 - **`shared_ring.h`** definiert `ARNSharedRing` (Struct, version 3, cache-line aligned): Header, Producer-Hot (`write_idx`), Consumer-Hot (`read_idx`), Shared-Control (`volume_q16`, `muted`), und `samples[16384]` float32
 - **`AudioRouterNowHelper.c`**: Universal Binary (arm64 + x86_64), registriert pro Output-Device einen CoreAudio IOProc, liest Samples mit fraktionalem SRC aus dem Ring Buffer
-- **`helper_client.py`**: Python-Seite — startet den Helper-Prozess, sendet `set_outputs`-Konfiguration via Unix Domain Socket
+- **`helper_client.py`**: Python-Seite, startet den Helper-Prozess, sendet `set_outputs`-Konfiguration via Unix Domain Socket
 - **Gelöscht:** `engine/socket_receiver.py`, `engine/routing_engine.py`
 
 ### Phase 8: 5-Wave Bugfix + Volume-Keyboard-Fix (Mai 2026)
@@ -812,31 +812,31 @@ Nach der Architektur-Migration wurden in zwei Bugfix-Runden alle identifizierten
 
 ### Phase 9: v2.1 Sandbox-Compliance (29. Mai 2026)
 
-**Problem:** Nach jedem Neustart kein Audio — SHM-Segment wurde beim Driver-Load nie erfolgreich erstellt.
+**Problem:** Nach jedem Neustart kein Audio, SHM-Segment wurde beim Driver-Load nie erfolgreich erstellt.
 
-**Root Cause:** Der `_coreaudiod`-Prozess läuft in einer Apple-Sandbox, die `shm_open(O_CREAT)` blockiert. Außerdem scheitert `fchmod()` still und `umask(0)` hat keine Wirkung im Sandbox-Kontext — das SHM-Segment konnte weder angelegt noch für den User-Prozess (Helper) zugänglich gemacht werden.
+**Root Cause:** Der `_coreaudiod`-Prozess läuft in einer Apple-Sandbox, die `shm_open(O_CREAT)` blockiert. Außerdem scheitert `fchmod()` still und `umask(0)` hat keine Wirkung im Sandbox-Kontext, das SHM-Segment konnte weder angelegt noch für den User-Prozess (Helper) zugänglich gemacht werden.
 
-**Fix (Commit 7c11697):** Architektur-Umkehr — Helper erstellt SHM, Driver verbindet sich nur. Neuer Retry-Thread im Driver für den Startup-Race. Makefile: `sudo make install` kopiert Helper automatisch in beide Pfade (HAL-Plugin-Dir + App-Bundle).
+**Fix (Commit 7c11697):** Architektur-Umkehr, Helper erstellt SHM, Driver verbindet sich nur. Neuer Retry-Thread im Driver für den Startup-Race. Makefile: `sudo make install` kopiert Helper automatisch in beide Pfade (HAL-Plugin-Dir + App-Bundle).
 
 Details in Abschnitt 17 (Sandbox-Compliance Fix).
 
-### Phase 10 — v2.2 User-Onboarding (29. Mai 2026)
+### Phase 10, v2.2 User-Onboarding (29. Mai 2026)
 
 5 Features implementiert, die die App vom rein technisch-funktionalen Zustand zu einer für Endnutzer verständlichen, selbsterklärenden Anwendung machen. Während die Phasen 1–9 die Audio-Engine korrekt zum Laufen brachten, schließt Phase 10 die Lücke zwischen "es funktioniert" und "der User versteht was passiert".
 
-1. **Zustandsbewusste Status-Zeile** (commit `68fca0a`, Fixes `2ac8c36`) — 5-Zustands-Anzeige im Menü, klickbar bei behebbaren Problemen
-2. **README v2.1 Architektur-Drift-Fix** (commit `0cc7699`) — veraltete Python-Socket-Architektur ersetzt durch aktuelles SHM-Diagramm
-3. **First-Run Wizard** (commit `2813822`) — dreistufiger Onboarding-Dialog beim ersten Start
-4. **Vollständige Deinstallation** (commit `c7e525b`) — `uninstall_all()` entfernt alle Komponenten in 8 Schritten
-5. **Help-Menü** (commit `471089b`) — Untermenü mit Background-Info, Doku-Link und Uninstall
+1. **Zustandsbewusste Status-Zeile** (commit `68fca0a`, Fixes `2ac8c36`), 5-Zustands-Anzeige im Menü, klickbar bei behebbaren Problemen
+2. **README v2.1 Architektur-Drift-Fix** (commit `0cc7699`), veraltete Python-Socket-Architektur ersetzt durch aktuelles SHM-Diagramm
+3. **First-Run Wizard** (commit `2813822`), dreistufiger Onboarding-Dialog beim ersten Start
+4. **Vollständige Deinstallation** (commit `c7e525b`), `uninstall_all()` entfernt alle Komponenten in 8 Schritten
+5. **Help-Menü** (commit `471089b`), Untermenü mit Background-Info, Doku-Link und Uninstall
 
 Details in Abschnitt 18 (User-Onboarding & UX-Layer).
 
-### Phase 11 — v2.3 Stabilitäts-Bugfixes (30. Mai 2026)
+### Phase 11, v2.3 Stabilitäts-Bugfixes (30. Mai 2026)
 
-Nach den UX-Erweiterungen der v2.2 traten unter realen Nutzungsbedingungen drei neue Bugkategorien auf — alle Folgen der v2.2-Architekturänderung (Helper erstellt SHM, Driver verbindet sich), die neue Initialisierungs-Reihenfolge-Probleme einführte. In dieser Session wurden behoben:
+Nach den UX-Erweiterungen der v2.2 traten unter realen Nutzungsbedingungen drei neue Bugkategorien auf, alle Folgen der v2.2-Architekturänderung (Helper erstellt SHM, Driver verbindet sich), die neue Initialisierungs-Reihenfolge-Probleme einführte. In dieser Session wurden behoben:
 
-- **Initialisierungsreihenfolge-Fixes:** `_auto_start_if_configured()` setzt jetzt sowohl Default Output ('dOut') als auch System Output ('sOut') — Keyboard-Volume-Tasten folgen 'sOut' und waren zuvor inaktiv.
+- **Initialisierungsreihenfolge-Fixes:** `_auto_start_if_configured()` setzt jetzt sowohl Default Output ('dOut') als auch System Output ('sOut'), Keyboard-Volume-Tasten folgen 'sOut' und waren zuvor inaktiv.
 - **SR-Reinit-Entkopplung:** `_apply_best_sample_rate()` und `sr_reinit_all_outputs()` lösen keinen disruptiven Stop/Start aller Outputs mehr aus, wenn sich die effektive Sample-Rate nicht ändert; `AudioDeviceStart` erhält Retry-Logik.
 - **Volume-Synchronisation:** Neuer Media-Key-Interceptor (`_handle_media_key`) und Fallback-Poller (`_poll_volume_sync`) halten `volume_q16` zuverlässig synchron, auch wenn Volume-Tasten das virtuelle HAL-Device nicht direkt erreichen.
 - **StartIO Lazy-Init:** `_trigger_start_io` erzwingt nach Neuinstallation den IO-Stack-Aufbau (kein Audio mehr bei `write_idx == 0`).
@@ -850,49 +850,49 @@ Vollständige Details in Abschnitt 19 (Bugfix-Welle v2.3).
 - Wave 3: Security & Validation (Socket/SHM Permissions, bounds checks)
 - Wave 4: Driver Reload Safety (`arn_shm_init()` reload-sicher)
 - Wave 5: Dead Code Removal (`socket_receiver.py`, `routing_engine.py`, LaunchD-Reste)
-- Volume-Keyboard-Fix: `volume_poll_thread` überschrieb `volume_q16` alle 50ms zurück auf 100% — behoben durch Entfernen des `get_default_output_volume_c()`-Aufrufs
+- Volume-Keyboard-Fix: `volume_poll_thread` überschrieb `volume_q16` alle 50ms zurück auf 100%, behoben durch Entfernen des `get_default_output_volume_c()`-Aufrufs
 
-### Phase 12 — v2.4 macOS 26 Kompatibilität (30. Mai 2026)
+### Phase 12, v2.4 macOS 26 Kompatibilität (30. Mai 2026)
 
 Unter macOS 26.5 (Tahoe) trat ein neues Symptom auf: trotz grünem Status floss kein Audio (`write_idx = 0`), und nur ein manueller Device-Toggle in den Systemeinstellungen half. Ursache war ein geändertes coreaudiod-Verhalten beim Evaluieren der Zeitbasis virtueller HAL-Devices. Behoben durch zwei zusammenwirkende Fixes:
 
-- **GetZeroTimeStamp-Fix:** Pre-StartIO-Fallback (`anchor = now` wenn `gAnchorHostTime == 0`) — verhindert, dass coreaudiod das Device als "in der Zukunft" und damit "nicht bereit" einstuft.
-- **Direkter AudioDeviceStart-Call:** Die Python-App ruft via ctypes selbst `AudioDeviceStart()` auf dem "Audio Router"-Device auf und triggert damit `ARN_StartIO` — ohne auf eine Musik-App angewiesen zu sein.
+- **GetZeroTimeStamp-Fix:** Pre-StartIO-Fallback (`anchor = now` wenn `gAnchorHostTime == 0`), verhindert, dass coreaudiod das Device als "in der Zukunft" und damit "nicht bereit" einstuft.
+- **Direkter AudioDeviceStart-Call:** Die Python-App ruft via ctypes selbst `AudioDeviceStart()` auf dem "Audio Router"-Device auf und triggert damit `ARN_StartIO`, ohne auf eine Musik-App angewiesen zu sein.
 
 Vollständige Details in Abschnitt 20 (macOS-26-Kompatibilitäts-Fix).
 
-### Phase 16 — v2.8 Vollständige Audit-Implementierung (31. Mai 2026)
+### Phase 16, v2.8 Vollständige Audit-Implementierung (31. Mai 2026)
 
 Alle verbleibenden Audit-Findings aus v2.7 implementiert (12 Fixes in 7 Commits).
 Risk-Score: KRITISCH 2→0, HOCH 6→0, MITTEL 8→2 (M7-Anti-Aliasing und M8-SingleInstance
-sind die verbleibenden 2 Mittleren, die aber beide implementiert wurden — effektiv 0 offen).
+sind die verbleibenden 2 Mittleren, die aber beide implementiert wurden, effektiv 0 offen).
 Details in Abschnitt 24.
 
-### Phase 15 — v2.7 Sicherheits- & Korrektheit-Audit (31. Mai 2026)
+### Phase 15, v2.7 Sicherheits- & Korrektheit-Audit (31. Mai 2026)
 
 Deep-Audit aller C- und Python-Schichten mit Fokus auf RT-Korrektheit, Thread-Safety und Memory-Safety. 8 Findings implementiert (K3, K5, K6, K7, H4, H5, M5, M9). Risk-Score: KRITISCH 7→2, HOCH 8→6. Details in Abschnitt 23.
 
-### Phase 14 — v2.6 Keep-Alive Migration + Orphan-Helper-Fix (31. Mai 2026)
+### Phase 14, v2.6 Keep-Alive Migration + Orphan-Helper-Fix (31. Mai 2026)
 
 Nach dem Testlauf von v2.5 wurden zwei kritische Stabilitätsprobleme identifiziert:
 
 - **Stale Python ctypes-Pointer:** Die `ensure_router_keepalive()`-Implementierung registrierte einen Python ctypes-Callback (`_NOOP_CB`) als CoreAudio IOProc. Beim App-Exit wurde der Python-Prozess beendet, aber der Funktionszeiger blieb als "Stale Pointer" in `coreaudiod` registriert. Beim nächsten App-Start blockierte der erste CoreAudio-Call in `HALSystem::InitializeDevices()` → `ConnectToServer()` → `mach_msg2_trap` für mehrere Minuten (Deadlock).
-- **Orphan-Helper-Prozesse:** `_quit_app()` rief `self._helper.shutdown()` nicht auf — der Helper lief nach dem App-Quit weiter. Beim nächsten App-Start wurde ein zweiter Helper gestartet → Konflikte, doppelter CPU-Verbrauch, Lüfterlärm.
+- **Orphan-Helper-Prozesse:** `_quit_app()` rief `self._helper.shutdown()` nicht auf, der Helper lief nach dem App-Quit weiter. Beim nächsten App-Start wurde ein zweiter Helper gestartet → Konflikte, doppelter CPU-Verbrauch, Lüfterlärm.
 
 **Drei koordinierte Fixes in v2.6.0 (Commit `b84b491`):**
 1. Keep-Alive IOProc vollständig in den C-Helper migriert (stabiler Funktionszeiger für gesamte Helper-Lifetime)
 2. Python-Stubs erhalten API-Kompatibilität (keine Call-Site-Änderungen nötig)
-3. `_quit_app()` ruft `self._helper.shutdown()` auf — sauberer Helper-Exit
+3. `_quit_app()` ruft `self._helper.shutdown()` auf, sauberer Helper-Exit
 
 Vollständige Details in Abschnitt 22.
 
-### Phase 13 — v2.5 Persistenter Keep-Alive IOProc (30. Mai 2026)
+### Phase 13, v2.5 Persistenter Keep-Alive IOProc (30. Mai 2026)
 
 Nach einem weiteren Testlauf (Neuinstallation → Deinstallation → Neuinstallation) trat das Startup-Problem erneut auf. Der `AudioDeviceStart(NULL)`-Ansatz aus v2.4.0 erwies sich als architektonisch unzuverlässig: ohne registrierten IOProc kann coreaudiod den IO-Stack sofort wieder abbauen, `gDeviceIsRunning` flackert 1→0, und Musik-Apps routen nicht stabil über "Audio Router".
 
 Drei koordinierte Fixes in v2.5.0:
 
-- **Persistenter Keep-Alive IOProc (Fix-1):** Echter `AudioDeviceCreateIOProcID` + `AudioDeviceStart(device, procID)` — ein No-Op-Callback hält `gDeviceIsRunning=1` dauerhaft. Neue Funktionen `ensure_router_keepalive()` / `stop_router_keepalive()` in `audio_device_control.py`.
+- **Persistenter Keep-Alive IOProc (Fix-1):** Echter `AudioDeviceCreateIOProcID` + `AudioDeviceStart(device, procID)`, ein No-Op-Callback hält `gDeviceIsRunning=1` dauerhaft. Neue Funktionen `ensure_router_keepalive()` / `stop_router_keepalive()` in `audio_device_control.py`.
 - **Reihenfolge-Fix (Fix-4):** Keep-Alive wird **vor** dem Default-Output-Switch gestartet. Apple Music findet beim Wechsel ein bereits laufendes Device vor und öffnet seinen Stream sofort.
 - **Leichtgewichtiger Retry (Fix-3):** `_process_pending_updates()` retried nur `_apply_active_outputs()` (max. 5 Versuche), nicht mehr das disruptive `_auto_start_if_configured()`, das den Default-Output im 0.5s-Takt neu setzte.
 
@@ -910,7 +910,7 @@ macOS Finder erlaubt es **nicht**, die Textfarbe von Icon-Labels programmatisch 
 
 ### Treiber-Installation erfordert sudo
 
-Apple-AudioServerPlugin-Bundles müssen in `/Library/Audio/Plug-Ins/HAL/` liegen — root-geschützt. `coreaudiod` muss danach neu gestartet werden. User wird einmalig beim ersten App-Start nach Passwort gefragt.
+Apple-AudioServerPlugin-Bundles müssen in `/Library/Audio/Plug-Ins/HAL/` liegen, root-geschützt. `coreaudiod` muss danach neu gestartet werden. User wird einmalig beim ersten App-Start nach Passwort gefragt.
 
 ### sounddevice-Puffertiefe (entfernt in v2.0)
 
@@ -922,7 +922,7 @@ PyInstaller bündelt die gesamte Python-Runtime (~200MB). Das `.dmg` ist entspre
 
 ### SHM ABI-Version (v4 ab v2.7)
 
-`shared_ring.h` trägt seit v2.7 die `ARN_RING_VERSION = 4`. Driver und Helper müssen **gleiche Version** kompiliert sein — beim Upgrade immer beide neu bauen (`make` im `/helper` und `/driver`). Eine Version-Mismatch wird beim Verbinden erkannt und mit einem `SHM magic/version mismatch`-Log im Helper-Stdout sichtbar.
+`shared_ring.h` trägt seit v2.7 die `ARN_RING_VERSION = 4`. Driver und Helper müssen **gleiche Version** kompiliert sein, beim Upgrade immer beide neu bauen (`make` im `/helper` und `/driver`). Eine Version-Mismatch wird beim Verbinden erkannt und mit einem `SHM magic/version mismatch`-Log im Helper-Stdout sichtbar.
 
 ### Sample-Rate: 48 kHz fest
 
@@ -973,11 +973,11 @@ AudioRouterNow/
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.6.0*
+*Dokumentation zuletzt aktualisiert am 31. Mai 2026, AudioRouterNow v2.6.0*
 
 ---
 
-## 13. Qualitäts-Audit & Fixes — 23. Mai 2026
+## 13. Qualitäts-Audit & Fixes, 23. Mai 2026
 
 Am 23. Mai 2026 wurde ein vollständiger Code-Audit des gesamten Projekts durchgeführt (alle 28 Dateien analysiert). Anschließend wurden alle identifizierten Probleme behoben. Die folgende Übersicht dokumentiert jeden Fix, seine Ursache und sein Resultat.
 
@@ -985,9 +985,9 @@ Am 23. Mai 2026 wurde ein vollständiger Code-Audit des gesamten Projekts durchg
 
 ### Bereich: Korrektheit & Bugs
 
-#### Fix 1 — Logging-Bug in `device_manager.py`
+#### Fix 1, Logging-Bug in `device_manager.py`
 
-**Problem:** In `_scan_devices()` wurde `self._known_devices = new_devices` zugewiesen (Zeile 193) *bevor* die Namen der entfernten Devices abgerufen wurden. Danach griff der Log-Code auf `self._known_devices` zu — das jetzt schon `new_devices` war — und fand die entfernten Devices nicht mehr. Statt des echten Namens (z.B. "Focusrite Scarlett 2i2") erschien `#3` im Log.
+**Problem:** In `_scan_devices()` wurde `self._known_devices = new_devices` zugewiesen (Zeile 193) *bevor* die Namen der entfernten Devices abgerufen wurden. Danach griff der Log-Code auf `self._known_devices` zu, das jetzt schon `new_devices` war, und fand die entfernten Devices nicht mehr. Statt des echten Namens (z.B. "Focusrite Scarlett 2i2") erschien `#3` im Log.
 
 **Fix:** Die Namen der entfernten Devices werden jetzt *vor* der Zuweisung gesichert:
 ```python
@@ -995,11 +995,11 @@ removed_names = [self._known_devices[i].name for i in removed if i in self._know
 self._known_devices = new_devices  # Zuweisung danach
 ```
 
-**Resultat:** Entfernte Devices erscheinen mit ihrem echten Namen im Log — essenziell für Debugging.
+**Resultat:** Entfernte Devices erscheinen mit ihrem echten Namen im Log, essenziell für Debugging.
 
 ---
 
-#### Fix 2 — Fragiler String-Split in `routing_engine.py`
+#### Fix 2, Fragiler String-Split in `routing_engine.py`
 
 **Problem:** Zum Ermitteln des physischen Device-Namens wurde folgender Code verwendet:
 ```python
@@ -1019,7 +1019,7 @@ except Exception:
 
 ---
 
-#### Fix 3 — Sample-Rate-Mismatch eliminiert
+#### Fix 3, Sample-Rate-Mismatch eliminiert
 
 **Problem:** Der Treiber bot laut `kAudioDevicePropertyAvailableNominalSampleRates` die Raten 44100, 48000 und 96000 Hz an und akzeptierte Änderungen. Die Python-Engine war fest auf `SAMPLE_RATE = 48000` konfiguriert. Wenn ein User in `Audio MIDI Setup` auf 44.1 kHz oder 96 kHz umstellte, lief die Engine weiterhin mit 48000 Hz → Pitch-Shift und Audio-Drift.
 
@@ -1031,7 +1031,7 @@ except Exception:
 
 ---
 
-#### Fix 4 — Driver-Signierung nach Installation
+#### Fix 4, Driver-Signierung nach Installation
 
 **Problem:** In `first_launch.py` wurde der Treiber mit `cp -r` nach `/Library/Audio/Plug-Ins/HAL/` kopiert, aber anschließend nicht signiert. Unter macOS Sequoia (15+) ist `coreaudiod` strenger mit unsignierten HAL-Plugins und kann das Laden verweigern.
 
@@ -1042,17 +1042,17 @@ subprocess.run(
     check=False, capture_output=True,
 )
 ```
-`check=False`: Ad-hoc-Signierung ist Best-Effort — ein Fehler hier ist weniger schlimm als ein abgebrochener Install.
+`check=False`: Ad-hoc-Signierung ist Best-Effort, ein Fehler hier ist weniger schlimm als ein abgebrochener Install.
 
 **Resultat:** Der installierte Treiber ist ad-hoc signiert. `coreaudiod` lädt ihn zuverlässig.
 
 ---
 
-#### Fix 5 — Driver-Icon-Inkonsistenz im HAL-Treiber
+#### Fix 5, Driver-Icon-Inkonsistenz im HAL-Treiber
 
 **Problem:** In `GetPropertyDataSize()` war ein Case für `kAudioDevicePropertyIcon` vorhanden (lieferte `sizeof(CFURLRef)`), aber in `GetPropertyData()` gab es keinen entsprechenden Handler. Der Aufrufer bekam eine Größe zurück, aber beim Abrufen des Wertes einen Fehler. Inkonsistent und verwirrend.
 
-**Fix:** Den `kAudioDevicePropertyIcon`-Case aus `GetPropertyDataSize()` entfernt. Das virtuelle Device zeigt jetzt das System-Default-Icon (Lautsprecher) in Audio MIDI Setup — korrekt und konsistent.
+**Fix:** Den `kAudioDevicePropertyIcon`-Case aus `GetPropertyDataSize()` entfernt. Das virtuelle Device zeigt jetzt das System-Default-Icon (Lautsprecher) in Audio MIDI Setup, korrekt und konsistent.
 
 **Resultat:** Keine falsche API-Zusage mehr; Driver-Verhalten ist intern konsistent.
 
@@ -1060,7 +1060,7 @@ subprocess.run(
 
 ### Bereich: Code-Qualität
 
-#### Fix 6 — Toter Code entfernt (`audio_device_control.py`)
+#### Fix 6, Toter Code entfernt (`audio_device_control.py`)
 
 **Problem:** Die Funktion `get_all_coreaudio_output_devices()` (~70 Zeilen) war in `audio_device_control.py` definiert, wurde aber an keiner Stelle im Projekt aufgerufen. Enthielt außerdem eine unbenutzte lokale Variable `out_scope_addr`.
 
@@ -1072,7 +1072,7 @@ subprocess.run(
 
 ### Bereich: Robustheit & User Experience
 
-#### Fix 7 — Single-Instance-Check
+#### Fix 7, Single-Instance-Check
 
 **Problem:** Startete der User die App doppelt, entstanden zwei stille Menu-Bar-Icons. Die zweite Instanz scheiterte beim `bind()` auf den Unix Socket und lief als "stumme" App weiter.
 
@@ -1089,7 +1089,7 @@ Die Lock-Datei liegt unter `~/.audiorouter/audiorouter.lock` und enthält die PI
 
 ---
 
-#### Fix 8 — File-Logging
+#### Fix 8, File-Logging
 
 **Problem:** Logs gingen ausschließlich in die macOS Console (stdout/stderr vom Prozess). Wenn ein User einen Bug meldete, war es unmöglich zu diagnostizieren was auf seinem Mac passiert war.
 
@@ -1105,13 +1105,13 @@ file_handler = RotatingFileHandler(
 
 Logs unter: `~/.audiorouter/logs/audiorouter.log` (max. 3 × 5 MB = 15 MB).
 
-**Resultat:** Bei Bug-Reports: "Bitte schick mir `~/.audiorouter/logs/audiorouter.log`" — sofortiger Diagnosezugang.
+**Resultat:** Bei Bug-Reports: "Bitte schick mir `~/.audiorouter/logs/audiorouter.log`", sofortiger Diagnosezugang.
 
 ---
 
 ### Bereich: Internationalisierung
 
-#### Fix 9 — Komplette Übersetzung auf Englisch
+#### Fix 9, Komplette Übersetzung auf Englisch
 
 **Problem:** Die App hatte einen Sprachmix: Menütexte und Fehlermeldungen auf Deutsch (mit inkonsistenten Umlaut-Workarounds wie "Ausgabegeraet"), Donation-Texte auf Englisch. Das README war Englisch. Das ergab eine inkonsistente, unprofessionelle User-Erfahrung.
 
@@ -1135,28 +1135,28 @@ Logs unter: `~/.audiorouter/logs/audiorouter.log` (max. 3 × 5 MB = 15 MB).
 | `"Zeitüberschreitung"` | `"Timeout"` |
 | `"IPC: mit Python Engine verbunden"` | `"IPC: connected to Python engine"` |
 
-**Resultat:** Konsistente englische UI durch alle Schichten — von der C-Treiber-Log-Ausgabe bis zum macOS-Dialog.
+**Resultat:** Konsistente englische UI durch alle Schichten, von der C-Treiber-Log-Ausgabe bis zum macOS-Dialog.
 
 ---
 
 ### Bereich: Assets & Repository
 
-#### Fix 10 — Fehlende Assets in Git gestagt
+#### Fix 10, Fehlende Assets in Git gestagt
 
 **Problem:** `installer/AudioRouterNow.icns`, `installer/AudioRouterNow_dmg.icns`, `installer/dmg_settings.py` und `projekt.md` waren nicht in Git eingecheckt. Ein `git clone` gefolgt von `build.sh` schlug sofort fehl.
 
 **Fix:** `git add` der vier fehlenden Dateien.
 
-**Resultat:** Das Repository ist vollständig — frischer Clone → Build funktioniert.
+**Resultat:** Das Repository ist vollständig, frischer Clone → Build funktioniert.
 
 ---
 
 ### Bereich: Dokumentation
 
-#### Fix 11 — README-Faktencheck
+#### Fix 11, README-Faktencheck
 
 **Korrekturen:**
-1. *"compiled driver is included in repo"* entfernt (war falsch — `.gitignore` schloss `build/` aus). Stattdessen: expliziter Hinweis dass `make` im `driver/`-Verzeichnis ausgeführt werden muss.
+1. *"compiled driver is included in repo"* entfernt (war falsch, `.gitignore` schloss `build/` aus). Stattdessen: expliziter Hinweis dass `make` im `driver/`-Verzeichnis ausgeführt werden muss.
 2. *"MIT / Proprietary"* in der BlackHole-Vergleichstabelle → `"MIT"` (Lizenz ist ausschließlich MIT).
 3. Intel-Hinweis präzisiert: nicht nur der Driver, sondern die gesamte App muss für Intel neu gebaut werden.
 4. Usage-Section: Deutsche Strings `"System-Audio → Audio Router"` und `"Routing starten"` auf Englisch korrigiert.
@@ -1169,7 +1169,7 @@ Logs unter: `~/.audiorouter/logs/audiorouter.log` (max. 3 × 5 MB = 15 MB).
 | Thema | Entscheidung |
 |-------|-------------|
 | **Notarization** | Apple Developer Account ($99/Jahr) noch nicht vorhanden. Blocker für breite Öffentlichkeit, aber nicht für persönliche Nutzung oder geschlossene Beta. |
-| **Tests** | Werden nach dem ersten öffentlichen Release nachgezogen — keine Blocker für v1.0. |
+| **Tests** | Werden nach dem ersten öffentlichen Release nachgezogen, keine Blocker für v1.0. |
 | **Auto-Update** | v1.1-Feature. Zu komplex (GitHub Releases API, UI-Flow, Offline-Handling) für v1.0. |
 | **PDF-Template-Icons** in Menu Bar | v1.1-Polish. Emoji-Icons funktionieren in Light und Dark Mode. |
 | **Driver-Icon** (echte CFURLRef) | v1.1. Aktuell: generisches Lautsprecher-Icon in Audio MIDI Setup. |
@@ -1180,8 +1180,8 @@ Logs unter: `~/.audiorouter/logs/audiorouter.log` (max. 3 × 5 MB = 15 MB).
 
 | Bereich | Status |
 |---------|--------|
-| Code (Python Engine) | ✅ Bereinigt — alle bekannten Bugs gefixt |
-| Code (C Driver) | ✅ Bereinigt — Sample-Rate fixiert, Icon-Inkonsistenz entfernt |
+| Code (Python Engine) | ✅ Bereinigt, alle bekannten Bugs gefixt |
+| Code (C Driver) | ✅ Bereinigt, Sample-Rate fixiert, Icon-Inkonsistenz entfernt |
 | Architektur | ✅ Unverändert solide |
 | Sprache | ✅ Konsistent Englisch |
 | Robustheit | ✅ Single-Instance, File-Logging, Driver-Signierung |
@@ -1193,7 +1193,7 @@ Logs unter: `~/.audiorouter/logs/audiorouter.log` (max. 3 × 5 MB = 15 MB).
 
 ---
 
-## 14. Native C Helper — Architektur v2.0
+## 14. Native C Helper, Architektur v2.0
 
 Der `AudioRouterNowHelper` ist das Herzstück der v2.0-Architektur. Er ersetzt den gesamten Python-Audio-Pfad durch einen nativen C-Prozess mit direktem CoreAudio-Zugriff.
 
@@ -1205,25 +1205,25 @@ Der `AudioRouterNowHelper` ist das Herzstück der v2.0-Architektur. Er ersetzt d
 - **Start:** Durch `helper_client.py` beim App-Start
 - **Logs:** `~/Library/Logs/AudioRouterNow/helper.log` und `helper.err`
 
-### POSIX Shared Memory — ARNSharedRing
+### POSIX Shared Memory, ARNSharedRing
 
 Der Ring Buffer (`/audiorouter_shm`) ist ein POSIX SHM-Segment mit dem Struct `ARNSharedRing` (version 3). Cache-line aligned (64 Bytes pro Gruppe) für lock-free Producer/Consumer:
 
 | Offset | Name | Typ | Beschreibung |
 |--------|------|-----|-------------|
 | 0 | Read-Only-Header | struct | magic `0x41524E52`, version 3, `_Atomic` sample_rate, channels, capacity=16384, sr_change_gen |
-| 64 | Producer-Hot | struct | `write_idx` — `_Atomic uint32_t`, vom Treiber-RT-Thread geschrieben |
-| 128 | Consumer-Hot | struct | `read_idx` — `_Atomic uint32_t`, Minimum aller `local_ridx` (gesetzt von `volume_poll_thread`) |
-| 192 | Shared-Control | struct | `volume_q16` — Q16 fixed-point (65536 = 100%); `muted` — `_Atomic uint32_t` |
+| 64 | Producer-Hot | struct | `write_idx`, `_Atomic uint32_t`, vom Treiber-RT-Thread geschrieben |
+| 128 | Consumer-Hot | struct | `read_idx`, `_Atomic uint32_t`, Minimum aller `local_ridx` (gesetzt von `volume_poll_thread`) |
+| 192 | Shared-Control | struct | `volume_q16`, Q16 fixed-point (65536 = 100%); `muted`, `_Atomic uint32_t` |
 | 256 | samples[16384] | float32[] | Interleaved L,R,L,R… (~170ms @ 48kHz Stereo) |
 
 **Ring Buffer Eigenschaften:**
-- Kapazität `ARN_RING_CAPACITY = 16384` — power-of-2 für bitweise Masking (kein Modulo)
-- Producer: `arn_ring_write()` — atomic release store auf `write_idx` nach dem Schreiben
+- Kapazität `ARN_RING_CAPACITY = 16384`, power-of-2 für bitweise Masking (kein Modulo)
+- Producer: `arn_ring_write()`, atomic release store auf `write_idx` nach dem Schreiben
 - Consumer: liest via `src_frac_ridx` (fraktionaler Index) für Sample Rate Conversion
-- Available frames: `capacity - (write_idx - read_idx)` — wraps safely bei 32-bit overflow
+- Available frames: `capacity - (write_idx - read_idx)`, wraps safely bei 32-bit overflow
 
-### Per-Device Struct — DeviceOutput
+### Per-Device Struct, DeviceOutput
 
 Jedes Output-Device hat eine eigene Instanz:
 
@@ -1239,13 +1239,13 @@ typedef struct {
 } DeviceOutput;
 ```
 
-### IOProc — Audio-Hot-Path
+### IOProc, Audio-Hot-Path
 
 Der CoreAudio-IOProc wird von `coreaudiod` im RT-Kontext aufgerufen (pro Device, pro Buffer-Periode):
 
 1. Liest `write_idx` atomar (acquire) aus SHM
 2. Berechnet verfügbare Frames: `avail = write_idx - local_ridx`
-3. Liest `src_ratio_q20` atomar — bestimmt wie viele Ring-Samples pro Output-Frame konsumiert werden
+3. Liest `src_ratio_q20` atomar, bestimmt wie viele Ring-Samples pro Output-Frame konsumiert werden
 4. Fraktionale SRC via lineare Interpolation: `src_frac_ridx += ratio` pro Output-Frame
 5. Liest `volume_q16` atomar, berechnet `scale = vol_q16 / 65536.0f`
 6. Schreibt skalierte Samples in `outdata` an `ch_offset`
@@ -1258,10 +1258,10 @@ Bei Underrun (zu wenig Daten): Stille ausgeben, `src_frac_ridx` nicht weiterbewe
 Läuft alle 50ms (`arn-volume-poll`), nicht im RT-Kontext:
 
 1. **SHM-Reconnect-Guard:** Prüft magic + version. Falls Treiber neu geladen wurde (neues magic oder Versions-Mismatch): SHM neu mappen
-2. **SRC-Ratio per Device:** P-Regler — vergleicht aktuellen Füllstand (`write_idx - local_ridx`) mit `src_ring_target`; passt `src_ratio_q20` an (Nachziehen wenn zu leer, Verlangsamen wenn zu voll)
+2. **SRC-Ratio per Device:** P-Regler, vergleicht aktuellen Füllstand (`write_idx - local_ridx`) mit `src_ring_target`; passt `src_ratio_q20` an (Nachziehen wenn zu leer, Verlangsamen wenn zu voll)
 3. **`update_global_read_idx()`:** Setzt `ring->read_idx` = Minimum aller aktiven `local_ridx` → der Treiber weiß damit, wie viel Platz im Ring frei ist
 
-> `get_default_output_volume_c()` und `get_default_output_muted_c()` wurden entfernt (Volume-Keyboard-Fix, 29. Mai 2026) — Volume wird ausschließlich vom Treiber's `SetPropertyData` gesteuert.
+> `get_default_output_volume_c()` und `get_default_output_muted_c()` wurden entfernt (Volume-Keyboard-Fix, 29. Mai 2026), Volume wird ausschließlich vom Treiber's `SetPropertyData` gesteuert.
 
 ### Config-Protokoll (Unix Domain Socket)
 
@@ -1291,18 +1291,18 @@ clang -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 \
 
 ---
 
-## 15. 5-Wave Bugfix-Plan — Mai 2026
+## 15. 5-Wave Bugfix-Plan, Mai 2026
 
 Am 28. Mai 2026 (commit `6d8a36d`) wurden fünf aufeinander aufbauende Bugfix-Wellen implementiert.
 
 ---
 
-### Wave 1 — Atomic Memory Model
+### Wave 1, Atomic Memory Model
 
-**Problem:** Data Races im C Helper und im Treiber — `local_ridx`, `g_running`, `gVolume` etc. wurden von mehreren Threads ohne korrekte Memory-Order gelesen/geschrieben.
+**Problem:** Data Races im C Helper und im Treiber, `local_ridx`, `g_running`, `gVolume` etc. wurden von mehreren Threads ohne korrekte Memory-Order gelesen/geschrieben.
 
 **Fixes im C Helper (`AudioRouterNowHelper.c`):**
-- `DeviceOutput.local_ridx` → `_Atomic uint32_t` (war `uint32_t` — Data Race mit IOProc auf `volume_poll_thread`)
+- `DeviceOutput.local_ridx` → `_Atomic uint32_t` (war `uint32_t`, Data Race mit IOProc auf `volume_poll_thread`)
 - `g_running`, `g_config_running`, `g_volume_running`, `g_shm_ready` → `static atomic_int`
 - Alle Zugriffe: `atomic_load_explicit(..., memory_order_acquire)` / `atomic_store_explicit(..., memory_order_release)`
 
@@ -1321,12 +1321,12 @@ uint32_t frames = total_samples / ring->channels;
 
 ---
 
-### Wave 2 — Volume Double-Scaling Fix
+### Wave 2, Volume Double-Scaling Fix
 
 **Problem:** Volume wurde zweifach angewandt:
 1. Treiber-RT skalierte Samples in `DoIOOperation` mit `gVolume` (z.B. 50%)
 2. Helper IOProc skalierte dieselben Samples nochmals mit `volume_q16` (50%)
-→ Effektive Lautstärke: 50% × 50% = **25%** — Benutzer erlebt drastisch zu leise Wiedergabe.
+→ Effektive Lautstärke: 50% × 50% = **25%**, Benutzer erlebt drastisch zu leise Wiedergabe.
 
 **Fix:** RT-Scaling im Treiber-`DoIOOperation` vollständig entfernt. Der Treiber schreibt unveränderte (volle) Samples in den Ring Buffer. Ausschließlich der Helper skaliert.
 
@@ -1345,7 +1345,7 @@ if (gSHMRing) {
 
 ---
 
-### Wave 3 — Security & Validation
+### Wave 3, Security & Validation
 
 **Problem:** SHM und Config-Socket waren world-accessible; fehlende Bounds-Checks bei `ch_offset` erlaubten out-of-bounds Kanal-Zugriffe.
 
@@ -1359,7 +1359,7 @@ chmod(CONFIG_SOCKET_PATH, 0600);
 shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0660);  // war 0666
 ```
 
-In `output_add_locked()` — Bounds Check:
+In `output_add_locked()`, Bounds Check:
 ```c
 // ch_offset darf nicht größer sein als die tatsächliche Output-Kanalzahl des Devices
 if (ch_offset + 2 > device_output_channels) {
@@ -1369,7 +1369,7 @@ if (ch_offset + 2 > device_output_channels) {
 }
 ```
 
-In `parse_outputs()` — Clamp:
+In `parse_outputs()`, Clamp:
 ```c
 if ((int32_t)ch_offset < 0 || ch_offset > 32) ch_offset = 0;
 ```
@@ -1378,9 +1378,9 @@ if ((int32_t)ch_offset < 0 || ch_offset > 32) ch_offset = 0;
 
 ---
 
-### Wave 4 — Driver Reload Safety
+### Wave 4, Driver Reload Safety
 
-**Problem:** `sudo killall coreaudiod` (oder automatischer Neustart nach Absturz) reinitialisierte den Treiber. Der alte `arn_shm_init()` machte `memset(0)` auf das gesamte SHM-Segment — inkl. der `write_idx`/`read_idx` Counters. Der C Helper lief mit veralteten Counter-Werten weiter → Ring Buffer Corruption.
+**Problem:** `sudo killall coreaudiod` (oder automatischer Neustart nach Absturz) reinitialisierte den Treiber. Der alte `arn_shm_init()` machte `memset(0)` auf das gesamte SHM-Segment, inkl. der `write_idx`/`read_idx` Counters. Der C Helper lief mit veralteten Counter-Werten weiter → Ring Buffer Corruption.
 
 **Fix:** `arn_shm_init()` komplett überarbeitet:
 
@@ -1389,7 +1389,7 @@ int arn_shm_init(void) {
     int fd = shm_open(ARN_SHM_NAME, O_CREAT | O_RDWR, 0660);
     // Prüfe existing segment:
     if (ring->magic == ARN_MAGIC && ring->version == ARN_VERSION) {
-        // Gültiges Segment — flush: write_idx auf read_idx setzen
+        // Gültiges Segment, flush: write_idx auf read_idx setzen
         uint32_t ridx = atomic_load_explicit(&ring->read_idx, memory_order_acquire);
         atomic_store_explicit(&ring->write_idx, ridx, memory_order_release);
         // sr_change_gen inkrementieren → Helper merkt Reload
@@ -1402,25 +1402,25 @@ int arn_shm_init(void) {
 }
 ```
 
-Der `volume_poll_thread` im Helper prüft `sr_change_gen` — bei Änderung mappt er SHM neu.
+Der `volume_poll_thread` im Helper prüft `sr_change_gen`, bei Änderung mappt er SHM neu.
 
 **Resultat:** `sudo killall coreaudiod` korrumpiert den Ring Buffer nicht mehr. Der Helper erholt sich automatisch innerhalb von ≤50ms (nächster `volume_poll_thread`-Zyklus).
 
 ---
 
-### Wave 5 — Dead Code Removal
+### Wave 5, Dead Code Removal
 
 **Gelöschte Dateien:**
-- `engine/socket_receiver.py` — v1 Unix Socket Server (Python)
-- `engine/routing_engine.py` — v1 sounddevice OutputStream Manager (Python)
+- `engine/socket_receiver.py`, v1 Unix Socket Server (Python)
+- `engine/routing_engine.py`, v1 sounddevice OutputStream Manager (Python)
 
 **Entfernte Funktionen aus `engine/first_launch.py`:**
-- `install_launchd_agent()` — installierte einen LaunchD-Agent (v1-Architektur, unnötig)
-- `unload_launchd_agent()` — entlud den LaunchD-Agent
+- `install_launchd_agent()`, installierte einen LaunchD-Agent (v1-Architektur, unnötig)
+- `unload_launchd_agent()`, entlud den LaunchD-Agent
 - `_check_and_install_launchd_agent` umbenannt zu `_ensure_no_launchd_agent` (stellt sicher dass kein alter Agent mehr aktiv ist)
 
 **Entfernte Funktion aus `engine/audio_device_control.py`:**
-- `set_audio_router_sample_rate()` — setzte Sample Rate via CoreAudio; mit fixem 48kHz obsolet
+- `set_audio_router_sample_rate()`, setzte Sample Rate via CoreAudio; mit fixem 48kHz obsolet
 
 **Log-Dateipfad geändert:**
 - Alt: `/tmp/audiorouter.helper.log`
@@ -1430,7 +1430,7 @@ Der `volume_poll_thread` im Helper prüft `sr_change_gen` — bei Änderung mapp
 
 ---
 
-## 16. Volume-Keyboard-Fix — Mai 2026
+## 16. Volume-Keyboard-Fix, Mai 2026
 
 Am 29. Mai 2026 (commit `ea18bd7`) wurde ein kritischer Bug behoben, der Tastatur-Lautstärkeregler unwirksam machte.
 
@@ -1474,7 +1474,7 @@ Der `volume_poll_thread` enthält jetzt ausschließlich:
 2. SRC-Ratio-Update per Device (P-Regler)
 3. `update_global_read_idx()` (ring->read_idx = min aller local_ridx)
 
-**Volume-Kontrolle** liegt damit ausschließlich beim Treiber's `SetPropertyData`-Handler — sowohl für den ScalarValue- als auch den DecibelValue-Property-Pfad. Jede Änderung wird sofort und dauerhaft in `gSHMRing->volume_q16` geschrieben.
+**Volume-Kontrolle** liegt damit ausschließlich beim Treiber's `SetPropertyData`-Handler, sowohl für den ScalarValue- als auch den DecibelValue-Property-Pfad. Jede Änderung wird sofort und dauerhaft in `gSHMRing->volume_q16` geschrieben.
 
 ### Resultat
 
@@ -1485,29 +1485,29 @@ Der `volume_poll_thread` enthält jetzt ausschließlich:
 
 ---
 
-## 17. Sandbox-Compliance Fix — v2.1 (29. Mai 2026)
+## 17. Sandbox-Compliance Fix, v2.1 (29. Mai 2026)
 
-Commit `7c11697` — 29. Mai 2026.
+Commit `7c11697`, 29. Mai 2026.
 
 ### Symptom
 
 Nach jedem Neustart des Systems (oder nach `sudo killall coreaudiod`) kein Audio über "Audio Router". Das SHM-Segment `/audiorouter_shm` wurde beim Treiber-Load nie erfolgreich erstellt, obwohl `arn_shm_init()` aufgerufen wurde.
 
-### Root Cause — Apple AudioServerPlugin Sandbox
+### Root Cause, Apple AudioServerPlugin Sandbox
 
 Der `_coreaudiod`-Prozess, der HAL-Plugins lädt, läuft in einer Apple-Sandbox. Diese Sandbox blockiert folgende Syscalls:
 
 | Syscall | Ergebnis im Sandbox-Kontext |
 |---------|----------------------------|
-| `shm_open(O_CREAT)` | `EPERM` — Segment kann nicht erstellt werden |
-| `fchmod(fd, 0666)` | Scheitert still — Permissions werden nicht gesetzt |
-| `umask(0)` vor `shm_open` | Keine Wirkung — Sandbox ignoriert `umask`-Änderungen |
+| `shm_open(O_CREAT)` | `EPERM`, Segment kann nicht erstellt werden |
+| `fchmod(fd, 0666)` | Scheitert still, Permissions werden nicht gesetzt |
+| `umask(0)` vor `shm_open` | Keine Wirkung, Sandbox ignoriert `umask`-Änderungen |
 
-Da der Driver das Segment nicht anlegen konnte, blieb `gSHMRing = NULL`. Der Helper startete, versuchte sich mit `shm_open(O_RDWR)` zu verbinden, fand das Segment aber ebenfalls nicht — kein Audio.
+Da der Driver das Segment nicht anlegen konnte, blieb `gSHMRing = NULL`. Der Helper startete, versuchte sich mit `shm_open(O_RDWR)` zu verbinden, fand das Segment aber ebenfalls nicht, kein Audio.
 
 Das Problem trat nach jedem Neustart auf, weil beim ersten App-Start (User-Prozess, keine Sandbox) das SHM zufällig noch existieren konnte (Relikt aus einer vorherigen Session). Nach Neustart war das POSIX SHM aus dem Kernel entfernt.
 
-### Fix — Architektur-Umkehr
+### Fix, Architektur-Umkehr
 
 **Vorher (v2.0):** Driver erstellt SHM → Helper verbindet sich  
 **Nachher (v2.1):** Helper erstellt SHM → Driver verbindet sich
@@ -1523,7 +1523,7 @@ fchmod(fd, 0666);   // Cross-User-Zugriff für _coreaudiod
 arn_ring_init(ring);
 ```
 
-`fchmod(fd, 0666)` setzt die Permissions nach `ftruncate` — notwendig damit `_coreaudiod` (anderer Unix-User) später lesend und schreibend zugreifen kann. Die initiale `O_CREAT`-Permission `0600` genügt nicht.
+`fchmod(fd, 0666)` setzt die Permissions nach `ftruncate`, notwendig damit `_coreaudiod` (anderer Unix-User) später lesend und schreibend zugreifen kann. Die initiale `O_CREAT`-Permission `0600` genügt nicht.
 
 #### Driver (`AudioRouterNowDriver.c`)
 
@@ -1532,14 +1532,14 @@ arn_ring_init(ring);
 ```c
 int fd = shm_open(ARN_SHM_NAME, O_RDWR, 0);
 if (fd < 0) {
-    os_log(gLog, "SHM: Noch nicht vorhanden (errno=%d) — warte auf Helper", errno);
+    os_log(gLog, "SHM: Noch nicht vorhanden (errno=%d), warte auf Helper", errno);
     return;   // Retry-Thread übernimmt
 }
 ```
 
-Falls `shm_open` `ENOENT` zurückgibt (Helper noch nicht gestartet), kehrt die Funktion sofort zurück — kein Fehler, nur abwarten.
+Falls `shm_open` `ENOENT` zurückgibt (Helper noch nicht gestartet), kehrt die Funktion sofort zurück, kein Fehler, nur abwarten.
 
-`arn_shm_cleanup()` ruft **kein** `shm_unlink()` mehr auf — der Helper ist Eigentümer des Segments und verwaltet dessen Lifecycle.
+`arn_shm_cleanup()` ruft **kein** `shm_unlink()` mehr auf, der Helper ist Eigentümer des Segments und verwaltet dessen Lifecycle.
 
 #### Hintergrund-Retry-Thread
 
@@ -1555,7 +1555,7 @@ static void *arn_shm_retry_thread(void *arg) {
         if (gSHMRing != NULL) break;
         arn_shm_init();
         if (gSHMRing != NULL) {
-            os_log(gLog, "SHM: Retry erfolgreich — Driver mit Helper-Ring verbunden");
+            os_log(gLog, "SHM: Retry erfolgreich, Driver mit Helper-Ring verbunden");
             break;
         }
     }
@@ -1569,8 +1569,8 @@ Der Thread läuft bis `gSHMRing` gesetzt ist. `arn_shm_cleanup()` setzt `gSHMRet
 
 `sudo make install` kopiert den Helper-Binary jetzt automatisch in beide relevanten Pfade:
 
-1. `/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver/Contents/MacOS/AudioRouterNowHelper` — für den LaunchAgent der beim Login startet
-2. Den App-Bundle-Pfad — für `helper_client.py` beim direkten App-Start
+1. `/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver/Contents/MacOS/AudioRouterNowHelper`, für den LaunchAgent der beim Login startet
+2. Den App-Bundle-Pfad, für `helper_client.py` beim direkten App-Start
 
 Damit ist sichergestellt, dass nach einem `sudo make install` der Helper sofort verfügbar ist, ohne dass er separat kopiert werden muss.
 
@@ -1612,18 +1612,18 @@ Audio-Routing aktiv ✅
 
 ## 18. User-Onboarding & UX-Layer (v2.2)
 
-29. Mai 2026 — fünf Features, die die App von einem technisch korrekten Werkzeug zu einer für Endnutzer selbsterklärenden Anwendung machen.
+29. Mai 2026, fünf Features, die die App von einem technisch korrekten Werkzeug zu einer für Endnutzer selbsterklärenden Anwendung machen.
 
 ### 18.1 Kontext & Motivation
 
-Bis v2.1 war die gesamte Projekt-Dokumentation entwickler-orientiert: SHM-Layouts, Atomic-Memory-Order, IOProc-Hot-Path. Für die Korrektheit der Audio-Engine essenziell — aber ein Endnutzer, der die App startet, fand **keine Orientierung**: Was wurde installiert? Läuft es überhaupt? Was tue ich, wenn kein Ton kommt?
+Bis v2.1 war die gesamte Projekt-Dokumentation entwickler-orientiert: SHM-Layouts, Atomic-Memory-Order, IOProc-Hot-Path. Für die Korrektheit der Audio-Engine essenziell, aber ein Endnutzer, der die App startet, fand **keine Orientierung**: Was wurde installiert? Läuft es überhaupt? Was tue ich, wenn kein Ton kommt?
 
 Eine Opus-Reflektionsrunde identifizierte ein **3-Layer-Modell** der Nutzer-Bedürfnisse:
 
 | Layer | Frage des Users | Antwort vor v2.2 |
 |-------|----------------|------------------|
-| **Layer 0** | "Funktioniert es gerade?" | Keine — Menü zeigte nur statische Geräteliste |
-| **Layer 1** | "Es geht nicht — was tue ich?" | Keine — kein Troubleshooting, kein Uninstall |
+| **Layer 0** | "Funktioniert es gerade?" | Keine, Menü zeigte nur statische Geräteliste |
+| **Layer 1** | "Es geht nicht, was tue ich?" | Keine, kein Troubleshooting, kein Uninstall |
 | **Layer 2** | "Wie ist das gebaut?" | Vollständig (DOKUMENTATION.md) |
 
 Layer 2 war übererfüllt, Layer 0 und 1 fehlten komplett. Die fünf Features schließen genau diese Lücke.
@@ -1636,11 +1636,11 @@ Die oberste Menüzeile spiegelt jetzt den realen Systemzustand wider. Fünf Zust
 
 | Symbol | Title | action_key | Klickbar |
 |--------|-------|-----------|----------|
-| ⚠️ | `Helper not responding — click to restart` | `restart_helper` | ✅ startet Helper neu |
-| 🔴 | `No output selected — pick a device below` | `None` | — |
-| 🟡 | `System audio not routed here — click to fix` | `switch_audio` | ✅ schaltet System-Audio um |
-| 🟡 | `Ready — play something to start routing` | `None` | — |
-| 🟢 | `Routing active — <Geräte>` | `None` | — |
+| ⚠️ | `Helper not responding, click to restart` | `restart_helper` | ✅ startet Helper neu |
+| 🔴 | `No output selected, pick a device below` | `None` | - |
+| 🟡 | `System audio not routed here, click to fix` | `switch_audio` | ✅ schaltet System-Audio um |
+| 🟡 | `Ready, play something to start routing` | `None` | - |
+| 🟢 | `Routing active, <Geräte>` | `None` | - |
 
 Das Menüleisten-Icon spiegelt den Zustand: das erste Zeichen des Titles wird als Icon gesetzt (⚠️/🔴/🟡/🟢).
 
@@ -1648,12 +1648,12 @@ Das Menüleisten-Icon spiegelt den Zustand: das erste Zeichen des Titles wird al
 
 `_compute_status() -> tuple[str, object]` wertet vier Eingangssignale in fester Prioritätsreihenfolge aus:
 
-1. **`helper_alive`** — `self._helper_alive` (gepingt im Timer)
-2. **`outputs_selected`** — `bool(self._active_device_names)`
-3. **`routed_here`** — `is_audio_router_default()` (System-Default == "Audio Router")
-4. **`audio_flowing`** — `int(status.get("ring_frames", 0)) > 0`
+1. **`helper_alive`**, `self._helper_alive` (gepingt im Timer)
+2. **`outputs_selected`**, `bool(self._active_device_names)`
+3. **`routed_here`**, `is_audio_router_default()` (System-Default == "Audio Router")
+4. **`audio_flowing`**, `int(status.get("ring_frames", 0)) > 0`
 
-Der vierte Punkt nutzt bewusst **`ring_frames > 0`** als Signal für tatsächlich fließendes Audio — **nicht** ein "active"-Flag des Helpers. Ein registrierter Output ist nicht dasselbe wie abgespieltes Audio; nur ein gefüllter Ring Buffer beweist, dass Samples durchlaufen.
+Der vierte Punkt nutzt bewusst **`ring_frames > 0`** als Signal für tatsächlich fließendes Audio, **nicht** ein "active"-Flag des Helpers. Ein registrierter Output ist nicht dasselbe wie abgespieltes Audio; nur ein gefüllter Ring Buffer beweist, dass Samples durchlaufen.
 
 ```python
 audio_flowing = False
@@ -1667,31 +1667,31 @@ if status is not None:
 
 #### Timer-Integration & Performance
 
-- **0.5s-Timer** (`_ui_timer`): `_process_pending_updates` ruft bei **jedem** Tick `_update_status_ui()` auf — nicht nur bei Helper-Zustandswechsel. Nötig, damit z.B. externes Umstellen des System-Audio-Outputs zeitnah erkannt wird.
+- **0.5s-Timer** (`_ui_timer`): `_process_pending_updates` ruft bei **jedem** Tick `_update_status_ui()` auf, nicht nur bei Helper-Zustandswechsel. Nötig, damit z.B. externes Umstellen des System-Audio-Outputs zeitnah erkannt wird.
 - **Cache-Mechanismus gegen Flackern:** `_update_status_ui()` vergleicht `(title, action_key)` mit `self._last_status_cache` und rendert nur bei Änderung neu. Verhindert unnötiges Neusetzen von `self.title` und Menü-Callbacks bei jedem 0.5s-Tick.
-- **0.2s Timeout für `get_status()`:** Der `get_status`-Aufruf in Schritt 4 verwendet `timeout=0.2`. Ohne diesen Timeout könnte ein hängender Helper den 0.5s-Timer für bis zu 0.4s (Default-Timeout) blockieren und damit die gesamte UI einfrieren. `get_status` wird zudem **nur** aufgerufen, wenn `helper_alive AND outputs_selected AND routed_here` — die teure Abfrage entfällt in allen Fehlerzuständen.
+- **0.2s Timeout für `get_status()`:** Der `get_status`-Aufruf in Schritt 4 verwendet `timeout=0.2`. Ohne diesen Timeout könnte ein hängender Helper den 0.5s-Timer für bis zu 0.4s (Default-Timeout) blockieren und damit die gesamte UI einfrieren. `get_status` wird zudem **nur** aufgerufen, wenn `helper_alive AND outputs_selected AND routed_here`, die teure Abfrage entfällt in allen Fehlerzuständen.
 
 Klick-Dispatch über `_status_action()`: liest `action_key` aus dem Cache und ruft `_restart_helper()` bzw. `_switch_system_audio()` auf. Bei `action_key is None` ist die Zeile nicht klickbar (`set_callback(None)`).
 
 ### 18.3 Feature 2: README v2.1 (Architektur-Drift)
 
-Das README enthielt noch die veraltete v1-Architektur (Python `SocketReceiver` + `sounddevice` über Unix Domain Socket) — ein **Architektur-Drift** gegenüber dem realen Code, der seit Phase 7 auf POSIX Shared Memory + C Helper läuft.
+Das README enthielt noch die veraltete v1-Architektur (Python `SocketReceiver` + `sounddevice` über Unix Domain Socket), ein **Architektur-Drift** gegenüber dem realen Code, der seit Phase 7 auf POSIX Shared Memory + C Helper läuft.
 
 **Korrekturen:**
 - Veraltetes Python-Socket-Diagramm ersetzt durch das aktuelle **SHM-Diagramm** (Driver → Lock-Free Ring Buffer → C Helper → CoreAudio IOProc)
-- Neue Sektion **"What gets installed"** — listet HAL-Treiber und Helper-Daemon für den Endnutzer auf
-- Neue Sektion **Troubleshooting** — nennt **beide** Log-Pfade: `~/.audiorouter/logs/audiorouter.log` (App) und `~/Library/Logs/AudioRouterNow/` (Helper)
-- Neue Sektion **Uninstall** — verweist auf den Menüpunkt im Help-Untermenü
+- Neue Sektion **"What gets installed"**, listet HAL-Treiber und Helper-Daemon für den Endnutzer auf
+- Neue Sektion **Troubleshooting**, nennt **beide** Log-Pfade: `~/.audiorouter/logs/audiorouter.log` (App) und `~/Library/Logs/AudioRouterNow/` (Helper)
+- Neue Sektion **Uninstall**, verweist auf den Menüpunkt im Help-Untermenü
 
 ### 18.4 Feature 3: First-Run Wizard
 
-**Datei:** `engine/onboarding.py` — `run_first_run_wizard(app, config) -> None`
+**Datei:** `engine/onboarding.py`, `run_first_run_wizard(app, config) -> None`
 
 Dreistufiger Onboarding-Flow via blockierende `rumps.alert`-Dialoge (modal). Wird nach der rumps-App-Init aufgerufen, da `rumps.alert` einen laufenden App-Context braucht:
 
-1. **Welcome** — "Welcome to AudioRouterNow 🎛️": erklärt was installiert wurde (HAL Audio Driver + Helper Daemon), betont "no internet required, no data leaves your Mac" → Button "Next →"
-2. **Choose outputs** — "Step 1 of 2": fordert den User auf, das 🎛️-Icon zu klicken und Geräte zu wählen; weist auf Mehrfachauswahl und automatisches Speichern hin → Button "Next →"
-3. **You're set** — "Step 2 of 2": erklärt den automatischen System-Audio-Switch und die Bedeutung der Status-Indikatoren (🟢/🟡/🔴) → Button "Let's go!"
+1. **Welcome**, "Welcome to AudioRouterNow 🎛️": erklärt was installiert wurde (HAL Audio Driver + Helper Daemon), betont "no internet required, no data leaves your Mac" → Button "Next →"
+2. **Choose outputs**, "Step 1 of 2": fordert den User auf, das 🎛️-Icon zu klicken und Geräte zu wählen; weist auf Mehrfachauswahl und automatisches Speichern hin → Button "Next →"
+3. **You're set**, "Step 2 of 2": erklärt den automatischen System-Audio-Switch und die Bedeutung der Status-Indikatoren (🟢/🟡/🔴) → Button "Let's go!"
 
 #### Einmaliger Trigger via Config-Flag
 
@@ -1704,15 +1704,15 @@ if not self._config.onboarding_done:
     save_config(self._config)  # onboarding_done=True persistieren
 ```
 
-`run_first_run_wizard` setzt am Ende `config.onboarding_done = True`; die App persistiert via `save_config`. Beim nächsten Start wird der Wizard übersprungen. `onboarding.py` macht **keine Annahmen über den App-State** — nur `rumps.alert` + Config-Update — und kapselt den `import rumps` in ein `try/except`, um in Test-Umgebungen ohne rumps graceful zu überspringen.
+`run_first_run_wizard` setzt am Ende `config.onboarding_done = True`; die App persistiert via `save_config`. Beim nächsten Start wird der Wizard übersprungen. `onboarding.py` macht **keine Annahmen über den App-State**, nur `rumps.alert` + Config-Update, und kapselt den `import rumps` in ein `try/except`, um in Test-Umgebungen ohne rumps graceful zu überspringen.
 
 #### PyInstaller-Integration
 
-`installer/AudioRouterNow.spec` wurde um `"onboarding"` in den `hiddenimports` ergänzt — da das Modul nur per lazy `from onboarding import …` innerhalb der `if`-Bedingung geladen wird, würde PyInstaller es sonst nicht erkennen und nicht ins Bundle aufnehmen.
+`installer/AudioRouterNow.spec` wurde um `"onboarding"` in den `hiddenimports` ergänzt, da das Modul nur per lazy `from onboarding import …` innerhalb der `if`-Bedingung geladen wird, würde PyInstaller es sonst nicht erkennen und nicht ins Bundle aufnehmen.
 
 ### 18.5 Feature 4: Vollständige Deinstallation
 
-**Funktion:** `first_launch.uninstall_all() -> tuple[bool, str]` — die exakte Inverse von `install_driver()`.
+**Funktion:** `first_launch.uninstall_all() -> tuple[bool, str]`, die exakte Inverse von `install_driver()`.
 
 Acht Schritte in **kritischer Reihenfolge** (Helper stoppen, bevor seine Ressourcen entfernt werden):
 
@@ -1727,11 +1727,11 @@ Acht Schritte in **kritischer Reihenfolge** (Helper stoppen, bevor seine Ressour
 | 7 | Helper-Log | `unlink(/tmp/audiorouter.helper.log)` |
 | 8 | Control-Socket | `unlink(/tmp/audiorouter.config.sock)` |
 
-**Fehlertoleranz:** Einzelne Schritt-Fehler werden geloggt und brechen die Deinstallation **nicht** ab. Nur Schritt 4 (Admin-Dialog) erlaubt dem User einen Abbruch — AppleScript-Fehlercode `-128` (Cancel) wird erkannt und als `(False, "Cancelled by user")` zurückgegeben.
+**Fehlertoleranz:** Einzelne Schritt-Fehler werden geloggt und brechen die Deinstallation **nicht** ab. Nur Schritt 4 (Admin-Dialog) erlaubt dem User einen Abbruch, AppleScript-Fehlercode `-128` (Cancel) wird erkannt und als `(False, "Cancelled by user")` zurückgegeben.
 
-**Admin-Rechte** für Schritt 4 analog zur Installation: `do shell script "rm -rf '<driver>' && killall coreaudiod || true" with administrator privileges`. macOS zeigt einmalig den Passwort-Dialog — dieselbe Mechanik wie beim Install.
+**Admin-Rechte** für Schritt 4 analog zur Installation: `do shell script "rm -rf '<driver>' && killall coreaudiod || true" with administrator privileges`. macOS zeigt einmalig den Passwort-Dialog, dieselbe Mechanik wie beim Install.
 
-**macOS-spezifische `shm_unlink`-Behandlung:** Auf macOS wirft `shm_unlink()` für ein nicht existierendes Segment einen `OSError` mit errno **`EINVAL` (22)** oder **`ENOENT` (2)** — **nicht** `FileNotFoundError`. Beide werden als "bereits entfernt" behandelt, damit keine irreführende Warnung erscheint:
+**macOS-spezifische `shm_unlink`-Behandlung:** Auf macOS wirft `shm_unlink()` für ein nicht existierendes Segment einen `OSError` mit errno **`EINVAL` (22)** oder **`ENOENT` (2)**, **nicht** `FileNotFoundError`. Beide werden als "bereits entfernt" behandelt, damit keine irreführende Warnung erscheint:
 
 ```python
 except OSError as oexc:
@@ -1753,20 +1753,20 @@ Neues Untermenü **"Help"** mit drei Einträgen (jeweils durch Separator getrenn
 2. **"Open documentation"** → `_open_documentation()`
 3. **"Uninstall AudioRouterNow…"** → `_uninstall()` (siehe 18.5)
 
-#### `_show_background_info()` — dynamischer Status-Dialog
+#### `_show_background_info()`, dynamischer Status-Dialog
 
-Erzeugt zur Laufzeit einen Infodialog mit echten System-/Routing-Daten — nicht statischem Text:
+Erzeugt zur Laufzeit einen Infodialog mit echten System-/Routing-Daten, nicht statischem Text:
 
 - **HAL Audio Driver:** Pfad (`DRIVER_INSTALL_PATH`) + Status ("Installed" / "Not found" via `is_driver_installed()`)
 - **Helper Daemon:** Status mit **PID** falls selbst gestartet (`Running (PID <pid>)`), sonst "Running (managed externally)" oder "Not running"
 - **Sample Rate:** formatiert aus `self._config.sample_rate` (z.B. "48 kHz")
 - **Active Outputs:** sortierte Geräteliste (>3 Geräte → gekürzt mit "…")
-- **Expected latency:** `≤ 171 ms (ring buffer)` — berechnet aus `ARN_RING_CAPACITY=16384 / 2 / 48000 × 1000`
+- **Expected latency:** `≤ 171 ms (ring buffer)`, berechnet aus `ARN_RING_CAPACITY=16384 / 2 / 48000 × 1000`
 - **Log-Pfade:** Config (`CONFIG_FILE`), App-Log (`~/.audiorouter/logs/audiorouter.log`), Helper-Log (`~/Library/Logs/AudioRouterNow/`)
 
-#### `_open_documentation()` — Dev-Mode-Fallback
+#### `_open_documentation()`, Dev-Mode-Fallback
 
-Öffnet bevorzugt die **lokale** `DOKUMENTATION.md` (relativ zum Modul, `__file__.parent.parent`) — relevant im Dev-Mode. Existiert sie nicht (z.B. im gebündelten App-Bundle), fällt es auf `DOCUMENTATION_URL` (GitHub) zurück:
+Öffnet bevorzugt die **lokale** `DOKUMENTATION.md` (relativ zum Modul, `__file__.parent.parent`), relevant im Dev-Mode. Existiert sie nicht (z.B. im gebündelten App-Bundle), fällt es auf `DOCUMENTATION_URL` (GitHub) zurück:
 
 ```python
 local_doc = pathlib.Path(__file__).parent.parent / "DOKUMENTATION.md"
@@ -1778,7 +1778,7 @@ else:
 
 ---
 
-## 19. Bugfix-Welle v2.3 — Initialisierungsreihenfolge & Stabilität (30. Mai 2026)
+## 19. Bugfix-Welle v2.3, Initialisierungsreihenfolge & Stabilität (30. Mai 2026)
 
 Am 30. Mai 2026 wurde eine Reihe von Stabilitäts-Bugs behoben, die unter realen Nutzungsbedingungen auftraten. Anders als die Audit-Welle (Abschnitt 13) und der 5-Wave-Plan (Abschnitt 15) handelt es sich hier nicht um proaktiv gesuchte Code-Smells, sondern um vom Nutzer beobachtete Symptome, deren gemeinsame Wurzel die v2.2-Architekturänderung war.
 
@@ -1795,13 +1795,13 @@ Am 30. Mai 2026 wurde eine Reihe von Stabilitäts-Bugs behoben, die unter realen
 
 ### 19.1 Root-Cause-Analyse (Kontext)
 
-Die v2.2-Architekturänderung kehrte die SHM-Ownership um: **der Helper erstellt das SHM-Segment, der Driver verbindet sich nur** (Sandbox-Compliance, siehe Abschnitt 17). Diese Umkehr ist korrekt und notwendig — sie führte aber als Nebeneffekt eine ganze Klasse neuer **Initialisierungs-Reihenfolge-Probleme** ein, weil nun zwei unabhängig gestartete Prozesse (Driver via `_coreaudiod`, Helper via App/LaunchAgent) sich über ein gemeinsames Segment finden müssen, dessen Lifecycle nicht mehr beim Driver liegt.
+Die v2.2-Architekturänderung kehrte die SHM-Ownership um: **der Helper erstellt das SHM-Segment, der Driver verbindet sich nur** (Sandbox-Compliance, siehe Abschnitt 17). Diese Umkehr ist korrekt und notwendig, sie führte aber als Nebeneffekt eine ganze Klasse neuer **Initialisierungs-Reihenfolge-Probleme** ein, weil nun zwei unabhängig gestartete Prozesse (Driver via `_coreaudiod`, Helper via App/LaunchAgent) sich über ein gemeinsames Segment finden müssen, dessen Lifecycle nicht mehr beim Driver liegt.
 
 Drei Bugkategorien wurden identifiziert:
 
-1. **Property-Asymmetrie** — beim Auto-Start wurde nur ein Teil der CoreAudio-Default-Properties gesetzt (Bug A).
-2. **Über-aggressiver Reinit** — jede Output-Änderung löste einen vollständigen SR-Reinit aller Outputs aus (Bug B).
-3. **Fehlende IO-Aktivierung & SHM-Drift** — kein Audio-Client → kein `StartIO` (Bug C); Helper-Neustart → Driver schreibt in veraltetes Segment (Bug D).
+1. **Property-Asymmetrie**, beim Auto-Start wurde nur ein Teil der CoreAudio-Default-Properties gesetzt (Bug A).
+2. **Über-aggressiver Reinit**, jede Output-Änderung löste einen vollständigen SR-Reinit aller Outputs aus (Bug B).
+3. **Fehlende IO-Aktivierung & SHM-Drift**, kein Audio-Client → kein `StartIO` (Bug C); Helper-Neustart → Driver schreibt in veraltetes Segment (Bug D).
 
 ---
 
@@ -1819,18 +1819,18 @@ Drei Bugkategorien wurden identifiziert:
 
 **Fixes (4 Ebenen):**
 
-**1. `_auto_start_if_configured()` — Symmetrie `dOut` + `sOut`** (`menu_bar_app.py`):
+**1. `_auto_start_if_configured()`, Symmetrie `dOut` + `sOut`** (`menu_bar_app.py`):
 
 ```python
 set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
-# System Output ebenfalls auf Audio Router setzen — Keyboard-Volume-
+# System Output ebenfalls auf Audio Router setzen, Keyboard-Volume-
 # Tasten folgen dem System Output ('sOut'). Symmetrisch zu dOut.
 set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
 ```
 
-Dieselbe Symmetrie wurde in `_switch_system_audio()` (manueller Klick auf die Status-Zeile) und in `_save_and_apply()` (Auto-Switch beim ersten aktivierten Output) eingezogen — überall, wo zuvor nur `'dOut'` gesetzt wurde, wird jetzt auch `'sOut'` gesetzt.
+Dieselbe Symmetrie wurde in `_switch_system_audio()` (manueller Klick auf die Status-Zeile) und in `_save_and_apply()` (Auto-Switch beim ersten aktivierten Output) eingezogen, überall, wo zuvor nur `'dOut'` gesetzt wurde, wird jetzt auch `'sOut'` gesetzt.
 
-**2. `set_default_system_output_device()` — neue Funktion** (`audio_device_control.py`):
+**2. `set_default_system_output_device()`, neue Funktion** (`audio_device_control.py`):
 
 Strukturell analog zu `set_default_output_device()`, aber sie schreibt in `kAudioHardwarePropertyDefaultSystemOutputDevice`:
 
@@ -1840,16 +1840,16 @@ _kAudioHardwarePropertyDefaultSystemOutputDevice = 0x734F7574  # 'sOut'
 def set_default_system_output_device(device_name: str) -> tuple[bool, str]:
     """
     Setzt das macOS Default System Output (kAudioHardwarePropertyDefaultSystemOutputDevice).
-    Keyboard-Volume-Tasten folgen dem System Output — damit diese auf
+    Keyboard-Volume-Tasten folgen dem System Output, damit diese auf
     'Audio Router' wirken (und nicht auf das physische Interface), muss
     Audio Router auch als System Output gesetzt sein.
     """
     # Device-Liste durchsuchen → target_id ermitteln → SetPropertyData auf 'sOut'
 ```
 
-**3. `_poll_volume_sync()` — Fallback-Poller im 0.5s-Timer** (`menu_bar_app.py`):
+**3. `_poll_volume_sync()`, Fallback-Poller im 0.5s-Timer** (`menu_bar_app.py`):
 
-Ein im UI-Timer (alle 0.5s) aufgerufener Poller, der **externe** Volume-Änderungen erkennt (z.B. durch andere Apps oder Tasten, die den Driver nicht direkt erreichen) und sie via `osascript` re-applied. Das erneute Setzen triggert den `SetPropertyData`-Pfad des Drivers, der `volume_q16` im SHM aktualisiert — so bleibt `volume_q16` immer synchron mit dem System-Volume.
+Ein im UI-Timer (alle 0.5s) aufgerufener Poller, der **externe** Volume-Änderungen erkennt (z.B. durch andere Apps oder Tasten, die den Driver nicht direkt erreichen) und sie via `osascript` re-applied. Das erneute Setzen triggert den `SetPropertyData`-Pfad des Drivers, der `volume_q16` im SHM aktualisiert, so bleibt `volume_q16` immer synchron mit dem System-Volume.
 
 ```python
 def _poll_volume_sync(self):
@@ -1872,9 +1872,9 @@ def _poll_volume_sync(self):
 
 **Loop-Sicherheit:** Der Poller reagiert ausschließlich bei einem **Delta** (`new_vol != old_vol`). Der zuletzt gesehene Wert wird in `self._last_polled_vol` gecacht. Setzt der Poller selbst das Volume, ist `new_vol` beim nächsten Tick gleich `old_vol` → keine erneute Aktion, keine Endlosschleife.
 
-**4. `_handle_media_key()` — NSEvent GlobalMonitor** (`menu_bar_app.py`):
+**4. `_handle_media_key()`, NSEvent GlobalMonitor** (`menu_bar_app.py`):
 
-Da Volume-Tasten virtuelle HAL-Devices nicht zuverlässig direkt erreichen, fängt ein globaler `NSEvent`-Monitor (`NSSystemDefinedMask`) die Media-Keys ab und verarbeitet sie manuell — ohne Accessibility-Permissions:
+Da Volume-Tasten virtuelle HAL-Devices nicht zuverlässig direkt erreichen, fängt ein globaler `NSEvent`-Monitor (`NSSystemDefinedMask`) die Media-Keys ab und verarbeitet sie manuell, ohne Accessibility-Permissions:
 
 ```python
 self._media_key_monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
@@ -1890,41 +1890,41 @@ Der Handler dekodiert das `data1`-Feld der `NSSystemDefined`-Events (Typ 14, Sub
 | `2` | `NX_KEYTYPE_SOUND_DOWN` | Volume −7 (`max(0, …)`) |
 | `7` | `NX_KEYTYPE_MUTE` | Toggle: `0` wenn > 0, sonst `50` |
 
-Der neue Wert wird via `set volume output volume X` (osascript) gesetzt — was wiederum den `SetPropertyData`-Pfad des Drivers korrekt triggert und `volume_q16` aktualisiert. `STEP = 7` ergibt ~15 Stufen über den Bereich 0–100.
+Der neue Wert wird via `set volume output volume X` (osascript) gesetzt, was wiederum den `SetPropertyData`-Pfad des Drivers korrekt triggert und `volume_q16` aktualisiert. `STEP = 7` ergibt ~15 Stufen über den Bereich 0–100.
 
 ---
 
 ### 19.3 Bug B: Output stoppt bei Multi-Device-Änderung
 
-**Symptom:** Komplete Audio 6 + MacBook-Lautsprecher sind beide aktiv. Wird der MacBook-Lautsprecher abgewählt, stoppt **auch** die KA6 — obwohl an ihr nichts geändert wurde.
+**Symptom:** Komplete Audio 6 + MacBook-Lautsprecher sind beide aktiv. Wird der MacBook-Lautsprecher abgewählt, stoppt **auch** die KA6, obwohl an ihr nichts geändert wurde.
 
 **Root Cause:**
 
 - `_save_and_apply()` rief `_apply_best_sample_rate()` bei **jeder** Output-Änderung auf.
 - Dieser Aufruf führte (über `set_sample_rate`) zu `sr_change_gen++` im SHM. Der `volume_poll_thread` des Helpers erkannte die Änderung und rief `sr_reinit_all_outputs()` auf.
-- Die alte `sr_reinit_all_outputs()` stoppte **alle** Outputs atomisch (Stop/Destroy/Create/Start) — unabhängig davon, ob sich die Sample-Rate des jeweiligen Geräts überhaupt geändert hatte.
+- Die alte `sr_reinit_all_outputs()` stoppte **alle** Outputs atomisch (Stop/Destroy/Create/Start), unabhängig davon, ob sich die Sample-Rate des jeweiligen Geräts überhaupt geändert hatte.
 - Ein einzelner fehlschlagender `AudioDeviceStart` ohne Retry → der betroffene Output blieb dauerhaft `active = false` und stumm.
 
-Effektiv: Das Entfernen der MacBook-Speaker veränderte die optimale gemeinsame Sample-Rate faktisch nicht — trotzdem wurden alle Outputs durch den Reinit gerissen, und die KA6 erholte sich nicht.
+Effektiv: Das Entfernen der MacBook-Speaker veränderte die optimale gemeinsame Sample-Rate faktisch nicht, trotzdem wurden alle Outputs durch den Reinit gerissen, und die KA6 erholte sich nicht.
 
 **Fixes:**
 
-**1. `_apply_best_sample_rate()` — Early-Return bei unveränderter SR** (`menu_bar_app.py`):
+**1. `_apply_best_sample_rate()`, Early-Return bei unveränderter SR** (`menu_bar_app.py`):
 
 ```python
 # Fix 3c: Nur wenn sich die optimale SR wirklich von der aktuellen
 # Config-SR unterscheidet wird der Helper benachrichtigt. Sonst loest
 # set_sample_rate() unnoetig einen disruptiven SR-Reinit aller Outputs aus.
 if best == self._config.sample_rate:
-    logger.debug("Auto Sample-Rate: %d Hz unveraendert — kein Reinit", best)
+    logger.debug("Auto Sample-Rate: %d Hz unveraendert, kein Reinit", best)
     return
 ```
 
 Damit unterbleibt der `set_sample_rate`-Call (und das nachfolgende `sr_change_gen++`) vollständig, wenn die berechnete optimale Rate der aktuellen Config-Rate entspricht.
 
-**2. `sr_reinit_all_outputs()` — Selektiver Reinit pro Output** (`helper/AudioRouterNowHelper.c`):
+**2. `sr_reinit_all_outputs()`, Selektiver Reinit pro Output** (`helper/AudioRouterNowHelper.c`):
 
-Statt blind alle Outputs zu stoppen, wird pro Output `kAudioDevicePropertyNominalSampleRate` des Geräts gegen die Ring-SR verglichen. Stimmen sie überein, wird **nur** die Leseposition neu gesetzt — der Output läuft ununterbrochen weiter:
+Statt blind alle Outputs zu stoppen, wird pro Output `kAudioDevicePropertyNominalSampleRate` des Geräts gegen die Ring-SR verglichen. Stimmen sie überein, wird **nur** die Leseposition neu gesetzt, der Output läuft ununterbrochen weiter:
 
 ```c
 /* Aktuelle Device-SR lesen */
@@ -1932,26 +1932,26 @@ Float64 device_sr = (Float64)new_sr;
 UInt32  sz = sizeof(Float64);
 AudioObjectGetPropertyData(dev->dev_id, &sr_prop, 0, NULL, &sz, &device_sr);
 
-/* Fix 3b: SR stimmt bereits ueberein — kein disruptiver Stop/Start. */
+/* Fix 3b: SR stimmt bereits ueberein, kein disruptiver Stop/Start. */
 if ((uint32_t)device_sr == new_sr) {
     dev->base_ratio = 1.0;
     uint32_t q20 = (uint32_t)(dev->base_ratio * (double)(1u << 20));
     atomic_store_explicit(&dev->src_ratio_q20, q20, memory_order_relaxed);
     atomic_store_explicit(&dev->local_ridx, w, memory_order_release);
     dev->src_frac_ridx = (double)w / 2.0;
-    /* active/proc_id bleiben unveraendert — Output laeuft weiter. */
+    /* active/proc_id bleiben unveraendert, Output laeuft weiter. */
     continue;
 }
 ```
 
 Nur Outputs mit tatsächlich abweichender Geräte-SR durchlaufen den vollen Stop → Destroy → Create → Start-Zyklus.
 
-**3. `sr_reinit_all_outputs()` — Retry-Logik für `AudioDeviceStart`** (`helper/AudioRouterNowHelper.c`):
+**3. `sr_reinit_all_outputs()`, Retry-Logik für `AudioDeviceStart`** (`helper/AudioRouterNowHelper.c`):
 
-Für Outputs, die neu gestartet werden müssen, wird `AudioDeviceStart` bis zu 3× mit 100ms Pause versucht. Erst nach dem dritten Fehlschlag wird der Output explizit auf `active = false` gesetzt und das Scheitern protokolliert — statt eines stillen Fails:
+Für Outputs, die neu gestartet werden müssen, wird `AudioDeviceStart` bis zu 3× mit 100ms Pause versucht. Erst nach dem dritten Fehlschlag wird der Output explizit auf `active = false` gesetzt und das Scheitern protokolliert, statt eines stillen Fails:
 
 ```c
-/* Fix 3a: AudioDeviceStart mit Retry — bis zu 3 Versuche, 100ms Pause.
+/* Fix 3a: AudioDeviceStart mit Retry, bis zu 3 Versuche, 100ms Pause.
  * Verhindert dass ein einmaliger transienter Fehler den Output dauerhaft
  * im stillen active=false-Zustand stehen laesst. */
 for (int retry = 0; retry < 3; retry++) {
@@ -1961,7 +1961,7 @@ for (int retry = 0; retry < 3; retry++) {
 }
 if (err != noErr) {
     fprintf(stderr, "Helper: AudioDeviceStart fehlgeschlagen nach 3 Versuchen "
-                    "(OSStatus %d) fuer %s — Output bleibt inaktiv\n",
+                    "(OSStatus %d) fuer %s, Output bleibt inaktiv\n",
             (int)err, dev->name);
     AudioDeviceDestroyIOProcID(dev->dev_id, dev->proc_id);
     dev->proc_id = NULL;
@@ -1981,15 +1981,15 @@ if (err != noErr) {
 
 **Root Cause:**
 
-- Der HAL-Driver schreibt nur dann Samples in den Ring, wenn `gDeviceIsRunning > 0` — dieses Flag wird durch den `StartIO`-Callback gesetzt.
+- Der HAL-Driver schreibt nur dann Samples in den Ring, wenn `gDeviceIsRunning > 0`, dieses Flag wird durch den `StartIO`-Callback gesetzt.
 - `StartIO` wird von `coreaudiod` erst dann ausgelöst, wenn ein Audio-Client das Device aktiv öffnet.
 - Nach einer Neuinstallation sind **keine Outputs** in der Config gespeichert → `_auto_start_if_configured()` kehrt sofort zurück (kein gespeichertes Device) → kein Client öffnet "Audio Router" → kein `StartIO` → `write_idx` bleibt `0`.
 
 Der IO-Stack wird also nie "scharf geschaltet", weil zwischen erster Geräteauswahl und tatsächlichem Audio-Client eine Lazy-Init-Lücke klafft.
 
-**Fix: `_trigger_start_io` — verzögerter IO-Stack-Aufbau** (`menu_bar_app.py`):
+**Fix: `_trigger_start_io`, verzögerter IO-Stack-Aufbau** (`menu_bar_app.py`):
 
-Beim ersten Output-Setup (`_save_and_apply()`, Zweig "erster aktivierter Output") wird ein Background-Thread gestartet, der 1.5s wartet (genug Zeit für coreaudiod, `StartIO` regulär auszulösen), dann den Helper-Status prüft. Ist der Ring danach immer noch leer, wird der Helper kurz heruntergefahren und neu verbunden — dieser Reconnect zwingt `coreaudiod`, den IO-Stack neu aufzubauen und `StartIO` auszulösen:
+Beim ersten Output-Setup (`_save_and_apply()`, Zweig "erster aktivierter Output") wird ein Background-Thread gestartet, der 1.5s wartet (genug Zeit für coreaudiod, `StartIO` regulär auszulösen), dann den Helper-Status prüft. Ist der Ring danach immer noch leer, wird der Helper kurz heruntergefahren und neu verbunden, dieser Reconnect zwingt `coreaudiod`, den IO-Stack neu aufzubauen und `StartIO` auszulösen:
 
 ```python
 def _trigger_start_io():
@@ -1997,7 +1997,7 @@ def _trigger_start_io():
     time.sleep(1.5)  # coreaudiod braucht ~1s um StartIO auszulösen
     status = self._helper.get_status(timeout=1.0)
     if status and status.get("ring_frames", 0) == 0:
-        # Ring noch leer — Helper neu verbinden triggert coreaudiod
+        # Ring noch leer, Helper neu verbinden triggert coreaudiod
         logger.info("StartIO-Trigger: Ring leer nach Device-Aktivierung, reconnect...")
         self._helper.shutdown()
         import time as _t; _t.sleep(0.5)
@@ -2005,7 +2005,7 @@ def _trigger_start_io():
 threading.Thread(target=_trigger_start_io, daemon=True, name="start-io-trigger").start()
 ```
 
-**Resultat:** Auch beim allerersten Geräte-Setup direkt nach der Installation wird der IO-Stack zuverlässig aktiviert — Audio fließt ohne manuellen Eingriff.
+**Resultat:** Auch beim allerersten Geräte-Setup direkt nach der Installation wird der IO-Stack zuverlässig aktiviert, Audio fließt ohne manuellen Eingriff.
 
 ---
 
@@ -2015,7 +2015,7 @@ threading.Thread(target=_trigger_start_io, daemon=True, name="start-io-trigger")
 
 **Root Cause:**
 
-Beim Helper-Startup ruft dieser `shm_unlink()` + `shm_open(O_CREAT)` auf — das entfernt das alte Segment aus dem Namespace und erstellt ein **neues** unter demselben Namen. Der Driver hatte aber noch das alte Segment gemappt (`gSHMRing != NULL`). Da der Retry-Thread (`arn_shm_retry_thread`) nur läuft, **solange** `gSHMRing == NULL` ist, lief er hier nicht — der Driver schrieb für immer in das veraltete Segment.
+Beim Helper-Startup ruft dieser `shm_unlink()` + `shm_open(O_CREAT)` auf, das entfernt das alte Segment aus dem Namespace und erstellt ein **neues** unter demselben Namen. Der Driver hatte aber noch das alte Segment gemappt (`gSHMRing != NULL`). Da der Retry-Thread (`arn_shm_retry_thread`) nur läuft, **solange** `gSHMRing == NULL` ist, lief er hier nicht, der Driver schrieb für immer in das veraltete Segment.
 
 Die alte v2.1-Logik konnte einen Helper-**Neustart** also nicht erkennen, nur einen Helper-**Erststart**.
 
@@ -2046,7 +2046,7 @@ gSHMFD = check_fd;
 atomic_store_explicit(&gSHMRing, new_ring, memory_order_release);
 ```
 
-**RT-Sicherheit (verzögerte Bereinigung):** `gSHMRing` ist jetzt als `_Atomic(ARNSharedRing *)` deklariert; der IOProc lädt den Pointer **einmal** pro Aufruf atomar in eine lokale Variable. Das alte Mapping wird **nicht sofort** unmappt, sondern erst im **nächsten** Watch-Zyklus (2s später) freigegeben (`pending_old_ring` / `pending_old_fd`). Bis dahin sind alle in-flight IOProc-Aufrufe (Dauer ≪ 1ms) auf dem alten Pointer garantiert beendet — der RT-Thread kann nie auf ein gerade unmapptes Segment zugreifen (kein SIGBUS).
+**RT-Sicherheit (verzögerte Bereinigung):** `gSHMRing` ist jetzt als `_Atomic(ARNSharedRing *)` deklariert; der IOProc lädt den Pointer **einmal** pro Aufruf atomar in eine lokale Variable. Das alte Mapping wird **nicht sofort** unmappt, sondern erst im **nächsten** Watch-Zyklus (2s später) freigegeben (`pending_old_ring` / `pending_old_fd`). Bis dahin sind alle in-flight IOProc-Aufrufe (Dauer ≪ 1ms) auf dem alten Pointer garantiert beendet, der RT-Thread kann nie auf ein gerade unmapptes Segment zugreifen (kein SIGBUS).
 
 ```c
 /* Alten Swap-Rest jetzt sicher freigeben (in-flight IOProcs sind durch). */
@@ -2060,9 +2060,9 @@ if (pending_old_fd >= 0) {
 }
 ```
 
-`arn_shm_cleanup()` setzt `gSHMWatchRunning = 0` und joined den Watch-Thread beim Entladen des Treibers — analog zum Retry-Thread.
+`arn_shm_cleanup()` setzt `gSHMWatchRunning = 0` und joined den Watch-Thread beim Entladen des Treibers, analog zum Retry-Thread.
 
-**Resultat:** Ein Helper-Neustart wird innerhalb von ≤2s erkannt; der Driver biegt automatisch auf das neue Segment um. Driver und Helper arbeiten danach wieder auf demselben Ring — kein dauerhaftes Verstummen mehr nach Helper-Neustart.
+**Resultat:** Ein Helper-Neustart wird innerhalb von ≤2s erkannt; der Driver biegt automatisch auf das neue Segment um. Driver und Helper arbeiten danach wieder auf demselben Ring, kein dauerhaftes Verstummen mehr nach Helper-Neustart.
 
 ---
 
@@ -2079,7 +2079,7 @@ In der Engine ergänzen `_poll_volume_sync()` (im 0.5s-UI-Timer) und der `NSEven
 
 ---
 
-## 20. macOS-26-Kompatibilitäts-Fix — StartIO + GetZeroTimeStamp (30. Mai 2026)
+## 20. macOS-26-Kompatibilitäts-Fix, StartIO + GetZeroTimeStamp (30. Mai 2026)
 
 Am 30. Mai 2026 wurde ein macOS-26-spezifischer Fehler behoben, durch den trotz korrekt installiertem Treiber und grünem Status kein Audio floss. Anders als die vorangegangenen Wellen handelt es sich hier um eine Anpassung an ein **geändertes Betriebssystem-Verhalten** unter macOS 26.5 (Tahoe), nicht um einen Eigenfehler des Projekts.
 
@@ -2090,7 +2090,7 @@ Am 30. Mai 2026 wurde ein macOS-26-spezifischer Fehler behoben, durch den trotz 
 Unter **macOS 26.5 (Tahoe)** zeigte sich ein neues Verhalten: `coreaudiod` ruft `StartIO` auf dem virtuellen HAL-Device **nicht mehr automatisch** auf, wenn das Device als Default Output gesetzt wird.
 
 **Symptom:**
-- Helper-Status meldet grün, aber `write_idx = 0` (`ring_frames = 0`) — der Treiber schreibt keine Samples in den Ring.
+- Helper-Status meldet grün, aber `write_idx = 0` (`ring_frames = 0`), der Treiber schreibt keine Samples in den Ring.
 - Kein Audio, obwohl alles korrekt installiert und konfiguriert ist.
 - Bekannte Workarounds halfen **nicht**: `afplay` einer Datei, `SwitchAudioSource`-Toggle u.ä.
 
@@ -2118,9 +2118,9 @@ elapsed = (mach_absolute_time() - 0) / ticksPerFrame
 
 ---
 
-### 20.3 Fix 1: GetZeroTimeStamp — Pre-StartIO Fallback
+### 20.3 Fix 1: GetZeroTimeStamp, Pre-StartIO Fallback
 
-**Datei:** `driver/src/AudioRouterNowDriver.c` — `ARN_GetZeroTimeStamp`
+**Datei:** `driver/src/AudioRouterNowDriver.c`, `ARN_GetZeroTimeStamp`
 
 ```c
 UInt64 anchor = gAnchorHostTime;
@@ -2134,15 +2134,15 @@ if (anchor == 0) {
 }
 ```
 
-**Ergebnis:** Vor `StartIO` gibt `GetZeroTimeStamp` `outSampleTime = 0, outHostTime = now` zurück — einen sinnvollen Nullpunkt. `coreaudiod` akzeptiert das Device als "bereit" und ruft `StartIO` auf.
+**Ergebnis:** Vor `StartIO` gibt `GetZeroTimeStamp` `outSampleTime = 0, outHostTime = now` zurück, einen sinnvollen Nullpunkt. `coreaudiod` akzeptiert das Device als "bereit" und ruft `StartIO` auf.
 
 ---
 
-### 20.4 Fix 2: AudioDeviceStart() direkt via Python ctypes (v2.4 — ersetzt in v2.5)
+### 20.4 Fix 2: AudioDeviceStart() direkt via Python ctypes (v2.4, ersetzt in v2.5)
 
 > **Hinweis:** Dieser Ansatz wurde in v2.5.0 durch den persistenten Keep-Alive IOProc (Abschnitt 21) ersetzt. Der `NULL`-IOProc-Hack ist architektonisch unzuverlässig und bleibt nur für historische Vollständigkeit dokumentiert.
 
-**Problem:** Selbst mit korrektem `GetZeroTimeStamp` ruft `coreaudiod` `StartIO` nur dann auf, wenn ein Audio-Client `AudioDeviceStart()` auf dem Device aufruft. Musik-Apps tun das erst, wenn die App neu gestartet wird — **nicht** bei bereits laufender App nach einem Device-Wechsel.
+**Problem:** Selbst mit korrektem `GetZeroTimeStamp` ruft `coreaudiod` `StartIO` nur dann auf, wenn ein Audio-Client `AudioDeviceStart()` auf dem Device aufruft. Musik-Apps tun das erst, wenn die App neu gestartet wird, **nicht** bei bereits laufender App nach einem Device-Wechsel.
 
 **Lösung (v2.4):** Die Python-App ruft `AudioDeviceStart()` mit `NULL` als IOProc-ID auf:
 
@@ -2150,7 +2150,7 @@ if (anchor == 0) {
 status = CA.AudioDeviceStart(ctypes.c_uint32(device_id), None)
 ```
 
-`None` als IOProc-ID: startet das Device **ohne eigenen Callback** — triggert `ARN_StartIO` im HAL-Plugin → `gDeviceIsRunning = 1`.
+`None` als IOProc-ID: startet das Device **ohne eigenen Callback**, triggert `ARN_StartIO` im HAL-Plugin → `gDeviceIsRunning = 1`.
 
 **Schwachstelle:** Ohne registrierten IOProc kann coreaudiod den IO-Stack sofort wieder abbauen, sobald kein realer Konsument aktiv ist. `gDeviceIsRunning` kann von 1 zurück auf 0 fallen. Zudem: wenn eine Musik-App beim Default-Switch noch läuft und das Device bereits als "nicht running" evaluiert hatte, bleibt sie auf dem alten Device. Behoben durch persistenten Keep-Alive IOProc in v2.5 (Abschnitt 21).
 
@@ -2164,7 +2164,7 @@ Getestet auf: macOS 26.5 (25F71), MacBook Pro M-Series.
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.6.0*
+*Dokumentation zuletzt aktualisiert am 31. Mai 2026, AudioRouterNow v2.6.0*
 
 ---
 
@@ -2183,7 +2183,7 @@ Der `AudioDeviceStart(deviceID, NULL)`-Ansatz aus v2.4 hatte eine fundamentale S
 3. Musik-Apps, die beim Default-Switch ein "nicht laufendes" Device vorfanden, wechseln nicht selbstständig
 
 **Warum funktionierte der Toggle-Trick (zweites Mal)?**
-Beim wiederholten Togglen in der UI stabilisierte sich der Helper-IOProc auf dem physischen Device (Komplete Audio 6) und Apple Music öffnete seinen Stream neu — aber nur zufällig durch Timing, nicht durch deterministisches Design.
+Beim wiederholten Togglen in der UI stabilisierte sich der Helper-IOProc auf dem physischen Device (Komplete Audio 6) und Apple Music öffnete seinen Stream neu, aber nur zufällig durch Timing, nicht durch deterministisches Design.
 
 ---
 
@@ -2199,7 +2199,7 @@ Beim wiederholten Togglen in der UI stabilisierte sich der Helper-IOProc auf dem
 # 1. IOProc registrieren
 AudioDeviceCreateIOProcID(device_id, _NOOP_CB, None, &proc_id)
 
-# 2. Device starten — mit echtem ProcID (nicht NULL!)
+# 2. Device starten, mit echtem ProcID (nicht NULL!)
 AudioDeviceStart(device_id, proc_id)
 ```
 
@@ -2218,9 +2218,9 @@ _AudioDeviceIOProc_TYPE = ctypes.CFUNCTYPE(
 )
 
 def _noop_ioproc(dev_id, now, in_data, in_time, out_data, out_time, client):
-    return 0  # kAudioHardwareNoError — No-Op
+    return 0  # kAudioHardwareNoError, No-Op
 
-# KRITISCH: Modulglobal halten — GC würde ctypes-Callback freigeben
+# KRITISCH: Modulglobal halten, GC würde ctypes-Callback freigeben
 # → Crash im RT-Thread von coreaudiod
 _NOOP_CB = _AudioDeviceIOProc_TYPE(_noop_ioproc)
 ```
@@ -2232,13 +2232,13 @@ _NOOP_CB = _AudioDeviceIOProc_TYPE(_noop_ioproc)
 | `ensure_router_keepalive()` | App-Start, erster Output aktiviert | Erstellt IOProcID + startet Device; idempotent |
 | `stop_router_keepalive()` | App-Quit (`_quit_app`) | Stoppt IOProc + zerstört ProcID; idempotent |
 
-**Thread-Sicherheit:** `_keepalive_lock` (threading.Lock) schützt den globalen Zustand. `_NOOP_CB` lebt modulglobal (Python-Referenz bleibt immer gültig — kein GC-Risiko).
+**Thread-Sicherheit:** `_keepalive_lock` (threading.Lock) schützt den globalen Zustand. `_NOOP_CB` lebt modulglobal (Python-Referenz bleibt immer gültig, kein GC-Risiko).
 
 ---
 
-### 21.3 Fix-4: Reihenfolge — Keep-Alive vor Default-Switch
+### 21.3 Fix-4: Reihenfolge, Keep-Alive vor Default-Switch
 
-**Datei:** `engine/menu_bar_app.py` — `_auto_start_if_configured()`
+**Datei:** `engine/menu_bar_app.py`, `_auto_start_if_configured()`
 
 **Neue Reihenfolge:**
 
@@ -2254,20 +2254,20 @@ _NOOP_CB = _AudioDeviceIOProc_TYPE(_noop_ioproc)
 
 Wenn `set_default_output_device("Audio Router")` (Schritt 3) ausgeführt wird, senden alle laufenden Musik-Apps eine CoreAudio-Property-Changed-Notification. Sie evaluieren das neue Default-Device. Wenn das Device zu diesem Zeitpunkt bereits `DeviceIsRunning = 1` meldet (durch Schritt 1), öffnen sie ihren Stream sofort. **Ohne Schritt 1 zuerst** sehen sie `DeviceIsRunning = 0` und halten an ihrem alten Device fest.
 
-**Idempotenz-Check:** `is_audio_router_default()` verhindert unnötigen Default-Switch wenn Audio Router bereits Default ist — das wäre disruptiv für laufende Streams.
+**Idempotenz-Check:** `is_audio_router_default()` verhindert unnötigen Default-Switch wenn Audio Router bereits Default ist, das wäre disruptiv für laufende Streams.
 
 ---
 
 ### 21.4 Fix-3: Leichtgewichtiger Helper-Retry
 
-**Datei:** `engine/menu_bar_app.py` — `_process_pending_updates()`
+**Datei:** `engine/menu_bar_app.py`, `_process_pending_updates()`
 
-**Problem (v2.4):** Bei `not_ready` vom Helper rief der Retry das volle `_auto_start_if_configured()` auf — das setzte den Default-Output im 0.5s-Takt **wiederholt** neu, startete mehrere `auto-start-io`-Threads und konnte laufende Streams unterbrechen.
+**Problem (v2.4):** Bei `not_ready` vom Helper rief der Retry das volle `_auto_start_if_configured()` auf, das setzte den Default-Output im 0.5s-Takt **wiederholt** neu, startete mehrere `auto-start-io`-Threads und konnte laufende Streams unterbrechen.
 
 **Neue Retry-Logik:**
 
 ```python
-# Nur _apply_active_outputs() — kein Default-Output-Switch, kein Keep-Alive-Restart
+# Nur _apply_active_outputs(), kein Default-Output-Switch, kein Keep-Alive-Restart
 if self._needs_reconfigure and alive_now:
     if self._reconfigure_attempts < 5:
         status = self._helper.get_status()
@@ -2277,7 +2277,7 @@ if self._needs_reconfigure and alive_now:
                 self._needs_reconfigure = False
                 self._reconfigure_attempts = 0
     else:
-        # Aufgeben nach 5 Versuchen — User-Info via Status-Zeile
+        # Aufgeben nach 5 Versuchen, User-Info via Status-Zeile
         self._needs_reconfigure = False
         self._reconfigure_attempts = 0
 ```
@@ -2285,7 +2285,7 @@ if self._needs_reconfigure and alive_now:
 **Invarianten:**
 - `_apply_active_outputs()` gibt nun `bool` zurück: `True` = Erfolg, `False` = `not_ready`
 - `_reconfigure_attempts` wird bei Erfolg **und** bei Erschöpfung zurückgesetzt
-- Kein Default-Output-Switch im Retry-Pfad — ausschließlich Helper-Konfiguration
+- Kein Default-Output-Switch im Retry-Pfad, ausschließlich Helper-Konfiguration
 
 ---
 
@@ -2305,25 +2305,25 @@ if self._needs_reconfigure and alive_now:
 **Erwartetes Verhalten nach v2.5:**
 
 1. App-Start → `ensure_router_keepalive()` → `ARN_StartIO` → `gDeviceIsRunning = 1` (dauerhaft)
-2. `set_default_output_device("Audio Router")` — Apple Music findet laufendes Device vor
+2. `set_default_output_device("Audio Router")`, Apple Music findet laufendes Device vor
 3. Apple Music öffnet Stream auf "Audio Router" → `DoIOOperation` läuft → `write_idx` steigt
 4. Helper konsumiert Ring → Komplete Audio 6 gibt Ton aus
 
 **Kein manuelles Togglen mehr nötig.** Verifizierbar im Driver-Log:
 ```
 log stream --predicate 'subsystem contains "AudioRouterNow"' --level debug
-# Erwartete Sequenz: "StartIO — Device laeuft" direkt beim App-Start
+# Erwartete Sequenz: "StartIO, Device laeuft" direkt beim App-Start
 ```
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.6.0*
+*Dokumentation zuletzt aktualisiert am 31. Mai 2026, AudioRouterNow v2.6.0*
 
 ---
 
 ## 22. Keep-Alive Migration Python → C-Helper + Orphan-Fix (v2.6.0)
 
-Commit `b84b491` — 31. Mai 2026.
+Commit `b84b491`, 31. Mai 2026.
 
 ---
 
@@ -2333,11 +2333,11 @@ Nach ausgiebigen Tests von v2.5 wurden zwei voneinander unabhängige, aber zusam
 
 #### Problem A: Deadlock beim App-Neustart (mehrere Minuten Wartezeit)
 
-**Symptom:** Nach einem normalen App-Quit + Neustart blieb die App eingefroren. Die Menüleiste reagierte nicht. Nach 3–5 Minuten kam sie scheinbar von selbst wieder — oder musste per Force-Quit beendet werden.
+**Symptom:** Nach einem normalen App-Quit + Neustart blieb die App eingefroren. Die Menüleiste reagierte nicht. Nach 3–5 Minuten kam sie scheinbar von selbst wieder, oder musste per Force-Quit beendet werden.
 
-**Root Cause:** Python ctypes-Callbacks (`_NOOP_CB`) sind `CFUNCTYPE`-Objekte, die intern einen **stabilen Funktionszeiger** haben — solange die Python-Variable lebt. Beim App-Exit wird der Python-Prozess beendet, das Modul wird entladen. Der Funktionszeiger, den `coreaudiod` unter der ProcID gespeichert hat, zeigt nun in freigegebenen Speicher (**Stale Function Pointer**).
+**Root Cause:** Python ctypes-Callbacks (`_NOOP_CB`) sind `CFUNCTYPE`-Objekte, die intern einen **stabilen Funktionszeiger** haben, solange die Python-Variable lebt. Beim App-Exit wird der Python-Prozess beendet, das Modul wird entladen. Der Funktionszeiger, den `coreaudiod` unter der ProcID gespeichert hat, zeigt nun in freigegebenen Speicher (**Stale Function Pointer**).
 
-Beim nächsten App-Start ruft `coreaudiod` intern `HALSystem::InitializeDevices()` → `ConnectToServer()` auf. Dieser Vorgang kommuniziert mit dem `coreaudiod`-Daemon via Mach IPC (`mach_msg2_trap`). Intern versucht `coreaudiod`, den registrierten IOProc ordentlich zu beenden — trifft dabei auf den Stale Pointer — und läuft in einen internen Deadlock. Das Resultat: Der erste CoreAudio-Aufruf der neuen App-Session blockiert für **mehrere Minuten**.
+Beim nächsten App-Start ruft `coreaudiod` intern `HALSystem::InitializeDevices()` → `ConnectToServer()` auf. Dieser Vorgang kommuniziert mit dem `coreaudiod`-Daemon via Mach IPC (`mach_msg2_trap`). Intern versucht `coreaudiod`, den registrierten IOProc ordentlich zu beenden, trifft dabei auf den Stale Pointer, und läuft in einen internen Deadlock. Das Resultat: Der erste CoreAudio-Aufruf der neuen App-Session blockiert für **mehrere Minuten**.
 
 ```
 Python-App Exit → ctypes _NOOP_CB → Stale Function Pointer in coreaudiod
@@ -2348,17 +2348,17 @@ coreaudiod: HALSystem::InitializeDevices() → ConnectToServer() → mach_msg2_t
 
 #### Problem B: Orphan-Helper-Prozesse (CPU-Last + Lüfterlärm)
 
-**Symptom:** Nach jedem App-Quit liefen ein oder mehrere `AudioRouterNowHelper`-Prozesse weiterhin im Hintergrund. Beim nächsten App-Start wurde ein zweiter Helper gestartet — zwei Helper versuchten, dasselbe SHM-Segment und denselben Config-Socket zu verwalten.
+**Symptom:** Nach jedem App-Quit liefen ein oder mehrere `AudioRouterNowHelper`-Prozesse weiterhin im Hintergrund. Beim nächsten App-Start wurde ein zweiter Helper gestartet, zwei Helper versuchten, dasselbe SHM-Segment und denselben Config-Socket zu verwalten.
 
-**Root Cause:** `_quit_app()` stoppte `_ui_timer` und `_device_manager`, rief aber **nie** `self._helper.shutdown()` auf. Der Helper lief damit als "verwaister Prozess" (Orphan) weiter — unkontrolliert, ohne weiteren Sinn, aber mit aktivem Keep-Alive IOProc und Volume-Poll-Thread.
+**Root Cause:** `_quit_app()` stoppte `_ui_timer` und `_device_manager`, rief aber **nie** `self._helper.shutdown()` auf. Der Helper lief damit als "verwaister Prozess" (Orphan) weiter, unkontrolliert, ohne weiteren Sinn, aber mit aktivem Keep-Alive IOProc und Volume-Poll-Thread.
 
 ---
 
 ### 22.2 Fix A: Keep-Alive IOProc in den C-Helper migriert
 
-**Problem mit Python ctypes:** Ein C-Funktionszeiger, der von Python `ctypes.CFUNCTYPE(...)` erzeugt wird, ist nur gültig, solange das Python-Objekt existiert. In `coreaudiod` (einem separaten Prozess) lebt dieser Zeiger weiter — wird aber ungültig, sobald der Python-Prozess endet.
+**Problem mit Python ctypes:** Ein C-Funktionszeiger, der von Python `ctypes.CFUNCTYPE(...)` erzeugt wird, ist nur gültig, solange das Python-Objekt existiert. In `coreaudiod` (einem separaten Prozess) lebt dieser Zeiger weiter, wird aber ungültig, sobald der Python-Prozess endet.
 
-**Lösung:** Den Keep-Alive IOProc vollständig in den C-Helper verschieben. Ein normaler C-Funktionszeiger (`&keepalive_ioproc`) ist für die gesamte Laufzeit des Helper-Prozesses stabil — kein Python, kein GC, kein Stale Pointer.
+**Lösung:** Den Keep-Alive IOProc vollständig in den C-Helper verschieben. Ein normaler C-Funktionszeiger (`&keepalive_ioproc`) ist für die gesamte Laufzeit des Helper-Prozesses stabil, kein Python, kein GC, kein Stale Pointer.
 
 **Neue Implementierung in `helper/AudioRouterNowHelper.c`:**
 
@@ -2367,7 +2367,7 @@ coreaudiod: HALSystem::InitializeDevices() → ConnectToServer() → mach_msg2_t
 static AudioDeviceID       g_keepalive_dev_id  = kAudioDeviceUnknown;
 static AudioDeviceIOProcID g_keepalive_proc_id = NULL;
 
-/* No-Op RT-Callback — hält gDeviceIsRunning=1 für die gesamte Helper-Lifetime */
+/* No-Op RT-Callback, hält gDeviceIsRunning=1 für die gesamte Helper-Lifetime */
 static OSStatus keepalive_ioproc(
     AudioDeviceID           inDevice,
     const AudioTimeStamp   *inNow,
@@ -2410,9 +2410,9 @@ static void keepalive_stop(void)
 | Ereignis | Aktion |
 |----------|--------|
 | Helper startet, SHM bereit | `keepalive_start(find_device_by_uid(OUR_DEVICE_UID))` |
-| Helper beendet sich (SIGINT/SIGTERM oder shutdown-Befehl) | `keepalive_stop()` — saubere Deregistrierung |
+| Helper beendet sich (SIGINT/SIGTERM oder shutdown-Befehl) | `keepalive_stop()`, saubere Deregistrierung |
 
-Der Funktionszeiger `&keepalive_ioproc` ist eine normale C-Funktionsadresse im `.text`-Segment des Helper-Binaries — für die gesamte Prozesslaufzeit stabil. `coreaudiod` kann ihn auch nach einem Python-App-Quit problemlos aufrufen (solange der C-Helper-Prozess läuft).
+Der Funktionszeiger `&keepalive_ioproc` ist eine normale C-Funktionsadresse im `.text`-Segment des Helper-Binaries, für die gesamte Prozesslaufzeit stabil. `coreaudiod` kann ihn auch nach einem Python-App-Quit problemlos aufrufen (solange der C-Helper-Prozess läuft).
 
 **Entfernte Python-Implementierung in `engine/audio_device_control.py`:**
 
@@ -2434,19 +2434,19 @@ Der Funktionszeiger `&keepalive_ioproc` ist eine normale C-Funktionsadresse im `
 # Diese Stubs bleiben für API-Kompatibilität.
 
 def ensure_router_keepalive() -> bool:
-    """Stub — Keep-Alive wird vom C-Helper (keepalive_ioproc) verwaltet."""
-    logger.debug("ensure_router_keepalive: Stub — Keep-Alive in C-Helper")
+    """Stub, Keep-Alive wird vom C-Helper (keepalive_ioproc) verwaltet."""
+    logger.debug("ensure_router_keepalive: Stub, Keep-Alive in C-Helper")
     return True
 
 def stop_router_keepalive() -> None:
-    logger.debug("stop_router_keepalive: Stub — Keep-Alive in C-Helper")
+    logger.debug("stop_router_keepalive: Stub, Keep-Alive in C-Helper")
 ```
 
 ---
 
 ### 22.3 Fix B: Helper-Shutdown bei App-Quit
 
-**Datei:** `engine/menu_bar_app.py` — `_quit_app()`
+**Datei:** `engine/menu_bar_app.py`, `_quit_app()`
 
 **Vorher (v2.5):**
 ```python
@@ -2463,7 +2463,7 @@ def _quit_app(self, sender):
 def _quit_app(self, sender):
     self._ui_timer.stop()
     self._device_manager.stop()
-    # Helper sauber beenden — verhindert Orphan-Prozesse.
+    # Helper sauber beenden, verhindert Orphan-Prozesse.
     # Der Helper stoppt seinen Keep-Alive IOProc im Cleanup selbst.
     self._helper.shutdown()
     save_config(self._config)
@@ -2472,18 +2472,18 @@ def _quit_app(self, sender):
 
 `helper_client.shutdown()` sendet dem Helper ein Shutdown-Signal (SIGTERM oder Socket-Befehl) und wartet auf das Prozess-Ende. Der Helper empfängt den Befehl, ruft `keepalive_stop()` auf (deregistriert den IOProc sauber) und beendet sich dann geordnet.
 
-**Nebeneffekt:** Das saubere `keepalive_stop()` im Helper-Cleanup eliminiert auch den letzten verbliebenen Stale-Pointer-Risikopfad — das `mach_msg2_trap`-Deadlock-Problem tritt nicht mehr auf, weil beim nächsten App-Start kein verwaister ctypes-IOProc mehr in `coreaudiod` registriert ist.
+**Nebeneffekt:** Das saubere `keepalive_stop()` im Helper-Cleanup eliminiert auch den letzten verbliebenen Stale-Pointer-Risikopfad, das `mach_msg2_trap`-Deadlock-Problem tritt nicht mehr auf, weil beim nächsten App-Start kein verwaister ctypes-IOProc mehr in `coreaudiod` registriert ist.
 
 ---
 
 ### 22.4 Weiteres: Auto-Start vereinfacht
 
-**Datei:** `engine/menu_bar_app.py` — `_auto_start_if_configured()`
+**Datei:** `engine/menu_bar_app.py`, `_auto_start_if_configured()`
 
 In v2.5 wurde `ensure_router_keepalive()` explizit als erster Schritt im Auto-Start aufgerufen. Da ab v2.6 der Keep-Alive im C-Helper läuft (und dieser automatisch nach SHM-Init startet), ist dieser explizite Aufruf überflüssig geworden:
 
 - `_do_start`-Hintergrund-Thread entfernt (der in v2.5 `ensure_router_keepalive()` im Hintergrund aufgerufen hatte)
-- Auto-Start direkt und synchron — kein Threading mehr nötig für die Keep-Alive-Phase
+- Auto-Start direkt und synchron, kein Threading mehr nötig für die Keep-Alive-Phase
 - `ensure_router_keepalive()` bleibt als Stub in `_save_and_apply()` (No-Op, keine Nebenwirkungen)
 
 ---
@@ -2493,9 +2493,9 @@ In v2.5 wurde `ensure_router_keepalive()` explizit als erster Schritt im Auto-St
 | Aspekt | v2.5 (Python ctypes) | v2.6 (C Helper) |
 |--------|---------------------|-----------------|
 | **IOProc-Stabilität** | Stale Pointer nach App-Exit möglich | C-Funktionszeiger stabil für Helper-Lifetime |
-| **Deadlock-Risiko** | Ja — `mach_msg2_trap`, mehrere Minuten | Nein |
+| **Deadlock-Risiko** | Ja, `mach_msg2_trap`, mehrere Minuten | Nein |
 | **GC-Schutz** | Manuell (`_NOOP_CB` modulglobal) | Nicht nötig (C hat kein GC) |
-| **Orphan-Helper** | Ja — kein Shutdown bei App-Quit | Nein — `_quit_app()` ruft `helper.shutdown()` |
+| **Orphan-Helper** | Ja, kein Shutdown bei App-Quit | Nein, `_quit_app()` ruft `helper.shutdown()` |
 | **Doppelte Helper-Prozesse** | Möglich nach jedem App-Quit | Ausgeschlossen |
 | **Code-Komplexität** | ~100 Zeilen Python (Lock, Callback, Lifecycle) | ~50 Zeilen C + 10 Zeilen Stubs |
 
@@ -2506,7 +2506,7 @@ In v2.5 wurde `ensure_router_keepalive()` explizit als erster Schritt im Auto-St
 **Erwartetes Verhalten nach v2.6:**
 
 1. App-Start → Helper startet → SHM bereit → `keepalive_start()` → `gDeviceIsRunning=1`
-2. App arbeitet normal — Keep-Alive im C-Helper, kein Python-ctypes-Overhead
+2. App arbeitet normal, Keep-Alive im C-Helper, kein Python-ctypes-Overhead
 3. App-Quit → `_quit_app()` → `helper.shutdown()` → Helper ruft `keepalive_stop()` → sauber beendet
 4. Nächster App-Start → **kein Deadlock**, kein verwaister IOProc, kein Orphan-Prozess
 
@@ -2526,13 +2526,13 @@ tail -f ~/Library/Logs/AudioRouterNow/helper.log
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.6.0*
+*Dokumentation zuletzt aktualisiert am 31. Mai 2026, AudioRouterNow v2.6.0*
 
 ---
 
-## 23. Sicherheits- & Korrektheit-Audit v2.7.0 — 31. Mai 2026
+## 23. Sicherheits- & Korrektheit-Audit v2.7.0, 31. Mai 2026
 
-Vollständiges Deep-Audit aller Schichten — HAL-Treiber (`AudioRouterNowDriver.c`), C-Helper (`AudioRouterNowHelper.c`), Shared-Ring (`shared_ring.h`) und Python-Engine (`config.py`, `menu_bar_app.py`, `helper_client.py`). Durchgeführt mit Opus 4.8, anschließende Implementierung aller kritischen und ausgewählter hoher/mittlerer Findings, Folge-Audit zur Verifikation.
+Vollständiges Deep-Audit aller Schichten, HAL-Treiber (`AudioRouterNowDriver.c`), C-Helper (`AudioRouterNowHelper.c`), Shared-Ring (`shared_ring.h`) und Python-Engine (`config.py`, `menu_bar_app.py`, `helper_client.py`). Durchgeführt mit Opus 4.8, anschließende Implementierung aller kritischen und ausgewählter hoher/mittlerer Findings, Folge-Audit zur Verifikation.
 
 ---
 
@@ -2542,13 +2542,13 @@ Vollständiges Deep-Audit aller Schichten — HAL-Treiber (`AudioRouterNowDriver
 
 | ID | Datei | Problem | Symptom |
 |----|-------|---------|---------|
-| **K1** | `AudioRouterNowHelper.c` | Multi-Output bricht SPSC-Invariant — Producer kann Frames überschreiben, die ein langsamer Output noch liest. `update_global_read_idx` läuft nur alle 50ms, nicht im RT-Takt | Glitches wenn mehrere Outputs gleichzeitig aktiv und unterschiedlich schnell |
+| **K1** | `AudioRouterNowHelper.c` | Multi-Output bricht SPSC-Invariant, Producer kann Frames überschreiben, die ein langsamer Output noch liest. `update_global_read_idx` läuft nur alle 50ms, nicht im RT-Takt | Glitches wenn mehrere Outputs gleichzeitig aktiv und unterschiedlich schnell |
 | **K2** | `AudioRouterNowHelper.c` | Stalled Output (active=true, IOProc hängt) hält `read_idx` eingefroren → Ring füllt sich → alle anderen Outputs bekommen Underruns | Globaler Audio-Ausfall durch einen einzigen hängenden Output |
-| **K3** | `AudioRouterNowDriver.c` | Watch-Thread nutzt Inode-Vergleich — macOS recycelt Inodes bei POSIX-SHM. Neues Segment nach Helper-Neustart wird oft nicht erkannt → `sr_change_gen` bleibt 0 | Stille nach jedem Helper-Neustart (bekannter Bug #2 — Ursache bestätigt) |
+| **K3** | `AudioRouterNowDriver.c` | Watch-Thread nutzt Inode-Vergleich, macOS recycelt Inodes bei POSIX-SHM. Neues Segment nach Helper-Neustart wird oft nicht erkannt → `sr_change_gen` bleibt 0 | Stille nach jedem Helper-Neustart (bekannter Bug #2, Ursache bestätigt) |
 | **K4** | `AudioRouterNowDriver.c` | Driver rief `arn_ring_init()` (mit `memset`) auf, obwohl Helper Owner des Segments ist → doppelte Init während Helper läuft möglic | Datenverlust, Race beim Start |
-| **K5** | `AudioRouterNowDriver.c` | `gAnchorHostTime` (UInt64) ohne Atomic — Data Race zwischen RT-Thread (lesen in `GetZeroTimeStamp`) und `StartIO` (schreiben unter `gStateMutex`) | Clock-Sprünge, Timing-Glitches |
-| **K6** | `AudioRouterNowHelper.c` | `src_frac_ridx` (double) — Data Race zwischen IOProc (schreiben) und Volume-Thread/SR-Reinit (schreiben/lesen) | Knacken/Artefakte bei SR-Wechsel oder Reconnect |
-| **K7** | `AudioRouterNowHelper.c` | `temp_buf[nFrames*2]` ohne Clamp auf `ARN_RING_CAPACITY/2` — BSS-Overflow bei nFrames > 8192 möglich | Memory-Korruption bei großen Buffer-Sizes |
+| **K5** | `AudioRouterNowDriver.c` | `gAnchorHostTime` (UInt64) ohne Atomic, Data Race zwischen RT-Thread (lesen in `GetZeroTimeStamp`) und `StartIO` (schreiben unter `gStateMutex`) | Clock-Sprünge, Timing-Glitches |
+| **K6** | `AudioRouterNowHelper.c` | `src_frac_ridx` (double), Data Race zwischen IOProc (schreiben) und Volume-Thread/SR-Reinit (schreiben/lesen) | Knacken/Artefakte bei SR-Wechsel oder Reconnect |
+| **K7** | `AudioRouterNowHelper.c` | `temp_buf[nFrames*2]` ohne Clamp auf `ARN_RING_CAPACITY/2`, BSS-Overflow bei nFrames > 8192 möglich | Memory-Korruption bei großen Buffer-Sizes |
 
 **Hinweis K4:** Im Zuge der Sandbox-Compliance-Fixes (v2.1) wurde bereits umgestellt: Driver erstellt kein neues SHM mehr, sondern verbindet sich nur. Bei vorhandenem, validem Ring wird `write_idx` auf `read_idx` gesetzt (sanfter Flush) statt `arn_ring_init()` zu rufen. K4 war zum Audit-Zeitpunkt damit bereits größtenteils mitigiert.
 
@@ -2557,7 +2557,7 @@ Vollständiges Deep-Audit aller Schichten — HAL-Treiber (`AudioRouterNowDriver
 | ID | Datei | Problem | Risiko |
 |----|-------|---------|--------|
 | **H1** | `AudioRouterNowHelper.c` | `AudioDeviceCreateIOProcID` Retry (5×200ms = 1s) läuft unter `g_outputs_lock` → blockiert alle laufenden Outputs; Budget zu kurz für USB-Reconfig | Tonausfall bei SR-Wechsel auf USB-Devices |
-| **H2** | `AudioRouterNowHelper.c` | `g_ring` wird `munmap`'t während IOProcs möglicherweise noch laufen → SIGBUS | Crash im seltenen Reconnect-Szenario — im Driver-Watch-Thread durch 2s-deferred-cleanup mitigiert |
+| **H2** | `AudioRouterNowHelper.c` | `g_ring` wird `munmap`'t während IOProcs möglicherweise noch laufen → SIGBUS | Crash im seltenen Reconnect-Szenario, im Driver-Watch-Thread durch 2s-deferred-cleanup mitigiert |
 | **H3** | `AudioRouterNowHelper.c` | Hot-Plug-Listener macht O(N×M) CoreAudio-Calls unter Lock im Property-Callback | Deadlock-Risiko bei vielen Devices |
 | **H4** | `AudioRouterNowDriver.c` | `pthread_join` unter `gStateMutex` in `ARN_Release` → latentes Deadlock wenn Join-Thread ebenfalls Mutex anfordert | Hänger beim Driver-Unload |
 | **H5** | `shared_ring.h` | `arn_ring_set_sample_rate` setzt `read_idx` nicht zurück → unsigned Underflow → `space ≈ 4 Mrd` → Stille nach SR-Wechsel | Keine Audio-Ausgabe nach Sample-Rate-Änderung |
@@ -2569,9 +2569,9 @@ Vollständiges Deep-Audit aller Schichten — HAL-Treiber (`AudioRouterNowDriver
 
 | ID | Problem |
 |----|---------|
-| **M1** | `read_idx` im SHM mit falschem Acquire in `arn_ring_frames_available` — relaxed statt acquire |
-| **M2** | `g_running`-Flag im Helper nicht `_Atomic int`, sondern `volatile int` — UB im C11-Modell |
-| **M3** | Socket-Backlog nur 4 — bei schnellen parallelen Reconnects können Verbindungen verworfen werden |
+| **M1** | `read_idx` im SHM mit falschem Acquire in `arn_ring_frames_available`, relaxed statt acquire |
+| **M2** | `g_running`-Flag im Helper nicht `_Atomic int`, sondern `volatile int`, UB im C11-Modell |
+| **M3** | Socket-Backlog nur 4, bei schnellen parallelen Reconnects können Verbindungen verworfen werden |
 | **M4** | `device_get_uid` / `device_get_name`: CFStringRef-Leak bei allen Fehlerpfaden |
 | **M5** | `base_ratio` nie auf > 0 validiert → NaN/Inf bei device_sr=0 → P-Regler explodiert |
 | **M6** | `ch_offset` und Channel-Count nie auf Konsistenz geprüft (ch_offset + 2 > max_channels) |
@@ -2584,12 +2584,12 @@ Vollständiges Deep-Audit aller Schichten — HAL-Treiber (`AudioRouterNowDriver
 
 ### 23.2 Implementierte Fixes (5 Commits, 8 Findings)
 
-#### Fix K5 — `gAnchorHostTime` Data Race → atomic_ullong
+#### Fix K5, `gAnchorHostTime` Data Race → atomic_ullong
 
 **Commit:** `2e96007`  
 **Datei:** `driver/src/AudioRouterNowDriver.c`
 
-**Problem:** `gAnchorHostTime` (UInt64) wurde in `ARN_StartIO` (non-RT, unter `gStateMutex`) geschrieben und in `ARN_GetZeroTimeStamp` (RT-Thread, kein Lock) gelesen. Laut C11-Speichermodell ist das ein Data Race — undefined behavior.
+**Problem:** `gAnchorHostTime` (UInt64) wurde in `ARN_StartIO` (non-RT, unter `gStateMutex`) geschrieben und in `ARN_GetZeroTimeStamp` (RT-Thread, kein Lock) gelesen. Laut C11-Speichermodell ist das ein Data Race, undefined behavior.
 
 **Fix:**
 ```c
@@ -2600,9 +2600,9 @@ UInt64 anchor = gAnchorHostTime;                    // GetZeroTimeStamp (RT!)
 
 /* Nachher */
 static atomic_ullong gAnchorHostTime = 0;
-atomic_store_explicit(&gAnchorHostTime,             // StartIO — release
+atomic_store_explicit(&gAnchorHostTime,             // StartIO, release
     mach_absolute_time(), memory_order_release);
-UInt64 anchor = (UInt64)atomic_load_explicit(       // GetZeroTimeStamp — acquire
+UInt64 anchor = (UInt64)atomic_load_explicit(       // GetZeroTimeStamp, acquire
     &gAnchorHostTime, memory_order_acquire);
 ```
 
@@ -2610,12 +2610,12 @@ UInt64 anchor = (UInt64)atomic_load_explicit(       // GetZeroTimeStamp — acqu
 
 ---
 
-#### Fix K7 — BSS-Overflow Guard für `temp_buf`
+#### Fix K7, BSS-Overflow Guard für `temp_buf`
 
 **Commit:** `2e96007`  
 **Datei:** `helper/AudioRouterNowHelper.c`, Funktion `device_ioproc`
 
-**Problem:** `temp_buf[ARN_RING_CAPACITY]` = 16 384 Floats. Die SRC-Interpolationsschleife schreibt bis Index `(nFrames-1)*2 + 1`. Ohne Clamp: CoreAudio liefert zwar normalerweise ≤ 4096 Frames, aber der Code hatte keinerlei Schutz — ein nFrames > 8192 wäre ein stiller BSS-Overflow.
+**Problem:** `temp_buf[ARN_RING_CAPACITY]` = 16 384 Floats. Die SRC-Interpolationsschleife schreibt bis Index `(nFrames-1)*2 + 1`. Ohne Clamp: CoreAudio liefert zwar normalerweise ≤ 4096 Frames, aber der Code hatte keinerlei Schutz, ein nFrames > 8192 wäre ein stiller BSS-Overflow.
 
 **Fix:**
 ```c
@@ -2623,7 +2623,7 @@ UInt64 anchor = (UInt64)atomic_load_explicit(       // GetZeroTimeStamp — acqu
 uint32_t nSamplesStereo = nFrames * 2u;
 if (nSamplesStereo > ARN_RING_CAPACITY) nSamplesStereo = ARN_RING_CAPACITY;
 
-/* Nachher: nFrames selbst clampen — schützt die Schleife */
+/* Nachher: nFrames selbst clampen, schützt die Schleife */
 if (nFrames > ARN_RING_CAPACITY / 2u) {
     nFrames = ARN_RING_CAPACITY / 2u;  // = 8192
 }
@@ -2634,7 +2634,7 @@ Max-Schreibindex: `(8192-1)*2+1 = 16383 = ARN_RING_CAPACITY-1`. Exakt passend, k
 
 ---
 
-#### Fix H5 — `read_idx` Reset bei SR-Wechsel
+#### Fix H5, `read_idx` Reset bei SR-Wechsel
 
 **Commit:** `975a58f`  
 **Datei:** `helper/shared_ring.h`, Funktion `arn_ring_set_sample_rate()`
@@ -2651,23 +2651,23 @@ atomic_store_explicit(&ring->write_idx, 0u, memory_order_seq_cst);
 atomic_store_explicit(&ring->read_idx,  0u, memory_order_seq_cst);  // H5
 ```
 
-Beide Indizes werden seq_cst zurückgesetzt — volle Speicherbarriere sichert Sichtbarkeit auf allen Cores.
+Beide Indizes werden seq_cst zurückgesetzt, volle Speicherbarriere sichert Sichtbarkeit auf allen Cores.
 
 ---
 
-#### Fix K3 — `instance_id` statt Inode-Vergleich (ABI v4)
+#### Fix K3, `instance_id` statt Inode-Vergleich (ABI v4)
 
 **Commit:** `975a58f`  
 **Dateien:** `helper/shared_ring.h`, `helper/AudioRouterNowHelper.c`, `driver/src/AudioRouterNowDriver.c`  
 **ABI-Version:** `ARN_RING_VERSION` 3 → 4
 
-**Problem:** Der Watch-Thread verglich `fstat().st_ino` von aktuellem und neuem SHM-FD. macOS recycelt Inodes für POSIX-SHM-Segmente — nach einem Helper-Neustart kann ein neues Segment dieselbe Inode wie das alte haben → Watch-Thread erkennt kein neues Segment → `sr_change_gen` wird nie inkrementiert → Helper synchronisiert sich nie neu → dauerhafter Stille-Zustand (bekannter Bug #2).
+**Problem:** Der Watch-Thread verglich `fstat().st_ino` von aktuellem und neuem SHM-FD. macOS recycelt Inodes für POSIX-SHM-Segmente, nach einem Helper-Neustart kann ein neues Segment dieselbe Inode wie das alte haben → Watch-Thread erkennt kein neues Segment → `sr_change_gen` wird nie inkrementiert → Helper synchronisiert sich nie neu → dauerhafter Stille-Zustand (bekannter Bug #2).
 
 **Struct-Änderung (keine Größenänderung, `_pad0` von 40→32 Bytes):**
 ```c
-/* shared_ring.h — in ARNSharedRing */
+/* shared_ring.h, in ARNSharedRing */
 _Atomic uint32_t sr_change_gen;
-/* NEU — K3: eindeutiger Wert pro SHM-Erstellung */
+/* NEU, K3: eindeutiger Wert pro SHM-Erstellung */
 _Atomic uint64_t instance_id;     /* 0 = uninitialisiert */
 uint8_t          _pad0[32];       /* war: _pad0[40] */
 ```
@@ -2696,7 +2696,7 @@ is_new_segment = (chk_iid != 0 && cur_iid != chk_iid);
 
 ---
 
-#### Fix M5 — `base_ratio` Plausibilitätsvalidierung
+#### Fix M5, `base_ratio` Plausibilitätsvalidierung
 
 **Commit:** `9662f33`  
 **Datei:** `helper/AudioRouterNowHelper.c`, Funktionen `output_add_locked` und `sr_reinit_all_outputs`
@@ -2707,7 +2707,7 @@ is_new_segment = (chk_iid != 0 && cur_iid != chk_iid);
 ```c
 dev->base_ratio = ring_sr / device_sr;
 if (dev->base_ratio <= 0.0 || dev->base_ratio > 10.0) {
-    fprintf(stderr, "Helper: Warnung — unplausibler base_ratio %.6f — setze 1.0\n",
+    fprintf(stderr, "Helper: Warnung, unplausibler base_ratio %.6f, setze 1.0\n",
             dev->base_ratio);
     dev->base_ratio = 1.0;
 }
@@ -2717,33 +2717,33 @@ Gilt für beide Codepfade: initiales Hinzufügen eines Outputs und SR-Reinit nac
 
 ---
 
-#### Fix M9 — Atomares Config-Schreiben
+#### Fix M9, Atomares Config-Schreiben
 
 **Commit:** `9662f33`  
 **Datei:** `engine/config.py`, Funktion `save_config()`
 
 **Problem:** Direktes Öffnen und Schreiben von `config.json`. Wenn die App beim Schreiben abstürzt (z.B. Signalunterbrechung, OOM, Kernel-Panic), bleibt eine halb geschriebene Datei zurück. `json.load()` wirft beim nächsten Start eine Exception → Fallback auf leere Config → alle Einstellungen (Output-Devices, Sample-Rate, Kanal-Offsets) gelöscht.
 
-**Fix — write → fsync → atomic rename:**
+**Fix, write → fsync → atomic rename:**
 ```python
 # Vorher
 with open(CONFIG_FILE, "w", encoding="utf-8") as f:
     json.dump(config.to_dict(), f, indent=2, ensure_ascii=False)
 
-# Nachher — M9
+# Nachher, M9
 tmp_path = CONFIG_FILE.with_suffix(".tmp")
 with open(tmp_path, "w", encoding="utf-8") as f:
     json.dump(config.to_dict(), f, indent=2, ensure_ascii=False)
     f.flush()
     os.fsync(f.fileno())         # auf Platte schreiben
-tmp_path.replace(CONFIG_FILE)    # atomares rename() — POSIX garantiert
+tmp_path.replace(CONFIG_FILE)    # atomares rename(), POSIX garantiert
 ```
 
-`Path.replace()` → `rename()` ist auf macOS/POSIX atomar innerhalb einer Partition. Ein Absturz hinterlässt entweder die vollständige alte oder die vollständige neue Datei — nie korrumpiertes JSON.
+`Path.replace()` → `rename()` ist auf macOS/POSIX atomar innerhalb einer Partition. Ein Absturz hinterlässt entweder die vollständige alte oder die vollständige neue Datei, nie korrumpiertes JSON.
 
 ---
 
-#### Fix K6 — `src_frac_ridx` Data Race via Pending-Reset-Pattern
+#### Fix K6, `src_frac_ridx` Data Race via Pending-Reset-Pattern
 
 **Commit:** `ec0222b`  
 **Datei:** `helper/AudioRouterNowHelper.c`
@@ -2753,11 +2753,11 @@ tmp_path.replace(CONFIG_FILE)    # atomares rename() — POSIX garantiert
 - **Volume-Thread** (`sr_reinit_all_outputs`): direktes Schreiben bei SR-Wechsel
 - **Volume-Thread** (Reconnect-Pfad): direktes Schreiben nach SHM-Reconnect
 
-Laut C11-Speichermodell ist das ein Data Race — undefined behavior. Auf arm64 in der Praxis: gelegentliche Artefakte/Knacken bei SR-Wechsel.
+Laut C11-Speichermodell ist das ein Data Race, undefined behavior. Auf arm64 in der Praxis: gelegentliche Artefakte/Knacken bei SR-Wechsel.
 
 **Design-Constraint:** In einem IOProc darf **kein Lock** erworben werden (Deadlock, Priority-Inversion). Die übliche Lösung (Mutex) scheidet aus.
 
-**Fix — Pending-Reset-Pattern (lock-free, RT-safe):**
+**Fix, Pending-Reset-Pattern (lock-free, RT-safe):**
 
 Neue Felder in `DeviceOutput`:
 ```c
@@ -2781,11 +2781,11 @@ if (atomic_load_explicit(&dev->frac_ridx_reset_pending, memory_order_acquire)) {
 }
 ```
 
-**Ergebnis:** `src_frac_ridx` ist jetzt Exclusive Owner des IOProc-Threads. Direktes Schreiben von außen nur noch wenn IOProc nachweislich gestoppt ist (Schritt 1 in `sr_reinit_all_outputs`). Folge-Audit bestätigt: kein TOCTOU zwischen Flag-Load und Schreiben — der IOProc ist der einzige konkurrierende Schreiber.
+**Ergebnis:** `src_frac_ridx` ist jetzt Exclusive Owner des IOProc-Threads. Direktes Schreiben von außen nur noch wenn IOProc nachweislich gestoppt ist (Schritt 1 in `sr_reinit_all_outputs`). Folge-Audit bestätigt: kein TOCTOU zwischen Flag-Load und Schreiben, der IOProc ist der einzige konkurrierende Schreiber.
 
 ---
 
-#### Fix H4 — `pthread_join` außerhalb `gStateMutex`
+#### Fix H4, `pthread_join` außerhalb `gStateMutex`
 
 **Commit:** `618ac06`  
 **Datei:** `driver/src/AudioRouterNowDriver.c`, Funktion `ARN_Release()`
@@ -2794,14 +2794,14 @@ if (atomic_load_explicit(&dev->frac_ridx_reset_pending, memory_order_acquire)) {
 
 **Fix:**
 ```c
-/* Vorher — pthread_join unter Mutex */
+/* Vorher, pthread_join unter Mutex */
 pthread_mutex_lock(&gStateMutex);
 if (gPlugInRefCount > 0) gPlugInRefCount--;
 ULONG result = gPlugInRefCount;
 if (result == 0) arn_shm_cleanup();  // <-- pthread_join hier!
 pthread_mutex_unlock(&gStateMutex);
 
-/* Nachher — pthread_join außerhalb Mutex */
+/* Nachher, pthread_join außerhalb Mutex */
 pthread_mutex_lock(&gStateMutex);
 if (gPlugInRefCount > 0) gPlugInRefCount--;
 ULONG result = gPlugInRefCount;
@@ -2812,13 +2812,13 @@ if (result == 0) arn_shm_cleanup();  // <-- jetzt ohne Lock-Hold
 
 ---
 
-### 23.3 Folge-Audit (Opus 4.8 — alle 8 Fixes verifiziert)
+### 23.3 Folge-Audit (Opus 4.8, alle 8 Fixes verifiziert)
 
 **Befund:** Alle Implementierungen korrekt. Keine neuen Bugs durch die Fixes eingeführt.
 
 **Zwei Randnotizen (kein Handlungsbedarf):**
-1. **K6 — TOCTOU im Flag:** Wenn der Volume-Thread zwischen `acquire`-Load des Flags und dessen Clear ein zweites Mal `frac_ridx_reset_widx` schreibt, geht ein Reset-Ziel verloren. Folge: ein Zyklus (~50ms) suboptimale Position, danach selbstkorrigierend durch P-Regler. Harmlos.
-2. **M9 — Collision bei zwei simultanen `save_config()`:** `config.tmp` liegt am selben Pfad → zwei parallele Aufrufe würden dieselbe Temp-Datei nutzen. Praktisch unmöglich (Single-Writer GUI-Event-Thread), aber pid-Suffix wäre robuster.
+1. **K6, TOCTOU im Flag:** Wenn der Volume-Thread zwischen `acquire`-Load des Flags und dessen Clear ein zweites Mal `frac_ridx_reset_widx` schreibt, geht ein Reset-Ziel verloren. Folge: ein Zyklus (~50ms) suboptimale Position, danach selbstkorrigierend durch P-Regler. Harmlos.
+2. **M9, Collision bei zwei simultanen `save_config()`:** `config.tmp` liegt am selben Pfad → zwei parallele Aufrufe würden dieselbe Temp-Datei nutzen. Praktisch unmöglich (Single-Writer GUI-Event-Thread), aber pid-Suffix wäre robuster.
 
 **Updated Risk-Score:**
 
@@ -2831,18 +2831,18 @@ if (result == 0) arn_shm_cleanup();  // <-- jetzt ohne Lock-Hold
 
 ---
 
-### 23.4 Offene Findings — Roadmap v2.8
+### 23.4 Offene Findings, Roadmap v2.8
 
 #### 🔴 KRITISCH (2 verbleibend)
 
-**K1 — Multi-Output SPSC-Invariant**
+**K1, Multi-Output SPSC-Invariant**
 
 - **Datei:** `AudioRouterNowHelper.c`, `update_global_read_idx()`
-- **Problem:** Der globale `ring->read_idx` wird vom Volume-Thread nur alle 50ms auf das Minimum aller `local_ridx`-Werte gesetzt. In den 50ms dazwischen kann der Producer `ring->write_idx` so weit vorschieben, dass er an einem langsamen Output vorbeischreibt — die Samples werden überschrieben, bevor der Output sie gelesen hat.
+- **Problem:** Der globale `ring->read_idx` wird vom Volume-Thread nur alle 50ms auf das Minimum aller `local_ridx`-Werte gesetzt. In den 50ms dazwischen kann der Producer `ring->write_idx` so weit vorschieben, dass er an einem langsamen Output vorbeischreibt, die Samples werden überschrieben, bevor der Output sie gelesen hat.
 - **Symptom:** Gelegentliche Knackser/Glitches wenn mehrere Outputs gleichzeitig aktiv sind und einer deutlich langsamer verarbeitet.
 - **Fix-Ansatz:** `ring->read_idx` direkt im IOProc aktualisieren (nach jedem erfolgreichen Read), nicht nur alle 50ms. Oder: Producer wartet bei `space < nFrames` auf alle Outputs.
 
-**K2 — Stalled Output friert `read_idx` ein**
+**K2, Stalled Output friert `read_idx` ein**
 
 - **Datei:** `AudioRouterNowHelper.c`, `update_global_read_idx()`
 - **Problem:** Wenn ein Output `active=true` ist, aber sein IOProc nicht mehr aufgerufen wird (z.B. nach einer Device-Reconfig die `AudioDeviceStart` nie zurückkehrt), bleibt `local_ridx` eingefroren. Der Min-Algorithmus wählt diesen einzigen einzufrorenen Wert → `ring->read_idx` friert ein → Ring füllt sich → alle anderen Outputs bekommen Underruns.
@@ -2851,38 +2851,38 @@ if (result == 0) arn_shm_cleanup();  // <-- jetzt ohne Lock-Hold
 
 #### 🟠 HOCH (6 verbleibend)
 
-**H1 — Retry-Loop unter `g_outputs_lock`**
+**H1, Retry-Loop unter `g_outputs_lock`**
 
 - **Datei:** `AudioRouterNowHelper.c`, `output_add_locked()` + `sr_reinit_all_outputs()`
 - **Problem:** `AudioDeviceCreateIOProcID` Retry-Loop (5 Versuche × 200ms = max 1s) läuft unter `g_outputs_lock`. Während dieser Zeit: alle anderen Outputs können nicht gestoppt/gestartet werden, Config-Socket-Commands werden geblockt, `update_global_read_idx` hängt.
-- **Fix-Ansatz:** Retry außerhalb des Locks — Lock freigeben, Retry-Schleife, Lock wieder akquirieren zum Commit.
+- **Fix-Ansatz:** Retry außerhalb des Locks, Lock freigeben, Retry-Schleife, Lock wieder akquirieren zum Commit.
 
-**H2 — `munmap(g_ring)` bei möglicherweise laufenden IOProcs**
+**H2, `munmap(g_ring)` bei möglicherweise laufenden IOProcs**
 
 - **Datei:** `AudioRouterNowHelper.c`, `shm_disconnect()`
 - **Problem:** Im Volume-Thread Reconnect-Pfad wird `shm_disconnect()` → `munmap(g_ring)` aufgerufen, ohne sicherzustellen dass keine IOProcs mehr auf `g_ring` zugreifen. Ein IOProc der gerade `ring->samples[]` liest → SIGBUS.
 - **Mitigierung:** Im Driver bereits durch deferred-cleanup (2s Verzögerung) gehandhabt. Im Helper fehlt das noch.
 - **Fix-Ansatz:** Vor `shm_disconnect()` alle aktiven IOProcs via `AudioDeviceStop` anhalten, danach `munmap`, danach IOProcs neu starten.
 
-**H3 — Hot-Plug-Listener O(N×M) unter Property-Callback-Lock**
+**H3, Hot-Plug-Listener O(N×M) unter Property-Callback-Lock**
 
 - **Datei:** `AudioRouterNowHelper.c`, `devices_changed_listener()`
 - **Problem:** Der CoreAudio Property-Callback läuft unter einem internen CoreAudio-Lock. Darin werden `g_outputs_lock` + O(N×M) `AudioObjectGetPropertyData`-Calls (für jedes Device × jeden Output) ausgeführt. CoreAudio versucht seinerseits ggf. denselben internen Lock zu holen → Deadlock.
 - **Fix-Ansatz:** Callback nur einen Flag setzen; ein separater nicht-RT-Thread reagiert darauf ohne Lock-Hierarchie-Probleme.
 
-**H6 — Naiver strstr JSON-Parser + un-escaped UID**
+**H6, Naiver strstr JSON-Parser + un-escaped UID**
 
 - **Datei:** `AudioRouterNowHelper.c`, `parse_outputs()` + `format_active_outputs()`
-- **Problem:** Device-UIDs die JSON-Sonderzeichen enthalten (z.B. `"` oder `\`) brechen den Parser. Die `get_status`-Antwort escaped nur `"` → `'` und Steuerzeichen — kein vollständiges JSON-Escaping.
+- **Problem:** Device-UIDs die JSON-Sonderzeichen enthalten (z.B. `"` oder `\`) brechen den Parser. Die `get_status`-Antwort escaped nur `"` → `'` und Steuerzeichen, kein vollständiges JSON-Escaping.
 - **Fix-Ansatz:** Minimalen JSON-Builder mit korrektem String-Escaping, oder Bibliothek wie `yyjson` einbinden.
 
-**H7 — Socket TOCTOU + `/tmp` Angriffsfläche**
+**H7, Socket TOCTOU + `/tmp` Angriffsfläche**
 
 - **Datei:** `AudioRouterNowHelper.c`, `config_socket_create()`
-- **Problem:** `bind()` + danach `chmod(0600)` — zwischen `bind` und `chmod` ist der Socket world-accessible. In `/tmp` kann ein Angreifer via Symlink-Race eine andere Datei unter dem Socket-Namen platzieren (TOCTOU).
+- **Problem:** `bind()` + danach `chmod(0600)`, zwischen `bind` und `chmod` ist der Socket world-accessible. In `/tmp` kann ein Angreifer via Symlink-Race eine andere Datei unter dem Socket-Namen platzieren (TOCTOU).
 - **Fix-Ansatz:** Socket in `~/Library/Application Support/AudioRouterNow/` oder über `mkdtemp()` mit vorbeschränkten Permissions. Alternativ: `O_TMPFILE`-ähnlicher Ansatz auf Verzeichnis-Ebene.
 
-**H8 — osascript auf Main-Thread alle 0.5s**
+**H8, osascript auf Main-Thread alle 0.5s**
 
 - **Datei:** `engine/menu_bar_app.py`
 - **Problem:** Der Timer-Callback (0.5s-Takt) spawnt synchron `osascript`-Prozesse zur Volume-Abfrage auf dem Main-Thread. Jeder `osascript`-Call blockiert den Rumps-Event-Loop → UI-Jank, Menü reagiert nicht.
@@ -2899,72 +2899,72 @@ if (result == 0) arn_shm_cleanup();  // <-- jetzt ohne Lock-Hold
 | M6 | `ch_offset + 2 > max_channels` nie validiert vor IOProc-Start | Bereits teilweise in output_add_locked, vollständig sichern |
 | M7 | SRC ohne Anti-Aliasing-Filter bei ratio < 1.0 (Downsampling) | Tiefpassfilter vor Decimation |
 | M8 | Kein Single-Instance-Lock → zwei Helper parallel möglich | Lockfile in `/var/run` oder `launchd`-Eigenschaft |
-| M10 | Split-Writes in `arn_ring_write()` ohne expliziten Store-Release-Fence per Sample | 1 release-Store nach dem Loop (bereits vorhanden — re-prüfen) |
+| M10 | Split-Writes in `arn_ring_write()` ohne expliziten Store-Release-Fence per Sample | 1 release-Store nach dem Loop (bereits vorhanden, re-prüfen) |
 
 ---
 
-## 24. Sicherheits-Audit v2.8 — Alle Findings implementiert (31. Mai 2026)
+## 24. Sicherheits-Audit v2.8, Alle Findings implementiert (31. Mai 2026)
 
 Alle verbleibenden Audit-Findings aus dem v2.7-Audit wurden in v2.8 implementiert.
 7 Commits, 12 Fixes, alle KRITISCH- und HOCH-Findings geschlossen.
 
 ### 24.1 Implementierte Fixes
 
-#### Phase 1 — Triviale Korrekturen (Commit `9dbf25d`)
+#### Phase 1, Triviale Korrekturen (Commit `9dbf25d`)
 
-**M1 — arn_ring_frames_available: konsistente acquire-Loads**
-`read_idx` wird jetzt zuerst mit `acquire` geladen (vor `write_idx`) — konsistente Speicherordnung verhindert überhöhte Frame-Counts im Status-Report.
+**M1, arn_ring_frames_available: konsistente acquire-Loads**
+`read_idx` wird jetzt zuerst mit `acquire` geladen (vor `write_idx`), konsistente Speicherordnung verhindert überhöhte Frame-Counts im Status-Report.
 
-**M2 — g_hotplug_registered: volatile → atomic_int**
-`g_hotplug_registered` war `volatile int` (Single-Thread-Zugriff, funktional unkritisch). Auf `atomic_int` mit acquire/release umgestellt — konform mit dem Rest der Codebasis.
+**M2, g_hotplug_registered: volatile → atomic_int**
+`g_hotplug_registered` war `volatile int` (Single-Thread-Zugriff, funktional unkritisch). Auf `atomic_int` mit acquire/release umgestellt, konform mit dem Rest der Codebasis.
 
-**M3 — Socket-Backlog: 4 → 16**
+**M3, Socket-Backlog: 4 → 16**
 `listen(fd, 4)` → `listen(fd, 16)`. Verhindert `ECONNREFUSED` bei schnellen App-Neustarts oder Media-Key-Bursts wenn der Accept-Loop kurz hinterherhinkt.
 
-**M10 — arn_ring_write: Klarstellender Kommentar**
+**M10, arn_ring_write: Klarstellender Kommentar**
 Re-Audit bestätigt: Der abschließende `release`-Store auf `write_idx` genügt (Release-Acquire-Paar). Kein expliziter Fence nötig. Klarstellender Kommentar verhindert künftige False-Positives im Audit.
 
-#### Phase 2 — Helper + Socket-Fixes (Commit `236be96`)
+#### Phase 2, Helper + Socket-Fixes (Commit `236be96`)
 
-**M4 — find_device_by_uid: NULL-uid Short-Circuit**
-Wenn `device_get_uid()` NULL zurückgibt (malloc-Fehler), wird der Slot sofort übersprungen — kein unnötiger `device_output_channels()`-Call auf einem ungültigen Slot.
+**M4, find_device_by_uid: NULL-uid Short-Circuit**
+Wenn `device_get_uid()` NULL zurückgibt (malloc-Fehler), wird der Slot sofort übersprungen, kein unnötiger `device_output_channels()`-Call auf einem ungültigen Slot.
 
-**M6 — ch_offset: vollständige Validierung**
+**M6, ch_offset: vollständige Validierung**
 Drei Bedingungen geprüft: `max_ch >= 2`, `ch_offset & 1 == 0` (muss gerade sein für Stereo-Paare), `ch_offset + 2 <= max_ch`. Verhindert Mono-Devices und falsches Stereo-Mapping auf ungerade Channel-Grenzen.
 
-**M7 — SRC: Box-Pre-Average beim Downsampling**
+**M7, SRC: Box-Pre-Average beim Downsampling**
 Bei `ratio > 1.005` (Ring-SR > Device-SR, z.B. 96kHz→48kHz) wird ein 3-Tap-Box-Average eingemischt um Aliasing-Spitzen zu dämpfen. Upsampling-Pfad (`ratio ≤ 1.005`) bleibt reine Linear-Interpolation. Bewusster RT-Budget-Kompromiss statt vollem Polyphase-FIR.
 
-**M8 — Single-Instance-Lock via flock**
+**M8, Single-Instance-Lock via flock**
 `helper_acquire_instance_lock()` öffnet `/tmp/audiorouter.helper.lock` und akquiriert einen exklusiven `flock`. Ein zweiter Helper-Start bricht sofort ab statt SHM und Config-Socket der laufenden Instanz zu zerstören.
 
-**H6 — JSON-Escaping für UID und Name**
+**H6, JSON-Escaping für UID und Name**
 Neue `json_escape_into()`-Funktion escaped Device-UID und -Name JSON-konform (Quotes, Backslash, Control-Chars < 0x20). Verhindert kaputtes JSON in `get_status`-Antworten bei Devices mit Sonderzeichen in UID/Name.
 
-**H7 — Config-Socket: /tmp → ~/.audiorouter mit umask-Schutz**
-Socket liegt jetzt in `~/.audiorouter/` (Verzeichnis mit 0700). `umask(0177)` wird VOR `bind()` gesetzt — Socket entsteht direkt mit 0600, kein TOCTOU-Fenster zwischen bind und chmod. `helper_client.py` auf gleichen Pfad aktualisiert.
+**H7, Config-Socket: /tmp → ~/.audiorouter mit umask-Schutz**
+Socket liegt jetzt in `~/.audiorouter/` (Verzeichnis mit 0700). `umask(0177)` wird VOR `bind()` gesetzt, Socket entsteht direkt mit 0600, kein TOCTOU-Fenster zwischen bind und chmod. `helper_client.py` auf gleichen Pfad aktualisiert.
 
-#### Phase 3 — UI-Threading (Commit `5c82268`)
+#### Phase 3, UI-Threading (Commit `5c82268`)
 
-**H8 — Volume-Polling aus Main-Thread**
-Neuer Daemon-Thread `volume-poll` übernimmt alle `osascript`-Calls für Volume-Polling. Media-Key-Handler delegiert seine osascript-Arbeit ebenfalls in kurzlebige Daemon-Threads. Der rumps-Event-Loop wird nie mehr durch synchrone subprocess-Calls blockiert — beseitigt UI-Jank und hängende Menüs.
+**H8, Volume-Polling aus Main-Thread**
+Neuer Daemon-Thread `volume-poll` übernimmt alle `osascript`-Calls für Volume-Polling. Media-Key-Handler delegiert seine osascript-Arbeit ebenfalls in kurzlebige Daemon-Threads. Der rumps-Event-Loop wird nie mehr durch synchrone subprocess-Calls blockiert, beseitigt UI-Jank und hängende Menüs.
 
-#### Phase 4 — Lock-Kritische Fixes (Commits `6df74f7`, `9992e79`)
+#### Phase 4, Lock-Kritische Fixes (Commits `6df74f7`, `9992e79`)
 
-**H3 — Hot-Plug-Listener: kein CoreAudio-Call im Callback**
+**H3, Hot-Plug-Listener: kein CoreAudio-Call im Callback**
 `devices_changed_listener` setzt nur noch ein atomares `g_hotplug_pending`-Flag. Die eigentliche O(N×M)-Reaktion läuft in `process_hotplug_removals()`, aufgerufen aus dem Volume-Thread via `atomic_exchange`. Beseitigt das Re-Entry-Deadlock-Risiko im HAL-Notification-Thread.
 
-**H1 — USB-SR-Settle aus g_outputs_lock**
+**H1, USB-SR-Settle aus g_outputs_lock**
 `output_add()` (Nachfolger von `output_add_locked`) verwaltet den Lock selbst in 3 Phasen:
 - **Phase 1** (Lock, <1ms): Duplikat/Kapazitäts-Check, `start_widx` lesen
 - **Phase 2** (kein Lock): SR-Set + USB-Settle-Wartezeit (~400ms, lock-frei)
 - **Phase 3** (Lock, <20ms): Slot committen, dann `AudioDeviceCreateIOProcID`/`Start` mit stabiler Heap-Adresse
 
-Lock-Hold sinkt von bis zu ~1.3s auf <20ms. `AudioDeviceCreateIOProcID` erhält den `&g_outputs[slot]`-Pointer erst nach dem Commit — korrektes `inClientData`-Ownership.
+Lock-Hold sinkt von bis zu ~1.3s auf <20ms. `AudioDeviceCreateIOProcID` erhält den `&g_outputs[slot]`-Pointer erst nach dem Commit, korrektes `inClientData`-Ownership.
 
-#### Phase 5 — RT-Safe Stall-Detection (Commit `95c6029`)
+#### Phase 5, RT-Safe Stall-Detection (Commit `95c6029`)
 
-**K1 + K2 — Stall-Detection + read_idx-Aggregat**
+**K1 + K2, Stall-Detection + read_idx-Aggregat**
 
 Neue Felder in `DeviceOutput`: `last_ridx_sample`, `last_progress_ns`, `_Atomic uint32_t stalled`.
 
@@ -2972,15 +2972,15 @@ Der Volume-Thread erkennt einen gestallten Output wenn `local_ridx` sich >300ms 
 
 **K2**: Ein hängender IOProc kann den globalen `read_idx` nicht mehr einfrieren und alle anderen Outputs in Underruns treiben. Erholt sich der Output, wird das Flag automatisch zurückgesetzt.
 
-**K1**: `update_global_read_idx()` wird jetzt direkt nach `output_add()` aufgerufen — neuer Consumer wird sofort berücksichtigt (nicht erst nach bis zu 50ms). `stalled`-Status ist im `get_status`-JSON sichtbar (`"stalled":0/1`).
+**K1**: `update_global_read_idx()` wird jetzt direkt nach `output_add()` aufgerufen, neuer Consumer wird sofort berücksichtigt (nicht erst nach bis zu 50ms). `stalled`-Status ist im `get_status`-JSON sichtbar (`"stalled":0/1`).
 
-#### Phase 6 — SIGBUS-Prävention (Commit `88013fd`)
+#### Phase 6, SIGBUS-Prävention (Commit `88013fd`)
 
-**H2 — Deferred munmap beim Live-Reconnect**
+**H2, Deferred munmap beim Live-Reconnect**
 
 `g_ring` ist jetzt `_Atomic(ARNSharedRing *)`. Der IOProc lädt ihn einmal per `memory_order_acquire` am Call-Anfang.
 
-`shm_disconnect_deferred()` merkt das alte Segment als `g_pending_unmap_ring` (kein sofortiges `munmap`). `shm_flush_pending_unmap()` wird am Anfang jedes Volume-Poll-Zyklus (50ms später) aufgerufen und gibt das gemerkete Segment frei — bis dahin sind alle in-flight IOProc-Calls (<1ms) garantiert durch. Kein SIGBUS mehr beim Live-Reconnect.
+`shm_disconnect_deferred()` merkt das alte Segment als `g_pending_unmap_ring` (kein sofortiges `munmap`). `shm_flush_pending_unmap()` wird am Anfang jedes Volume-Poll-Zyklus (50ms später) aufgerufen und gibt das gemerkete Segment frei, bis dahin sind alle in-flight IOProc-Calls (<1ms) garantiert durch. Kein SIGBUS mehr beim Live-Reconnect.
 
 Shutdown-Pfad nutzt weiterhin sofortiges `shm_disconnect()` (IOProcs sind dort via `outputs_stop_all()` bereits gestoppt).
 
@@ -3003,16 +3003,16 @@ Alle KRITISCH-, HOCH- und MITTEL-Findings aus dem ursprünglichen Audit sind imp
 | I2 | Keine automatischen Integrations-Tests |
 | I3 | Keine Signierung mit Developer-ID (ad-hoc only) |
 | I4 | DOKUMENTATION.md nicht versioniert separat |
-| I5 | Helper-Log geht nach /tmp — kein Rotation |
+| I5 | Helper-Log geht nach /tmp, kein Rotation |
 | I6 | Keine explizite Fehlerbehandlung für coreaudiod-Neustart |
 | I7 | Buffer-Size (512 Frames) nicht konfigurierbar zur Laufzeit |
 | I8 | Keine automatische Wiederverbindung bei Bluetooth-Audio-Unterbruch |
 
-*Dokumentation zuletzt aktualisiert am 31. Mai 2026 — AudioRouterNow v2.8.0*
+*Dokumentation zuletzt aktualisiert am 31. Mai 2026, AudioRouterNow v2.8.0*
 
 ---
 
-## 25. Release v2.8.0 — Vollständige Audit-Implementierung & Aktueller Stand (31. Mai 2026)
+## 25. Release v2.8.0, Vollständige Audit-Implementierung & Aktueller Stand (31. Mai 2026)
 
 Diese Sektion dokumentiert den **Gesamtabschluss** der Audit-Implementierung über v2.7 und v2.8, fasst alle Fixes mit technischer Begründung zusammen und hält den aktuellen Architektur- und Qualitätsstand fest.
 
@@ -3028,20 +3028,20 @@ Das Audit umfasste **33 Findings** in 4 Stufen. Über zwei Versionen wurden **al
 
 ### 25.2 Gesamtübersicht aller 20 Fixes (v2.7 + v2.8)
 
-#### v2.7 — Kritische RT- und Thread-Safety-Fixes (8 Fixes, 5 Commits)
+#### v2.7, Kritische RT- und Thread-Safety-Fixes (8 Fixes, 5 Commits)
 
 | Fix | Datei | Problem | Warum kritisch |
 |-----|-------|---------|----------------|
-| **K5** | Driver.c | `gAnchorHostTime` ohne Atomic — Data Race zwischen `StartIO` und RT-Thread `GetZeroTimeStamp` | Clock-Sprünge, Timing-Glitches im Zeitmodell |
-| **K7** | Helper.c | `temp_buf[nFrames*2]` ohne Clamp — BSS-Overflow bei nFrames > 8192 | Stille Memory-Korruption |
-| **H5** | shared_ring.h | `arn_ring_set_sample_rate` setzt `read_idx` nicht auf 0 — unsigned Underflow → `space ≈ 4 Mrd` | Producer kann nicht schreiben → Stille |
-| **K3** | Driver.c + shared_ring.h | Watch-Thread nutzt Inode-Vergleich — macOS recycelt Inodes → neues SHM nach Helper-Neustart nicht erkannt | Stille nach Helper-Neustart (Bug #2) |
-| **M5** | Helper.c | `base_ratio = ring_sr / device_sr` ohne Guard — NaN/Inf bei device_sr=0 | P-Regler explodiert |
-| **M9** | config.py | Nicht-atomares Schreiben in config.json — Crash mid-write → korrumpiertes JSON | Alle User-Settings gelöscht |
-| **K6** | Helper.c | `src_frac_ridx` (double) — Data Race zwischen IOProc und Volume-Thread | Artefakte/Knacken bei SR-Wechsel |
+| **K5** | Driver.c | `gAnchorHostTime` ohne Atomic, Data Race zwischen `StartIO` und RT-Thread `GetZeroTimeStamp` | Clock-Sprünge, Timing-Glitches im Zeitmodell |
+| **K7** | Helper.c | `temp_buf[nFrames*2]` ohne Clamp, BSS-Overflow bei nFrames > 8192 | Stille Memory-Korruption |
+| **H5** | shared_ring.h | `arn_ring_set_sample_rate` setzt `read_idx` nicht auf 0, unsigned Underflow → `space ≈ 4 Mrd` | Producer kann nicht schreiben → Stille |
+| **K3** | Driver.c + shared_ring.h | Watch-Thread nutzt Inode-Vergleich, macOS recycelt Inodes → neues SHM nach Helper-Neustart nicht erkannt | Stille nach Helper-Neustart (Bug #2) |
+| **M5** | Helper.c | `base_ratio = ring_sr / device_sr` ohne Guard, NaN/Inf bei device_sr=0 | P-Regler explodiert |
+| **M9** | config.py | Nicht-atomares Schreiben in config.json, Crash mid-write → korrumpiertes JSON | Alle User-Settings gelöscht |
+| **K6** | Helper.c | `src_frac_ridx` (double), Data Race zwischen IOProc und Volume-Thread | Artefakte/Knacken bei SR-Wechsel |
 | **H4** | Driver.c | `pthread_join` unter `gStateMutex` in `ARN_Release` | Latentes Deadlock beim Driver-Unload |
 
-#### v2.8 — Robustheit, Sicherheit und Architekturfixes (12 Fixes, 7 Commits)
+#### v2.8, Robustheit, Sicherheit und Architekturfixes (12 Fixes, 7 Commits)
 
 | Fix | Datei | Problem | Warum wichtig |
 |-----|-------|---------|---------------|
@@ -3050,7 +3050,7 @@ Das Audit umfasste **33 Findings** in 4 Stufen. Über zwei Versionen wurden **al
 | **M3** | Helper.c | Socket-Backlog = 4 → 16 | ECONNREFUSED bei schnellen Reconnects |
 | **M10** | shared_ring.h | Fehlender Kommentar zu release-Store in `arn_ring_write` | False-Positives in künftigen Audits |
 | **M4** | Helper.c | `find_device_by_uid`: NULL-uid ohne Short-Circuit → unnötiger CoreAudio-Call | Potential NULL-Deref |
-| **M6** | Helper.c | `ch_offset`-Validierung unvollständig — kein Gerade-Check, kein min-Channels-Check | Falsches Stereo-Mapping |
+| **M6** | Helper.c | `ch_offset`-Validierung unvollständig, kein Gerade-Check, kein min-Channels-Check | Falsches Stereo-Mapping |
 | **M7** | Helper.c | SRC ohne Anti-Aliasing bei Downsampling (ratio > 1.0) | Aliasing-Spitzen bei 96k→48k |
 | **M8** | Helper.c | Kein Single-Instance-Lock → zwei Helper-Prozesse parallel möglich | SHM- und Socket-Konflikte |
 | **H6** | Helper.c | Device-UID un-escaped in JSON-Antwort | Kaputtes JSON bei Sonderzeichen in UID |
@@ -3067,11 +3067,11 @@ Das Audit umfasste **33 Findings** in 4 Stufen. Über zwei Versionen wurden **al
 
 #### Pending-Reset-Pattern für src_frac_ridx (K6)
 **Problem:** `src_frac_ridx` (double) wurde gleichzeitig vom IOProc (RT-Thread, kein Lock erlaubt) und vom Volume-Thread (non-RT) beschrieben.  
-**Warum dieses Pattern:** Im RT-IOProc darf kein Lock erworben werden — Priority-Inversion würde die CoreAudio-Deadline verletzen. Ein `_Atomic double` ist in C11 nicht garantiert lock-free (double ist kein Integer-Typ). Die Lösung: Nur der IOProc schreibt `src_frac_ridx` direkt. Der Volume-Thread setzt zwei atomare Felder (`frac_ridx_reset_widx` + `frac_ridx_reset_pending`). Der IOProc prüft das Flag am Call-Beginn (acquire-load) und setzt den Reset durch. Kein Lock, kein undefined behavior.
+**Warum dieses Pattern:** Im RT-IOProc darf kein Lock erworben werden, Priority-Inversion würde die CoreAudio-Deadline verletzen. Ein `_Atomic double` ist in C11 nicht garantiert lock-free (double ist kein Integer-Typ). Die Lösung: Nur der IOProc schreibt `src_frac_ridx` direkt. Der Volume-Thread setzt zwei atomare Felder (`frac_ridx_reset_widx` + `frac_ridx_reset_pending`). Der IOProc prüft das Flag am Call-Beginn (acquire-load) und setzt den Reset durch. Kein Lock, kein undefined behavior.
 
 #### instance_id statt Inode-Vergleich (K3)
 **Problem:** macOS recycelt POSIX-SHM-Inodes. `fstat().st_ino` ist kein zuverlässiges Erkennungsmerkmal für ein neues Segment.  
-**Warum:** Ein eindeutiger `uint64_t`-Wert (`mach_absolute_time() XOR getpid()`) wird vom Helper bei jeder SHM-Erstellung gesetzt. Dieser ändert sich deterministisch bei jedem Neustart — kein Recycling-Problem. ABI-Version 3 → 4 (in `_pad0`, keine Größenänderung, keine Kompatibilitätsprobleme).
+**Warum:** Ein eindeutiger `uint64_t`-Wert (`mach_absolute_time() XOR getpid()`) wird vom Helper bei jeder SHM-Erstellung gesetzt. Dieser ändert sich deterministisch bei jedem Neustart, kein Recycling-Problem. ABI-Version 3 → 4 (in `_pad0`, keine Größenänderung, keine Kompatibilitätsprobleme).
 
 #### Drei-Phasen output_add() (H1)
 **Problem:** `output_add_locked` hielt `g_outputs_lock` für bis zu 1.3 Sekunden (USB-SR-Settle: 5×200ms). In dieser Zeit konnte kein anderer Output stoppen/starten, kein Config-Command ausgeführt werden, `update_global_read_idx()` war geblockt.  
@@ -3079,15 +3079,15 @@ Das Audit umfasste **33 Findings** in 4 Stufen. Über zwei Versionen wurden **al
 
 #### Stall-Detection (K1+K2)
 **Problem:** Ein Output mit `active=true` aber hängendem IOProc hält `local_ridx` eingefroren. Die MAX-Distanz-Logik in `update_global_read_idx` wählt immer diesen Wert → `ring->read_idx` friert ein → Ring läuft voll → alle anderen Outputs underrunen.  
-**Warum im Volume-Thread:** Der IOProc darf kein Stall-Management machen (RT-Kontext, kein malloc/printf/Lock). Der 50ms-Volume-Thread ist der einzige sichere Ort. Stall-Erkennung: `local_ridx` bewegt sich >300ms nicht, obwohl `fill >= 4` Samples im Ring liegen (Underrun ≠ Stall — diese Unterscheidung ist kritisch). RT-Safety: `stalled` ist `_Atomic uint32_t` → IOProc sieht Änderung ohne Lock.
+**Warum im Volume-Thread:** Der IOProc darf kein Stall-Management machen (RT-Kontext, kein malloc/printf/Lock). Der 50ms-Volume-Thread ist der einzige sichere Ort. Stall-Erkennung: `local_ridx` bewegt sich >300ms nicht, obwohl `fill >= 4` Samples im Ring liegen (Underrun ≠ Stall, diese Unterscheidung ist kritisch). RT-Safety: `stalled` ist `_Atomic uint32_t` → IOProc sieht Änderung ohne Lock.
 
 #### Deferred munmap (H2)
 **Problem:** `shm_disconnect()` beim Live-Reconnect unmappt `g_ring` sofort. Laufende IOProcs lesen in dieser Moment `g_ring->samples[]` → SIGBUS.  
-**Warum deferred:** IOProc-Calls dauern <1ms. Der Volume-Thread läuft alle 50ms. Ein Puffer von einer Iteration (50ms) ist um Größenordnungen ausreichend. `g_ring` wird per `atomic_exchange_explicit(acq_rel)` auf NULL gesetzt — neue IOProc-Calls sehen NULL und kehren mit `return noErr` zurück. Das alte Segment wird erst im nächsten Zyklus via `shm_flush_pending_unmap()` freigegeben.
+**Warum deferred:** IOProc-Calls dauern <1ms. Der Volume-Thread läuft alle 50ms. Ein Puffer von einer Iteration (50ms) ist um Größenordnungen ausreichend. `g_ring` wird per `atomic_exchange_explicit(acq_rel)` auf NULL gesetzt, neue IOProc-Calls sehen NULL und kehren mit `return noErr` zurück. Das alte Segment wird erst im nächsten Zyklus via `shm_flush_pending_unmap()` freigegeben.
 
 #### Socket-Verlagerung (H7)
 **Problem:** `/tmp` ist world-writable. Ein Angreifer kann vor dem `bind()` eine Symlink oder eigenen Socket unter `CONFIG_SOCKET_PATH` platzieren. Zusätzlich: `bind()` + danach `chmod(0600)` = TOCTOU-Fenster.  
-**Warum `~/.audiorouter/` mit `umask(0177)`:** Das Verzeichnis wird mit `mkdir(0700)` erstellt (nur Owner). `umask(0177)` wird direkt vor `bind()` gesetzt — der Socket entsteht sofort mit 0600, kein Race-Window zwischen bind und chmod. `helper_client.py` wurde auf denselben Pfad aktualisiert.
+**Warum `~/.audiorouter/` mit `umask(0177)`:** Das Verzeichnis wird mit `mkdir(0700)` erstellt (nur Owner). `umask(0177)` wird direkt vor `bind()` gesetzt, der Socket entsteht sofort mit 0600, kein Race-Window zwischen bind und chmod. `helper_client.py` wurde auf denselben Pfad aktualisiert.
 
 ---
 
@@ -3100,18 +3100,18 @@ macOS System-Audio
 [Audio Router HAL-Device]
   ↑ AudioRouterNowDriver.c (coreaudiod)
   • gAnchorHostTime: atomic_ullong (K5)
-  • gSHMRing: _Atomic(ARNSharedRing*) — atomic swap bei Reconnect
+  • gSHMRing: _Atomic(ARNSharedRing*), atomic swap bei Reconnect
   • Watch-Thread: instance_id-Vergleich statt Inode (K3, v4)
   • ARN_Release: pthread_join außerhalb gStateMutex (H4)
       │
       │  POSIX Shared Memory (/audiorouter_shm)
-      │  ARNSharedRing v4 — Lock-free SPSC + Multi-Consumer
+      │  ARNSharedRing v4, Lock-free SPSC + Multi-Consumer
       │  • instance_id: Eindeutige Erstellungs-ID (K3)
       │  • sr_change_gen: Atomarer SR-Generations-Zähler
       │  • read_idx/write_idx: Release-Acquire-Paar (M10)
       ▼
-[AudioRouterNowHelper — C-Daemon]
-  • g_ring: _Atomic(ARNSharedRing*) — RT-sicherer Pointer (H2)
+[AudioRouterNowHelper, C-Daemon]
+  • g_ring: _Atomic(ARNSharedRing*), RT-sicherer Pointer (H2)
   • output_add(): 3-Phasen, USB-Settle lock-frei (H1)
   • devices_changed_listener: nur Flag, kein CoreAudio-Call (H3)
   • volume_poll_thread (50ms):
@@ -3131,7 +3131,7 @@ macOS System-Audio
       ├──► Output 2: IOProc + SRC + stalled-Flag
       └──► Output N: IOProc + SRC + stalled-Flag (max. 8)
 
-[AudioRouterNow.app — Python/rumps]
+[AudioRouterNow.app, Python/rumps]
   • Volume-Polling: Daemon-Thread volume-poll (H8)
   • Media-Keys: osascript in kurzlebigen Daemon-Threads (H8)
   • Config: atomares Schreiben via Temp+fsync+rename (M9)
@@ -3168,8 +3168,8 @@ macOS System-Audio
 | `9992e79` | 4b | H1 output_add 3-Phasen (USB-Settle lock-frei) |
 | `95c6029` | 5 | K1+K2 Stall-Detection + read_idx-Aggregat-Fix |
 | `88013fd` | 6 | H2 g_ring _Atomic + deferred munmap |
-| `9570a66` | — | Dokumentation Kapitel 24 |
-| `c8e9c88` | — | output_add_locked toter Code deaktiviert |
+| `9570a66` | - | Dokumentation Kapitel 24 |
+| `c8e9c88` | - | output_add_locked toter Code deaktiviert |
 
 ---
 
@@ -3179,22 +3179,22 @@ macOS System-Audio
 
 Alle 18 v2.8-Fixes korrekt implementiert. Drei kosmetische Anmerkungen (alle nicht release-blockierend):
 1. `output_add_locked` war toter Code → deaktiviert via `#if 0`
-2. M7 Box-Average liest `idx0+2` — durch Ring-Maskierung memory-safe, klanglich irrelevant
+2. M7 Box-Average liest `idx0+2`, durch Ring-Maskierung memory-safe, klanglich irrelevant
 3. Deferred-munmap-Fenster (50ms) ausreichend groß für IOProc-Laufzeiten (<1ms)
 
 Keine RT-Safety-Verletzung im IOProc-Pfad: kein malloc, kein Lock, kein printf, kein Syscall.
 
 ---
 
-## 26. Hotfix v2.8.1 — Kratzen nach Multi-Output-Konfiguration behoben (1. Juni 2026)
+## 26. Hotfix v2.8.1, Kratzen nach Multi-Output-Konfiguration behoben (1. Juni 2026)
 
 Nach dem v2.8.0-Release trat bei der Konfiguration mit mehreren Outputs auf demselben Gerät (z.B. Komplete Audio 6 MK2 auf Ch 1-2 und Ch 3-4 gleichzeitig) hörbares Kratzen auf. Root-Cause-Analyse ergab zwei zusammenwirkende Bugs.
 
 ---
 
-### 26.1 Bug 1 — Slot-Swap zerstörte IOProc-ClientData-Pointer
+### 26.1 Bug 1, Slot-Swap zerstörte IOProc-ClientData-Pointer
 
-**Datei:** `helper/AudioRouterNowHelper.c` — `output_remove_locked()`
+**Datei:** `helper/AudioRouterNowHelper.c`, `output_remove_locked()`
 
 **Problem:** `output_remove_locked()` füllt nach einem Remove die entstandene Lücke durch Swap des letzten Slots (`g_outputs[slot] = g_outputs[g_n_outputs - 1]`). Der verschobene Output hatte aber einen laufenden IOProc, dessen `inClientData`-Pointer noch auf die **alte** Adresse (`&g_outputs[letzter_slot]`) zeigte. Diese Adresse wird danach mit `memset(0)` geleert.
 
@@ -3203,15 +3203,15 @@ Ergebnis: Der IOProc für den verschobenen Output liest aus einem nullten Struct
 - `src_frac_ridx = 0` → keine Bewegung
 - `local_ridx` bleibt bei 0 → Stall-Detection feuert nach 1000ms
 
-**Sichtbares Symptom:** `get_status` zeigt `"stalled": 1`, `"underruns": 0` — der IOProc wird von CoreAudio aufgerufen (kein Crash, kein Error), schreibt aber Müll oder Stille. `update_global_read_idx` schloss den gestallten Output aus → `read_idx` folgte nur noch dem nicht-gestallten Output → Ring konnte sich anstauen → Producer droppte Frames → Kratzen auf dem gesunden Output.
+**Sichtbares Symptom:** `get_status` zeigt `"stalled": 1`, `"underruns": 0`, der IOProc wird von CoreAudio aufgerufen (kein Crash, kein Error), schreibt aber Müll oder Stille. `update_global_read_idx` schloss den gestallten Output aus → `read_idx` folgte nur noch dem nicht-gestallten Output → Ring konnte sich anstauen → Producer droppte Frames → Kratzen auf dem gesunden Output.
 
 **Fix:** Vor dem Slot-Swap den verschobenen IOProc stoppen. Nach dem Kopieren zur neuen Adresse (`&g_outputs[slot]`) den IOProc mit der stabilen Heap-Adresse neu anlegen (`AudioDeviceCreateIOProcID(dev, device_ioproc, &g_outputs[slot], ...)`) und starten. Zusätzlich: Pending-Reset für `src_frac_ridx` damit der neugestartete IOProc sofort korrekte Leseposition hat.
 
 ```c
-/* Vorher — verschobener IOProc liest aus geleert struct: */
+/* Vorher, verschobener IOProc liest aus geleert struct: */
 g_outputs[slot] = g_outputs[g_n_outputs - 1];
 
-/* Nachher — IOProc stoppen, kopieren, neu anlegen mit neuer Adresse: */
+/* Nachher, IOProc stoppen, kopieren, neu anlegen mit neuer Adresse: */
 AudioDeviceStop(moved_src->dev_id, moved_src->proc_id);
 AudioDeviceDestroyIOProcID(moved_src->dev_id, moved_src->proc_id);
 g_outputs[slot] = g_outputs[g_n_outputs - 1];
@@ -3222,9 +3222,9 @@ AudioDeviceStart(moved->dev_id, moved->proc_id);
 
 ---
 
-### 26.2 Bug 2 — SRC-Boundary-Instabilität bei Sample-Rate-Mismatch
+### 26.2 Bug 2, SRC-Boundary-Instabilität bei Sample-Rate-Mismatch
 
-**Datei:** `helper/AudioRouterNowHelper.c` — `device_ioproc()`
+**Datei:** `helper/AudioRouterNowHelper.c`, `device_ioproc()`
 
 **Problem:** Wenn das Output-Device bei einer anderen Sample-Rate läuft als der Ring (z.B. KA6 bei 44100 Hz, Ring bei 48000 Hz), ergibt sich `ratio = 48000/44100 = 1.0884`. Der IOProc berechnet:
 
@@ -3244,15 +3244,15 @@ Abwechselnde Underruns → `local_ridx` bewegt sich im Schnitt nicht → Stall n
 **Fix:** 4-Sample-Toleranz im Underrun-Check (2 Stereo-Frames):
 
 ```c
-/* Vorher — exakter Boundary-Check: */
+/* Vorher, exakter Boundary-Check: */
 if (behind < needed_samples) {  /* Underrun */
 
-/* Nachher — 4-Sample Jitter-Toleranz: */
+/* Nachher, 4-Sample Jitter-Toleranz: */
 const uint32_t JITTER_TOLERANCE = 4u;
 if (behind + JITTER_TOLERANCE < needed_samples) {  /* Underrun */
 ```
 
-Bei `behind = 1110` und `needed = 1114`: `1110 + 4 = 1114 ≥ 1114` → Normal statt Underrun. Die 4 fehlenden Samples werden am Ende des Buffers mit dem letzten gültigen Frame interpoliert — bei 44100 Hz und 4 Samples ≈ 0.09 ms, unhörbar.
+Bei `behind = 1110` und `needed = 1114`: `1110 + 4 = 1114 ≥ 1114` → Normal statt Underrun. Die 4 fehlenden Samples werden am Ende des Buffers mit dem letzten gültigen Frame interpoliert, bei 44100 Hz und 4 Samples ≈ 0.09 ms, unhörbar.
 
 **Stall-Timeout:** Von 300 ms auf 1000 ms erhöht, um mehr Settle-Zeit für SRC bei Rate-Mismatch zu geben.
 
@@ -3278,17 +3278,17 @@ Beide Bugs traten typischerweise zusammen auf:
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 1. Juni 2026 — AudioRouterNow v2.9.0*
+*Dokumentation zuletzt aktualisiert am 1. Juni 2026, AudioRouterNow v2.9.0*
 
 ---
 
-## 27. Self-Healing Layer — Brainstorming & Konzept (1. Juni 2026)
+## 27. Self-Healing Layer, Brainstorming & Konzept (1. Juni 2026)
 
-Dieses Kapitel dokumentiert das Ergebnis einer strukturierten Brainstorming-Runde mit dem Ziel, die technische Machbarkeit eines **selbst-analysierenden und selbst-heilenden Layers** für AudioRouterNow zu bewerten. Die Runde wurde mit mehreren Opus-Agenten durchgeführt (Systems-Architekt, Multi-Expert-Panel). Stand: Konzeptphase — kein Code wurde geschrieben.
+Dieses Kapitel dokumentiert das Ergebnis einer strukturierten Brainstorming-Runde mit dem Ziel, die technische Machbarkeit eines **selbst-analysierenden und selbst-heilenden Layers** für AudioRouterNow zu bewerten. Die Runde wurde mit mehreren Opus-Agenten durchgeführt (Systems-Architekt, Multi-Expert-Panel). Stand: Konzeptphase, kein Code wurde geschrieben.
 
 ---
 
-### 27.1 Das Grundproblem — Wasserleitung als Analogie
+### 27.1 Das Grundproblem, Wasserleitung als Analogie
 
 AudioRouterNow lässt sich als Wasserleitung beschreiben:
 
@@ -3298,7 +3298,7 @@ AudioRouterNow lässt sich als Wasserleitung beschreiben:
 | Ring-Buffer | Wassertank | Puffer zwischen Produzent und Konsument |
 | Helper IOProc | Verteiler | Nimmt Wasser aus dem Tank, leitet es zu den Lautsprechern |
 
-Alle Audiobugs — Crackling, Stalls, Underruns, Dropouts — sind im Kern **ein einziges Problem**: der Füllstand des Ring-Buffers läuft außer Kontrolle.
+Alle Audiobugs, Crackling, Stalls, Underruns, Dropouts, sind im Kern **ein einziges Problem**: der Füllstand des Ring-Buffers läuft außer Kontrolle.
 
 - **Tank zu leer** → Lautsprecher bekommt kein Audio → Underrun → Knacken
 - **Tank zu voll** → Producer muss stoppen → Verzögerung / Drift
@@ -3308,7 +3308,7 @@ Alle Audiobugs — Crackling, Stalls, Underruns, Dropouts — sind im Kern **ein
 
 ---
 
-### 27.2 Was bereits vorhanden ist — die Überraschung
+### 27.2 Was bereits vorhanden ist, die Überraschung
 
 Im Gespräch stellte sich heraus: **Die Sensoren existieren bereits.** Das System misst schon alles Relevante, aber niemand wertet die Messwerte systematisch aus:
 
@@ -3321,11 +3321,11 @@ Im Gespräch stellte sich heraus: **Die Sensoren existieren bereits.** Das Syste
 | `write_idx - read_idx` | SHM Ring | Aktueller Füllstand |
 
 Darüber hinaus existieren bereits:
-- `frac_ridx_reset_pending` — RT-safe Pending-Reset-Pattern (Vorbild für alle neuen Signalwege)
-- `restart_helper()` in Python — manueller Neustart als Aktuator
-- `get_status()` via Unix Socket — Telemetrie-Kanal ist bereits offen
+- `frac_ridx_reset_pending`, RT-safe Pending-Reset-Pattern (Vorbild für alle neuen Signalwege)
+- `restart_helper()` in Python, manueller Neustart als Aktuator
+- `get_status()` via Unix Socket, Telemetrie-Kanal ist bereits offen
 
-Das System hat bereits eine **Kamera** eingebaut — es fehlt der **Monitor**.
+Das System hat bereits eine **Kamera** eingebaut, es fehlt der **Monitor**.
 
 ---
 
@@ -3357,17 +3357,17 @@ Die Zeitdomänen des Systems erzwingen eine strikte Rollen-Trennung:
 
 Der Plan ist in drei unabhängige Stufen (Tranchen) aufgeteilt, von risikolos bis komplex:
 
-#### Tranche A — Telemetrie + Ampel (rein observierend)
+#### Tranche A, Telemetrie + Ampel (rein observierend)
 **Ziel:** Alle vorhandenen Sensoren systematisch auslesen, aggregieren und als Ampel im Menübar-Icon darstellen.
 
 - Neuer daemon-Thread `health-poll` in Python (200ms Intervall)
-- `engine/health.py` — Brain mit `HealthMonitor`-Klasse und Hysterese-Logik
+- `engine/health.py`, Brain mit `HealthMonitor`-Klasse und Hysterese-Logik
 - Ampel-Zustände: 🟢 `healthy` / 🟡 `degraded` / 🔴 `critical`
-- **Hysterese:** Verschlechterung nach 2 Samples, Verbesserung erst nach 5 Samples — kein Flackern
+- **Hysterese:** Verschlechterung nach 2 Samples, Verbesserung erst nach 5 Samples, kein Flackern
 - Risiko: **Null** (rein read-only, kein Eingriff in Audio-Pfad)
 - Aufwand: ~2 Arbeitstage
 
-#### Tranche B — Sanfte Out-of-RT-Heilung
+#### Tranche B, Sanfte Out-of-RT-Heilung
 **Ziel:** Auf erkannte Probleme reagieren, ohne den laufenden Audio-Pfad zu stören.
 
 Drei Mechanismen:
@@ -3383,7 +3383,7 @@ Drei Mechanismen:
 - Risiko: niedrig (greift nur wenn Device bereits tot)
 - Aufwand: ~3–4 Arbeitstage
 
-#### Tranche C — Adaptives SRC-Resampling (Forschungsphase)
+#### Tranche C, Adaptives SRC-Resampling (Forschungsphase)
 **Ziel:** Den bestehenden P-Regler auf `src_ratio_q20` zu einem PI-Regler mit EWMA-Glättung erweitern, um langsamen Clock-Drift zwischen Producer und Consumer-Device *unhörbar* und *kontinuierlich* auszuregeln.
 
 **Hintergrund:** Verschiedene Audio-Clocks (z.B. internes 48kHz ≠ USB-DAC 48kHz) driften minimal auseinander. Der aktuelle P-Regler reagiert auf den aktuellen Füllstand. Ein PI-Regler würde zusätzlich den akkumulierten Drift über Zeit berücksichtigen.
@@ -3395,15 +3395,15 @@ correction = Kp × error + Ki × Σ(error × dt)
 src_ratio_q20 = base_ratio + correction   (geclamped auf ±500 ppm)
 ```
 
-- **Voraussetzung:** Tranche A muss zuerst laufen — die Drift-Messung aus der Telemetrie entscheidet, ob ein PI-Term überhaupt nötig ist
-- **Risiko:** mittel — falsches Parameter-Tuning erzeugt hörbare Pitch-Artefakte
+- **Voraussetzung:** Tranche A muss zuerst laufen, die Drift-Messung aus der Telemetrie entscheidet, ob ein PI-Term überhaupt nötig ist
+- **Risiko:** mittel, falsches Parameter-Tuning erzeugt hörbare Pitch-Artefakte
 - Aufwand: ~3–4 Arbeitstage aktiv + ~1 Woche Kalenderzeit für Messläufe
 
 ---
 
 ### 27.5 Industrie-Vorbilder
 
-Das Konzept ist nicht neu — jedes professionelle Audio-System macht es:
+Das Konzept ist nicht neu, jedes professionelle Audio-System macht es:
 
 | System | Technik | Analog zu |
 |--------|---------|-----------|
@@ -3415,7 +3415,7 @@ Das Konzept ist nicht neu — jedes professionelle Audio-System macht es:
 
 ---
 
-### 27.6 Die Taleb-Warnung — Self-Healing kann schaden
+### 27.6 Die Taleb-Warnung, Self-Healing kann schaden
 
 Nassim Taleb's Konzept der Antifragilität bringt die wichtigste Einschränkung:
 
@@ -3442,7 +3442,7 @@ Konkret für AudioRouterNow: Ein automatischer Reset mitten in einem Live-Konzer
 | `engine/helper_client.py` | Erweiterung | `reconnect_output()`, `set_safe_take()` Methoden |
 | `engine/config.py` | Erweiterung | `safe_take_mode: bool` Feld |
 | `helper/AudioRouterNowHelper.c` | Erweiterung | Neue Counter (`recovery_count`, `g_reconnect_count`, `g_last_ioproc_call_ns`), `reconnect_output`-Befehl, `safe_take`-Guard, Pre-Roll-Felder |
-| `helper/shared_ring.h` | **Unverändert** | ABI bleibt v4 — alle neuen Felder in `DeviceOutput` (Helper-intern) |
+| `helper/shared_ring.h` | **Unverändert** | ABI bleibt v4, alle neuen Felder in `DeviceOutput` (Helper-intern) |
 
 ---
 
@@ -3452,13 +3452,13 @@ Konkret für AudioRouterNow: Ein automatischer Reset mitten in einem Live-Konzer
 |-------|--------|
 | Brainstorming | ✅ Abgeschlossen (1. Juni 2026) |
 | Implementierungsplan | ✅ Erstellt, zur Abnahme |
-| Tranche A — Telemetrie | ⏳ Ausstehend (Abnahme nötig) |
-| Tranche B — Heilung | ⏳ Ausstehend (nach A) |
-| Tranche C — SRC PI-Regler | ✅ Implementiert (1. Juni 2026, v2.9.0) |
+| Tranche A, Telemetrie | ⏳ Ausstehend (Abnahme nötig) |
+| Tranche B, Heilung | ⏳ Ausstehend (nach A) |
+| Tranche C, SRC PI-Regler | ✅ Implementiert (1. Juni 2026, v2.9.0) |
 
 ---
 
-## 28. Self-Healing Layer v1.0 — Implementierung (v2.9.0)
+## 28. Self-Healing Layer v1.0, Implementierung (v2.9.0)
 
 Dieses Kapitel dokumentiert die vollständige technische Implementierung des Self-Healing Layers auf Basis des in Kapitel 27 beschriebenen Konzepts. Alle drei Tranchen wurden implementiert, mit dem Validator-Agent (Opus) geprüft und in `main` gemergt.
 
@@ -3488,15 +3488,15 @@ Der Self-Healing Layer folgt einer strikten Drei-Schichten-Trennung nach Zeitdom
 ```
 
 **Unveränderliche Invarianten:**
-- `shared_ring.h` bleibt unverändert — **ABI v4** bleibt v4
-- `device_ioproc` enthält genau einen neuen Code-Pfad: den Pre-Roll Gate (Tranche B) und einen relaxed-atomic store (Tranche A) — kein malloc, kein Lock, kein printf
+- `shared_ring.h` bleibt unverändert, **ABI v4** bleibt v4
+- `device_ioproc` enthält genau einen neuen Code-Pfad: den Pre-Roll Gate (Tranche B) und einen relaxed-atomic store (Tranche A), kein malloc, kein Lock, kein printf
 - `keepalive_ioproc` ist vollständig unberührt
 
 ---
 
-### 28.2 Tranche A — Telemetrie + Ampel
+### 28.2 Tranche A, Telemetrie + Ampel
 
-**Ziel:** Alle vorhandenen Sensoren systematisch auslesen und als Ampel im Menübar-Icon visualisieren. Rein observierend — kein Eingriff in den Audio-Pfad.
+**Ziel:** Alle vorhandenen Sensoren systematisch auslesen und als Ampel im Menübar-Icon visualisieren. Rein observierend, kein Eingriff in den Audio-Pfad.
 
 #### 28.2.1 Neue Sensoren im C-Helper
 
@@ -3550,7 +3550,7 @@ Klassen: `OutputHealth`, `SystemHealth`, `HealthMonitor`
 - Verschlechterung: nach **2 Samples** in Folge (= 400ms)
 - Verbesserung: nach **5 Samples** in Folge (= 1s)
 
-**Backward-Kompatibilität:** Fehlende Keys (alter Helper ohne Tranche-A-Felder) werden mit sicheren Defaults behandelt — kein KeyError, kein false-positive `critical`.
+**Backward-Kompatibilität:** Fehlende Keys (alter Helper ohne Tranche-A-Felder) werden mit sicheren Defaults behandelt, kein KeyError, kein false-positive `critical`.
 
 #### 28.2.3 Integration in `menu_bar_app.py`
 
@@ -3560,18 +3560,18 @@ self._health_poll_thread = threading.Thread(
     target=self._health_poll_loop, name="health-poll", daemon=True)
 ```
 
-**Ampel in `_compute_status()`** — ersetzt fest codiertes `🟢` im "Routing active"-Zweig:
+**Ampel in `_compute_status()`**, ersetzt fest codiertes `🟢` im "Routing active"-Zweig:
 ```
-🟢  Routing active — KA6              (healthy)
-🟡  Routing active — KA6 — 2 new underruns  (degraded)
-🔴  Routing active — KA6 — stalled    (critical)
+🟢  Routing active, KA6              (healthy)
+🟡  Routing active, KA6, 2 new underruns  (degraded)
+🔴  Routing active, KA6, stalled    (critical)
 ```
 
 ---
 
-### 28.3 Tranche B — Sanfte Out-of-RT-Heilung
+### 28.3 Tranche B, Sanfte Out-of-RT-Heilung
 
-**Ziel:** Auf erkannte Probleme reagieren — ausschließlich außerhalb des RT-Pfads.
+**Ziel:** Auf erkannte Probleme reagieren, ausschließlich außerhalb des RT-Pfads.
 
 #### 28.3.1 Pre-Roll High-Water-Mark
 
@@ -3585,7 +3585,7 @@ _Atomic uint32_t preroll_armed;         /* 1 = Stille ausgeben bis HWM erreicht,
 ```c
 if (atomic_load_explicit(&dev->preroll_armed, memory_order_relaxed)) {
     if (behind_p / 2u < hwm) {
-        /* Stille — Position NICHT bewegen */
+        /* Stille, Position NICHT bewegen */
         return noErr;
     }
     atomic_store_explicit(&dev->preroll_armed, 0u, memory_order_release); // self-clear
@@ -3645,31 +3645,31 @@ static atomic_int g_safe_take = 0;
 
 | Zustand | Verhalten |
 |---------|-----------|
-| `safe_take = 0` | Normal — Self-Healing aktiv |
-| `safe_take = 1` | Nur Telemetrie — keine Heilungseingriffe |
+| `safe_take = 0` | Normal, Self-Healing aktiv |
+| `safe_take = 1` | Nur Telemetrie, keine Heilungseingriffe |
 
 **Doppelte Sperre:**
 1. C-Helper: `g_safe_take`-Guard in `reconnect_output` und `set_safe_take`
 2. Python: `Healer.process()` prüft `safe_take_getter()` vor allem
 
-**UI:** Menüpunkt `[ ] Safe mode (no auto-healing)` — Toggle, persistiert in `config.json` (`safe_take_mode: bool`).
+**UI:** Menüpunkt `[ ] Safe mode (no auto-healing)`, Toggle, persistiert in `config.json` (`safe_take_mode: bool`).
 
 **Sync beim App-Start:** `config.safe_take_mode=True` → `set_safe_take(True)` an den frisch gespawnten Helper.
 
 ---
 
-### 28.4 Tranche C — PI-Regler + EWMA SRC
+### 28.4 Tranche C, PI-Regler + EWMA SRC
 
 **Ziel:** Langsamen Clock-Drift zwischen Producer und Consumer *unhörbar und kontinuierlich* ausregeln.
 
 #### 28.4.1 Das Problem
 
-Zwei Geräte mit nominell gleicher Sample-Rate (48kHz) ticken physikalisch minimal unterschiedlich. Über Minuten akkumuliert sich der Unterschied. Der P-Regler kompensiert nur den *momentanen* Füllstands-Fehler — der *systematische* Drift (z.B. −23 ppm dauerhaft) führt zu periodischen Underrun/Overflow-Zyklen.
+Zwei Geräte mit nominell gleicher Sample-Rate (48kHz) ticken physikalisch minimal unterschiedlich. Über Minuten akkumuliert sich der Unterschied. Der P-Regler kompensiert nur den *momentanen* Füllstands-Fehler, der *systematische* Drift (z.B. −23 ppm dauerhaft) führt zu periodischen Underrun/Overflow-Zyklen.
 
 #### 28.4.2 Neue Felder in `DeviceOutput`
 
 ```c
-/* NUR vom volume_poll_thread geschrieben (unter g_outputs_lock) — non-atomic */
+/* NUR vom volume_poll_thread geschrieben (unter g_outputs_lock), non-atomic */
 double fill_ewma;    /* EWMA des Füllstands in Frames, α=0.1, τ≈500ms */
 double integ_error;  /* PI-Integrator-Akkumulator */
 ```
@@ -3725,7 +3725,7 @@ Reset-Wert: `fill_ewma = src_ring_target / 2.0` (= target_frames), `integ_error 
 #### 28.4.6 Stabilität
 
 - **Kp = 0.01 (unverändert):** bewährter Wert, liefert prompte P-Reaktion
-- **Ki = 0.0005 (sehr konservativ):** Drift ist ein Minuten-Prozess — kleines Ki verhindert Schwingungen
+- **Ki = 0.0005 (sehr konservativ):** Drift ist ein Minuten-Prozess, kleines Ki verhindert Schwingungen
 - **Defensiver Clamp:** `if (ratio_f < 0.0f) ratio_f = 0.0f;` vor dem `uint32_t`-Cast (verhindert UB bei pathologischem `base_ratio`)
 - **Tuning-Empfehlung:** `src_ratio` + `fill_ewma` aus `get_status` über ≥30min loggen → bei stabiler Konvergenz ist kein Re-Tuning nötig
 
@@ -3781,13 +3781,13 @@ Angewendete Audit-Korrekturen:
 
 ### 28.7 Bekannte Einschränkungen + Tuning-Hinweise
 
-1. **PI-Regler Ki ist konservativ** — bei sehr stabilen Clock-Paaren (modernes USB-DAC) ist der I-Term-Beitrag messbar aber minimal. Erst nach Messläufen (30+ min, `src_ratio` + `fill_ewma` aus `get_status` loggen) über Re-Tuning entscheiden.
+1. **PI-Regler Ki ist konservativ**, bei sehr stabilen Clock-Paaren (modernes USB-DAC) ist der I-Term-Beitrag messbar aber minimal. Erst nach Messläufen (30+ min, `src_ratio` + `fill_ewma` aus `get_status` loggen) über Re-Tuning entscheiden.
 
-2. **Pre-Roll-Latenz** — 43ms Anlauf-Stille bei jedem Output-Start. Bei Video-Sync (Lippensynchronität < 40ms) kann der Wert in `DeviceOutput.preroll_target_frames` via `reconnect_output`-Befehl im Vorhinein auf niedrigere Werte angepasst werden (API vorhanden, kein UI dafür geplant).
+2. **Pre-Roll-Latenz**, 43ms Anlauf-Stille bei jedem Output-Start. Bei Video-Sync (Lippensynchronität < 40ms) kann der Wert in `DeviceOutput.preroll_target_frames` via `reconnect_output`-Befehl im Vorhinein auf niedrigere Werte angepasst werden (API vorhanden, kein UI dafür geplant).
 
-3. **Safe-Take und Helper-Neustart** — Wenn der Helper von außen (launchd) neu gestartet wird, beginnt er mit `g_safe_take=0`. Der App-Start synchronisiert den Wert nur wenn `safe_take_mode=True` — bewusste Asymmetrie (Default = Self-Healing aktiv).
+3. **Safe-Take und Helper-Neustart**, Wenn der Helper von außen (launchd) neu gestartet wird, beginnt er mit `g_safe_take=0`. Der App-Start synchronisiert den Wert nur wenn `safe_take_mode=True`, bewusste Asymmetrie (Default = Self-Healing aktiv).
 
-4. **Circuit Breaker Reset** — Nach 5 Fehlversuchen bleibt der Breaker offen bis: (a) das Device sich von selbst erholt, (b) manuelle Device-Neuauswahl im Menü, oder (c) Helper-Neustart via Statuszeile.
+4. **Circuit Breaker Reset**, Nach 5 Fehlversuchen bleibt der Breaker offen bis: (a) das Device sich von selbst erholt, (b) manuelle Device-Neuauswahl im Menü, oder (c) Helper-Neustart via Statuszeile.
 
 ---
 
@@ -3804,7 +3804,7 @@ Angewendete Audit-Korrekturen:
 
 ---
 
-### 28.9 Build v2.9.0 — Produktions-DMG
+### 28.9 Build v2.9.0, Produktions-DMG
 
 **Build-Datum:** 1. Juni 2026  
 **Build-System:** macOS 26 (Tahoe), Apple Silicon (arm64)  
@@ -3817,8 +3817,8 @@ Angewendete Audit-Korrekturen:
 | `AudioRouterNowDriver` | v2.9.0 | Universal (arm64 + x86_64) |
 | `AudioRouterNowHelper` | v2.9.0 | Universal (arm64 + x86_64) |
 | `AudioRouterNow.app` | 2.9.0 | arm64 (PyInstaller) |
-| `health.py` | — | In PYZ-Archiv eingebettet ✅ |
-| `healer.py` | — | In PYZ-Archiv eingebettet ✅ |
+| `health.py` | - | In PYZ-Archiv eingebettet ✅ |
+| `healer.py` | - | In PYZ-Archiv eingebettet ✅ |
 
 #### Build-Prozess
 
@@ -3827,12 +3827,12 @@ cd installer && ./build.sh
 ```
 
 Das Skript führt folgende Schritte aus:
-1. `make -C driver` — baut Driver + Helper als Universal Binary, beide ad-hoc signiert
+1. `make -C driver`, baut Driver + Helper als Universal Binary, beide ad-hoc signiert
 2. Python venv + `pip install -r engine/requirements.txt` + PyInstaller 6.20
-3. `pyinstaller AudioRouterNow.spec` — bündelt App inkl. Driver-Bundle + alle Engine-Module
+3. `pyinstaller AudioRouterNow.spec`, bündelt App inkl. Driver-Bundle + alle Engine-Module
 4. Ad-hoc Code-Signierung der `.app` mit `disable-library-validation` Entitlements
-5. `dmgbuild` — erstellt DMG mit Hintergrundbild
-6. Finder AppleScript — setzt DMG-Hintergrundbild persistent
+5. `dmgbuild`, erstellt DMG mit Hintergrundbild
+6. Finder AppleScript, setzt DMG-Hintergrundbild persistent
 7. Custom DMG-Icon via AppKit
 
 #### PyInstaller-Hinweis
@@ -3852,13 +3852,13 @@ Ein neuer Benutzer erhält mit dieser DMG:
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 1. Juni 2026 — AudioRouterNow v2.9.0*
+*Dokumentation zuletzt aktualisiert am 1. Juni 2026, AudioRouterNow v2.9.0*
 
 ---
 
-## 29. v3.0 Optimierungsplan — 15 Verbesserungen (Ausführungsplan)
+## 29. v3.0 Optimierungsplan, 15 Verbesserungen (Ausführungsplan)
 
-Dieses Kapitel enthält den vollständigen Implementierungsplan für alle 15 identifizierten Verbesserungen. Erstellt mit Opus 4.8, alle 11 Quelldateien vollständig gelesen. **Kein Code geändert** — reine Planung zur Abnahme.
+Dieses Kapitel enthält den vollständigen Implementierungsplan für alle 15 identifizierten Verbesserungen. Erstellt mit Opus 4.8, alle 11 Quelldateien vollständig gelesen. **Kein Code geändert**, reine Planung zur Abnahme.
 
 **Status:** ✅ Implementiert (alle 15 Verbesserungen umgesetzt)
 
@@ -3900,86 +3900,86 @@ Welle 4: P1 (nach P13) → P10 → P15
 
 ### 29.3 Detailplan
 
-**P1 — Volume Event-driven** | 🔴 6–8h | Welle 4
+**P1, Volume Event-driven** | 🔴 6–8h | Welle 4
 - `_volume_poll_loop` entfernen, `AudioObjectAddPropertyListener` auf `VirtualMainVolume`
 - `set_default_output_volume/muted` via ctypes statt osascript
 - `_pre_mute_volume` für Restore. CFUNCTYPE-Ref MUSS modul-global (GC-Schutz)
 - Commit: `P1: replace osascript volume polling with event-driven CoreAudio listener`
 
-**P2 — set_outputs State-Sync** | 🔴 3–4h | Welle 2
+**P2, set_outputs State-Sync** | 🔴 3–4h | Welle 2
 - Helper-Response `resp['active']` parsen → `actual = {(uid, ch_off)}`
 - Bei Divergenz: `_active_device_names` korrigieren, `save_config()`, `_build_menu()` auf Main-Thread
 - Commit: `P2: reconcile menu state with helper's actual active outputs`
 
-**P3 — Socket Auth-Token** | 🔴 4–5h | Welle 2
+**P3, Socket Auth-Token** | 🔴 4–5h | Welle 2
 - 32 Bytes `/dev/urandom` → hex → `~/.audiorouter/helper.token` (0600, O_NOFOLLOW) VOR Socket-Erstellung
 - `ct_memcmp` Guard für `shutdown/set_outputs/set_sample_rate/reconnect_output/set_safe_take`
 - Python: Token laden, injizieren, reload-on-auth-error
 - Commit: `P3: authenticate privileged socket commands with a per-launch token`
 
-**P4 — Frame-Counter Clock** | 🔴 5–7h | Welle 1
+**P4, Frame-Counter Clock** | 🔴 5–7h | Welle 1
 - `static atomic_ullong gFramesWritten` nach `gNumberTimeStamps` (Z.129)
 - `ARN_DoIOOperation`: `fetch_add(gFramesWritten, inIOBufferFrameSize, relaxed)` außerhalb `if(ring!=NULL)`
 - `ARN_GetZeroTimeStamp`: `completed = frames/period`, `outSampleTime = completed*period`
 - Reset in `ARN_StartIO` und `ARN_PerformDeviceConfigurationChange`
 - Commit: `P4: derive GetZeroTimeStamp sample time from frames actually written`
 
-**P5 — Auto Native SR** | 🔴 4–6h | Welle 3
+**P5, Auto Native SR** | 🔴 4–6h | Welle 3
 - `static atomic_int g_auto_sample_rate = 1;`
 - `output_add`: wenn Auto && `g_n_outputs==1` → Ring-SR = Device-SR (statt umgekehrt)
 - `find_default_output_device`: 48kHz-Präferenz entfernen
 - Commit: `P5: follow device-native sample rate in auto mode instead of forcing 48k`
 
-**P6 — Hard-Stall 300ms** | 🟡 3–4h | Welle 3
+**P6, Hard-Stall 300ms** | 🟡 3–4h | Welle 3
 - `_Atomic uint32_t ioproc_calls` + `uint32_t last_ioproc_calls_sample` in `DeviceOutput`
 - Hard-Stall wenn: ridx eingefroren UND fill>75% UND ioproc_calls steigt → 300ms Timeout
 - Schließt 44.1kHz-Jitter aus (der passiert bei LEEREM Ring) ✅
 - Commit: `P6: detect hard stalls in ~300ms without 44.1kHz false positives`
 
-**P7 — output_remove 3-Phasen** | 🟡 5–6h | Welle 3
+**P7, output_remove 3-Phasen** | 🟡 5–6h | Welle 3
 - Phase 1 (Lock): active=false markieren, Struct-Copy, Lock freigeben
 - Phase 2 (kein Lock): AudioDeviceStop/Destroy + Create/Start
 - Phase 3 (Lock): active=true committen, g_n_outputs--, Pending-Reset
 - Commit: `P7: move CoreAudio calls out of the lock in output removal`
 
-**P8 — Status-Cache** | 🟡 4–6h | Welle 2
+**P8, Status-Cache** | 🟡 4–6h | Welle 2
 - `self._status_cache` + `_status_cache_ts` in App. health-poll befüllt es
 - `_compute_status` und `_process_pending_updates` lesen Cache (kein eigener Connect)
 - Commit: `P8: single status cache instead of per-call socket connects`
 
-**P9 — SR-Wechsel Stille** | 🟡 3–4h | Welle 3
+**P9, SR-Wechsel Stille** | 🟡 3–4h | Welle 3
 - `_Atomic uint32_t sr_changing` in `DeviceOutput`
 - `device_ioproc`: bei `sr_changing=1` → Stille, VOR Pre-Roll-Gate
 - `sr_reinit_all_outputs`: setzen vor Stop, clearen nach preroll_armed=1
 - Commit: `P9: silence the IOProc during sample-rate changes to avoid clicks`
 
-**P10 — ABI-Versionscheck** | 🟡 4–5h | Welle 4
+**P10, ABI-Versionscheck** | 🟡 4–5h | Welle 4
 - Makefile: `abi_version`-Datei in Driver-Bundle einbetten
 - `first_launch.py`: `installed vs. bundled` vergleichen, bei Mismatch → Dialog + Reinstall
-- `_compute_status`: `🔴 Driver update required — click to reinstall`
+- `_compute_status`: `🔴 Driver update required, click to reinstall`
 - Commit: `P10: detect and surface driver/app ABI version mismatch on launch`
 
-**P11 — Lock nach ~/.audiorouter/** | 🟡 1–2h | Welle 1
+**P11, Lock nach ~/.audiorouter/** | 🟡 1–2h | Welle 1
 - `static char g_lock_path[512]` statt `#define HELPER_LOCK_PATH`
 - `open(g_lock_path, O_CREAT|O_RDWR|O_NOFOLLOW, 0600)`. Bei ELOOP: log + abort
 - Dir-Init VOR Lock-Acquire (Reihenfolge Z.2284/Z.2289 tauschen)
 - Commit: `P11: move helper lock to ~/.audiorouter with O_NOFOLLOW`
 
-**P12 — Dead Code** | 🟢 0.5h | Welle 1
+**P12, Dead Code** | 🟢 0.5h | Welle 1
 - Z.1006–1161 in `AudioRouterNowHelper.c` löschen (#if 0 output_add_locked)
 - Commit: `P12: remove dead output_add_locked block`
 
-**P13 — Framework-Loading** | 🟢 1–2h | Welle 1
+**P13, Framework-Loading** | 🟢 1–2h | Welle 1
 - `_CA, _CF = _load_frameworks()` auf Modul-Scope. Alle Funktionsaufrufe (Z.57, 85, 115, 150, 250, 330, 362, 402, 494, 545) ersetzen. Loop-intern-Load entfernen
 - Commit: `P13: load CoreAudio/CoreFoundation frameworks once at import`
 
-**P14 — Korrekte Latenz** | 🟢 1–2h | Welle 1
+**P14, Korrekte Latenz** | 🟢 1–2h | Welle 1
 - `#define kReportedLatencyFrames (ARN_RING_CAPACITY / 4u)` nahe `kZeroTimeStampPeriod` (Z.86)
 - `ARN_GetPropertyData` Z.1239: `WRITE_SCALAR(UInt32, kReportedLatencyFrames)`
 - Commit: `P14: report real ring pre-roll latency instead of 0`
 
-**P15 — 5-Tap Hann-FIR** | 🟢 4–6h | Welle 4
-- `static const float kFir5[5]` — Hann-Fenster, summen-normalisiert
+**P15, 5-Tap Hann-FIR** | 🟢 4–6h | Welle 4
+- `static const float kFir5[5]`, Hann-Fenster, summen-normalisiert
 - `device_ioproc` Z.697: 3-Tap-Box → 5-Tap-FIR (nur bei `ratio > 1.005`)
 - RT-Budget mit Instruments verifizieren
 - Commit: `P15: replace 3-tap box downsampler with 5-tap Hann FIR`
@@ -4011,9 +4011,9 @@ Welle 4: P1 (nach P13) → P10 → P15
 
 ---
 
-## 30. v3.0 Optimierungsplan — Vollständige Implementierung (2. Juni 2026)
+## 30. v3.0 Optimierungsplan, Vollständige Implementierung (2. Juni 2026)
 
-Dieses Kapitel dokumentiert die vollständige technische Umsetzung aller 15 in Kapitel 29 geplanten Verbesserungen. Die Implementierung erfolgte in vier Wellen über einen geschätzten Planaufwand von 49–68 Stunden und wurde in 16 Commits auf `main` gemergt (`246f00c` bis `f2e8c8f`). Kapitel 29 enthält den Detailplan mit Dependency-Graph, Schwere-Bewertung und Zeitschätzungen — dieses Kapitel fokussiert auf das Was und Wie der tatsächlichen Umsetzung.
+Dieses Kapitel dokumentiert die vollständige technische Umsetzung aller 15 in Kapitel 29 geplanten Verbesserungen. Die Implementierung erfolgte in vier Wellen über einen geschätzten Planaufwand von 49–68 Stunden und wurde in 16 Commits auf `main` gemergt (`246f00c` bis `f2e8c8f`). Kapitel 29 enthält den Detailplan mit Dependency-Graph, Schwere-Bewertung und Zeitschätzungen, dieses Kapitel fokussiert auf das Was und Wie der tatsächlichen Umsetzung.
 
 ---
 
@@ -4021,11 +4021,11 @@ Dieses Kapitel dokumentiert die vollständige technische Umsetzung aller 15 in K
 
 Das Ziel des v3.0-Zyklus war, den nach der Self-Healing-Implementierung (v2.9.0) identifizierten Restschulden-Katalog vollständig abzuarbeiten. Die 15 Punkte adressieren vier Dimensionen: **Code-Qualität** (toten Code entfernen, Initialisierung vereinfachen), **Sicherheit** (Auth-Token, Lock-Pfad), **Audio-Korrektheit** (Frame-Counter, Native SR, Stall-Erkennung, SR-Wechsel) und **UX & Robustheit** (Event-driven Volume, ABI-Check, besserer Downsampler).
 
-Alle 15 Fixes sind auf `main`; kein einziger Punkt aus Kapitel 29 wurde verschoben oder vereinfacht. Die ABI von `shared_ring.h` (v4) bleibt unverändert — alle Änderungen sind rückwärtskompatibel mit dem installierten Treiber.
+Alle 15 Fixes sind auf `main`; kein einziger Punkt aus Kapitel 29 wurde verschoben oder vereinfacht. Die ABI von `shared_ring.h` (v4) bleibt unverändert, alle Änderungen sind rückwärtskompatibel mit dem installierten Treiber.
 
 ---
 
-### 30.2 Welle 1 — Fundament-Fixes
+### 30.2 Welle 1, Fundament-Fixes
 
 Welle 1 legt das saubere Fundament: toten Code entfernen, teure Initialisierung auf Modul-Scope verlagern, korrekte Latenz-Meldung, präzises Zeitmodell und sicherer Lock-Pfad.
 
@@ -4037,29 +4037,29 @@ Welle 1 legt das saubere Fundament: toten Code entfernen, teure Initialisierung 
 | P4 | `a31e69f` | Derive GetZeroTimeStamp sample time from frames actually written | `AudioRouterNowDriver.c` |
 | P11 | `f626a43` | Move helper lock to `~/.audiorouter` with `O_NOFOLLOW` | `AudioRouterNowHelper.c` |
 
-**P12 — Toten Code entfernen (`output_add_locked`)**
+**P12, Toten Code entfernen (`output_add_locked`)**
 
 Die Funktion `output_add_locked` war in einem `#if 0`-Block eingeschlossen und seit v2.8 (Drei-Phasen-`output_add`, Fix H1) nicht mehr erreichbar. Der Block umfasste 157 Zeilen C-Code. Er wurde ersatzlos entfernt. Der entsprechende Forward-Declaration-Kommentar (`output_add_locked: entfernt in v2.8`) im Header-Bereich der Datei bleibt als historischer Hinweis erhalten. Das Entfernen reduziert die kognitive Last beim Lesen der Datei erheblich und schließt das Risiko aus, dass der Block versehentlich wieder aktiviert wird.
 
-**P13 — Framework-Loading auf Modul-Scope**
+**P13, Framework-Loading auf Modul-Scope**
 
-In `audio_device_control.py` wurden `CoreAudio` und `CoreFoundation` bisher bei jedem Funktionsaufruf über `ctypes.CDLL()` neu geladen. Das erzeugte messbare Overhead, insbesondere im health-poll-Pfad, der alle 200ms ausgeführt wird. Mit P13 wird `_load_frameworks()` exakt einmal beim Modul-Import ausgeführt: `_CA, _CF = _load_frameworks()` auf Modul-Scope. Alle internen Funktionen (`get_default_output_volume`, `set_default_output_volume`, `register_volume_listener` etc.) greifen seither über die modul-globalen Variablen `_CA` und `_CF` zu — kein wiederholtes `dlopen` mehr.
+In `audio_device_control.py` wurden `CoreAudio` und `CoreFoundation` bisher bei jedem Funktionsaufruf über `ctypes.CDLL()` neu geladen. Das erzeugte messbare Overhead, insbesondere im health-poll-Pfad, der alle 200ms ausgeführt wird. Mit P13 wird `_load_frameworks()` exakt einmal beim Modul-Import ausgeführt: `_CA, _CF = _load_frameworks()` auf Modul-Scope. Alle internen Funktionen (`get_default_output_volume`, `set_default_output_volume`, `register_volume_listener` etc.) greifen seither über die modul-globalen Variablen `_CA` und `_CF` zu, kein wiederholtes `dlopen` mehr.
 
-**P14 — Korrekte Latenz an CoreAudio melden**
+**P14, Korrekte Latenz an CoreAudio melden**
 
-Die Eigenschaft `kAudioDevicePropertyLatency` meldete bisher den Hardcode-Wert `0`. Das ist technisch falsch: der Helper hält einen Pre-Roll-Puffer im SHM-Ring vor, bevor er an die physischen Outputs ausgibt — diese Latenz existiert real. Mit P14 wird `#define kReportedLatencyFrames (ARN_RING_CAPACITY / 4u)` in `AudioRouterNowDriver.c` definiert (nahe `kZeroTimeStampPeriod` bei Zeile 95) und in `ARN_GetPropertyData` für `kAudioDevicePropertyLatency` über `WRITE_SCALAR(UInt32, kReportedLatencyFrames)` zurückgegeben. Bei `ARN_RING_CAPACITY = 16384` ergibt das 4096 Frames — was bei 48kHz exakt 85ms entspricht und den tatsächlichen Pre-Roll-Versatz korrekt abbildet.
+Die Eigenschaft `kAudioDevicePropertyLatency` meldete bisher den Hardcode-Wert `0`. Das ist technisch falsch: der Helper hält einen Pre-Roll-Puffer im SHM-Ring vor, bevor er an die physischen Outputs ausgibt, diese Latenz existiert real. Mit P14 wird `#define kReportedLatencyFrames (ARN_RING_CAPACITY / 4u)` in `AudioRouterNowDriver.c` definiert (nahe `kZeroTimeStampPeriod` bei Zeile 95) und in `ARN_GetPropertyData` für `kAudioDevicePropertyLatency` über `WRITE_SCALAR(UInt32, kReportedLatencyFrames)` zurückgegeben. Bei `ARN_RING_CAPACITY = 16384` ergibt das 4096 Frames, was bei 48kHz exakt 85ms entspricht und den tatsächlichen Pre-Roll-Versatz korrekt abbildet.
 
-**P4 — Frame-Counter statt Host-Clock in `GetZeroTimeStamp`**
+**P4, Frame-Counter statt Host-Clock in `GetZeroTimeStamp`**
 
-`ARN_GetZeroTimeStamp` berechnete die `outSampleTime` bisher aus der Host-Clock (`gAnchorHostTime`), was bei langen Sessions zu messbarer Zeitdrift führte — der virtuelle Zeitstempel divergierte vom tatsächlich ausgegebenen Ring-Fortschritt. Mit P4 zählt `static atomic_ullong gFramesWritten` in `ARN_DoIOOperation` jeden IOProc-Aufruf: `atomic_fetch_add_explicit(&gFramesWritten, inIOBufferFrameSize, memory_order_relaxed)`. `ARN_GetZeroTimeStamp` liest den Counter (relaxed load), berechnet `completed = frames / kZeroTimeStampPeriod` und setzt `outSampleTime = completed * kZeroTimeStampPeriod`. Damit ist die gemeldete Sample-Zeit exakt konsistent mit den tatsächlich in den Ring geschriebenen Frames — kein Drift über Zeit. Der Counter wird in `ARN_StartIO` und `ARN_PerformDeviceConfigurationChange` zurückgesetzt.
+`ARN_GetZeroTimeStamp` berechnete die `outSampleTime` bisher aus der Host-Clock (`gAnchorHostTime`), was bei langen Sessions zu messbarer Zeitdrift führte, der virtuelle Zeitstempel divergierte vom tatsächlich ausgegebenen Ring-Fortschritt. Mit P4 zählt `static atomic_ullong gFramesWritten` in `ARN_DoIOOperation` jeden IOProc-Aufruf: `atomic_fetch_add_explicit(&gFramesWritten, inIOBufferFrameSize, memory_order_relaxed)`. `ARN_GetZeroTimeStamp` liest den Counter (relaxed load), berechnet `completed = frames / kZeroTimeStampPeriod` und setzt `outSampleTime = completed * kZeroTimeStampPeriod`. Damit ist die gemeldete Sample-Zeit exakt konsistent mit den tatsächlich in den Ring geschriebenen Frames, kein Drift über Zeit. Der Counter wird in `ARN_StartIO` und `ARN_PerformDeviceConfigurationChange` zurückgesetzt.
 
-**P11 — Lock-Datei nach `~/.audiorouter/` mit `O_NOFOLLOW`**
+**P11, Lock-Datei nach `~/.audiorouter/` mit `O_NOFOLLOW`**
 
-Der Single-Instance-Lock lag bisher in `/tmp/` — einem world-writable Verzeichnis. Mit P11 wird die Lock-Datei nach `~/.audiorouter/helper.lock` verlegt. Der Pfad wird zur Laufzeit aus `$HOME` gebildet und in `g_lock_path[512]` gespeichert; das Verzeichnis `~/.audiorouter/` wird mit `mkdir(0700)` erstellt (nur Owner-Zugriff). Das `open()` verwendet `O_NOFOLLOW`: ist `helper.lock` ein Symlink, schlägt der `open()`-Aufruf mit `ELOOP` fehl. In diesem Fall bricht der Helper mit `abort()` ab — ein Symlink an dieser Stelle ist ein Zeichen eines möglichen Angriffs. Die Funktion `config_socket_path_init()` muss vor `helper_acquire_instance_lock()` laufen, damit das Verzeichnis bereits existiert.
+Der Single-Instance-Lock lag bisher in `/tmp/`, einem world-writable Verzeichnis. Mit P11 wird die Lock-Datei nach `~/.audiorouter/helper.lock` verlegt. Der Pfad wird zur Laufzeit aus `$HOME` gebildet und in `g_lock_path[512]` gespeichert; das Verzeichnis `~/.audiorouter/` wird mit `mkdir(0700)` erstellt (nur Owner-Zugriff). Das `open()` verwendet `O_NOFOLLOW`: ist `helper.lock` ein Symlink, schlägt der `open()`-Aufruf mit `ELOOP` fehl. In diesem Fall bricht der Helper mit `abort()` ab, ein Symlink an dieser Stelle ist ein Zeichen eines möglichen Angriffs. Die Funktion `config_socket_path_init()` muss vor `helper_acquire_instance_lock()` laufen, damit das Verzeichnis bereits existiert.
 
 ---
 
-### 30.3 Welle 2 — Security & IPC
+### 30.3 Welle 2, Security & IPC
 
 Welle 2 härtet den Kommunikationskanal zwischen App und Helper ab: Auth-Token für privilegierte Kommandos, zentraler Status-Cache und automatische State-Synchronisation.
 
@@ -4069,23 +4069,23 @@ Welle 2 härtet den Kommunikationskanal zwischen App und Helper ab: Auth-Token f
 | P8 | `a547d0e` | Single status cache instead of per-call socket connects | `menu_bar_app.py` |
 | P2 | `7367370` | Reconcile menu state with helper's actual active outputs | `menu_bar_app.py` |
 
-**P3 — Per-Launch Auth-Token für privilegierte Socket-Kommandos**
+**P3, Per-Launch Auth-Token für privilegierte Socket-Kommandos**
 
 Alle privilegierten Kommandos über den Config-Socket (`shutdown`, `set_outputs`, `set_sample_rate`, `reconnect_output`, `set_safe_take`) konnten bisher von jedem lokalen Prozess ohne Authentifizierung gesendet werden. Mit P3 generiert der Helper beim Start 32 Zufallsbytes aus `/dev/urandom`, formatiert sie als 64 Hex-Zeichen und schreibt das Token nach `~/.audiorouter/helper.token` (Permissions `0600`, geöffnet mit `O_NOFOLLOW`). Ein bereits existierender Eintrag wird via `unlink()` vorher entfernt, um fremde Symlinks auszuschließen.
 
-Die Verifikation im Socket-Handler nutzt `ct_memcmp` — eine eigene Constant-Time-Implementierung (XOR-Akkumulator, kein Short-Circuit wie `memcmp`), die Timing-Seitenkanäle verhindert. Vor dem `ct_memcmp`-Aufruf wird geprüft, ob der empfangene Token exakt 64 Zeichen lang ist — ein kürzeres Token würde sonst mit Padding verglichen werden. Auf Python-Seite lädt `helper_client.py` das Token aus der Datei und injiziert es als `"token": "<hex>"` in jede privilegierte Anfrage.
+Die Verifikation im Socket-Handler nutzt `ct_memcmp`, eine eigene Constant-Time-Implementierung (XOR-Akkumulator, kein Short-Circuit wie `memcmp`), die Timing-Seitenkanäle verhindert. Vor dem `ct_memcmp`-Aufruf wird geprüft, ob der empfangene Token exakt 64 Zeichen lang ist, ein kürzeres Token würde sonst mit Padding verglichen werden. Auf Python-Seite lädt `helper_client.py` das Token aus der Datei und injiziert es als `"token": "<hex>"` in jede privilegierte Anfrage.
 
-**P8 — Zentraler Status-Cache**
+**P8, Zentraler Status-Cache**
 
 Vor P8 öffneten `_compute_status()` und `_process_pending_updates()` bei jedem Aufruf eine eigene Socket-Verbindung zum Helper, um den Status zu lesen. Bei einem 500ms-UI-Timer und 200ms-health-poll ergab das bis zu 8 Socket-Connects pro Sekunde. Mit P8 befüllt ausschließlich der `health-poll`-Thread den Cache: `self._status_cache: dict | None` und `self._status_cache_ts: float`. Alle anderen Stellen lesen den Cache über eine Hilfsfunktion, die das Alter prüft (`max_age`-Parameter). Die Anzahl der Socket-Verbindungen reduziert sich von O(n Aufrufe) auf genau 5 pro Sekunde (health-poll-Frequenz).
 
-**P2 — UI-State / Helper-Reality-Abgleich**
+**P2, UI-State / Helper-Reality-Abgleich**
 
 Der UI-State (welche Outputs als aktiv markiert sind) und der tatsächliche Zustand im Helper konnten auseinanderlaufen: wenn ein Output-Start fehlschlug (Device verschwunden, IOProc-Fehler), zeigte das Menü trotzdem ein Häkchen. Mit P2 parst `_reconcile_active_outputs()` die `resp['active']`-Liste aus der `set_outputs`-Antwort des Helpers und vergleicht sie mit dem internen `_active_device_names`-Set. Bei Divergenz werden `_active_device_names` und `_device_offsets` auf die tatsächlich aktiven Outputs zurückgebaut, via `save_config()` persistiert und das `_device_update_pending`-Flag gesetzt, das der UI-Timer auf dem Main-Thread konsumiert und das Menü neu aufbaut.
 
 ---
 
-### 30.4 Welle 3 — Audio-Robustheit
+### 30.4 Welle 3, Audio-Robustheit
 
 Welle 3 beseitigt vier Klassen von Audio-Artefakten und Race-Conditions im zeitkritischen Pfad.
 
@@ -4096,31 +4096,31 @@ Welle 3 beseitigt vier Klassen von Audio-Artefakten und Race-Conditions im zeitk
 | P6 | `d14a7f1` | Detect hard stalls in ~300ms without 44.1kHz false positives | `AudioRouterNowHelper.c` |
 | P7 | `17f77aa` | Move CoreAudio calls out of the lock in output removal | `AudioRouterNowHelper.c` |
 
-**P9 — IOProc-Stille während Sample-Rate-Wechseln**
+**P9, IOProc-Stille während Sample-Rate-Wechseln**
 
-Wenn `sr_reinit_all_outputs` einen IOProc stoppt und neu erstellt, konnte der noch-laufende IOProc im Zeitfenster zwischen `sr_changing=1` und dem tatsächlichen `AudioDeviceStop` noch einmal feuern und dabei falsch-geratete Samples (auf Basis der alten SR-Konfiguration) in den Output-Buffer schreiben — hörbar als Klicken oder kurzer Glitch. Mit P9 wird `_Atomic uint32_t sr_changing` in `DeviceOutput` eingeführt. `sr_reinit_all_outputs` setzt das Flag via `atomic_store_explicit(..., memory_order_release)` **bevor** der IOProc gestoppt wird. Im `device_ioproc` liegt der Gate-Check für `sr_changing` **vor** dem Pre-Roll-Gate: wenn `sr_changing=1`, gibt der IOProc sofort Stille zurück (`memset` + `return noErr`), kein Sample-Processing. Nach dem Neustart — sobald `preroll_armed=1` gesetzt ist — wird `sr_changing` zurück auf `0` cleared.
+Wenn `sr_reinit_all_outputs` einen IOProc stoppt und neu erstellt, konnte der noch-laufende IOProc im Zeitfenster zwischen `sr_changing=1` und dem tatsächlichen `AudioDeviceStop` noch einmal feuern und dabei falsch-geratete Samples (auf Basis der alten SR-Konfiguration) in den Output-Buffer schreiben, hörbar als Klicken oder kurzer Glitch. Mit P9 wird `_Atomic uint32_t sr_changing` in `DeviceOutput` eingeführt. `sr_reinit_all_outputs` setzt das Flag via `atomic_store_explicit(..., memory_order_release)` **bevor** der IOProc gestoppt wird. Im `device_ioproc` liegt der Gate-Check für `sr_changing` **vor** dem Pre-Roll-Gate: wenn `sr_changing=1`, gibt der IOProc sofort Stille zurück (`memset` + `return noErr`), kein Sample-Processing. Nach dem Neustart, sobald `preroll_armed=1` gesetzt ist, wird `sr_changing` zurück auf `0` cleared.
 
-**P5 — Auto-Modus folgt nativer Device-Sample-Rate**
+**P5, Auto-Modus folgt nativer Device-Sample-Rate**
 
-Im Auto-Sample-Rate-Modus wurde bisher 48kHz als Ziel-SR erzwungen, unabhängig davon, was das angeschlossene Device nativ unterstützt. Ein 44.1kHz-Interface wurde damit immer mit `base_ratio ≈ 1.0884` betrieben — mit unnötigem SRC-Aufwand und leicht schlechterer Qualität. Mit P5 setzt der erste hinzugefügte Output, wenn `g_auto_sample_rate=1` gesetzt ist, die Ring-SR direkt auf die native Device-SR statt umgekehrt. In `output_add()`: wenn `g_auto_sample_rate=1` und `g_n_outputs == 1` (erster Output), wird `ring_sr = device_sr` gesetzt; `base_ratio = ring_sr / device_sr = 1.0`. Die 48kHz-Präferenz in `find_default_output_device` wurde entfernt. Für alle weiteren Outputs bleibt die bereits festgelegte Ring-SR maßgeblich.
+Im Auto-Sample-Rate-Modus wurde bisher 48kHz als Ziel-SR erzwungen, unabhängig davon, was das angeschlossene Device nativ unterstützt. Ein 44.1kHz-Interface wurde damit immer mit `base_ratio ≈ 1.0884` betrieben, mit unnötigem SRC-Aufwand und leicht schlechterer Qualität. Mit P5 setzt der erste hinzugefügte Output, wenn `g_auto_sample_rate=1` gesetzt ist, die Ring-SR direkt auf die native Device-SR statt umgekehrt. In `output_add()`: wenn `g_auto_sample_rate=1` und `g_n_outputs == 1` (erster Output), wird `ring_sr = device_sr` gesetzt; `base_ratio = ring_sr / device_sr = 1.0`. Die 48kHz-Präferenz in `find_default_output_device` wurde entfernt. Für alle weiteren Outputs bleibt die bereits festgelegte Ring-SR maßgeblich.
 
-**P6 — Hard-Stall-Erkennung in ~300ms ohne 44.1kHz-False-Positives**
+**P6, Hard-Stall-Erkennung in ~300ms ohne 44.1kHz-False-Positives**
 
-Der bestehende Soft-Stall-Mechanismus (1000ms-Timeout) ist bei 44.1kHz-Geräten etwas träge und erzeugt gelegentlich False-Positives, weil er nicht zwischen einem echten Stall und einem Underrun bei leerem Ring unterscheiden kann. P6 führt eine zweite, schnellere Stall-Erkennung ein: `_Atomic uint32_t ioproc_calls` in `DeviceOutput` wird vom IOProc bei jedem Aufruf inkrementiert (relaxed atomic, RT-safe). Der volume_poll_thread erkennt einen Hard-Stall wenn **gleichzeitig** drei Bedingungen erfüllt sind: (1) `local_ridx` ist eingefroren (keine Fortschrittsbewegung), (2) Ring-Füllstand überschreitet 75% (`HARD_STALL_FILL_NUM/HARD_STALL_FILL_DEN = 3/4`), und (3) `ioproc_calls` steigt (IOProc läuft, konsumiert aber nicht). Bei 44.1kHz-Jitter tritt Bedingung 2 nicht auf (der Ring ist bei einem Underrun leer, nicht voll) — dieser Mechanismus produziert dort keine False-Positives. Der Hard-Stall-Timeout beträgt `HARD_STALL_TIMEOUT_NS = 300ms`.
+Der bestehende Soft-Stall-Mechanismus (1000ms-Timeout) ist bei 44.1kHz-Geräten etwas träge und erzeugt gelegentlich False-Positives, weil er nicht zwischen einem echten Stall und einem Underrun bei leerem Ring unterscheiden kann. P6 führt eine zweite, schnellere Stall-Erkennung ein: `_Atomic uint32_t ioproc_calls` in `DeviceOutput` wird vom IOProc bei jedem Aufruf inkrementiert (relaxed atomic, RT-safe). Der volume_poll_thread erkennt einen Hard-Stall wenn **gleichzeitig** drei Bedingungen erfüllt sind: (1) `local_ridx` ist eingefroren (keine Fortschrittsbewegung), (2) Ring-Füllstand überschreitet 75% (`HARD_STALL_FILL_NUM/HARD_STALL_FILL_DEN = 3/4`), und (3) `ioproc_calls` steigt (IOProc läuft, konsumiert aber nicht). Bei 44.1kHz-Jitter tritt Bedingung 2 nicht auf (der Ring ist bei einem Underrun leer, nicht voll), dieser Mechanismus produziert dort keine False-Positives. Der Hard-Stall-Timeout beträgt `HARD_STALL_TIMEOUT_NS = 300ms`.
 
-**P7 — CoreAudio-Calls außerhalb des Locks in `output_remove_locked`**
+**P7, CoreAudio-Calls außerhalb des Locks in `output_remove_locked`**
 
 Vor P7 hielt `output_remove_locked` den `g_outputs_lock` über den gesamten `AudioDeviceStop/Destroy/Create/Start`-Zyklus. Diese CoreAudio-Calls können mehrere Dutzend Millisekunden dauern (USB-Devices besonders). Das blockierte den `volume_poll_thread` und alle Config-Commands für diese Zeit. P7 refaktoriert die Funktion in drei Phasen nach dem bereits in `output_add` etablierten Muster:
 
 - **Phase 1 (Lock gehalten):** Slot finden, `active=false` setzen, Device-Infos (`dev_id`, `proc_id`, `name`) in Stack-Variablen kopieren. Bei Slot-Verschiebung (letzter Output rückt nach) wird auch der verschobene Output deaktiviert und als Stack-Kopie `moved` gesichert. Lock freigeben.
-- **Phase 2 (kein Lock):** `AudioDeviceStop/DestroyIOProcID` für das Ziel. Bei Slot-Verschiebung: zusätzlich `Stop/Destroy/Create/Start` für den verschobenen Output — `AudioDeviceCreateIOProcID` erhält die stabile Ziel-Slot-Adresse `&g_outputs[slot]` als `inClientData`.
+- **Phase 2 (kein Lock):** `AudioDeviceStop/DestroyIOProcID` für das Ziel. Bei Slot-Verschiebung: zusätzlich `Stop/Destroy/Create/Start` für den verschobenen Output, `AudioDeviceCreateIOProcID` erhält die stabile Ziel-Slot-Adresse `&g_outputs[slot]` als `inClientData`.
 - **Phase 3 (Lock wieder gehalten):** `active=true` für den neu gestarteten verschobenen Output setzen, `g_n_outputs--`, letzten Slot auf 0 zurücksetzen.
 
 Der Kontrakt der Funktion (`MUSS mit gehaltenem Lock aufgerufen werden und gibt mit gehaltenem Lock zurück`) bleibt für den Aufrufer transparent erhalten.
 
 ---
 
-### 30.5 Welle 4 — UX & Qualität
+### 30.5 Welle 4, UX & Qualität
 
 Welle 4 schließt drei UX-Lücken: event-getriebene Lautstärke statt Polling, ABI-Versionscheck beim Start und ein qualitativ besserer Downsampler.
 
@@ -4130,17 +4130,17 @@ Welle 4 schließt drei UX-Lücken: event-getriebene Lautstärke statt Polling, A
 | P10 | `cefab2e` | Detect and surface driver/app ABI version mismatch on launch | `AudioRouterNowDriver.c`, `first_launch.py`, `Makefile` |
 | P15 | `8f57e1a` | Replace 3-tap box downsampler with 5-tap Hann FIR | `AudioRouterNowHelper.c` |
 
-**P1 — Event-driven Volume via `AudioObjectAddPropertyListener`**
+**P1, Event-driven Volume via `AudioObjectAddPropertyListener`**
 
-Die Lautstärke-Synchronisation lief bisher über `_volume_poll_loop` — einen Thread, der alle 200ms `osascript` aufrief und den aktuellen Lautstärkewert ablas. Das erzeugte systemweit sichtbaren Prozess-Overhead und eine fixe 200ms-Latenz bei Lautstärkeänderungen. Mit P1 wird der Poll-Thread entfernt und durch `AudioObjectAddPropertyListener` ersetzt. Der Listener wird auf die Property registriert, die das jeweilige Device tatsächlich unterstützt — ermittelt durch `_volume_selector_for(dev_id)`: diese Funktion fragt via `AudioObjectHasProperty` zuerst nach `VirtualMainVolume` (`vmvl`, 0x766D766C), fällt bei Fehlen auf `VolumeScalar` (`volm`, 0x766F6C6D) zurück. Wichtiger Befund aus der Implementierung: das virtuelle ARN-Device unterstützt `vmvl` nicht — nur `volm` ist vorhanden. Der CFUNCTYPE-Callback (`_AOPropertyListenerProc`) wird modul-global in `_vol_listener` referenziert (GC-Schutz: würde Python den Callback einsammeln, während CoreAudio noch einen Funktionszeiger hält, wäre der Absturz unvermeidlich). Lautstärkeänderungen werden nun sofort und ohne Polling-Overhead gemeldet.
+Die Lautstärke-Synchronisation lief bisher über `_volume_poll_loop`, einen Thread, der alle 200ms `osascript` aufrief und den aktuellen Lautstärkewert ablas. Das erzeugte systemweit sichtbaren Prozess-Overhead und eine fixe 200ms-Latenz bei Lautstärkeänderungen. Mit P1 wird der Poll-Thread entfernt und durch `AudioObjectAddPropertyListener` ersetzt. Der Listener wird auf die Property registriert, die das jeweilige Device tatsächlich unterstützt, ermittelt durch `_volume_selector_for(dev_id)`: diese Funktion fragt via `AudioObjectHasProperty` zuerst nach `VirtualMainVolume` (`vmvl`, 0x766D766C), fällt bei Fehlen auf `VolumeScalar` (`volm`, 0x766F6C6D) zurück. Wichtiger Befund aus der Implementierung: das virtuelle ARN-Device unterstützt `vmvl` nicht, nur `volm` ist vorhanden. Der CFUNCTYPE-Callback (`_AOPropertyListenerProc`) wird modul-global in `_vol_listener` referenziert (GC-Schutz: würde Python den Callback einsammeln, während CoreAudio noch einen Funktionszeiger hält, wäre der Absturz unvermeidlich). Lautstärkeänderungen werden nun sofort und ohne Polling-Overhead gemeldet.
 
-**P10 — ABI-Versionscheck beim App-Start**
+**P10, ABI-Versionscheck beim App-Start**
 
-Wenn ein Benutzer die App aktualisiert, ohne den Treiber neu zu installieren (oder umgekehrt), kann die `shared_ring.h`-ABI zwischen Treiber und App auseinanderliegen — was zu stiller Fehlfunktion oder Abstürzen führt. P10 etabliert einen expliziten Versionscheck:
+Wenn ein Benutzer die App aktualisiert, ohne den Treiber neu zu installieren (oder umgekehrt), kann die `shared_ring.h`-ABI zwischen Treiber und App auseinanderliegen, was zu stiller Fehlfunktion oder Abstürzen führt. P10 etabliert einen expliziten Versionscheck:
 
-Das Makefile extrahiert `#define kDriverABIVersion N` aus `AudioRouterNowDriver.c` via `grep` und schreibt die Zahl als Textdatei in `Contents/Resources/abi_version` im Bundle. Aktueller Wert: `1`. `first_launch.py` definiert `APP_EXPECTED_ABI_VERSION = 1` und liest beim App-Start `get_installed_driver_abi_version()` aus dem installierten Bundle. Bei Mismatch oder fehlender `abi_version`-Datei (alter Treiber vor P10) gibt `_compute_status()` die Statuszeile `🔴 Driver update required — click to reinstall` zurück und bietet den Reinstall-Dialog an. Bei Übereinstimmung verläuft der Start normal.
+Das Makefile extrahiert `#define kDriverABIVersion N` aus `AudioRouterNowDriver.c` via `grep` und schreibt die Zahl als Textdatei in `Contents/Resources/abi_version` im Bundle. Aktueller Wert: `1`. `first_launch.py` definiert `APP_EXPECTED_ABI_VERSION = 1` und liest beim App-Start `get_installed_driver_abi_version()` aus dem installierten Bundle. Bei Mismatch oder fehlender `abi_version`-Datei (alter Treiber vor P10) gibt `_compute_status()` die Statuszeile `🔴 Driver update required, click to reinstall` zurück und bietet den Reinstall-Dialog an. Bei Übereinstimmung verläuft der Start normal.
 
-**P15 — 5-Tap Hann-FIR Downsampler**
+**P15, 5-Tap Hann-FIR Downsampler**
 
 Der bisherige 3-Tap-Box-Filter (`1/3, 1/3, 1/3`) dämpfte Spiegelfrequenzen beim Downsampling (Ring-SR > Device-SR, z.B. 96k→48k) nur schwach. P15 ersetzt ihn durch einen symmetrischen 5-Tap-FIR mit Hann-Fenster-Koeffizienten:
 
@@ -4148,7 +4148,7 @@ Der bisherige 3-Tap-Box-Filter (`1/3, 1/3, 1/3`) dämpfte Spiegelfrequenzen beim
 static const float kFir5[5] = {0.0625f, 0.25f, 0.375f, 0.25f, 0.0625f};
 ```
 
-Die Koeffizienten sind summen-normalisiert (Summe = 1.0): kein Pegelversatz. Der Filter ist zentriert auf den aktuellen Frame-Index `idx0` mit einem Span von ±2 Frames. Er wird nur bei `ratio > 1.005` aktiviert (kleines Epsilon für Floating-Point-Rauschen) — Upsampling (ratio ≤ 1.0) bleibt reine lineare Interpolation, da dort kein Aliasing-Problem besteht. Die Filter-Operationen (5 MACs pro Channel, 10 gesamt) bleiben vollständig im RT-Budget: keine Branches, kein malloc, kein Lock.
+Die Koeffizienten sind summen-normalisiert (Summe = 1.0): kein Pegelversatz. Der Filter ist zentriert auf den aktuellen Frame-Index `idx0` mit einem Span von ±2 Frames. Er wird nur bei `ratio > 1.005` aktiviert (kleines Epsilon für Floating-Point-Rauschen), Upsampling (ratio ≤ 1.0) bleibt reine lineare Interpolation, da dort kein Aliasing-Problem besteht. Die Filter-Operationen (5 MACs pro Channel, 10 gesamt) bleiben vollständig im RT-Budget: keine Branches, kein malloc, kein Lock.
 
 ---
 
@@ -4161,9 +4161,9 @@ Alle 15 Fixes wurden unter strikter Einhaltung der seit v2.7 etablierten RT-Inva
 - `memset` für Stille-Ausgabe (P9)
 - Multiplikation + Addition (P15: FIR-Filter)
 
-**ABI v4 unverändert:** `shared_ring.h` wurde in keinem der 16 Commits modifiziert. Die Treiber-seitige ABI-Version (`kDriverABIVersion = 1`) ist eine neue Konstante, die die bestehende ABI versioniert — sie ändert das Shared-Memory-Layout nicht.
+**ABI v4 unverändert:** `shared_ring.h` wurde in keinem der 16 Commits modifiziert. Die Treiber-seitige ABI-Version (`kDriverABIVersion = 1`) ist eine neue Konstante, die die bestehende ABI versioniert, sie ändert das Shared-Memory-Layout nicht.
 
-**Lock-Kontrakt bei P7:** `output_remove_locked` gibt mit gehaltenem Lock zurück — exakt wie vor P7. Der Lock wird intern temporär freigegeben (Phase 2), aber der Aufrufer sieht diese Unterbrechung nicht. Das Prinzip "rein mit Lock, raus mit Lock" bleibt erhalten.
+**Lock-Kontrakt bei P7:** `output_remove_locked` gibt mit gehaltenem Lock zurück, exakt wie vor P7. Der Lock wird intern temporär freigegeben (Phase 2), aber der Aufrufer sieht diese Unterbrechung nicht. Das Prinzip "rein mit Lock, raus mit Lock" bleibt erhalten.
 
 ---
 
@@ -4194,7 +4194,7 @@ Die folgenden Punkte können nur durch Laufzeit-Tests mit echten Audio-Devices v
 
 ---
 
-*Dokumentation zuletzt aktualisiert am 2. Juni 2026 — AudioRouterNow v3.0.0*
+*Dokumentation zuletzt aktualisiert am 2. Juni 2026, AudioRouterNow v3.0.0*
 
 ---
 
@@ -4208,7 +4208,7 @@ Die folgenden Punkte können nur durch Laufzeit-Tests mit echten Audio-Devices v
 | Helper (Universal Binary) | ✅ x86_64 + arm64, ad-hoc signiert |
 | ABI-Version | `1` (in `driver/build/AudioRouterNow.driver/Contents/Resources/abi_version`) |
 | PyInstaller .app | ✅ `installer/dist/AudioRouterNow.app` |
-| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 11 MB |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg`, 11 MB |
 | Signierung | ad-hoc + Entitlements (library-validation deaktiviert) |
 
 **Build-Befehl:** `bash installer/build.sh` (ausgeführt aus `AudioRouterNow/`)
@@ -4220,7 +4220,7 @@ sudo make -C driver install   # → /Library/Audio/Plug-Ins/HAL/AudioRouterNow.d
 sudo make -C driver reload    # → coreaudiod Neustart, Treiber aktiv
 ```
 
-Installierter Treiber: `/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver` — Timestamp 02. Juni 2026 14:32
+Installierter Treiber: `/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver`, Timestamp 02. Juni 2026 14:32
 
 ### 31.3 Status
 
@@ -4233,7 +4233,7 @@ Installierter Treiber: `/Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver` — T
 
 ---
 
-## 32. Hotfix — SRC Drift Warning Threshold (2. Juni 2026)
+## 32. Hotfix, SRC Drift Warning Threshold (2. Juni 2026)
 
 ### 32.1 Symptom
 
@@ -4241,14 +4241,14 @@ Nach der Erstinstallation von v3.0 zeigte das Menüleisten-Icon Gelb, obwohl Mus
 
 > `"Output 'Komplete Audio 6 MK2': SRC drift -501 ppm (near limit)"`
 
-Zusätzlich wurde eine subtile "Wandern"-Empfindung im Klangbild wahrgenommen — leichte Tonhöhen-/Tempo-Modulation bei bekannter Musik.
+Zusätzlich wurde eine subtile "Wandern"-Empfindung im Klangbild wahrgenommen, leichte Tonhöhen-/Tempo-Modulation bei bekannter Musik.
 
 ### 32.2 Ursache
 
 Der Warnschwellenwert in `health.py` war mit **350 ppm** zu eng für reale Audio-Interface-Hardware:
 
 - Reale Quarz-Oszillatoren driften typisch **±100–600 ppm** vom Nominalwert
-- Das Komplete Audio 6 MK2 zeigte konstant **-501 ppm** Drift — normales Verhalten
+- Das Komplete Audio 6 MK2 zeigte konstant **-501 ppm** Drift, normales Verhalten
 - Der PI-Regler kompensiert diesen Drift korrekt per SRC-Ratio-Anpassung
 - Die ständigen Korrekturen des PI-Reglers (Hunting) können bei ~500 ppm als subtile Tonhöhen-Modulation (~0.87 Cent) wahrnehmbar sein
 
@@ -4270,12 +4270,12 @@ Der Schwellenwert von 350 ppm wurde ursprünglich zu konservativ gewählt und l�
 
 - Normaler Betrieb → dauerhaft 🟢 Grün
 - Gelb nur noch bei echten Problemen: Drift > 600 ppm, Underruns, Stalls, Reconnects
-- Der PI-Regler läuft unverändert — Drift wird weiterhin aktiv kompensiert
+- Der PI-Regler läuft unverändert, Drift wird weiterhin aktiv kompensiert
 - Fix erfordert Neu-Build der DMG (Python-Engine ist eingebunden)
 
 ---
 
-## 33. v3.0 Build #2 — Hotfix eingebaut (2. Juni 2026)
+## 33. v3.0 Build #2, Hotfix eingebaut (2. Juni 2026)
 
 Zweiter Produktions-Build nach dem SRC-Drift-Hotfix (Kapitel 32). Der Fix in `engine/health.py` (Schwellenwert 350→600 ppm) ist in dieser DMG eingebaut.
 
@@ -4287,7 +4287,7 @@ Zweiter Produktions-Build nach dem SRC-Drift-Hotfix (Kapitel 32). Der Fix in `en
 | Helper (Universal Binary) | ✅ x86_64 + arm64, ad-hoc signiert |
 | ABI-Version | `1` |
 | PyInstaller .app | ✅ mit SRC-Drift-Fix (health.py 600 ppm) |
-| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 12 MB |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg`, 12 MB |
 
 **Build-Befehl:** `bash installer/build.sh`
 
@@ -4305,11 +4305,11 @@ Zweiter Produktions-Build nach dem SRC-Drift-Hotfix (Kapitel 32). Der Fix in `en
 
 ### 34.1 Motivation
 
-Beim ersten App-Start wurde der User nach dem Passwort-Dialog mit einem leeren Bildschirm konfrontiert — keine Rückmeldung über den Fortschritt der Treiber-Installation. Ziel: Visuelles Feedback zwischen Passwort-Bestätigung und Onboarding-Wizard.
+Beim ersten App-Start wurde der User nach dem Passwort-Dialog mit einem leeren Bildschirm konfrontiert, keine Rückmeldung über den Fortschritt der Treiber-Installation. Ziel: Visuelles Feedback zwischen Passwort-Bestätigung und Onboarding-Wizard.
 
 ### 34.2 Design
 
-- **Stil:** Schlicht, borderless, zentriert — kein Fenster-Chrome
+- **Stil:** Schlicht, borderless, zentriert, kein Fenster-Chrome
 - **Farbe:** Dunkel (#1A1A1A/#252525) mit orangenem Akzent (#FF6600, App-Icon-Farbe)
 - **Elemente:** Titel, Schritt-Text (grau), Fortschritts-Balken (orange), dünne orange Linie am unteren Rand
 - **Verhalten:** Erscheint sofort nach Info-Dialog, schließt sich automatisch nach Abschluss
@@ -4339,19 +4339,19 @@ Beim ersten App-Start wurde der User nach dem Passwort-Dialog mit einem leeren B
 - Graceful Fallback: bei tkinter-Fehler → `install_thread.join()` ohne UI
 
 **Betroffene Dateien:**
-- `engine/first_launch.py` — neue Klasse `_InstallProgressWindow` + überarbeitetes `install_driver()`
-- `installer/AudioRouterNow.spec` — tkinter aus `excludes` entfernt, zu `hiddenimports` hinzugefügt
+- `engine/first_launch.py`, neue Klasse `_InstallProgressWindow` + überarbeitetes `install_driver()`
+- `installer/AudioRouterNow.spec`, tkinter aus `excludes` entfernt, zu `hiddenimports` hinzugefügt
 
 **Commit:** `bdf9e16`
 
-### 34.5 Farbkorrektur — Türkis statt Orange
+### 34.5 Farbkorrektur, Türkis statt Orange
 
 Nach erster Sichtung wurde die Akzentfarbe korrigiert:
 
 | | Wert | Beschreibung |
 |--|------|-------------|
 | **Vorher** | `#FF6600` | Orange (initial angenommen) |
-| **Nachher** | `#1FDDAE` | Mint-Türkis — exakt aus App-Icon extrahiert |
+| **Nachher** | `#1FDDAE` | Mint-Türkis, exakt aus App-Icon extrahiert |
 
 Die genaue Farbe wurde per Pixel-Analyse aus `installer/AudioRouterNow.icns` gewonnen (RGB 31/221/174). Gilt für: Fortschritts-Balken Fill, untere Akzent-Linie, Trough-Hintergrund (dunklerer Ton).
 
@@ -4359,7 +4359,7 @@ Die genaue Farbe wurde per Pixel-Analyse aus `installer/AudioRouterNow.icns` gew
 
 ---
 
-## 35. v3.0 Build #3 — Progress-Bar-Feature (2. Juni 2026)
+## 35. v3.0 Build #3, Progress-Bar-Feature (2. Juni 2026)
 
 Dritter Produktions-Build mit visuellem Fortschritts-Balken bei der Treiber-Installation.
 
@@ -4369,7 +4369,7 @@ Dritter Produktions-Build mit visuellem Fortschritts-Balken bei der Treiber-Inst
 |---------|----------|
 | Driver + Helper (Universal Binary) | ✅ x86_64 + arm64 |
 | PyInstaller .app | ✅ mit Progress-Bar + tkinter gebündelt |
-| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 12 MB |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg`, 12 MB |
 
 ### 35.2 Status
 
@@ -4380,7 +4380,7 @@ Dritter Produktions-Build mit visuellem Fortschritts-Balken bei der Treiber-Inst
 
 ---
 
-## 36. v3.0 Build #4 — Türkis-Akzentfarbe (2. Juni 2026)
+## 36. v3.0 Build #4, Türkis-Akzentfarbe (2. Juni 2026)
 
 Vierter Produktions-Build nach der Farbkorrektur des Progress-Bar-Fensters.
 
@@ -4390,7 +4390,7 @@ Vierter Produktions-Build nach der Farbkorrektur des Progress-Bar-Fensters.
 |---------|----------|
 | Driver + Helper (Universal Binary) | ✅ x86_64 + arm64 |
 | PyInstaller .app | ✅ Progress-Bar mit Türkis `#1FDDAE` |
-| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 12 MB |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg`, 12 MB |
 
 ### 36.2 Enthaltene Änderungen seit v2.9.0
 
@@ -4410,11 +4410,11 @@ Vierter Produktions-Build nach der Farbkorrektur des Progress-Bar-Fensters.
 
 ---
 
-## 37. Bugfix — App startet nicht (tkinter fehlt) + Build #5 (2. Juni 2026)
+## 37. Bugfix, App startet nicht (tkinter fehlt) + Build #5 (2. Juni 2026)
 
 ### 37.1 Problem
 
-Nach Installation der DMG aus Build #4 startete die App nicht — kein Fenster, keine Reaktion. Ursache per Terminal-Diagnose:
+Nach Installation der DMG aus Build #4 startete die App nicht, kein Fenster, keine Reaktion. Ursache per Terminal-Diagnose:
 
 ```
 ModuleNotFoundError: No module named 'tkinter'
@@ -4423,7 +4423,7 @@ ModuleNotFoundError: No module named 'tkinter'
 
 ### 37.2 Ursache
 
-Homebrew Python 3.14 hat **kein Tcl/Tk-Binding** (`_tkinter`) eingebaut. PyInstaller kann `tkinter` daher nicht in den Bundle aufnehmen — selbst mit `hiddenimports = ["tkinter"]` schlägt der Import zur Laufzeit fehl. Das Progress-Fenster in `first_launch.py` wurde in Kapitel 34 mit tkinter implementiert, was in diesem Build-Setup nicht funktioniert.
+Homebrew Python 3.14 hat **kein Tcl/Tk-Binding** (`_tkinter`) eingebaut. PyInstaller kann `tkinter` daher nicht in den Bundle aufnehmen, selbst mit `hiddenimports = ["tkinter"]` schlägt der Import zur Laufzeit fehl. Das Progress-Fenster in `first_launch.py` wurde in Kapitel 34 mit tkinter implementiert, was in diesem Build-Setup nicht funktioniert.
 
 ### 37.3 Fix
 
@@ -4447,25 +4447,25 @@ AppKit ist im PyInstaller-Bundle vorhanden (rumps zieht es ein). Das NSRunLoop-P
 | Schritt | Ergebnis |
 |---------|----------|
 | PyInstaller .app | ✅ ohne tkinter, mit AppKit Progress-Fenster |
-| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 12 MB |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg`, 12 MB |
 | App startet | ✅ kein `ModuleNotFoundError` mehr |
 
 ---
 
-## 38. Fix — Progress-Bar Farbe (türkis) + Timing (bleibt bis Wizard) + Build #6 (3. Juni 2026)
+## 38. Fix, Progress-Bar Farbe (türkis) + Timing (bleibt bis Wizard) + Build #6 (3. Juni 2026)
 
 ### 38.1 Problemstellung
 
 Nach Build #5 wurden zwei UX-Mängel am Progress-Fenster bei der Erstinstallation gemeldet:
 
 1. **Farbe**: Der Fortschrittsbalken erschien in grauer Systemfarbe statt in der App-Icon-Farbe Türkis (#1FDDAE).
-2. **Timing**: Der Fortschrittsbalken verschwand nach Abschluss der Treiber-Installation sofort — es entstand eine sichtbare Lücke (schwarzer Bildschirm / leerer Hintergrund), bevor der Onboarding-Wizard erschien.
+2. **Timing**: Der Fortschrittsbalken verschwand nach Abschluss der Treiber-Installation sofort, es entstand eine sichtbare Lücke (schwarzer Bildschirm / leerer Hintergrund), bevor der Onboarding-Wizard erschien.
 
-### 38.2 Ursache Fix 1 — Grauer Balken
+### 38.2 Ursache Fix 1, Grauer Balken
 
 `NSProgressIndicator` ignoriert die `wantsLayer_`/`CALayer`-Hintergrundfarbe vollständig. AppKit rendert das System-Widget in der Akzentfarbe des Systems (Standard: Blau auf macOS, da kein Akzentfarben-Override). Es gibt keine öffentliche API um die Farbe direkt zu setzen; private API (`setValue_forKey_: "progressIndicatorColor"`) ist fragil und veraltet.
 
-### 38.3 Fix 1 — Benutzerdefinierter CALayer-Balken
+### 38.3 Fix 1, Benutzerdefinierter CALayer-Balken
 
 `NSProgressIndicator` wurde durch zwei gestapelte `NSView`-Layer ersetzt:
 
@@ -4479,7 +4479,7 @@ _bar_track (NSView, cornerRadius=7, masksToBounds=True)
   └─ _bar_fill (NSView, volle Höhe, Breite = pct/100 * max_width)
 ```
 
-`_bar_track.layer().setMasksToBounds_(True)` sorgt dafür, dass die Füllung an den gerundeten Track-Ecken abgeschnitten wird — standard macOS-Progress-Bar-Optik, vollständig in türkis.
+`_bar_track.layer().setMasksToBounds_(True)` sorgt dafür, dass die Füllung an den gerundeten Track-Ecken abgeschnitten wird, standard macOS-Progress-Bar-Optik, vollständig in türkis.
 
 `set_step()` ruft `_bar_fill.setFrame_(NSMakeRect(0, 0, fill_w, bar_h))` auf:
 
@@ -4492,11 +4492,11 @@ def set_step(self, pct: int, text: str) -> None:
     self._window.displayIfNeeded()
 ```
 
-### 38.4 Ursache Fix 2 — Lücke vor dem Wizard
+### 38.4 Ursache Fix 2, Lücke vor dem Wizard
 
 Nach Rückkehr von `install_driver()` →  `check_and_install()` → `main()` startet `AudioRouterApp()`. Die Initialisierung des App-Objekts (Device-Discovery, Helper-Start, Menu-Setup) dauert ~1–3 Sekunden. In dieser Zeit war das Progress-Fenster bereits geschlossen.
 
-### 38.5 Fix 2 — Fenster bleibt offen bis Wizard
+### 38.5 Fix 2, Fenster bleibt offen bis Wizard
 
 **Konzept:** Modul-globale Variable `_active_progress_window` hält das Fenster am Leben. `close_active_progress_window()` schließt es bei Bedarf (no-op wenn nichts offen).
 
@@ -4530,7 +4530,7 @@ def close_active_progress_window() -> None:
         _active_progress_window = None
 ```
 
-`install_driver(keep_open=True)` — neuer optionaler Parameter:
+`install_driver(keep_open=True)`, neuer optionaler Parameter:
 ```python
 if keep_open:
     global _active_progress_window
@@ -4539,13 +4539,13 @@ else:
     win.close()
 ```
 
-**`check_and_install()` — nur für Frisch-Installation:**
+**`check_and_install()`, nur für Frisch-Installation:**
 ```python
 success, error_msg = install_driver(keep_open=True)  # Fenster bleibt offen
 ```
 ABI-Mismatch-Reinstall und Menu-Item-Reinstall rufen weiterhin `install_driver()` ohne `keep_open` auf (kein Wizard zu erwarten).
 
-**`menu_bar_app.py` — Close vor Wizard:**
+**`menu_bar_app.py`, Close vor Wizard:**
 ```python
 # First-Run Wizard (einmalig nach Installation)
 first_launch.close_active_progress_window()   # Fenster schließen
@@ -4560,7 +4560,7 @@ if not self._config.onboarding_done:
 |---------|----------|
 | Änderungen | `engine/first_launch.py` (+67 Zeilen), `engine/menu_bar_app.py` (+2 Zeilen) |
 | PyInstaller .app | ✅ |
-| DMG | ✅ `~/Desktop/AudioRouterNow.dmg` — 12 MB |
+| DMG | ✅ `~/Desktop/AudioRouterNow.dmg`, 12 MB |
 | Progress-Bar Farbe | ✅ Türkis (#1FDDAE) via CALayer |
 | Progress-Bar Timing | ✅ Bleibt sichtbar bis Wizard erscheint |
 
@@ -4568,7 +4568,7 @@ if not self._config.onboarding_done:
 
 ---
 
-## 39. Stabilitäts-Fix-Batch — MacBook-Freeze Behebung
+## 39. Stabilitäts-Fix-Batch, MacBook-Freeze Behebung
 
 **Stand:** 3. Juni 2026 · **Commits:** `e6d8ba5` … `34b82e7` · **Audit-Report:** `AUDIT_REPORT.md`
 
@@ -4576,11 +4576,11 @@ if not self._config.onboarding_done:
 
 Das System verursachte einen vollständigen MacBook-Freeze, der nur durch Hard-Reboot lösbar war:
 - `coreaudiod` bei 100% CPU (unkillbar)
-- `launchctl stop`, `killall coreaudiod` — wirkungslos (launchd respawnte sofort, Race triggerte wieder)
+- `launchctl stop`, `killall coreaudiod`, wirkungslos (launchd respawnte sofort, Race triggerte wieder)
 - Helper-Socket nicht erreichbar → UI eingefroren
 - Einzige Lösung: Hard Reboot
 
-**Root Cause — Race in `ARN_GetZeroTimeStamp()`:**
+**Root Cause, Race in `ARN_GetZeroTimeStamp()`:**
 ```
 coreaudiod ruft GetZeroTimeStamp() VOR ARN_Initialize()
   → ticksPerFrame-Fallback = 1.0 (Faktor ~500.000 zu klein)
@@ -4601,7 +4601,7 @@ coreaudiod ruft GetZeroTimeStamp() VOR ARN_Initialize()
 | P1-C | `ensure_running()` hielt `self._lock` bis zu 25s |
 | P2-A | `process_hotplug_removals()` hielt Lock während `AudioDeviceStop()` |
 
-### 39.2 Fix-01 — P0-C: GetZeroTimeStamp Fallback (driver/)
+### 39.2 Fix-01, P0-C: GetZeroTimeStamp Fallback (driver/)
 
 **Datei:** `driver/src/AudioRouterNowDriver.c` · **Commit:** `e6d8ba5`
 
@@ -4615,7 +4615,7 @@ if (!(ticksPerFrame > 0.0) || !isfinite(ticksPerFrame)) {
     Float64 nanosPerTick = (Float64)tb_fallback.numer / (Float64)tb_fallback.denom;
     if (nanosPerTick <= 0.0) nanosPerTick = 1.0;
     ticksPerFrame = (1.0e9 / kDefaultSampleRate) / nanosPerTick;
-    // Atomic CAS — nur schreiben wenn noch 0 (einmalig, race-safe)
+    // Atomic CAS, nur schreiben wenn noch 0 (einmalig, race-safe)
     UInt64 expected_zero = 0;
     atomic_compare_exchange_strong_explicit(&gHostTicksPerFrameBits,
         &expected_zero, _f64_to_u64(ticksPerFrame),
@@ -4623,26 +4623,26 @@ if (!(ticksPerFrame > 0.0) || !isfinite(ticksPerFrame)) {
 }
 ```
 
-### 39.3 Fix-02 — P0-B: output_add() Lock-Scope (helper/)
+### 39.3 Fix-02, P0-B: output_add() Lock-Scope (helper/)
 
 **Datei:** `helper/AudioRouterNowHelper.c` · **Commit:** `13265de`
 
 3-Phasen-Design: Slot-Commit unter Lock → sofort freigeben → `AudioDeviceCreateIOProcID`/`Start` OHNE Lock → kurzes Re-Lock für `active=true` mit UID-Revalidierung.
 
-### 39.4 Fix-03 + Fix-04 — P0-A: sr_reinit_all_outputs() Lock-Scope (helper/)
+### 39.4 Fix-03 + Fix-04, P0-A: sr_reinit_all_outputs() Lock-Scope (helper/)
 
 **Datei:** `helper/AudioRouterNowHelper.c` · **Commit:** `e68538f`
 
 - Fix-03: `volume_poll_thread` hält `g_outputs_lock` NICHT mehr um `sr_reinit_all_outputs()`
 - Fix-04: Vollständiges 3-Phasen-Redesign: Snapshot → CoreAudio-Phase OHNE Lock → Commit
 
-### 39.5 Fix-05 — P2-A: process_hotplug_removals() Lock-Scope (helper/)
+### 39.5 Fix-05, P2-A: process_hotplug_removals() Lock-Scope (helper/)
 
 **Datei:** `helper/AudioRouterNowHelper.c` · **Commit:** `ef7fc1b`
 
 Phase A unter Lock: Snapshot + Swap-Remove + `proc_id=NULL`. Phase B OHNE Lock: `AudioDeviceStop` + `DestroyIOProcID`.
 
-### 39.6 Fix-06 + Fix-07 — P1-B/P1-C: Python Engine (engine/)
+### 39.6 Fix-06 + Fix-07, P1-B/P1-C: Python Engine (engine/)
 
 **Datei:** `engine/helper_client.py` · **Commit:** `031b6b9`
 
@@ -4650,7 +4650,7 @@ Phase A unter Lock: Snapshot + Swap-Remove + `proc_id=NULL`. Phase B OHNE Lock: 
 - `get_status_quick()`: Main-Thread-sicherer Status-Poll (0.5s Timeout)
 - `ensure_running()`: `_spawn_lock` separater Guard; Wartephasen (25s) OHNE Lock
 
-### 39.7 Fix-08 — P0-D: coreaudiod CPU-Watchdog (helper/)
+### 39.7 Fix-08, P0-D: coreaudiod CPU-Watchdog (helper/)
 
 **Datei:** `helper/AudioRouterNowHelper.c` · **Commit:** `cd13cae`
 
@@ -4659,13 +4659,13 @@ CPU-Sampling via `proc_pid_rusage(RUSAGE_INFO_V4)` alle ~2s. Bei >90% CPU über 
 2. `~/.audiorouter/coreaudiod_spin.flag` schreiben (für UI-Dialog)
 3. `g_watchdog_tripped = 1` (Einmal-Reaktion)
 
-KEIN destruktives `killall` — UI bietet bestätigten Treiber-Reload-Dialog.
+KEIN destruktives `killall`, UI bietet bestätigten Treiber-Reload-Dialog.
 
-### 39.8 Fix-09 — P1: `outputs_stop_all()` 2-Phasen-Design (helper/)
+### 39.8 Fix-09, P1: `outputs_stop_all()` 2-Phasen-Design (helper/)
 
 **Datei:** `helper/AudioRouterNowHelper.c` · **Commit:** `46b6d05`
 
-Die letzte Restkante aus dem Audit: `outputs_stop_all()` hielt `g_outputs_lock` über `AudioDeviceStop()`. Im Watchdog-Recovery-Pfad (coreaudiod spinnt bereits) hätte dieser Mach-IPC-Call blockieren können — während der Mutex gehalten wird.
+Die letzte Restkante aus dem Audit: `outputs_stop_all()` hielt `g_outputs_lock` über `AudioDeviceStop()`. Im Watchdog-Recovery-Pfad (coreaudiod spinnt bereits) hätte dieser Mach-IPC-Call blockieren können, während der Mutex gehalten wird.
 
 **Fix:** Gleiches 2-Phasen-Muster wie `process_hotplug_removals()`:
 
@@ -4695,15 +4695,15 @@ for (int i = 0; i < n_stop; i++) {
 }
 ```
 
-Damit ist `outputs_stop_all()` vollständig robust: auch wenn coreaudiod hängt, blockiert nur der aufrufende Thread — nie mehr der `g_outputs_lock`.
+Damit ist `outputs_stop_all()` vollständig robust: auch wenn coreaudiod hängt, blockiert nur der aufrufende Thread, nie mehr der `g_outputs_lock`.
 
 ---
 
-### 39.9 Fix-10 — P3: coreaudiod-Spin UI-Dialog (engine/)
+### 39.9 Fix-10, P3: coreaudiod-Spin UI-Dialog (engine/)
 
 **Datei:** `engine/menu_bar_app.py` · **Commit:** `46b6d05`
 
-Der Watchdog (Fix-08) schrieb die Flag-Datei `~/.audiorouter/coreaudiod_spin.flag` — bisher las niemand diese Datei. Jetzt reagiert die Python-Engine darauf.
+Der Watchdog (Fix-08) schrieb die Flag-Datei `~/.audiorouter/coreaudiod_spin.flag`, bisher las niemand diese Datei. Jetzt reagiert die Python-Engine darauf.
 
 **Ablauf:**
 
@@ -4727,7 +4727,7 @@ _show_coreaudiod_spin_dialog()
 ```
 
 **Warum Daemon-Thread → Flag → Main-Thread?**  
-`rumps.alert()` muss zwingend auf dem macOS Main-Thread laufen. Der `_health_poll_loop` ist ein Daemon-Thread — ein direkter Aufruf würde abstürzen oder hängen. Die Flag-Variable (`bool`, GIL-atomar) ist die sichere Brücke zwischen den Threads.
+`rumps.alert()` muss zwingend auf dem macOS Main-Thread laufen. Der `_health_poll_loop` ist ein Daemon-Thread, ein direkter Aufruf würde abstürzen oder hängen. Die Flag-Variable (`bool`, GIL-atomar) ist die sichere Brücke zwischen den Threads.
 
 ---
 
@@ -4765,7 +4765,7 @@ Vollständiger Audit-Report: `AUDIT_REPORT.md`
 
 ---
 
-## 40. Entwicklungs-Chronik — 29. Mai bis 3. Juni 2026
+## 40. Entwicklungs-Chronik, 29. Mai bis 3. Juni 2026
 
 Diese Sektion fasst alle fünf Arbeitstage als kompakte Chronik zusammen. Details zu jedem Thema in den jeweiligen Kapiteln.
 
@@ -4779,7 +4779,7 @@ Diese Sektion fasst alle fünf Arbeitstage als kompakte Chronik zusammen. Detail
 |--------|-----|
 | `2426b67` | fix(volume): Media Keys abfangen + System Output setzen für Volume-HUD |
 
-Erste Arbeit an der Lautstärkesteuerung via Keyboard — `NSEvent.addGlobalMonitorForEvents` abfängt systemweite Media-Key-Events. System Output wird auf „Audio Router" gesetzt damit die macOS Volume-HUD dem richtigen Gerät folgt.
+Erste Arbeit an der Lautstärkesteuerung via Keyboard, `NSEvent.addGlobalMonitorForEvents` abfängt systemweite Media-Key-Events. System Output wird auf „Audio Router" gesetzt damit die macOS Volume-HUD dem richtigen Gerät folgt.
 
 → Details: **Kapitel 16**
 
@@ -4787,7 +4787,7 @@ Erste Arbeit an der Lautstärkesteuerung via Keyboard — `NSEvent.addGlobalMoni
 
 ### 40.2 Freitag, 30. Mai 2026
 
-**Thema:** Bugfix-Welle v2.3 / v2.4 / v2.5 — Initialisierungsreihenfolge, StartIO, Keep-Alive
+**Thema:** Bugfix-Welle v2.3 / v2.4 / v2.5, Initialisierungsreihenfolge, StartIO, Keep-Alive
 
 | Version | Commits | Was |
 |---------|---------|-----|
@@ -4803,17 +4803,17 @@ Erste Arbeit an der Lautstärkesteuerung via Keyboard — `NSEvent.addGlobalMoni
 
 ### 40.3 Samstag, 31. Mai 2026
 
-**Thema:** Große Architektur-Session — v2.6 bis v2.8 + Sicherheits-Audit
+**Thema:** Große Architektur-Session, v2.6 bis v2.8 + Sicherheits-Audit
 
-**v2.6.0 — Keep-Alive Migration Python → C:**
+**v2.6.0, Keep-Alive Migration Python → C:**
 
 | Commits | Was |
 |---------|-----|
 | `b84b491`, `68574fc` | Keep-Alive IOProc aus Python-ctypes in nativen C-Helper verschoben |
 
-Python-ctypes-Callbacks erzeugen Stale-Pointer in coreaudiod nach Prozess-Exit. Lösung: `keepalive_ioproc` als permanenter C-Funktionszeiger im Helper — kein GC-Risiko mehr.
+Python-ctypes-Callbacks erzeugen Stale-Pointer in coreaudiod nach Prozess-Exit. Lösung: `keepalive_ioproc` als permanenter C-Funktionszeiger im Helper, kein GC-Risiko mehr.
 
-**v2.7.0 — Umfassender Sicherheits-Audit (31. Mai):**
+**v2.7.0, Umfassender Sicherheits-Audit (31. Mai):**
 
 17 Findings in 5 Kategorien, Risk-Score von 58 auf 0 gebracht:
 
@@ -4823,7 +4823,7 @@ Python-ctypes-Callbacks erzeugen Stale-Pointer in coreaudiod nach Prozess-Exit. 
 | Hoch (H) | H1–H8 | Hot-Plug im CoreAudio-Callback, deferred `munmap`, `pthread_join` unter Lock |
 | Mittel (M) | M1–M10 | Acquire-Reads im Ring, JSON-Parser, Socket-Security, SRC-Overflow |
 
-**v2.8.0 — Alle 17 Audit-Findings implementiert:**
+**v2.8.0, Alle 17 Audit-Findings implementiert:**
 
 | Commits | Was |
 |---------|-----|
@@ -4837,7 +4837,7 @@ Python-ctypes-Callbacks erzeugen Stale-Pointer in coreaudiod nach Prozess-Exit. 
 
 **Thema:** v2.8.1 Hotfix + Self-Healing Layer + v3.0 Plan
 
-**v2.8.1 — Hotfix Kratzen bei Multi-Output:**
+**v2.8.1, Hotfix Kratzen bei Multi-Output:**
 
 | Commit | Was |
 |--------|-----|
@@ -4845,7 +4845,7 @@ Python-ctypes-Callbacks erzeugen Stale-Pointer in coreaudiod nach Prozess-Exit. 
 
 Beim simultanen Routing auf mehrere Geräte entstanden hörbare Kratzer. Ursache: Slot-Swap nach Output-Remove ließ falschen IOProc auf falschem Device zurück. Fix: IOProc wird vor Swap gestoppt + Stall-Timeout von 300ms auf 1000ms erhöht.
 
-**Self-Healing Layer v1.0 (v2.9.0) — drei Tranchen:**
+**Self-Healing Layer v1.0 (v2.9.0), drei Tranchen:**
 
 | Tranche | Commits | Was |
 |---------|---------|-----|
@@ -4853,7 +4853,7 @@ Beim simultanen Routing auf mehrere Geräte entstanden hörbare Kratzer. Ursache
 | B | `f87dfa4`, `8283ffd` | Healer: Pre-Roll, `reconnect_output`, Safe-Take-Modus |
 | C | `481c33c`, `c904a62` | PI-Regler + EWMA für adaptives SRC-Resampling (Clock-Drift-Ausgleich) |
 
-**v3.0 Plan — 15 Verbesserungen:**
+**v3.0 Plan, 15 Verbesserungen:**
 
 | Commit | Was |
 |--------|-----|
@@ -4865,25 +4865,25 @@ Beim simultanen Routing auf mehrere Geräte entstanden hörbare Kratzer. Ursache
 
 ### 40.5 Montag, 2. Juni 2026
 
-**Thema:** v3.0 — alle 15 Verbesserungen implementiert + 6 Builds
+**Thema:** v3.0, alle 15 Verbesserungen implementiert + 6 Builds
 
-**v3.0 — 15-Punkt Plan vollständig umgesetzt:**
+**v3.0, 15-Punkt Plan vollständig umgesetzt:**
 
 | Welle | P# | Was |
 |-------|----|-----|
-| 1 — Fundament | P4 | GetZeroTimeStamp: Frame-Counter statt Host-Clock |
+| 1, Fundament | P4 | GetZeroTimeStamp: Frame-Counter statt Host-Clock |
 | | P11 | Lock-Datei nach `~/.audiorouter/` mit `O_NOFOLLOW` |
 | | P12 | Toten Code `output_add_locked` entfernt |
 | | P13 | CoreAudio/Foundation Frameworks einmalig laden |
 | | P14 | Korrekte Ring-Pre-Roll-Latenz an CoreAudio melden |
-| 2 — Security & IPC | P2 | set_outputs: UI/Reality-Divergenz behoben (Reconcile) |
+| 2, Security & IPC | P2 | set_outputs: UI/Reality-Divergenz behoben (Reconcile) |
 | | P3 | Socket Auth-Token (per-launch, 0600) |
 | | P8 | Zentraler Status-Cache statt Connect-per-Call |
-| 3 — Audio-Robustheit | P5 | Auto Sample-Rate: geräte-native Rate statt 48kHz forcieren |
+| 3, Audio-Robustheit | P5 | Auto Sample-Rate: geräte-native Rate statt 48kHz forcieren |
 | | P6 | Hard-Stall-Detection ~300ms ohne 44.1kHz-False-Positives |
 | | P7 | CoreAudio-Calls in `output_remove` außerhalb Lock |
 | | P9 | IOProc-Stille während SR-Wechsel (kein Kratzen) |
-| 4 — UX & Qualität | P1 | Volume-Tasten: Event-driven via CoreAudio-Listener (kein osascript) |
+| 4, UX & Qualität | P1 | Volume-Tasten: Event-driven via CoreAudio-Listener (kein osascript) |
 | | P10 | Treiber-ABI-Versionscheck beim App-Start |
 | | P15 | 5-Tap Hann-FIR Downsampler (besser als 3-Tap Box) |
 
@@ -4908,15 +4908,15 @@ Während der Treiber-Installation beim First-Run wird ein AppKit-Fenster mit ein
 
 **Thema:** Build #6 (Progress-Bar) + Kompletter Stabilitäts-Fix-Batch
 
-**Build #6 — Final Progress-Bar:**
+**Build #6, Final Progress-Bar:**
 
 | Commit | Was |
 |--------|-----|
 | `abbeb6e` | CALayer-Balken türkis + Timing-Fix (kein schwarzer Blink vor Wizard) |
 
-**Stabilitäts-Fix-Batch — Ursache: MacBook-Freeze:**
+**Stabilitäts-Fix-Batch, Ursache: MacBook-Freeze:**
 
-Der kritische Auslöser: `ticksPerFrame = 1.0` Fallback in `ARN_GetZeroTimeStamp()` — Faktor ~500.000 zu klein — coreaudiod Busy-Wait → 100% CPU-Spin → Hard Reboot nötig.
+Der kritische Auslöser: `ticksPerFrame = 1.0` Fallback in `ARN_GetZeroTimeStamp()`, Faktor ~500.000 zu klein, coreaudiod Busy-Wait → 100% CPU-Spin → Hard Reboot nötig.
 
 **10 Fixes in 7 Commits:**
 
@@ -4930,19 +4930,19 @@ Der kritische Auslöser: `ticksPerFrame = 1.0` Fallback in `ARN_GetZeroTimeStamp
 | 08 | `cd13cae` | P0-D | coreaudiod CPU-Watchdog (proc_pid_rusage, 90%/5s) |
 | 09 | `46b6d05` | P1 | outputs_stop_all() 2-Phasen (Watchdog-Pfad robust) |
 | 10 | `46b6d05` | P3 | UI-Dialog coreaudiod_spin.flag → Treiber-Reload |
-| — | `cc43dd2`+`34b82e7` | Docs | AUDIT_REPORT.md + DOKUMENTATION.md Kap. 39 |
+| - | `cc43dd2`+`34b82e7` | Docs | AUDIT_REPORT.md + DOKUMENTATION.md Kap. 39 |
 
 **Ergebnis:** System ist vollständig gehärtet gegen den MacBook-Freeze. Kein Hard Reboot mehr nötig. Bei unbekanntem coreaudiod-Spin: Watchdog stoppt IOProcs defensiv, UI-Dialog bietet kontrollierten Neustart an.
 
 → Details: **Kapitel 38, 39** · Audit: `AUDIT_REPORT.md`
 
-**UX-Fix — Ladebalken event-gesteuert (3. Juni):**
+**UX-Fix, Ladebalken event-gesteuert (3. Juni):**
 
 | Commit | Was |
 |--------|-----|
 | `56390d1` | Ladebalken erreicht 100% erst wenn Wizard startet (event-gesteuert statt zeitgesteuert) |
 
-Bisher wurde der Balken auf 100% gesetzt sobald der Installationsthread fertig war — der Wizard konnte aber noch Sekunden auf sich warten lassen. Neues Verhalten: Balken hält bei 90% ("App wird gestartet…"), springt auf 100% ("✓ App bereit") erst wenn `close_active_progress_window()` aufgerufen wird — exakt der Moment bevor der Wizard erscheint.
+Bisher wurde der Balken auf 100% gesetzt sobald der Installationsthread fertig war, der Wizard konnte aber noch Sekunden auf sich warten lassen. Neues Verhalten: Balken hält bei 90% ("App wird gestartet…"), springt auf 100% ("✓ App bereit") erst wenn `close_active_progress_window()` aufgerufen wird, exakt der Moment bevor der Wizard erscheint.
 
 ---
 
@@ -4950,7 +4950,7 @@ Bisher wurde der Balken auf 100% gesetzt sobald der Installationsthread fertig w
 
 | Datum | Version | Commits | Schwerpunkt |
 |-------|---------|---------|-------------|
-| 29. Mai | — | 1 | Volume/Media-Keys |
+| 29. Mai | - | 1 | Volume/Media-Keys |
 | 30. Mai | v2.3–v2.5 | 8 | StartIO, Keep-Alive, macOS-26-Kompatibilität |
 | 31. Mai | v2.6–v2.8 | 16 | Keep-Alive Migration, Sicherheits-Audit (17 Findings) |
 | 1. Juni | v2.8.1–v2.9 | 12 | Hotfix, Self-Healing Layer (A+B+C), v3.0-Plan |
@@ -4959,30 +4959,30 @@ Bisher wurde der Balken auf 100% gesetzt sobald der Installationsthread fertig w
 | **Σ** | | **65** | **6 Major-Versionen, 10 Stabilitäts-Fixes, 0 Hard-Reboot-Risiko** |
 
 **Geänderter Code (gesamt):**
-- `driver/src/AudioRouterNowDriver.c` — GetZeroTimeStamp, Frame-Counter, Latenz
-- `helper/AudioRouterNowHelper.c` — Lock-Scope × 5, Keep-Alive, Watchdog, Stall-Detection
-- `engine/menu_bar_app.py` — Self-Healing UI, Status-Cache, Auth, Volume-Events, UI-Dialog
-- `engine/helper_client.py` — Auth-Token, Timeouts, ensure_running()
-- `engine/health.py` — Health-Monitor (neu)
-- `engine/healer.py` — Healer (neu)
-- `engine/first_launch.py` — Progress-Bar, AppKit-Migration, event-gesteuerter Ladebalken
-- `helper/shared_ring.h` — ABI v4, instance_id
-- `helper/Makefile` — `-lproc` für Watchdog
+- `driver/src/AudioRouterNowDriver.c`, GetZeroTimeStamp, Frame-Counter, Latenz
+- `helper/AudioRouterNowHelper.c`, Lock-Scope × 5, Keep-Alive, Watchdog, Stall-Detection
+- `engine/menu_bar_app.py`, Self-Healing UI, Status-Cache, Auth, Volume-Events, UI-Dialog
+- `engine/helper_client.py`, Auth-Token, Timeouts, ensure_running()
+- `engine/health.py`, Health-Monitor (neu)
+- `engine/healer.py`, Healer (neu)
+- `engine/first_launch.py`, Progress-Bar, AppKit-Migration, event-gesteuerter Ladebalken
+- `helper/shared_ring.h`, ABI v4, instance_id
+- `helper/Makefile`, `-lproc` für Watchdog
 
 ---
 
-## 41. Build #7 — Stability-Hardened Release (3. Juni 2026)
+## 41. Build #7, Stability-Hardened Release (3. Juni 2026)
 
 **Datum:** 3. Juni 2026  
 **Commit-Range:** `e6d8ba5` … `a6f350c` (12 Commits seit Build #6)  
-**Vorheriger Build:** #6 (`abbeb6e`) — Progress-Bar CALayer + Timing-Fix  
+**Vorheriger Build:** #6 (`abbeb6e`), Progress-Bar CALayer + Timing-Fix  
 **DMG:** `AudioRouterNow.dmg` · 11 MB · Universal Binary (arm64 + x86_64)
 
 ---
 
 ### 41.1 Was ist neu gegenüber Build #6?
 
-Build #7 ist der erste Release mit dem vollständigen **Stabilitäts-Fix-Batch** — 10 Fixes die den MacBook-Freeze durch coreaudiod-CPU-Spin vollständig verhindern. Zusätzlich wurde die Installation UX verbessert.
+Build #7 ist der erste Release mit dem vollständigen **Stabilitäts-Fix-Batch**, 10 Fixes die den MacBook-Freeze durch coreaudiod-CPU-Spin vollständig verhindern. Zusätzlich wurde die Installation UX verbessert.
 
 #### 🛡️ Stabilitäts-Fixes (10 Fixes, 7 Commits)
 
@@ -4997,7 +4997,7 @@ Build #7 ist der erste Release mit dem vollständigen **Stabilitäts-Fix-Batch**
 | **09** | P1 | `helper/AudioRouterNowHelper.c` | `outputs_stop_all()` hielt Lock über `AudioDeviceStop()` → 2-Phasen lockfrei |
 | **10** | P3 | `engine/menu_bar_app.py` | Kein Recovery-UI → Dialog erkennt `coreaudiod_spin.flag`, bietet `launchctl kickstart` mit Admin-Rechten an |
 
-#### 🎨 UX-Fix — Ladebalken (1 Commit)
+#### 🎨 UX-Fix, Ladebalken (1 Commit)
 
 | Commit | Was |
 |--------|-----|
@@ -5030,7 +5030,7 @@ cd installer && ./build.sh
 
 | Artefakt | Größe | Architekturen |
 |---------|-------|---------------|
-| `AudioRouterNow.dmg` | 11 MB | — |
+| `AudioRouterNow.dmg` | 11 MB | - |
 | `AudioRouterNow.app` | ~40 MB (entpackt) | arm64 (Bootloader) |
 | `AudioRouterNowDriver` | Universal | x86_64 arm64 |
 | `AudioRouterNowHelper` | Universal | x86_64 arm64 |
@@ -5053,7 +5053,7 @@ Nach Build #7 ist AudioRouterNow vollständig gehärtet gegen den MacBook-Freeze
 
 ---
 
-### 41.5 Live-Verifikation — 3. Juni 2026
+### 41.5 Live-Verifikation, 3. Juni 2026
 
 Build #7 wurde vom Entwickler auf dem eigenen Mac vollständig getestet:
 
@@ -5067,7 +5067,7 @@ Build #7 wurde vom Entwickler auf dem eigenen Mac vollständig getestet:
 | First-Run-Wizard vollständig durchlaufen | ✅ |
 | Menu-Bar-Icon erscheint | ✅ |
 
-**Fazit:** Installations-Flow funktioniert exakt wie vorgesehen — Ladebalken, Timing und Wizard-Übergang sind visuell korrekt und konsistent.
+**Fazit:** Installations-Flow funktioniert exakt wie vorgesehen, Ladebalken, Timing und Wizard-Übergang sind visuell korrekt und konsistent.
 
 ---
 
@@ -5076,7 +5076,7 @@ Build #7 wurde vom Entwickler auf dem eigenen Mac vollständig getestet:
 **Datum:** 3. Juni 2026 · **Basis:** v3.1.0 / Build #7 (erstes stability-gehärtetes Release)  
 **Methodik:** Experten-Panel (8 Frameworks) + PM-Roadmap · **Modus:** Brainstorming → Entscheidung → Plan
 
-> Dieses Kapitel dokumentiert die strategische Session nach Abschluss der technischen Stabilisierungs-Phase. AudioRouterNow ist technisch fertig und stabil — jetzt geht es darum, was danach kommt.
+> Dieses Kapitel dokumentiert die strategische Session nach Abschluss der technischen Stabilisierungs-Phase. AudioRouterNow ist technisch fertig und stabil, jetzt geht es darum, was danach kommt.
 
 ---
 
@@ -5106,17 +5106,17 @@ Build #7 wurde vom Entwickler auf dem eigenen Mac vollständig getestet:
 
 ---
 
-### 42.2 Strategische Analyse — 8-Experten-Panel
+### 42.2 Strategische Analyse, 8-Experten-Panel
 
 *Zusammenfassung der sequenziellen Experten-Panel-Analyse (vollständig erarbeitet in dieser Session).*
 
 #### Kern-Konsens aller 8 Experten (= höchste Konfidenz)
 
-**1. Vertrauen ist der Engpass — nicht der Preis.**
+**1. Vertrauen ist der Engpass, nicht der Preis.**
 Ein Audio-Treiber mit Root-Zugriff wird nur installiert, wenn Nutzer vertrauen. Code-Signing + Notarisierung sind nicht optional. Solange das DMG unsigned ist, ist jede Distributions-Maßnahme wirkungslos bei der breiten Zielgruppe.
 
-**2. Die Kategorie heißt "Zero-Setup Multi-Output" — nicht "BlackHole-Alternative".**
-"BlackHole-Alternative" verankert das Tool im Profi-roten-Ozean. Die eigentliche unbesetzte Position ist: *"Audio auf mehrere Geräte gleichzeitig — ohne Konfigurationsaufwand"* — das spricht den unerforschten Nicht-Konsum (Home-Office, Casual-User) an, der kein Audio-Profi ist und auch keiner sein möchte.
+**2. Die Kategorie heißt "Zero-Setup Multi-Output", nicht "BlackHole-Alternative".**
+"BlackHole-Alternative" verankert das Tool im Profi-roten-Ozean. Die eigentliche unbesetzte Position ist: *"Audio auf mehrere Geräte gleichzeitig, ohne Konfigurationsaufwand"*, das spricht den unerforschten Nicht-Konsum (Home-Office, Casual-User) an, der kein Audio-Profi ist und auch keiner sein möchte.
 
 **3. Wartungslast zuerst absichern, dann skalieren.**
 Solo-Maintainer + 3 Parallel-Projekte (Alledin, AstroAnalyzer, Website). Ein viraler Launch ohne Update-Kanal = Support-Balancing-Loop die den Maintainer auffrisst. Update-Mechanismus (Sparkle) VOR dem Launch, nicht danach.
@@ -5161,7 +5161,7 @@ Kein Paid-Kanal nötig. Jeder Punkt ist kostenlos und kompoundierend. Anstoßpun
 
 #### Modell-Entscheidung: Was ist AudioRouterNow?
 
-Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
+Drei mögliche Definitionen, bewusst eine wählen (nach Drucker):
 
 | Definition | Zweck | Metrik | Empfehlung |
 |------------|-------|--------|:----------:|
@@ -5169,13 +5169,13 @@ Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
 | **Community-Utility** | Öffentliches Gut, maximale Reichweite | Aktive Nutzerbasis, Stars | ⭐ Sekundär |
 | **Funnel-Top** | Einstieg zu späterem Pro-Produkt | E-Mail-Liste, Konversionsrate | Nicht jetzt |
 
-**Entscheidung: Hybrid aus 1+2** — Reputation-Asset das nebenbei eine kleine treue Community bedient. Kein Business-Aufbau der eine zweite Vollzeit-Verpflichtung wird.
+**Entscheidung: Hybrid aus 1+2**, Reputation-Asset das nebenbei eine kleine treue Community bedient. Kein Business-Aufbau der eine zweite Vollzeit-Verpflichtung wird.
 
 ---
 
 ### 42.3 Phasen-Modell Post-Launch
 
-#### Phase 0 — Fundament (Voraussetzung, vor allem anderen)
+#### Phase 0, Fundament (Voraussetzung, vor allem anderen)
 
 **Zeitraum:** Unmittelbar · **Erfolgskriterium:** Offizieller, signierter Release ist veröffentlicht
 
@@ -5191,7 +5191,7 @@ Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
 
 ---
 
-#### Phase 1 — Sichtbarkeit (Woche 1–4 nach offiziellem Release)
+#### Phase 1, Sichtbarkeit (Woche 1–4 nach offiziellem Release)
 
 **Kernfrage:** Wer kennt das Tool noch nicht, der es kennen sollte?
 
@@ -5204,7 +5204,7 @@ Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
 | GitHub Releases-Seite: Screenshots, Systemvoraussetzungen, Kompatibilitäts-Hinweise | GitHub | 45 Min |
 
 **Post-Format für r/macapps (Godin: Origin-Story mit Frustration als Held):**
-> *"Ich wollte Audio gleichzeitig auf meinen Monitor-Lautsprecher und Kopfhörer routen. Die Lösungen: BlackHole (Kernel Extension + Restart + Terminal) oder Loopback (99 $). Also habe ich ein kostenloses Menu-Bar-Tool gebaut — kein kext, kein Restart, einfach anhaken und es läuft."*
+> *"Ich wollte Audio gleichzeitig auf meinen Monitor-Lautsprecher und Kopfhörer routen. Die Lösungen: BlackHole (Kernel Extension + Restart + Terminal) oder Loopback (99 $). Also habe ich ein kostenloses Menu-Bar-Tool gebaut, kein kext, kein Restart, einfach anhaken und es läuft."*
 
 **Erfolgskriterien Phase 1:**
 
@@ -5217,14 +5217,14 @@ Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
 
 ---
 
-#### Phase 2 — Community (Monat 2–3)
+#### Phase 2, Community (Monat 2–3)
 
 **Kernfrage:** Wer nutzt das Tool, und was brauchen sie wirklich?
 
 | Aufgabe | Bereich |
 |---------|---------|
 | **Homebrew Cask** PR einreichen (`brew install --cask audiorouternow`) | Distribution |
-| **Show HN** Post — erst nach 1–2 Wochen Stabilität in freier Wildbahn | Community |
+| **Show HN** Post, erst nach 1–2 Wochen Stabilität in freier Wildbahn | Community |
 | Systematisch auf alle Issues antworten (<48h) | Vertrauen |
 | CONTRIBUTING.md schreiben | Open-Source |
 | Kompatibilitäts-Matrix im README (getestete macOS-Versionen + Interfaces) | Doku |
@@ -5243,16 +5243,16 @@ Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
 
 ---
 
-#### Phase 3 — Wachstum (Monat 4–6)
+#### Phase 3, Wachstum (Monat 4–6)
 
-**Kernfrage:** Welche Features bringen echten Mehrwert — welche sind Feature-Trap?
+**Kernfrage:** Welche Features bringen echten Mehrwert, welche sind Feature-Trap?
 
 | Aufgabe | Datenquelle |
 |---------|-------------|
 | Feature-Priorität nach Issue-Upvotes auswerten | GitHub Insights |
 | Intel-Mac-Support: bestätigen oder explizit schließen | Hardware / Community-Test |
 | Phase 6.1 Stress-Tests abschließen (4h Musik, Sleep/Wake) | projekt.md |
-| Website mauriciomorkun.com — AudioRouterNow-Landingpage | Web |
+| Website mauriciomorkun.com, AudioRouterNow-Landingpage | Web |
 | macOS-Kompatibilitäts-Matrix vollständig schließen | projekt.md Phase 8 |
 
 **Erfolgskriterien Phase 3:**
@@ -5266,9 +5266,9 @@ Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
 
 ---
 
-#### Phase 4 — Monetarisierung (ab Monat 7, optional)
+#### Phase 4, Monetarisierung (ab Monat 7, optional)
 
-**Voraussetzung:** 500+ Stars, aktive Community, stabiler Maintainer — erst dann entscheiden.
+**Voraussetzung:** 500+ Stars, aktive Community, stabiler Maintainer, erst dann entscheiden.
 
 | Option | Modell | Aufwand | Empfehlung |
 |--------|--------|---------|:----------:|
@@ -5277,13 +5277,13 @@ Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
 | Pro-Features (Presets, Hotkeys) | Freemium | Mittel | Erst nach Community-Feedback |
 | Einmalkauf via Gumroad (~9–15 $) | Paid | Mittel + Support | Erst nach Notarisierung |
 
-> **Realistische Erwartung:** Ein Nischen-macOS-Free-Tool generiert typischerweise zweistellige bis niedrige dreistellige Euro-Beträge/Jahr via Donations. Plane null Einkommen — jede Donation ist ein Bonus, kein Geschäftsmodell.
+> **Realistische Erwartung:** Ein Nischen-macOS-Free-Tool generiert typischerweise zweistellige bis niedrige dreistellige Euro-Beträge/Jahr via Donations. Plane null Einkommen, jede Donation ist ein Bonus, kein Geschäftsmodell.
 
 ---
 
 ### 42.4 Aufgaben-Backlog
 
-#### 🔴 P0 — Kritisch (Fundament, vor erstem öffentlichen Launch)
+#### 🔴 P0, Kritisch (Fundament, vor erstem öffentlichen Launch)
 
 > ⚠️ **Python 3.13 Downgrade vor Launch:** Das Bundle nutzt aktuell Python 3.14 (Beta). Vor dem offiziellen Release → `.venv` mit Python 3.13 neu erstellen → `build.sh` → neues DMG. Details: Kapitel 43.4.
 
@@ -5294,7 +5294,7 @@ Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
 | GitHub Release `v3.1.0` mit signiertem DMG + SHA256 | Distribution |
 | Demo-GIF/Video (15–30 Sek) | Marketing |
 
-#### 🟡 P1 — Diese Woche (Launch-Woche)
+#### 🟡 P1, Diese Woche (Launch-Woche)
 
 | Aufgabe | Bereich |
 |---------|---------|
@@ -5304,7 +5304,7 @@ Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
 | AlternativeTo-Eintrag erstellen | Distribution |
 | Releases-Seite: Screenshots, Systemvoraussetzungen | GitHub |
 
-#### 🟢 P2 — Dieser Monat
+#### 🟢 P2, Dieser Monat
 
 | Aufgabe | Bereich |
 |---------|---------|
@@ -5315,7 +5315,7 @@ Drei mögliche Definitionen — bewusst eine wählen (nach Drucker):
 | Kompatibilitäts-Matrix README | Doku |
 | Phase 6.1 Stress-Tests | Qualität |
 
-#### 🔵 P3 — Roadmap (Zukunft nach Community-Feedback)
+#### 🔵 P3, Roadmap (Zukunft nach Community-Feedback)
 
 | Aufgabe | Bereich |
 |---------|---------|
@@ -5400,11 +5400,11 @@ Bewusste strategische Entscheidungen gegen bestimmte Maßnahmen:
 
 | Nicht tun | Warum |
 |-----------|-------|
-| Stilles Auto-Update | HAL-Treiber-Update erfordert Admin-Passwort — kein stilles Update möglich ohne Vertrauensbruch |
+| Stilles Auto-Update | HAL-Treiber-Update erfordert Admin-Passwort, kein stilles Update möglich ohne Vertrauensbruch |
 | Telemetrie / anonyme Analytics | Widerspricht MIT-Geist und Erwartung der technischen Zielgruppe |
-| CoreAudio-Calls im RT-Pfad | Architektur-Grundsatz — gilt für immer |
-| kext reaktivieren | Bewusst abgelöst — kein Rückschritt |
-| Low-Latency-Versprechen | 170 ms Ring-Buffer-Architektur — nicht für Live-Monitoring geeignet, README ist ehrlich, so lassen |
+| CoreAudio-Calls im RT-Pfad | Architektur-Grundsatz, gilt für immer |
+| kext reaktivieren | Bewusst abgelöst, kein Rückschritt |
+| Low-Latency-Versprechen | 170 ms Ring-Buffer-Architektur, nicht für Live-Monitoring geeignet, README ist ehrlich, so lassen |
 
 #### Produkt
 
@@ -5420,7 +5420,7 @@ Bewusste strategische Entscheidungen gegen bestimmte Maßnahmen:
 | Nicht tun | Warum |
 |-----------|-------|
 | Homebrew Cask vor Notarisierung | Gatekeeper-Blockierung für alle Nutzer |
-| Mac App Store ohne Sandbox-Analyse | HAL-Plugin-Installation erfordert Admin-Rechte — Sandbox-Kompatibilität unklar |
+| Mac App Store ohne Sandbox-Analyse | HAL-Plugin-Installation erfordert Admin-Rechte, Sandbox-Kompatibilität unklar |
 | DMG ohne SHA256-Checksum | Minimalstandard bei Power-Usern |
 
 #### Community
@@ -5435,7 +5435,7 @@ Bewusste strategische Entscheidungen gegen bestimmte Maßnahmen:
 
 ### 42.8 Priorisierte Aktions-Sequenz (Panel-Konsens)
 
-Die wichtigste Erkenntnis: Marketing kommt nach dem Vertrauens- und Update-Fundament — nicht davor.
+Die wichtigste Erkenntnis: Marketing kommt nach dem Vertrauens- und Update-Fundament, nicht davor.
 
 | # | Aktion | Begründung | Prio |
 |---|--------|-----------|:----:|
@@ -5445,8 +5445,8 @@ Die wichtigste Erkenntnis: Marketing kommt nach dem Vertrauens- und Update-Funda
 | **4** | GitHub Release `v3.1.0` (getaggt, signiert, SHA256) | Fundament jeder Distribution | 🟡 |
 | **5** | AlternativeTo + r/macapps Soft-Launch | Erste organische Reichweite, Stabilitäts-Probe | 🟡 |
 | **6** | Homebrew Cask | Kompoundierender Schwungrad-Hebel, Top-ROI | 🟢 |
-| **7** | Show HN (erst nach 1–2 Wochen Stabilität) | Einmalige Chance — nicht verbrennen bevor stabil | 🟢 |
-| **8** | Positionierung: "Zero-Setup Multi-Output" statt "BlackHole-Alternative" | Kategorie selbst benennen — besetzt den Blue Ocean | 🔄 Durchgehend |
+| **7** | Show HN (erst nach 1–2 Wochen Stabilität) | Einmalige Chance, nicht verbrennen bevor stabil | 🟢 |
+| **8** | Positionierung: "Zero-Setup Multi-Output" statt "BlackHole-Alternative" | Kategorie selbst benennen, besetzt den Blue Ocean | 🔄 Durchgehend |
 
 ---
 
@@ -5465,11 +5465,11 @@ Diese Punkte wurden aus dem AUDIT_REPORT.md und PLAN.md übernommen:
 
 ---
 
-## Kapitel 43 — Kompatibilitäts-Analyse (2026-06-04)
+## Kapitel 43, Kompatibilitäts-Analyse (2026-06-04)
 
 ### 43.1 Unterstützte macOS-Versionen
 
-Deployment Target: **macOS 11.0 (Big Sur)** — einheitlich gesetzt in Driver-Makefile, Helper-Makefile, PyInstaller-Spec und Info.plist (`LSMinimumSystemVersion=11.0`).
+Deployment Target: **macOS 11.0 (Big Sur)**, einheitlich gesetzt in Driver-Makefile, Helper-Makefile, PyInstaller-Spec und Info.plist (`LSMinimumSystemVersion=11.0`).
 
 | macOS Version | Status |
 |--------------|--------|
@@ -5490,16 +5490,16 @@ Alle verwendeten CoreAudio HAL-, AppKit- und Foundation-APIs sind ab macOS 11.0 
 | Helper-Daemon | ✅ Universal Binary | ✅ Universal Binary |
 | App-Bundle (PyInstaller) | ⚠️ Rosetta 2 | ✅ Nativ |
 
-**Apple Silicon (M1/M2/M3/M4):** Vollständig nativ unterstützt — alle Komponenten laufen nativ arm64.
+**Apple Silicon (M1/M2/M3/M4):** Vollständig nativ unterstützt, alle Komponenten laufen nativ arm64.
 
-**Intel Macs:** Treiber und Helper laufen nativ (Universal Binary). Der PyInstaller-Bundle ist arm64-only und läuft via Rosetta 2. Kein System Extension oder KEXT erforderlich (reine AudioServerPlugin-Architektur). Offizielle Aussage: Intel Macs werden mit dem Prebuilt-DMG nicht nativ unterstützt — Bauen aus dem Source-Code bleibt möglich.
+**Intel Macs:** Treiber und Helper laufen nativ (Universal Binary). Der PyInstaller-Bundle ist arm64-only und läuft via Rosetta 2. Kein System Extension oder KEXT erforderlich (reine AudioServerPlugin-Architektur). Offizielle Aussage: Intel Macs werden mit dem Prebuilt-DMG nicht nativ unterstützt, Bauen aus dem Source-Code bleibt möglich.
 
 ### 43.3 Empfohlener Requirements-Text (für GitHub / Download-Seite)
 
 ```
 Requirements:
 • macOS 11.0 (Big Sur) or later
-• Apple Silicon Mac (M1 or later) — prebuilt binary is arm64
+• Apple Silicon Mac (M1 or later), prebuilt binary is arm64
   Intel Macs: build from source
 ```
 
@@ -5507,16 +5507,16 @@ Requirements:
 
 Das aktuelle Bundle enthält **Python 3.14** (Beta/RC-Zyklus, Stand Juni 2026). Für einen stabilen Produktions-Release sollte auf **Python 3.13** (LTS-stable) downgegradet werden, bevor offiziell gelaunchtet wird.
 
-**Risiko:** Python 3.14 ist noch nicht final — ABI-Änderungen könnten `.so`-Dateien inkompatibel machen.
+**Risiko:** Python 3.14 ist noch nicht final, ABI-Änderungen könnten `.so`-Dateien inkompatibel machen.
 
 **Aktion:** Vor GitHub Release v3.1.0 → `.venv` mit Python 3.13 neu erstellen → `build.sh` neu ausführen → neues DMG erstellen. Dieser Punkt ist in der Roadmap als P0-Präventivmaßnahme eingetragen (siehe Kapitel 42).
 
 ---
 
-## Kapitel 44 — P16 src_frac_ridx Overflow-Fix (v3.1.1, 9. Juni 2026)
+## Kapitel 44, P16 src_frac_ridx Overflow-Fix (v3.1.1, 9. Juni 2026)
 
 **Datum:** 9. Juni 2026 · **Commit:** `ff7556e` · **Datei:** `helper/AudioRouterNowHelper.c`  
-**Version:** 3.1.1 · **Typ:** Bugfix (P0 — periodischer HARD-STALL, vollständig deterministisch)
+**Version:** 3.1.1 · **Typ:** Bugfix (P0, periodischer HARD-STALL, vollständig deterministisch)
 
 ---
 
@@ -5526,7 +5526,7 @@ Nach ~5 Tagen Dauerbetrieb wurde folgender Befund aus den Logs extrahiert:
 
 **`helper.err` (16 Einträge):**
 ```
-Helper: Output 'Komplete Audio 6 MK2' HARD-STALL — IOProc laeuft, ridx eingefroren,
+Helper: Output 'Komplete Audio 6 MK2' HARD-STALL, IOProc laeuft, ridx eingefroren,
 Ring >75% seit >300ms. Position auf write_idx zurueckgesetzt.
 ```
 
@@ -5534,23 +5534,23 @@ Ring >75% seit >300ms. Position auf write_idx zurueckgesetzt.
 
 | Stall-Paar | IOProc-Call (1. Stall) | IOProc-Call (2. Stall) | Abstand (intern) | Abstand (zum Vorgänger) |
 |-----------|------------------------|------------------------|-----------------|------------------------|
-| 1 | 8.385.763 | 8.386.139 | 376 calls (2s) | — |
+| 1 | 8.385.763 | 8.386.139 | 376 calls (2s) | - |
 | 2 | 16.774.249 | 16.774.625 | 376 calls (2s) | 8.388.486 calls |
 | 3 | 25.163.265 | 25.163.639 | 374 calls (2s) | 8.389.016 calls |
 | 4 | 33.551.965 | 33.552.341 | 376 calls (2s) | 8.388.700 calls |
 | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
 | 8 | 67.106.827 | 67.107.201 | 374 calls (2s) | 8.388.928 calls |
 
-**Schlüsselbeobachtung:** Periodizität von `8.388.486–8.389.016 ≈ 8.388.608 = 2^23 = 2^32 / 512` IOProc-Calls. Fehlerrate ±0.005% — statistisch unmöglich zufällig.
+**Schlüsselbeobachtung:** Periodizität von `8.388.486–8.389.016 ≈ 8.388.608 = 2^23 = 2^32 / 512` IOProc-Calls. Fehlerrate ±0.005%, statistisch unmöglich zufällig.
 
 ---
 
-### 44.2 Root Cause — Undefined Behavior durch float→uint32_t-Cast
+### 44.2 Root Cause, Undefined Behavior durch float→uint32_t-Cast
 
 **Mechanismus:**
 
 ```c
-// AudioRouterNowHelper.c — SRC-Frame-Loop (device_ioproc)
+// AudioRouterNowHelper.c, SRC-Frame-Loop (device_ioproc)
 for (uint32_t f = 0; f < nFrames; f++) {          // nFrames = 512 pro Call
     uint32_t idx0 = (uint32_t)dev->src_frac_ridx;  // ← UB nach ~12h (1)
     // ...
@@ -5583,14 +5583,14 @@ In C ist `(uint32_t)(double_wert > UINT32_MAX)` **Undefined Behavior** (C11 §6.
 
 ---
 
-### 44.3 Fix — P16: Periodischer Fold um 2^31
+### 44.3 Fix, P16: Periodischer Fold um 2^31
 
 **Implementierung** (3 Codezeilen + Kommentar, in `device_ioproc()`, nach Zeile 896):
 
 ```c
             dev->src_frac_ridx += ratio;
 
-            /* P16: Fold src_frac_ridx um 2^31 nach jedem Advance — verhindert
+            /* P16: Fold src_frac_ridx um 2^31 nach jedem Advance, verhindert
              * float→uint32_t Cast-UB (Undefined Behavior) nach ~12h Dauerbetrieb.
              * 2^31 ist ein Vielfaches von ARN_RING_CAPACITY (2^13), daher vollstaendig transparent:
              *   • frac_as_samp = (uint32_t)(ridx*2): Fold aendert Wert um 2^32 ≡ 0 (mod 2^32)
@@ -5649,11 +5649,11 @@ Nach dem Fold ist `src_frac_ridx < 2^31`, also `src_frac_ridx × 2.0 < 2^32` →
 
 ---
 
-### 44.5 Fix-Analyse — Warum Fix B★ (Fold in Loop) gegenüber Fix A (uint64_t Cast)
+### 44.5 Fix-Analyse, Warum Fix B★ (Fold in Loop) gegenüber Fix A (uint64_t Cast)
 
 Evaluierte Alternativen:
 
-**Fix A — uint64_t-Intermediär an den Cast-Stellen:**
+**Fix A, uint64_t-Intermediär an den Cast-Stellen:**
 ```c
 uint32_t frac_as_samp = (uint32_t)((uint64_t)(dev->src_frac_ridx * 2.0));
 ```
@@ -5662,7 +5662,7 @@ uint32_t frac_as_samp = (uint32_t)((uint64_t)(dev->src_frac_ridx * 2.0));
 - Problem wäre erst nach ~24.9h aufgetreten (zweites Overflow-Intervall), aber prinzipiell unvollständig
 - **Urteil: Unvollständig**
 
-**Fix B★ — Fold innerhalb der Frame-Loop (gewählt):**
+**Fix B★, Fold innerhalb der Frame-Loop (gewählt):**
 - Alle Verwendungsstellen korrekt ✓
 - idx0 immer `< 2^31 + max_ratio ≈ 2^31 + 1.1` → `(uint32_t)`-Cast immer definiert ✓
 - `idx0 * 2u` immer `< 2^32 + 2` → uint32_t-Overflow bei Grenzwert (`idx0 = 2^31`) ergibt korrekte Ringposition wegen `2^31 mod 8192 = 0` ✓
@@ -5693,16 +5693,16 @@ Commit: `ff7556e` · Branch: `main` · Universal Binary: arm64 + x86_64 · macOS
 | Stall-Dauer | ~2–3 Sekunden (Doppel-Stall) | entfällt |
 | Ton-Artefakt | konstanter greller Ton | entfällt |
 | Dauerbetrieb | begrenzt durch 12h-Zyklus | **unbegrenzt stabil** |
-| Performance | — | kein messbarer Overhead |
-| Regressions-Risiko | — | keines (mathematisch bewiesen) |
+| Performance | - | kein messbarer Overhead |
+| Regressions-Risiko | - | keines (mathematisch bewiesen) |
 
 ---
 
-## Kapitel 45 — Diagnostic Report Feature (v3.1.2, 9. Juni 2026)
+## Kapitel 45, Diagnostic Report Feature (v3.1.2, 9. Juni 2026)
 
 ### 45.1 Motivation
 
-Wenn Nutzer Probleme melden (z.B. Audio-Aussetzer, Routing-Fehler), war bisher kein strukturierter Log-Versand möglich. Nutzer mussten manuell Log-Dateien suchen und per E-Mail anhängen — eine Hürde die die meisten Nutzer abschreckt. Das Diagnostic Report Feature löst das mit einem einzigen Menü-Klick.
+Wenn Nutzer Probleme melden (z.B. Audio-Aussetzer, Routing-Fehler), war bisher kein strukturierter Log-Versand möglich. Nutzer mussten manuell Log-Dateien suchen und per E-Mail anhängen, eine Hürde die die meisten Nutzer abschreckt. Das Diagnostic Report Feature löst das mit einem einzigen Menü-Klick.
 
 ### 45.2 User Flow
 
@@ -5714,7 +5714,7 @@ Help → Save Diagnostic Report…
      ↓
  .txt-Report auf Desktop gespeichert
      ↓
- Mail.app öffnet sich — Empfänger vorausgefüllt,
+ Mail.app öffnet sich, Empfänger vorausgefüllt,
  Report bereits angehängt, Subject-Zeile gesetzt
      ↓
  User tippt Problembeschreibung → Send
@@ -5741,7 +5741,7 @@ Fallback (Mail.app nicht verfügbar oder AppleScript-Fehler): Finder-Reveal + To
 - Help-Menü: `"Save Diagnostic Report…"` als neuer Menüpunkt (mit Separator vor "Uninstall")
 - `_save_diagnostic_report(self, sender)`: startet Daemon-Thread → Main-Thread blockiert nicht
 
-### 45.4 Log-Extraktion — Technischer Ansatz
+### 45.4 Log-Extraktion, Technischer Ansatz
 
 `helper.log` hat bei 14 MB typischerweise nur ~32 physische Zeilen (Polling-Einträge werden sequenziell ohne Newline geschrieben). Ein naiver zeilenbasierter Ansatz funktioniert nicht.
 
@@ -5767,7 +5767,7 @@ Dieser Ansatz ist robuster als ein einzelner Regex mit Lookahead, der durch lazy
 
 ```
 ╔════════════════════════════════════════════════════════╗
-║           AudioRouterNow — Diagnostic Report           ║
+║           AudioRouterNow, Diagnostic Report           ║
 ╚════════════════════════════════════════════════════════╝
 
 Generated : 2026-06-09 14:32:01 CEST
@@ -5777,7 +5777,7 @@ Hardware  : MacBookPro18,3
 Arch      : arm64
 
 NOTE: This report contains audio device identifiers
-      (hardware model info only — no personal data).
+      (hardware model info only, no personal data).
 
 ────────────────────────────────────────────────────────
 STATISTICS
@@ -5791,7 +5791,7 @@ CURRENT STATUS
 { ... Helper-Status-JSON ... }
 
 ────────────────────────────────────────────────────────
-ERROR LOG  (helper.err — letztes 1 MB)
+ERROR LOG  (helper.err, letztes 1 MB)
 ────────────────────────────────────────────────────────
 ...
 
@@ -5807,20 +5807,20 @@ Vor dem Commit wurde ein strukturierter Audit via `sc:analyze` durchgeführt. Be
 
 | ID | Severity | Finding | Fix |
 |----|----------|---------|-----|
-| M1 | MEDIUM | Regex fragil — lazy Quantifizierer + DOTALL produziert Leer-Matches | Ersetzt durch Poll-Split + greedy Token-Regex |
-| M2 | MEDIUM | `helper.err` ohne Größenbeschränkung — OOM bei crash-loop | 1 MB Tail-Cap + Offset-Hinweis |
+| M1 | MEDIUM | Regex fragil, lazy Quantifizierer + DOTALL produziert Leer-Matches | Ersetzt durch Poll-Split + greedy Token-Regex |
+| M2 | MEDIUM | `helper.err` ohne Größenbeschränkung, OOM bei crash-loop | 1 MB Tail-Cap + Offset-Hinweis |
 | M4 | MEDIUM | Uptime < 1h zeigt "(nicht verfügbar)" statt Minuten | Sub-Stunden-Zweig ergänzt |
 | H2 | HIGH | Callback blockiert Main-Thread (sysctl + 3 MB Read + osascript = bis 13 s) | Daemon-Thread in `_save_diagnostic_report` |
-| L1 | LOW | Zwei separate `datetime.now()`-Aufrufe — Mitternachts-Diskrepanz möglich | Einmalige `dt = datetime.now().astimezone()` |
+| L1 | LOW | Zwei separate `datetime.now()`-Aufrufe, Mitternachts-Diskrepanz möglich | Einmalige `dt = datetime.now().astimezone()` |
 | L2 | LOW | osascript-Timeout 10 s zu kurz für Mail-Kaltstart | Erhöht auf 20 s |
 
-Nicht behoben (akzeptiert): L3 (APP_VERSION hardcoded), L4 (E-Mail im Klartext — kein Risiko da GitHub-öffentlich), L5 (kein Report-Größen-Cap).
+Nicht behoben (akzeptiert): L3 (APP_VERSION hardcoded), L4 (E-Mail im Klartext, kein Risiko da GitHub-öffentlich), L5 (kein Report-Größen-Cap).
 
 Commit: `317f531` · Branch: `main`
 
 ---
 
-## Kapitel 46 — v3.2.0 Stability & Security Release
+## Kapitel 46, v3.2.0 Stability & Security Release
 
 ### Übersicht
 Version 3.2.0 enthält 12 Batches mit Fixes für alle in einem umfassenden Fable-5-Audit identifizierten Probleme.
@@ -5847,7 +5847,7 @@ _coreaudiod-Zugriff bleibt erhalten; fremde UIDs werden ausgeschlossen.
 engine/version.py als Single Source of Truth für alle Versions-Strings.
 
 **Pre-Roll-Latenz (Batch 11, ARC-4)**
-Von 85ms auf 43ms halbiert — der Kommentar war korrekt, der Wert falsch.
+Von 85ms auf 43ms halbiert, der Kommentar war korrekt, der Wert falsch.
 
 ### Weitere Fixes
 Mute-Toggle, Socket-Timeouts, Sample-Rate-Auswahl, Reconcile-Grace-Period,
@@ -5856,27 +5856,27 @@ sigaction, Port-Leak, strtol-Migration, JSON-Buffer, RT-Korrektheit.
 
 ---
 
-## Kapitel 47 — Datenverlust-Incident & Wiederherstellung (11. Juni 2026)
+## Kapitel 47, Datenverlust-Incident & Wiederherstellung (11. Juni 2026)
 
 ### Was passierte
 
 Am 11. Juni 2026 wurde dem Assistenten die Aufgabe gestellt, die App vollständig zu deinstallieren. Der ausgeführte Deinstallations-Agent entfernte dabei versehentlich:
-- `~/Desktop/AudioRouterNow/` — den gesamten Projektordner (inkl. Git-Repository)
-- `~/Desktop/AudioRouterNow.dmg` — das zuletzt gebaute v3.3.0 DMG
+- `~/Desktop/AudioRouterNow/`, den gesamten Projektordner (inkl. Git-Repository)
+- `~/Desktop/AudioRouterNow.dmg`, das zuletzt gebaute v3.3.0 DMG
 
 Die `rm -rf`-Befehle gingen am Trash vorbei und waren sofort permanent.
 
 ### Scope des Verlustes
 
-Der Time-Machine-Snapshot war vom selben Tag um 01:39 Uhr — das bedeutete, dass folgende Arbeit verloren war:
-- **v3.2.1 Commits** (3 Commits: MC-5, N6, P12) — aus einer früheren Session
-- **v3.3.0 Commits** (7 Commits: F1-F9, K1, H1, H3-H8, Docs) — aus dieser Session
+Der Time-Machine-Snapshot war vom selben Tag um 01:39 Uhr, das bedeutete, dass folgende Arbeit verloren war:
+- **v3.2.1 Commits** (3 Commits: MC-5, N6, P12), aus einer früheren Session
+- **v3.3.0 Commits** (7 Commits: F1-F9, K1, H1, H3-H8, Docs), aus dieser Session
 - **Das v3.3.0 DMG** (11 MB, frisch gebaut)
 
 ### Wiederherstellung
 
 1. **Time-Machine-Snapshot mounten**: `mount_apfs -o ro,nobrowse -s com.apple.TimeMachine.2026-06-11-013938.local /dev/disk3s1 /tmp/tm_restore`
-2. **Projektordner + DMG kopieren**: `cp -R /tmp/tm_restore/.../AudioRouterNow ~/Desktop/` — Snapshot-Stand: v3.2.0
+2. **Projektordner + DMG kopieren**: `cp -R /tmp/tm_restore/.../AudioRouterNow ~/Desktop/`, Snapshot-Stand: v3.2.0
 3. **Alle Fixes neu implementieren**: Vollständiger Fable-5-Workflow (23 Agenten) re-applizierte alle Fixes auf Basis des Session-Kontexts und der Commit-Zusammenfassungen
 4. **Neue Commits erstellt**: 4 logische Commit-Gruppen (Helper, Driver, Engine, Build)
 5. **Neues DMG gebaut**: Frischer Build mit allen Fixes
@@ -5887,7 +5887,7 @@ Die Deinstallations-Aufgabe war zu weit formuliert. Der Agent interpretierte „
 
 ---
 
-## Kapitel 48 — v3.3.0 Freeze-Prevention & Post-Audit Security Release (11. Juni 2026)
+## Kapitel 48, v3.3.0 Freeze-Prevention & Post-Audit Security Release (11. Juni 2026)
 
 **Version:** 3.3.0 | **Ausgangslage nach Wiederherstellung:** v3.2.0
 
@@ -5910,7 +5910,7 @@ App gekillt
 
 #### helper/AudioRouterNowHelper.c (ecffc53)
 
-**F1 — Double-SIGTERM + SIGALRM-Watchdog:**
+**F1, Double-SIGTERM + SIGALRM-Watchdog:**
 ```c
 static _Atomic int g_signal_count = 0;
 static void handle_signal(int sig) {
@@ -5923,24 +5923,24 @@ static void handle_alarm(int sig) { (void)sig; _exit(1); }
 // + alarm(5) vor pthread_join im Cleanup
 ```
 
-**F2 — Watchdog-Reihenfolge:** Flag-File schreiben → g_watchdog_tripped=1 → outputs_stop_all in detached pthread (synchroner Fallback falls pthread_create fehlschlägt).
+**F2, Watchdog-Reihenfolge:** Flag-File schreiben → g_watchdog_tripped=1 → outputs_stop_all in detached pthread (synchroner Fallback falls pthread_create fehlschlägt).
 
-**F5 — SHM atomic disconnect:** `atomic_exchange_explicit(&g_ring, NULL, memory_order_acq_rel)` vor `munmap` — verhindert Double-Unmap bei gleichzeitigem Signal + Watchdog.
+**F5, SHM atomic disconnect:** `atomic_exchange_explicit(&g_ring, NULL, memory_order_acq_rel)` vor `munmap`, verhindert Double-Unmap bei gleichzeitigem Signal + Watchdog.
 
-**F6 — CPU-Poll entfernt:** `proc_pid_rusage`-Abschnitt im volume_poll_thread komplett entfernt (war Ursache für pthread_join-Hänger).
+**F6, CPU-Poll entfernt:** `proc_pid_rusage`-Abschnitt im volume_poll_thread komplett entfernt (war Ursache für pthread_join-Hänger).
 
-**F7/M1 — RT-Priority entfernt:** `set_rt_priority()` vollständig gelöscht.
+**F7/M1, RT-Priority entfernt:** `set_rt_priority()` vollständig gelöscht.
 
-**H1 — In-flight Slot Race:**
+**H1, In-flight Slot Race:**
 - `process_hotplug_removals`: `if (!g_outputs[i].active) continue;`
 - `sr_reinit_all_outputs`: Unter Lock `active=false` Slots überspringen
 - `output_add` Phase 3b: lokale `new_proc_id` Variable, unter Lock in Phase 3c committed
 
 #### driver/src/AudioRouterNowDriver.c (7e2d3a0)
 
-**N6 — gDeviceIsRunning Self-Heal:** Guard entfernt, einziger Guard ist `gSHMRing != NULL`. Self-Heal setzt Flag auf 1 bei WriteMix.
+**N6, gDeviceIsRunning Self-Heal:** Guard entfernt, einziger Guard ist `gSHMRing != NULL`. Self-Heal setzt Flag auf 1 bei WriteMix.
 
-**F3 — Hybrid-Clock-Guard in GetZeroTimeStamp:**
+**F3, Hybrid-Clock-Guard in GetZeroTimeStamp:**
 ```c
 if (gFramesWritten == 0) {
     *outHostTime = mach_absolute_time();
@@ -5950,7 +5950,7 @@ if (gFramesWritten == 0) {
 // Guard am Ende: klemmt auf max. eine Periode in der Vergangenheit
 ```
 
-**C1 (CRITICAL Audit-Finding) — fstat-Guard vor mmap:**
+**C1 (CRITICAL Audit-Finding), fstat-Guard vor mmap:**
 ```c
 struct stat shm_st;
 if (fstat(fd, &shm_st) < 0 || (size_t)shm_st.st_size < ARN_SHM_SIZE) {
@@ -5961,11 +5961,11 @@ An allen 3 mmap-Stellen implementiert. Verhindert SIGBUS in coreaudiod durch zu-
 
 #### engine/*.py (50166d4)
 
-**MC-5:** `_ensure_secure_base_dir()` — `mkdir(0o700)` + `os.chmod(0o700)`.
+**MC-5:** `_ensure_secure_base_dir()`, `mkdir(0o700)` + `os.chmod(0o700)`.
 **F4:** SIGKILL-Eskalation: terminate→2s→`proc.kill()`.
 **F8:** `ping()` → `_cached_status(max_age=1.5)` auf Main-Thread.
 **F9:** Lock-File: `os.open(O_RDWR|O_CREAT)` + flock + seek/truncate.
-**K1:** `_health_poll_loop` — `get_status()` immer aufrufen (F8-Deadlock-Fix).
+**K1:** `_health_poll_loop`, `get_status()` immer aufrufen (F8-Deadlock-Fix).
 **H3:** FD-Leak: `try/finally` schließt log_out/log_err nach Popen.
 **H4:** `healer.reset_all()` + `_notified_trips.clear()` bei Respawn.
 **H8:** `is_audio_router_default()` im health-poll-Thread cachen (`_router_is_default`).
@@ -5979,7 +5979,7 @@ An allen 3 mmap-Stellen implementiert. Verhindert SIGBUS in coreaudiod durch zu-
 
 ---
 
-## Kapitel 49 — Tiefer Audit-Report v3.3.0 (11. Juni 2026)
+## Kapitel 49, Tiefer Audit-Report v3.3.0 (11. Juni 2026)
 
 *Durchgeführt von 5 parallelen Fable-5-Audit-Agenten nach vollständiger Implementierung aller v3.3.0 Fixes.*
 
@@ -5993,21 +5993,21 @@ AudioRouterNow ist ein technisch reifes Projekt mit überdurchschnittlicher C-Co
 
 | # | Komponente | Problem | Empfohlener Fix |
 |---|-----------|---------|----------------|
-| H-1 | Helper (C) | `coreaudiod_watchdog_tick` — toter Code, wird nirgends aufgerufen. P0-D-Schutzschicht existiert nur auf dem Papier | Dedizierten Watchdog-Thread spawnen oder Code + Doku entfernen |
-| H-2 | Helper (C) | SHM mit `0660` + gid 61 (localaccounts) ist für jeden lokalen User R/W — Audio-Injektion, Index-Korruption, ftruncate(0) möglich | Dedizierte Gruppe oder ACL nur für User + `_coreaudiod` |
-| H-3 | Driver (C) | `WRITE_SCALAR`-Makro in `GetPropertyData` — wurde als Mutex-Leak gemeldet, ist aber **False Positive** (kein gStateMutex in GetPropertyData gehalten) | Kein Fix nötig |
+| H-1 | Helper (C) | `coreaudiod_watchdog_tick`, toter Code, wird nirgends aufgerufen. P0-D-Schutzschicht existiert nur auf dem Papier | Dedizierten Watchdog-Thread spawnen oder Code + Doku entfernen |
+| H-2 | Helper (C) | SHM mit `0660` + gid 61 (localaccounts) ist für jeden lokalen User R/W, Audio-Injektion, Index-Korruption, ftruncate(0) möglich | Dedizierte Gruppe oder ACL nur für User + `_coreaudiod` |
+| H-3 | Driver (C) | `WRITE_SCALAR`-Makro in `GetPropertyData`, wurde als Mutex-Leak gemeldet, ist aber **False Positive** (kein gStateMutex in GetPropertyData gehalten) | Kein Fix nötig |
 | H-4 | Driver (C) | `GetZeroTimeStamp` F3-Clamp kann nicht-periodengerasterte, rückwärts springende Sample-Zeiten liefern → HAL-Clock-Estimator degeneriert | GZTS auf reines Host-Clock-Modell (anchor + n·period) umstellen |
 | H-5 | Driver (C) | Timeline-Seed bleibt konstant 1 trotz Clock-Diskontinuitäten → HAL verwirft gecachte Timestamps nicht | `atomic_ullong gTimelineSeed`, Inkrement bei Re-Anchor + SR-Wechsel |
-| H-6 | Python | Healer-State wird von Main- UND health-poll-Thread mutiert — stille State-Korruption möglich | `reset_all`/`clear` via Flag in health-poll-Thread verlagern oder Lock hinzufügen |
+| H-6 | Python | Healer-State wird von Main- UND health-poll-Thread mutiert, stille State-Korruption möglich | `reset_all`/`clear` via Flag in health-poll-Thread verlagern oder Lock hinzufügen |
 
 ### MEDIUM Findings (Backlog)
 
 **Helper (C):**
 - M-1: FIR-Interpolation liest hinter `read_idx` → Data Race mit Producer bei vollem Ring
 - M-2: ABA-Problem bei Slot-Re-Validierung (`output_add` Phase 3c) → geleakter IOProc
-- M-3: Mach-IPC-Property-Calls unter `g_outputs_lock` — coreaudiod-Hang friert gesamte Steuerebene ein
+- M-3: Mach-IPC-Property-Calls unter `g_outputs_lock`, coreaudiod-Hang friert gesamte Steuerebene ein
 - M-4: Config-Thread durch blockierendes `write()` aufhängbar (Same-User-DoS)
-- M-5: Safe-Take-Modus gated nur `reconnect_output` — Stall-Reset, Hard-Stall-Recovery laufen weiter
+- M-5: Safe-Take-Modus gated nur `reconnect_output`, Stall-Reset, Hard-Stall-Recovery laufen weiter
 - M-6: `arn_ring_set_sample_rate` verletzt SPSC (zwei Writer auf `write_idx`)
 
 **Driver (C):**
@@ -6022,7 +6022,7 @@ AudioRouterNow ist ein technisch reifes Projekt mit überdurchschnittlicher C-Co
 
 **Build:**
 - C-2: App ist kein Universal Binary (`target_arch=None` → arm64 only); Intel-Macs ausgeschlossen trotz `LSMinimumSystemVersion: 11.0`. Fix: `target_arch="universal2"` oder Intel-Support streichen.
-- H-9: Codesign-Fehler werden via `|| true` / `2>/dev/null` verschluckt — DMG mit kaputter Signatur möglich
+- H-9: Codesign-Fehler werden via `|| true` / `2>/dev/null` verschluckt, DMG mit kaputter Signatur möglich
 - H-10: Ad-hoc-Signatur + DMG = Gatekeeper-Block auf Sequoia+ → Developer-ID + Notarisierung nötig
 - H-11: `make install` invalidiert Bundle-Signatur; falscher Pfad (`__dot__driver`-Rename)
 
@@ -6030,7 +6030,7 @@ AudioRouterNow ist ein technisch reifes Projekt mit überdurchschnittlicher C-Co
 
 - v3.2.0-Eintrag nennt nur 1 von 8 Commits (`3206ee3`); weitere unerwähnt
 - K1 (AppleScript-Fix) und K2 (Main-Thread-Dispatch) fehlen in v3.2.0-Fix-Tabelle
-- Claim "all modules import from version.py" falsch — nur `diagnostic.py` tut dies
+- Claim "all modules import from version.py" falsch, nur `diagnostic.py` tut dies
 
 ### Positiv-Befunde (INFO)
 
@@ -6047,7 +6047,7 @@ AudioRouterNow ist ein technisch reifes Projekt mit überdurchschnittlicher C-Co
 
 ---
 
-## Kapitel 50 — Backlog: C-2 / H-9 / H-10 / H-11 (zurückgestellt, Stand: 2026-06-11)
+## Kapitel 50, Backlog: C-2 / H-9 / H-10 / H-11 (zurückgestellt, Stand: 2026-06-11)
 
 Diese vier Punkte wurden im tiefen Audit (Kapitel 49) identifiziert. Sie betreffen ausschliesslich
 Distribution/Signing und haben keinen Einfluss auf die Kernfunktionalität. Werden in einem späteren
@@ -6064,7 +6064,7 @@ Sprint gemeinsam angegangen.
 
 ---
 
-## Kapitel 51 — v3.3.1 Fixes: H-1, H-2, H-4/H-5, H-6 (2026-06-11)
+## Kapitel 51, v3.3.1 Fixes: H-1, H-2, H-4/H-5, H-6 (2026-06-11)
 
 ### H-1: Toten Watchdog-Code entfernt
 
@@ -6073,12 +6073,12 @@ Sprint gemeinsam angegangen.
 `__attribute__((unused))` markiert und wurde nie ausgeführt.
 
 **Mitentfernt** (ausschliesslich vom Watchdog genutzt):
-- `find_coreaudiod_pid()` — sysctl-basierte PID-Suche
-- `read_proc_cpu_ns()` — proc_pid_rusage-Wrapper
-- `outputs_stop_all_thread()` — detached-Thread-Wrapper
+- `find_coreaudiod_pid()`, sysctl-basierte PID-Suche
+- `read_proc_cpu_ns()`, proc_pid_rusage-Wrapper
+- `outputs_stop_all_thread()`, detached-Thread-Wrapper
 - Drei Includes: `<sys/sysctl.h>`, `<sys/proc_info.h>`, `<libproc.h>`
 
-`get_time_ns()` wurde NICHT entfernt — wird weiterhin an 6+ Stellen für Stall-Detection genutzt.
+`get_time_ns()` wurde NICHT entfernt, wird weiterhin an 6+ Stellen für Stall-Detection genutzt.
 
 ### H-2: POSIX SHM Permissions gehärtet
 
@@ -6108,7 +6108,7 @@ macOS nutzt diesen Wert für die Synchronisation mehrerer Audio-Geräte.
 - `ARN_StartIO()` wenn erster Client IO startet (`gIORunningCount == 0` → 1)
 - `ARN_PerformDeviceConfigurationChange()` nach jedem Sample-Rate-Wechsel
 
-`GetZeroTimeStamp` liest den Seed atomar (`memory_order_relaxed` — keine Ordnungsgarantie nötig):
+`GetZeroTimeStamp` liest den Seed atomar (`memory_order_relaxed`, keine Ordnungsgarantie nötig):
 ```c
 *outSeed = (UInt64)atomic_load_explicit(&gTimelineSeed, memory_order_relaxed);
 ```
@@ -6117,7 +6117,7 @@ macOS nutzt diesen Wert für die Synchronisation mehrerer Audio-Geräte.
 
 **Problem**: `Healer.process()` läuft alle 200 ms im health-poll-Thread. `Healer.reset_all()` wird
 vom UI-Timer-Thread (`_process_pending_updates`, alle 500 ms) aufgerufen. Beide modifizieren
-`self._breakers` und `self._evict_pending` ohne Synchronisation — klassische Race Condition.
+`self._breakers` und `self._evict_pending` ohne Synchronisation, klassische Race Condition.
 
 **Fix**: `threading.Lock` in allen public Methoden:
 
@@ -6144,7 +6144,7 @@ def breaker_name(self, uid, ch_offset):
 Lock-Contention ist minimal: beide Threads laufen mit 200 ms / 500 ms Intervall, die kritischen
 Abschnitte dauern < 1 ms. Kein Deadlock-Risiko (einziger Lock im Healer, kein verschachtelter Lock).
 
-## Kapitel 52 — v3.4.0 Fixes: I-1, I-2, I-3 (2026-06-12)
+## Kapitel 52, v3.4.0 Fixes: I-1, I-2, I-3 (2026-06-12)
 
 Diese drei Fixes beheben die Ursache dafür, dass nach einer Neuinstallation
 kein Ton aus Apple Music oder anderen System-Audio-Quellen hörbar war, obwohl
@@ -6152,11 +6152,11 @@ das System-Ausgabegerät korrekt auf "Audio Router" gesetzt war.
 
 Root-Cause-Analyse durchgeführt mit Claude Fable 5 (Fable-Modell).
 
-### I-1: SHM-Permissions — fchown/fchmod unwirksam auf macOS
+### I-1: SHM-Permissions, fchown/fchmod unwirksam auf macOS
 
 **Problem**: Fix H-2 (v3.3.1) versuchte das POSIX-SHM-Segment per `fchown()`
 auf `gid _coreaudiod` zu setzen. `fchown()` und `fchmod()` sind auf POSIX-SHM-
-Dateideskriptoren unter macOS **nicht implementiert** — beide schlagen mit
+Dateideskriptoren unter macOS **nicht implementiert**, beide schlagen mit
 `EINVAL (errno=22)` fehl. Das Segment blieb daher bei `uid=user, gid=staff(20),
 mode=0660`. Da `_coreaudiod` keine Mitgliedschaft in der `staff`-Gruppe hat,
 scheiterte `shm_open(O_RDWR)` im Driver-Host mit `EACCES`. `gSHMRing` blieb
@@ -6172,7 +6172,7 @@ ein fremder Prozess das Segment korrumpiert und ein Absturz folgt.
 
 Entfernt: `getgrnam("_coreaudiod")`, `fchown()`, `fchmod()`, `gid`-Berechnung.
 
-### I-2: GetZeroTimeStamp — Deadlock durch frame-gespeiste Clock
+### I-2: GetZeroTimeStamp, Deadlock durch frame-gespeiste Clock
 
 **Problem**: Die P4-Implementierung in `ARN_GetZeroTimeStamp` leitete
 `*outSampleTime` aus `gFramesWritten` ab:
@@ -6182,7 +6182,7 @@ uint64_t completed = gFramesWritten / kZeroTimeStampPeriod;
 ```
 `gFramesWritten` wird ausschließlich in `ARN_DoIOOperation` (WriteMix)
 inkrementiert. WriteMix wird vom HAL aber nur aufgerufen, wenn der HAL die
-Device-Clock als laufend erkennt — was er aus `outSampleTime` ableitet.
+Device-Clock als laufend erkennt, was er aus `outSampleTime` ableitet.
 Zirkulärer Deadlock:
 
 ```
