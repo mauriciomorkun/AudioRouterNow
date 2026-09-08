@@ -1,5 +1,5 @@
 """
-MenuBarApp — macOS menu bar widget for AudioRouterNow.
+MenuBarApp, macOS menu bar widget for AudioRouterNow.
 
 Phase 3+4+5: Steuert den nativen C-Helper über den Config-Socket.
 Keine Python-Audio-Dependencies mehr (kein sounddevice, kein numpy).
@@ -12,8 +12,8 @@ Menu structure:
   System Audio → Audio Router
   ─────────────────────────
   OUTPUT DEVICES:
-    [x] Komplete Audio 6 — Ch 1-2, Ch 5-6
-    [ ] MacBook Pro Speakers — 2ch
+    [x] Komplete Audio 6, Ch 1-2, Ch 5-6
+    [ ] MacBook Pro Speakers, 2ch
     ...
   ─────────────────────────
   Help ▶
@@ -90,12 +90,12 @@ _LOCK_DIR = Path.home() / ".audiorouter"
 _LOCK_FILE = _LOCK_DIR / "audiorouter.lock"
 _lock_fd = None
 
-# P3: coreaudiod-Watchdog — Flag-Datei geschrieben vom C Helper bei CPU-Spin >90% >5s
+# P3: coreaudiod-Watchdog, Flag-Datei geschrieben vom C Helper bei CPU-Spin >90% >5s
 _SPIN_FLAG_PATH = Path.home() / ".audiorouter" / "coreaudiod_spin.flag"
 
 
 class AudioRouterApp(rumps.App):
-    """Hauptanwendung — Menu-Bar UI, steuert den Helper über Socket."""
+    """Hauptanwendung, Menu-Bar UI, steuert den Helper über Socket."""
 
     def __init__(self):
         super().__init__("🔇", quit_button=None)
@@ -130,7 +130,7 @@ class AudioRouterApp(rumps.App):
 
         self._quit_btn = rumps.MenuItem("Quit", callback=self._quit_app)
 
-        # Help-Untermenü (None als Separator — konsistent mit _build_menu)
+        # Help-Untermenü (None als Separator, konsistent mit _build_menu)
         self._help_menu = rumps.MenuItem("Help")
         self._help_menu.update([
             rumps.MenuItem("Status Guide", callback=self._show_status_guide),
@@ -148,7 +148,7 @@ class AudioRouterApp(rumps.App):
         self._donation_btn = rumps.MenuItem(
             "Support AudioRouterNow", callback=self._open_donation
         )
-        self._donation_footer = rumps.MenuItem("Made with love by Mauricio — free forever")
+        self._donation_footer = rumps.MenuItem("Made with love by Mauricio, free forever")
         self._donation_footer.set_callback(None)
 
         self._device_menu_items: Dict[str, rumps.MenuItem] = {}
@@ -169,7 +169,7 @@ class AudioRouterApp(rumps.App):
         # Status-Zeile: letzter (title, action_key)-Wert zum Flacker-Schutz
         self._last_status_cache = (None, None)
 
-        # H4: Reconcile-Grace — Drift muss 3 Polls in Folge bestehen, bevor
+        # H4: Reconcile-Grace, Drift muss 3 Polls in Folge bestehen, bevor
         # die interne Auswahl korrigiert/persistiert wird (transiente Helper-
         # Zustaende direkt nach set_outputs sollen nicht persistieren).
         self._reconcile_drift_count: int = 0
@@ -177,11 +177,11 @@ class AudioRouterApp(rumps.App):
         # N3: Bereits notifizierte Circuit-Breaker-Trips (uid, ch_offset).
         self._notified_trips: set = set()
 
-        # M5: Health-Startup-Grace — in den ersten 3 Poll-Iterationen wird
+        # M5: Health-Startup-Grace, in den ersten 3 Poll-Iterationen wird
         # kein "critical" gemeldet (Helper/SHM brauchen beim Start kurz).
         self._initial_health_grace: int = 3
 
-        # M4: Media-Key-Volume-Queue — serialisiert Volume-Aenderungen in
+        # M4: Media-Key-Volume-Queue, serialisiert Volume-Aenderungen in
         # EINEM Worker-Thread statt einem Thread pro Tastendruck (verhindert
         # Races bei schnellen Key-Repeats).
         self._volume_queue = queue.Queue()
@@ -190,7 +190,7 @@ class AudioRouterApp(rumps.App):
         self._volume_worker.start()
 
         # P8: Zentraler Status-Cache. Der health-poll-Loop (200ms) ruft ohnehin
-        # regelmaessig get_status auf — andere Stellen (_compute_status,
+        # regelmaessig get_status auf, andere Stellen (_compute_status,
         # _process_pending_updates) lesen den Cache statt eigene Socket-Connects
         # zu oeffnen. Dict-Zuweisung ist GIL-atomar; kein zusaetzliches Lock noetig.
         self._status_cache: dict | None = None
@@ -198,14 +198,14 @@ class AudioRouterApp(rumps.App):
 
         # H-8: is_audio_router_default() (synchroner CoreAudio-Call) wird vom
         # health-poll-Thread (200ms, NICHT Main-Thread) gecacht. _compute_status()
-        # liest nur den Cache — kein Mach-IPC auf dem 0.5s-UI-Timer-Tick.
+        # liest nur den Cache, kein Mach-IPC auf dem 0.5s-UI-Timer-Tick.
         self._router_is_default: bool = False
 
         # Main-thread UI-Timer
         self._ui_timer = rumps.Timer(self._process_pending_updates, 0.5)
         self._ui_timer.start()
 
-        # NSPopover-Migration (Option B) — additiver Feature-Flag-Hybrid.
+        # NSPopover-Migration (Option B), additiver Feature-Flag-Hybrid.
         # Default True → NSStackView-Popover (bleibt nach Klicks offen).
         # Bei False → klassisches NSMenu (Fallback). Nach Runloop-Start wird ein
         # One-shot-Timer ausgeloest, der den NSPopover installiert (das StatusItem
@@ -218,7 +218,7 @@ class AudioRouterApp(rumps.App):
             self._popover_install_timer = rumps.Timer(self._install_popover, 0.1)
             self._popover_install_timer.start()
 
-        # P1: Event-driven Volume — CoreAudio Property-Listener statt
+        # P1: Event-driven Volume, CoreAudio Property-Listener statt
         # osascript-Polling. Der Listener feuert bei jeder Lautstaerke-Aenderung
         # des Standard-Ausgabegeraets; ein periodischer Poll-Thread entfaellt.
         try:
@@ -246,7 +246,7 @@ class AudioRouterApp(rumps.App):
         self._applied_output_keys: set = set()
 
         # P10: Treiber-ABI-Version gegen App-Erwartung pruefen (einmalig beim
-        # Start gecacht — kein File-Read pro Status-Tick). Bei Mismatch zeigt
+        # Start gecacht, kein File-Read pro Status-Tick). Bei Mismatch zeigt
         # _compute_status eine "Driver update required"-Zeile.
         try:
             self._driver_abi_ok = first_launch.driver_abi_matches()
@@ -261,12 +261,12 @@ class AudioRouterApp(rumps.App):
             self._driver_abi_ok = True  # fail-open: keine Falsch-Alarme
 
         # Sparkle Auto-Updater (degradiert im Dev-Mode sauber).
-        # Starke Referenz als self._updater halten — sonst GC-Absturz.
+        # Starke Referenz als self._updater halten, sonst GC-Absturz.
         self._updater = updater.SparkleUpdater()
         if self._updater.start():
             logger.info("Sparkle Auto-Updater aktiv")
         else:
-            logger.info("Sparkle nicht aktiv — Browser-Fallback fuer Updates")
+            logger.info("Sparkle nicht aktiv, Browser-Fallback fuer Updates")
 
         # Komponenten starten
         self._device_manager.start()
@@ -276,7 +276,7 @@ class AudioRouterApp(rumps.App):
         if not helper_ok:
             logger.error("Helper konnte nicht gestartet werden")
             rumps.alert(
-                title="AudioRouterNow — Helper Error",
+                title="AudioRouterNow, Helper Error",
                 message=(
                     "The audio routing helper could not be started.\n\n"
                     "Please reinstall AudioRouterNow."
@@ -291,9 +291,9 @@ class AudioRouterApp(rumps.App):
         self._restore_saved_outputs()
         self._auto_start_if_configured()
 
-        # Media Key Interceptor — fängt Volume-Tasten ab und verarbeitet
+        # Media Key Interceptor, fängt Volume-Tasten ab und verarbeitet
         # sie manuell via CoreAudio. Keyboard-Volume-Keys erreichen virtuelle
-        # HAL-Devices (wie Audio Router) nicht direkt — dieser Interceptor
+        # HAL-Devices (wie Audio Router) nicht direkt, dieser Interceptor
         # überbrückt die Lücke ohne Accessibility-Permissions.
         self._media_key_monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
             NSSystemDefinedMask, self._handle_media_key
@@ -342,11 +342,11 @@ class AudioRouterApp(rumps.App):
             no_dev.set_callback(None)
             items.append(no_dev)
 
-        # H5: Unavailable devices (stale config) — shown greyed out, not clickable.
+        # H5: Unavailable devices (stale config), shown greyed out, not clickable.
         # set_callback(None) macht den MenuItem nicht-klickbar (konsistent mit
         # _status_item / _output_header).
         for missing in sorted(self._unavailable_devices):
-            mi = rumps.MenuItem(f"⚠  {missing} — unavailable")
+            mi = rumps.MenuItem(f"⚠  {missing}, unavailable")
             mi.set_callback(None)
             items.append(mi)
 
@@ -398,7 +398,7 @@ class AudioRouterApp(rumps.App):
 
         if device.max_output_channels <= 2:
             checkmark = "[x]" if is_active else "[ ]"
-            title = f"{checkmark}  {device.name} — {device.max_output_channels}ch"
+            title = f"{checkmark}  {device.name}, {device.max_output_channels}ch"
             item = rumps.MenuItem(
                 title,
                 callback=lambda sender, d=device: self._toggle_device(sender, d),
@@ -411,9 +411,9 @@ class AudioRouterApp(rumps.App):
 
         if is_active and active_offsets:
             pairs_str = ", ".join(f"Ch {o + 1}-{o + 2}" for o in sorted(active_offsets))
-            title = f"{checkmark}  {device.name} — {pairs_str}"
+            title = f"{checkmark}  {device.name}, {pairs_str}"
         else:
-            title = f"{checkmark}  {device.name} — {device.max_output_channels}ch"
+            title = f"{checkmark}  {device.name}, {device.max_output_channels}ch"
 
         item = rumps.MenuItem(
             title,
@@ -435,7 +435,7 @@ class AudioRouterApp(rumps.App):
         return item
 
     # ------------------------------------------------------------------
-    # NSPopover-Migration (Option B) — additiv, hinter use_popover_menu-Flag
+    # NSPopover-Migration (Option B), additiv, hinter use_popover_menu-Flag
     # ------------------------------------------------------------------
 
     def _install_popover(self, timer):
@@ -443,14 +443,14 @@ class AudioRouterApp(rumps.App):
 
         rumps.App.run() blockiert; das NSStatusItem (self._nsapp.nsstatusitem)
         existiert erst nach initializeStatusBar(). Der 0.1s-Timer feuert garantiert
-        nach Runloop-Start auf dem Main-Thread — dann ist der StatusItem-Button
+        nach Runloop-Start auf dem Main-Thread, dann ist der StatusItem-Button
         verfuegbar und kann als Popover-Anchor + Klick-Target dienen."""
         timer.stop()
         try:
             from popover_menu import StatusPopover  # noqa: PLC0415 (lazy)
             self._status_popover = StatusPopover.alloc().initWithApp_(self)  # STARKE Ref
-            logger.info("NSPopover-Modus aktiv — StatusItem-Klick zeigt Popover")
-        except Exception as exc:  # noqa: BLE001 — Fallback auf NSMenu
+            logger.info("NSPopover-Modus aktiv, StatusItem-Klick zeigt Popover")
+        except Exception as exc:  # noqa: BLE001, Fallback auf NSMenu
             logger.error("NSPopover-Installation fehlgeschlagen, Fallback NSMenu: %s",
                          exc, exc_info=True)
             self._use_popover = False
@@ -461,13 +461,13 @@ class AudioRouterApp(rumps.App):
     def build_rows(self):
         """Spiegelt die Struktur von _build_menu() als list[Row] fuer den Popover.
 
-        KEINE neue Logik — liest exakt denselben State wie _build_menu /
+        KEINE neue Logik, liest exakt denselben State wie _build_menu /
         _make_device_menu_item und zeigt auf DIESELBEN bestehenden Callbacks.
         Checkmarks werden ueber den NSButton-State (Row.checked) statt ueber
         '[x]'/'[ ]'-Textpraefixe dargestellt.
 
         Abweichung vom NSMenu (dokumentiert): Channel-Pairs erscheinen als
-        eingerueckte Inline-Zeilen statt als echtes Submenu — und nur fuer
+        eingerueckte Inline-Zeilen statt als echtes Submenu, und nur fuer
         AKTIVE Multi-Channel-Devices (im NSMenu existiert das Submenu immer,
         ist aber bis zum Hover verborgen). Das Help-Submenu wird zur Inline-
         Sektion. Beides ist Folge der Popover-Praesentation (kein NSMenu-Submenu).
@@ -476,7 +476,7 @@ class AudioRouterApp(rumps.App):
 
         rows = []
 
-        # 1. Status-Zeile — Titel + ggf. Klick-Aktion aus dem Status-Cache
+        # 1. Status-Zeile, Titel + ggf. Klick-Aktion aus dem Status-Cache
         #    (von _update_status_ui befuellt; faellt im Erstaufbau auf
         #    _compute_status zurueck). Klickbar nur wenn action_key != None.
         title, action_key = self._last_status_cache
@@ -503,7 +503,7 @@ class AudioRouterApp(rumps.App):
 
             if device.max_output_channels <= 2:
                 rows.append(Row(
-                    f"{device.name} — {device.max_output_channels}ch",
+                    f"{device.name}, {device.max_output_channels}ch",
                     checked=is_active,
                     callback=lambda s, d=device: self._toggle_device(s, d),
                 ))
@@ -515,17 +515,16 @@ class AudioRouterApp(rumps.App):
             if is_active and active_offsets:
                 pairs_str = ", ".join(
                     f"Ch {o + 1}-{o + 2}" for o in sorted(active_offsets))
-                parent_title = f"{device.name} — {pairs_str}"
+                parent_title = f"{device.name}, {pairs_str}"
             else:
-                parent_title = f"{device.name} — {device.max_output_channels}ch"
+                parent_title = f"{device.name}, {device.max_output_channels}ch"
             rows.append(Row(
                 parent_title,
                 checked=parent_checked,
                 callback=lambda s, d=device: self._toggle_device(s, d),
             ))
 
-            # Channel-Pairs immer anzeigen (auch wenn Gerät inaktiv) —
-            # ausgegraut wenn inaktiv, damit User die Möglichkeit sieht
+            # Channel-Pairs immer anzeigen (auch wenn Gerät inaktiv), # ausgegraut wenn inaktiv, damit User die Möglichkeit sieht
             # ohne das Gerät erst aktivieren zu müssen (Option A).
             num_pairs = device.max_output_channels // 2
             for pair_idx in range(num_pairs):
@@ -543,9 +542,9 @@ class AudioRouterApp(rumps.App):
         if not devices:
             rows.append(Row("(no devices found)", enabled=False))
 
-        # H5: Unavailable devices (stale config) — nicht klickbar, ausgegraut.
+        # H5: Unavailable devices (stale config), nicht klickbar, ausgegraut.
         for missing in sorted(self._unavailable_devices):
-            rows.append(Row(f"⚠  {missing} — unavailable", enabled=False))
+            rows.append(Row(f"⚠  {missing}, unavailable", enabled=False))
 
         # 4. SAMPLE RATE
         rows.append(Row(kind="separator"))
@@ -581,7 +580,7 @@ class AudioRouterApp(rumps.App):
         # 7. Donation + Footer
         rows.append(Row(kind="separator"))
         rows.append(Row("Support AudioRouterNow", kind="action", callback=self._open_donation))
-        rows.append(Row("Made with love by Mauricio — free forever",
+        rows.append(Row("Made with love by Mauricio, free forever",
                         kind="action", enabled=False))
 
         # 8. Quit
@@ -596,7 +595,7 @@ class AudioRouterApp(rumps.App):
 
         Ersetzt die bisherigen direkten _build_menu()-Aufrufe an den
         State-mutierenden Call-Sites. Laeuft stets auf dem Main-Thread
-        (Toggle-Callbacks bzw. 0.5s-rumps.Timer) — derselbe K2-Pump, kein
+        (Toggle-Callbacks bzw. 0.5s-rumps.Timer), derselbe K2-Pump, kein
         zweiter Refresh-Pfad."""
         if self._use_popover and self._status_popover is not None:
             self._status_popover.refresh()
@@ -658,7 +657,7 @@ class AudioRouterApp(rumps.App):
         if not resp or not resp.get("ok"):
             err = resp.get("error", "unknown") if resp else "helper not reachable"
             rumps.alert(
-                title="AudioRouterNow — Sample Rate",
+                title="AudioRouterNow, Sample Rate",
                 message=f"Could not set sample rate:\n{err}",
             )
         self._refresh_view()
@@ -684,7 +683,7 @@ class AudioRouterApp(rumps.App):
                 best = rate
                 break
         if best is None:
-            # H3: Kein gemeinsamer Schnitt aller Geraete — statt blind 48 kHz
+            # H3: Kein gemeinsamer Schnitt aller Geraete, statt blind 48 kHz
             # die Rate mit maximaler Abdeckung waehlen (meiste Geraete
             # unterstuetzen sie; bei Gleichstand gewinnt die hoehere Rate).
             coverage = {
@@ -693,9 +692,9 @@ class AudioRouterApp(rumps.App):
             }
             best = max(preferred, key=lambda r: coverage[r])
             if coverage[best] == 0:
-                best = 48000  # Sicherheitsnetz — sollte nie eintreten
+                best = 48000  # Sicherheitsnetz, sollte nie eintreten
             logger.warning(
-                "Auto Sample-Rate: keine gemeinsame Rate aller %d Geraete — "
+                "Auto Sample-Rate: keine gemeinsame Rate aller %d Geraete, "
                 "waehle %d Hz (unterstuetzt von %d/%d Geraeten)",
                 len(active), best, coverage.get(best, 0), len(active),
             )
@@ -705,7 +704,7 @@ class AudioRouterApp(rumps.App):
         # aus (z.B. wenn nur die MacBook-Speaker entfernt werden, die optimale
         # gemeinsame SR sich dadurch aber nicht aendert).
         if best == self._config.sample_rate:
-            logger.debug("Auto Sample-Rate: %d Hz unveraendert — kein Reinit", best)
+            logger.debug("Auto Sample-Rate: %d Hz unveraendert, kein Reinit", best)
             return
         self._config.sample_rate = best
         save_config(self._config)
@@ -734,11 +733,10 @@ class AudioRouterApp(rumps.App):
 
     def _switch_system_audio(self, sender):
         # W2-1: HW-Lautstaerke des AKTUELLEN (physischen) Defaults VOR dem Switch
-        # lesen — danach ist der Default das virtuelle Device.
+        # lesen, danach ist der Default das virtuelle Device.
         prev_level = get_default_output_volume()
         success, error_msg = set_default_output_device(AUDIO_ROUTER_DEVICE_NAME)
-        # System Output ebenfalls auf Audio Router setzen —
-        # macOS Keyboard-Volume-Tasten folgen dem System Output.
+        # System Output ebenfalls auf Audio Router setzen, # macOS Keyboard-Volume-Tasten folgen dem System Output.
         # Ohne diesen Schritt zeigt der HUD eine leere Lautstärke-Spur.
         set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
         if success:
@@ -751,7 +749,7 @@ class AudioRouterApp(rumps.App):
             )
         else:
             rumps.alert(
-                title="AudioRouterNow — Switch Failed",
+                title="AudioRouterNow, Switch Failed",
                 message=f"Could not switch system audio:\n\n{error_msg}",
             )
 
@@ -773,15 +771,15 @@ class AudioRouterApp(rumps.App):
             "    Audio is routed and all selected devices are working.\n"
             "\n"
             "🟡  Warning\n"
-            "    • Ready — waiting for audio playback\n"
-            "    • Health degraded — output recovering\n"
+            "    • Ready, waiting for audio playback\n"
+            "    • Health degraded, output recovering\n"
             "\n"
-            "🔴  Error — action required\n"
+            "🔴  Error, action required\n"
             "    • Driver update required\n"
             "    • No output device selected\n"
             "    • Audio Router is not system default\n"
-            "    • Routing failed — no active outputs\n"
-            "    • Health critical — output stalled\n"
+            "    • Routing failed, no active outputs\n"
+            "    • Health critical, output stalled\n"
             "\n"
             "────────────────────────────\n"
             "Tap the menu bar icon to see the current status detail."
@@ -792,17 +790,17 @@ class AudioRouterApp(rumps.App):
                 from AppKit import NSAlert, NSApp  # noqa: PLC0415 (lazy import)
 
                 alert = NSAlert.alloc().init()
-                alert.setMessageText_("AudioRouterNow — Status Guide")
+                alert.setMessageText_("AudioRouterNow, Status Guide")
                 alert.setInformativeText_(informative_text)
                 alert.setAlertStyle_(1)  # NSInformationalAlertStyle
                 alert.addButtonWithTitle_("OK")
                 if NSApp() is not None:
                     NSApp().activateIgnoringOtherApps_(True)
                 alert.runModal()
-            except Exception as exc:  # noqa: BLE001 — Fallback auf rumps-Alert
+            except Exception as exc:  # noqa: BLE001, Fallback auf rumps-Alert
                 logger.warning("NSAlert Status Guide failed, falling back: %s", exc)
                 rumps.alert(
-                    title="AudioRouterNow — Status Guide",
+                    title="AudioRouterNow, Status Guide",
                     message=informative_text,
                     ok="OK",
                 )
@@ -871,7 +869,7 @@ class AudioRouterApp(rumps.App):
         )
 
         rumps.alert(
-            title="AudioRouterNow — What's running",
+            title="AudioRouterNow, What's running",
             message=message,
             ok="Close",
         )
@@ -900,7 +898,7 @@ class AudioRouterApp(rumps.App):
         if updater_obj is not None and updater_obj.check_for_updates():
             return
         # Browser-Fallback (Dev-Mode oder Sparkle nicht verfuegbar)
-        from version import APP_VERSION  # noqa: PLC0415 (lazy import — version.py in hiddenimports)
+        from version import APP_VERSION  # noqa: PLC0415 (lazy import, version.py in hiddenimports)
         response = rumps.alert(
             title="Check for Updates",
             message=(
@@ -926,16 +924,16 @@ class AudioRouterApp(rumps.App):
     def _save_diagnostic_report(self, sender):
         """Generiert Diagnostic Report im Hintergrund und öffnet Mail.app.
 
-        Läuft in einem Thread — der Main-Thread (rumps/AppKit) blockiert nicht,
+        Läuft in einem Thread, der Main-Thread (rumps/AppKit) blockiert nicht,
         auch wenn sysctl, Disk-Read oder osascript langsam antworten.
         """
         def _run():
             try:
                 path = diagnostic.generate_report(self._helper)
             except Exception as exc:
-                # K2: kein rumps.notification aus Background-Thread — enqueuen
+                # K2: kein rumps.notification aus Background-Thread, enqueuen
                 self._enqueue_notification(
-                    "AudioRouterNow — Diagnostic Report",
+                    "AudioRouterNow, Diagnostic Report",
                     f"Could not generate report: {exc}",
                 )
                 return
@@ -944,15 +942,15 @@ class AudioRouterApp(rumps.App):
             if mail_ok:
                 self._enqueue_notification(
                     "AudioRouterNow",
-                    "Diagnostic Report ready — Mail is open, "
+                    "Diagnostic Report ready, Mail is open, "
                     "describe your issue and click Send.",
                 )
             else:
                 # Fallback: Datei im Finder markieren + Notification mit Anweisung
                 diagnostic.reveal_in_finder(path)
                 self._enqueue_notification(
-                    "AudioRouterNow — Diagnostic Report",
-                    f"Saved: {path.name} — Mail could not be opened. "
+                    "AudioRouterNow, Diagnostic Report",
+                    f"Saved: {path.name}, Mail could not be opened. "
                     f"Please send the file to {diagnostic.DEVELOPER_EMAIL}",
                 )
 
@@ -997,7 +995,7 @@ class AudioRouterApp(rumps.App):
         def _worker():
             try:
                 result = first_launch.uninstall_all()  # blockiert NUR diesen Thread
-            except Exception as exc:  # defensiv — Thread darf nie still sterben
+            except Exception as exc:  # defensiv, Thread darf nie still sterben
                 result = (False, f"Unexpected error during uninstall:\n{exc}")
             self._uninstall_result = result
 
@@ -1013,7 +1011,7 @@ class AudioRouterApp(rumps.App):
         """Main-Thread-Callback: holt Ergebnis aus dem Uninstall-Worker-Thread."""
         result = self._uninstall_result
         if result is None:
-            return  # Worker noch nicht fertig — weiter pollen
+            return  # Worker noch nicht fertig, weiter pollen
         timer.stop()
         success, msg = result
         if success:
@@ -1038,7 +1036,7 @@ class AudioRouterApp(rumps.App):
             except Exception:
                 pass
             rumps.alert(title="Uninstall incomplete", message=msg, ok="OK")
-            # In _uninstall zerstoerte Infrastruktur wiederherstellen — sonst
+            # In _uninstall zerstoerte Infrastruktur wiederherstellen, sonst
             # ist die App bis zum Neustart ein Zombie (kein Health-Poll, kein
             # Volume-Listener, Helper bleibt gestoppt).
             try:
@@ -1067,7 +1065,7 @@ class AudioRouterApp(rumps.App):
         if hasattr(self, '_health_poll_stop'):
             self._health_poll_stop.set()
         self._device_manager.stop()
-        # Helper sauber beenden — verhindert Orphan-Prozesse.
+        # Helper sauber beenden, verhindert Orphan-Prozesse.
         # Der Helper stoppt seinen Keep-Alive IOProc im Cleanup selbst.
         self._helper.shutdown()
         save_config(self._config)
@@ -1081,7 +1079,7 @@ class AudioRouterApp(rumps.App):
         self._device_update_pending = True
 
     def _enqueue_notification(self, title: str, message: str) -> None:
-        """K2: Thread-safe — Notification für den Main-Thread einreihen.
+        """K2: Thread-safe, Notification für den Main-Thread einreihen.
         Background-Threads dürfen rumps.notification nicht direkt aufrufen;
         der UI-Timer (_process_pending_updates) konsumiert die Queue."""
         with self._pending_notifications_lock:
@@ -1123,7 +1121,7 @@ class AudioRouterApp(rumps.App):
             self._refresh_view()
 
         # F8: Status-Update via Status-Cache statt blockierendem Socket-Ping
-        # auf dem Main-Thread — der health-poll-Loop (200ms) befuellt den Cache.
+        # auf dem Main-Thread, der health-poll-Loop (200ms) befuellt den Cache.
         alive_now = self._cached_status(max_age=1.5) is not None
         if alive_now != self._helper_alive:
             old_alive = self._helper_alive
@@ -1131,15 +1129,15 @@ class AudioRouterApp(rumps.App):
             # _update_status_ui() wird unten bei jedem Tick aufgerufen.
             # Helper went from dead → alive (e.g., slow start, or respawn succeeded)
             if alive_now and not old_alive:
-                logger.info("Helper jetzt erreichbar — Outputs neu konfigurieren")
-                # H4: Healer-Zustand + Trip-Notifications zuruecksetzen — der
+                logger.info("Helper jetzt erreichbar, Outputs neu konfigurieren")
+                # H4: Healer-Zustand + Trip-Notifications zuruecksetzen, der
                 # neue Helper-Prozess kennt die alten Breaker-Trips nicht.
                 self._healer.reset_all()
                 self._notified_trips.clear()
                 self._auto_start_if_configured()
             # Helper went from alive → dead → try to respawn
             elif not alive_now and old_alive:
-                logger.warning("Helper nicht mehr erreichbar — versuche Neustart")
+                logger.warning("Helper nicht mehr erreichbar, versuche Neustart")
                 def _respawn():
                     ok = self._helper.ensure_running()
                     if ok:
@@ -1148,25 +1146,25 @@ class AudioRouterApp(rumps.App):
                         logger.error("Helper-Neustart fehlgeschlagen")
                 threading.Thread(target=_respawn, name="helper-respawn", daemon=True).start()
 
-        # Status-Zeile bei JEDEM Tick aktualisieren — nicht nur bei Helper-
+        # Status-Zeile bei JEDEM Tick aktualisieren, nicht nur bei Helper-
         # Zustandswechsel. Noetig damit z.B. externes Umstellen des System-
         # Audio-Outputs (routed_here) zeitnah erkannt wird. Caching in
         # _update_status_ui verhindert unnoetiges Neu-Rendern.
         self._update_status_ui()
 
-        # Fix-3: Leichtgewichtiger Retry — nur _apply_active_outputs(),
+        # Fix-3: Leichtgewichtiger Retry, nur _apply_active_outputs(),
         # KEIN disruptives _auto_start_if_configured() (das würde Default-Output
         # wiederholt neu setzen und laufende Streams unterbrechen).
         if self._needs_reconfigure and alive_now:
             if self._reconfigure_attempts < 5:
                 # P8: Cache lesen statt eigenem Socket-Connect. Faellt der Cache
                 # leer aus (z.B. Helper gerade erst hochgefahren), gilt das als
-                # "noch nicht ready" — der naechste Timer-Tick versucht es erneut.
+                # "noch nicht ready", der naechste Timer-Tick versucht es erneut.
                 status = self._cached_status()
                 if status is not None and status.get('ready') is not False:
                     self._reconfigure_attempts += 1
                     logger.info(
-                        "Helper SHM bereit — Outputs neu konfigurieren (Retry %d/5)",
+                        "Helper SHM bereit, Outputs neu konfigurieren (Retry %d/5)",
                         self._reconfigure_attempts,
                     )
                     if self._apply_active_outputs():
@@ -1174,7 +1172,7 @@ class AudioRouterApp(rumps.App):
                         self._reconfigure_attempts = 0
             else:
                 logger.warning(
-                    "Outputs-Retry erschöpft (5/5) — Helper antwortet nicht mit ready"
+                    "Outputs-Retry erschöpft (5/5), Helper antwortet nicht mit ready"
                 )
                 self._needs_reconfigure = False
                 self._reconfigure_attempts = 0
@@ -1187,7 +1185,7 @@ class AudioRouterApp(rumps.App):
                 title="AudioRouterNow is working",
                 subtitle="",
                 message=(
-                    "Hi, I'm Mauricio — I built this on my own. "
+                    "Hi, I'm Mauricio, I built this on my own. "
                     "It's free and always will be. "
                     "If it saves you time, support via the menu."
                 ),
@@ -1212,25 +1210,25 @@ class AudioRouterApp(rumps.App):
 
     def _health_poll_loop(self):
         """Tranche A: Daemon-Thread für Health-Telemetrie (200ms Intervall).
-        Rein observierend — kein Eingriff in den Audio-Pfad."""
+        Rein observierend, kein Eingriff in den Audio-Pfad."""
         while not self._health_poll_stop.wait(0.2):
-            # M5: Startup-Grace — erste Iterationen kein "critical" melden
+            # M5: Startup-Grace, erste Iterationen kein "critical" melden
             # (Helper/SHM sind beim App-Start noch nicht zwingend bereit).
             grace = self._initial_health_grace > 0
             if grace:
                 self._initial_health_grace -= 1
 
-            # P3/K1: coreaudiod-Watchdog-Trip ZUERST erkennen — Flag-Datei
+            # P3/K1: coreaudiod-Watchdog-Trip ZUERST erkennen, Flag-Datei
             # prüfen, VOR get_status (der Helper kann bei Spin haengen).
             # Nur lesen wenn noch kein Trip gemeldet (Dialog läuft gerade).
             if not self._coreaudiod_spin_detected and _SPIN_FLAG_PATH.exists():
                 try:
-                    _SPIN_FLAG_PATH.unlink()   # sofort löschen — kein Doppel-Dialog
+                    _SPIN_FLAG_PATH.unlink()   # sofort löschen, kein Doppel-Dialog
                 except OSError:
                     pass
                 self._coreaudiod_spin_detected = True   # Main-Thread zeigt Dialog
 
-            # K1: get_status IMMER aufrufen — kein _helper_alive-Guard davor.
+            # K1: get_status IMMER aufrufen, kein _helper_alive-Guard davor.
             # Der alte Guard verhinderte, dass der Cache je befuellt wurde,
             # wenn alive=False war (Deadlock: alive haengt am Cache, F8).
             try:
@@ -1240,7 +1238,7 @@ class AudioRouterApp(rumps.App):
                 status = None
 
             if status is None:
-                # P8: Cache invalidieren — Helper antwortet nicht.
+                # P8: Cache invalidieren, Helper antwortet nicht.
                 self._status_cache = None
                 self._health_level = "degraded" if grace else "critical"
                 continue
@@ -1250,8 +1248,7 @@ class AudioRouterApp(rumps.App):
             self._status_cache = status
             self._status_cache_ts = time.monotonic()
 
-            # H-8: is_audio_router_default() hier im Background-Thread cachen —
-            # CoreAudio-Syscall nie auf dem 0.5s-UI-Timer-Tick.
+            # H-8: is_audio_router_default() hier im Background-Thread cachen, # CoreAudio-Syscall nie auf dem 0.5s-UI-Timer-Tick.
             try:
                 self._router_is_default = is_audio_router_default()
             except Exception:
@@ -1272,7 +1269,7 @@ class AudioRouterApp(rumps.App):
             if sh is None:
                 continue
 
-            # Tranche B: Heilung anstoßen — K1: eigener Exception-Guard
+            # Tranche B: Heilung anstoßen, K1: eigener Exception-Guard
             try:
                 prev_tripped = set(self._healer.tripped_outputs())
                 self._healer.process(sh)
@@ -1285,14 +1282,14 @@ class AudioRouterApp(rumps.App):
                 # Neue Trips notifizieren
                 new_trips = current_tripped - self._notified_trips
                 for (uid, ch_off) in new_trips:
-                    # M6: Im Breaker gespeicherten Device-Namen nutzen — der
+                    # M6: Im Breaker gespeicherten Device-Namen nutzen, der
                     # Output kann zum Trip-Zeitpunkt bereits aus sh.outputs
                     # verschwunden sein.
                     dev_name = self._healer.breaker_name(uid, ch_off) or uid
                     self._notified_trips.add((uid, ch_off))
-                    # K2: kein rumps.notification aus Background-Thread — enqueuen
+                    # K2: kein rumps.notification aus Background-Thread, enqueuen
                     self._enqueue_notification(
-                        "AudioRouterNow — Output unreachable",
+                        "AudioRouterNow, Output unreachable",
                         f"'{dev_name}' Ch{ch_off+1}-{ch_off+2} could not be recovered. "
                         "Reconnect the device or restart via menu.",
                     )
@@ -1321,7 +1318,7 @@ class AudioRouterApp(rumps.App):
         H2: Der angezeigte Routing-Zustand wird aus dem REALEN Helper-Status
         (status['active']) abgeleitet, NICHT aus der gespeicherten Auswahl
         (_active_device_names). status['active'] ist die Autoritaet darueber,
-        welche Outputs der Helper tatsaechlich bedient — die gespeicherte
+        welche Outputs der Helper tatsaechlich bedient, die gespeicherte
         Auswahl kann davon abweichen (Device weg, Fan-out fehlgeschlagen).
 
         Zustands-Matrix (in Prioritaet):
@@ -1329,7 +1326,7 @@ class AudioRouterApp(rumps.App):
           1. helper_alive         → ⚠️  Helper not responding
           2. outputs_selected     → 🔴 No output selected
           3. routed_here          → 🔴 Audio Router not system default
-          4. selected & n_active==0 → 🔴 Routing failed — no output (CASE-001)
+          4. selected & n_active==0 → 🔴 Routing failed, no output (CASE-001)
           5. ring_frames          → audio_flowing
           6. n_active == m_total & !audio_flowing → 🟡 Ready
           7. 0 < n_active < m_total → 🟢 Routing active N/M (>=1 Geraet aktiv → gruen)
@@ -1340,30 +1337,30 @@ class AudioRouterApp(rumps.App):
 
         # 0. P10: Treiber-ABI inkompatibel → alles andere zweitrangig.
         if not getattr(self, "_driver_abi_ok", True):
-            return ("🔴  Driver update required — click to reinstall", "reinstall_driver")
+            return ("🔴  Driver update required, click to reinstall", "reinstall_driver")
 
         # 1. Helper tot → alles andere irrelevant
         if not helper_alive:
-            return ("⚠️  Helper not responding — click to restart", "restart_helper")
+            return ("⚠️  Helper not responding, click to restart", "restart_helper")
 
         # 2. Helper lebt, aber kein Output gewaehlt
         if not outputs_selected:
-            return ("🔴  No output selected — pick a device below", None)
+            return ("🔴  No output selected, pick a device below", None)
 
-        # 3. routed_here pruefen — H-8: Cache aus health-poll-Thread, kein
+        # 3. routed_here pruefen, H-8: Cache aus health-poll-Thread, kein
         #    synchroner CoreAudio-Call auf dem Main-Thread (0.5s-UI-Tick).
-        #    H2: Icon 🔴 (nicht 🟡) — ist der Treiber NICHT System-Default,
+        #    H2: Icon 🔴 (nicht 🟡), ist der Treiber NICHT System-Default,
         #    fliesst ueberhaupt kein Audio durch den Router. Harter Fehler.
         routed_here = self._router_is_default
         if not routed_here:
-            return ("🔴  Audio Router not system default — click to fix", "switch_audio")
+            return ("🔴  Audio Router not system default, click to fix", "switch_audio")
 
         # H2: REALEN Routing-Zustand aus dem Helper-Status ableiten, NICHT aus
         #     der gespeicherten Auswahl. status['active'] ist die Autoritaet
         #     darueber, welche Outputs der Helper tatsaechlich bedient.
         #     P8: aus dem zentralen Status-Cache (health-poll-Loop, 200ms).
         #     max_age=1.5 muss mit dem helper_alive-Check (_helper_alive, oben aus
-        #     _cached_status(max_age=1.5)) uebereinstimmen — sonst zeigt das
+        #     _cached_status(max_age=1.5)) uebereinstimmen, sonst zeigt das
         #     1.0-1.5s-Fenster faelschlich "Routing failed".
         status = self._cached_status(max_age=1.5)
         active_entries = status.get("active", []) if isinstance(status, dict) else []
@@ -1384,11 +1381,11 @@ class AudioRouterApp(rumps.App):
         #    Edge-Case Pre-Roll: direkt nach set_outputs kann active[] fuer einen
         #    Tick leer sein (Start-Transient). Der _reconcile_drift_count-
         #    Mechanismus federt nur die Auswahl-Korrektur ab, nicht den Status-
-        #    Pfad — bekannte Limitierung: ein einzelner 0.5s-Tick kann hier
+        #    Pfad, bekannte Limitierung: ein einzelner 0.5s-Tick kann hier
         #    "Routing failed" zeigen, der naechste Tick korrigiert sobald
         #    active[] befuellt ist.
         if selected and n_active == 0:
-            return ("🔴  Routing failed — no output", None)
+            return ("🔴  Routing failed, no output", None)
 
         # 5. audio_flowing aus ring_frames ableiten.
         ring_frames = status.get("ring_frames", 0) if isinstance(status, dict) else 0
@@ -1397,26 +1394,26 @@ class AudioRouterApp(rumps.App):
         except (TypeError, ValueError):
             audio_flowing = False
 
-        # 6. Ready-State — alle erwarteten Outputs aktiv, aber noch kein Audio.
+        # 6. Ready-State, alle erwarteten Outputs aktiv, aber noch kein Audio.
         #    Sanfter Uebergangszustand beim Start; verhindert falsches Gruen.
         if m_total > 0 and n_active == m_total and not audio_flowing:
-            return ("🟡  Ready — play something to start routing", None)
+            return ("🟡  Ready, play something to start routing", None)
 
-        # 7. Teilweises Routing — nur ein Teil der erwarteten Geraete ist aktiv
+        # 7. Teilweises Routing, nur ein Teil der erwarteten Geraete ist aktiv
         #    (z.B. ein Output verschwunden / Fan-out teilweise fehlgeschlagen).
         #    UX-Fix (2026-06-29): Solange MINDESTENS EIN Geraet aktiv ist
-        #    (0 < n_active), fliesst Audio weiter — das Icon bleibt GRUEN.
+        #    (0 < n_active), fliesst Audio weiter, das Icon bleibt GRUEN.
         #    Ein getrenntes Geraet (USB-Soundkarte etc.) ist KEIN Fehler, wenn
         #    andere Outputs noch bedient werden. Frueher: 🟡 orange, was
         #    faelschlich "Audio kaputt" suggerierte. Der Statustext zeigt die
-        #    "(N unavailable)"-Transparenz weiterhin an — nur das Icon ist gruen.
+        #    "(N unavailable)"-Transparenz weiterhin an, nur das Icon ist gruen.
         #    Orange/Rot bleibt den echten Fehlerzustaenden vorbehalten:
         #    n_active == 0 wird oben in Schritt 4 als 🔴 abgefangen.
         if 0 < n_active < m_total:
             missing_from_active = (set(selected) | unavailable) - set(active_names)
             n_missing = len(missing_from_active)
             return (
-                f"🟢  Routing active — {n_active}/{m_total} devices "
+                f"🟢  Routing active, {n_active}/{m_total} devices "
                 f"({n_missing} unavailable)",
                 None,
             )
@@ -1428,7 +1425,7 @@ class AudioRouterApp(rumps.App):
         else:
             names_str = ", ".join(active_names)
 
-        # Tranche A: Health-Ampel in den Routing-Status integrieren — NACH dem
+        # Tranche A: Health-Ampel in den Routing-Status integrieren, NACH dem
         #    audio_flowing-Gate eingehaengt.
         health_level = getattr(self, '_health_level', 'healthy')
         if health_level == "critical":
@@ -1442,9 +1439,9 @@ class AudioRouterApp(rumps.App):
         sh = getattr(self._health_monitor, 'health', None) if hasattr(self, '_health_monitor') else None
         reason_suffix = ""
         if sh and sh.reasons and health_level != "healthy":
-            reason_suffix = f" — {sh.reasons[0]}"
+            reason_suffix = f", {sh.reasons[0]}"
 
-        return (f"{icon_override}  Routing active — {names_str}{reason_suffix}", None)
+        return (f"{icon_override}  Routing active, {names_str}{reason_suffix}", None)
 
     def _status_action(self, sender):
         """
@@ -1473,7 +1470,7 @@ class AudioRouterApp(rumps.App):
                 )
             else:
                 rumps.alert(
-                    title="AudioRouterNow — Driver update failed",
+                    title="AudioRouterNow, Driver update failed",
                     message=(error_msg or "The driver ABI version still does not match.")
                             + "\n\nPlease reinstall AudioRouterNow.",
                     ok="OK",
@@ -1503,7 +1500,7 @@ class AudioRouterApp(rumps.App):
         """
         import subprocess
         response = rumps.alert(
-            title="AudioRouterNow — Audio System Hung",
+            title="AudioRouterNow, Audio System Hung",
             message=(
                 "The audio system (coreaudiod) was detected spinning at high CPU.\n\n"
                 "AudioRouterNow has stopped its audio outputs to prevent a system freeze.\n\n"
@@ -1530,20 +1527,20 @@ class AudioRouterApp(rumps.App):
                             "AudioRouterNow",
                             "Audio system restarted. Reconnecting outputs…")
                         time.sleep(3.0)
-                        # K2: Flag setzen — der UI-Timer ruft
+                        # K2: Flag setzen, der UI-Timer ruft
                         # _auto_start_if_configured() auf dem Main-Thread auf.
                         self._needs_reconnect_autostart = True
                     else:
                         err = result.stderr.decode(errors="replace").strip()
                         logger.warning("coreaudiod-Neustart fehlgeschlagen: %s", err)
                         self._enqueue_notification(
-                            "AudioRouterNow — Restart Failed",
+                            "AudioRouterNow, Restart Failed",
                             "Could not restart the audio system. "
                             "Please restart your Mac if the issue persists.")
                 except subprocess.TimeoutExpired:
                     logger.error("coreaudiod-Neustart: osascript Timeout (Passwort-Dialog?)")
                     self._enqueue_notification(
-                        "AudioRouterNow — Restart Failed",
+                        "AudioRouterNow, Restart Failed",
                         "The restart timed out. Please try again.")
                 except Exception as e:
                     logger.error("coreaudiod-Neustart Exception: %s", e)
@@ -1555,9 +1552,9 @@ class AudioRouterApp(rumps.App):
         Interceptiert macOS Media Keys (Volume Up/Down/Mute).
 
         Keyboard-Volume-Keys senden NSSystemDefined-Events mit subtype 8.
-        Sie erreichen virtuelle HAL-Devices nicht direkt — dieser Handler
+        Sie erreichen virtuelle HAL-Devices nicht direkt, dieser Handler
         verarbeitet sie manuell: liest den aktuellen Output-Volume, passt
-        ihn an und setzt ihn direkt via CoreAudio (P1 — was den Driver's
+        ihn an und setzt ihn direkt via CoreAudio (P1, was den Driver's
         SetPropertyData korrekt triggert und volume_q16 im SHM aktualisiert).
 
         Key-Codes (NX_KEYTYPE_*): 2=Volume Down, 3=Volume Up, 7=Mute.
@@ -1574,7 +1571,7 @@ class AudioRouterApp(rumps.App):
             if key_state != 0xA:      # Nur Key-Down verarbeiten
                 return
 
-            # M4: Key-Code in die Volume-Queue legen — der Event-Handler kehrt
+            # M4: Key-Code in die Volume-Queue legen, der Event-Handler kehrt
             # sofort zurueck, der Worker-Thread serialisiert die Aenderungen
             # (kein Thread pro Tastendruck mehr → keine Read/Write-Races bei
             # schnellen Key-Repeats).
@@ -1583,7 +1580,7 @@ class AudioRouterApp(rumps.App):
             logger.debug(f"_handle_media_key Fehler: {exc}")
 
     def _volume_worker_loop(self):
-        """M4: Worker-Thread — verarbeitet Media-Key-Volume-Aenderungen
+        """M4: Worker-Thread, verarbeitet Media-Key-Volume-Aenderungen
         seriell aus der Queue. None als Sentinel beendet den Loop."""
         while True:
             key_code = self._volume_queue.get()
@@ -1609,9 +1606,8 @@ class AudioRouterApp(rumps.App):
         elif kc == 2:  # Volume Down (NX_KEYTYPE_SOUND_DOWN)
             new_vol = max(0.0, current - STEP)
             set_default_output_volume(new_vol)
-        elif kc == 7:  # Mute (NX_KEYTYPE_MUTE) — toggeln
-            # H1: Echten Mute-Zustand lesen statt aus der Lautstaerke zu raten —
-            # bei Volume>0 UND gemutetem Device toggelte der alte Code falsch.
+        elif kc == 7:  # Mute (NX_KEYTYPE_MUTE), toggeln
+            # H1: Echten Mute-Zustand lesen statt aus der Lautstaerke zu raten, # bei Volume>0 UND gemutetem Device toggelte der alte Code falsch.
             muted_now = get_default_output_muted()
             set_muted(not muted_now)
             new_vol = current if muted_now else 0.0
@@ -1642,7 +1638,7 @@ class AudioRouterApp(rumps.App):
         # damit Status-Wechsel (Helper stirbt/erwacht, Driver-ABI etc.) sofort
         # sichtbar sind statt erst beim naechsten Device-Hotplug. refresh() ist
         # no-op bei geschlossenem Popover und Main-Thread-geguarded. Bewusst
-        # NICHT _refresh_view() — das wuerde im NSMenu-Modus _build_menu() bei
+        # NICHT _refresh_view(), das wuerde im NSMenu-Modus _build_menu() bei
         # jedem Status-Tick neu bauen (Flicker/Overhead). Hier nur popover-scoped.
         if self._use_popover and self._status_popover is not None:
             self._status_popover.refresh()
@@ -1664,7 +1660,7 @@ class AudioRouterApp(rumps.App):
         for dev_name in self._active_device_names:
             uid = name_to_uid.get(dev_name)
             if not uid:
-                logger.info(f"Device '{dev_name}' nicht im aktuellen Scan — ueberspringe")
+                logger.info(f"Device '{dev_name}' nicht im aktuellen Scan, ueberspringe")
                 continue
 
             dev = next((d for d in devices if d.uid == uid), None)
@@ -1680,19 +1676,19 @@ class AudioRouterApp(rumps.App):
 
         resp = self._helper.set_outputs(specs)
         if resp is None:
-            # Helper unreachable — KEIN Erfolg: applied-Keys/Donation-Hint nicht
+            # Helper unreachable, KEIN Erfolg: applied-Keys/Donation-Hint nicht
             # anfassen, Retry-Mechanik nicht beenden. Der Reconnect-Pfad
             # (dead→alive-Transition) ruft die Konfiguration erneut auf.
-            logger.warning("Helper antwortet nicht — set_outputs fehlgeschlagen")
+            logger.warning("Helper antwortet nicht, set_outputs fehlgeschlagen")
             return False
         if resp.get('error') == 'not_ready':
-            # Helper socket is up but SHM not yet ready — schedule retry via timer
-            logger.info("Helper SHM noch nicht bereit — warte auf Bereitschaft (auto-retry)")
+            # Helper socket is up but SHM not yet ready, schedule retry via timer
+            logger.info("Helper SHM noch nicht bereit, warte auf Bereitschaft (auto-retry)")
             self._needs_reconfigure = True
             return False
         self._needs_reconfigure = False
 
-        # W2-2: ADD erkennen — wenn neue Output-Keys hinzukamen, Healer-Karenz
+        # W2-2: ADD erkennen, wenn neue Output-Keys hinzukamen, Healer-Karenz
         # starten (coreaudiod-Transport-Restart bei Multi-Output abfangen).
         new_keys = {(s.uid, s.ch_offset) for s in specs}
         added_keys = new_keys - self._applied_output_keys
@@ -1701,7 +1697,7 @@ class AudioRouterApp(rumps.App):
             self._healer.notify_output_added()
 
         if resp is None:
-            logger.warning("Helper antwortet nicht — bitte prüfen")
+            logger.warning("Helper antwortet nicht, bitte prüfen")
         else:
             logger.info(f"Outputs an Helper gesendet ({len(specs)}): ok={resp.get('ok')}")
             # P2: Menue-Zustand mit den TATSAECHLICH aktiven Outputs des Helpers
@@ -1758,20 +1754,20 @@ class AudioRouterApp(rumps.App):
                 expected.add((uid, int(off)))
 
         if actual == expected:
-            self._reconcile_drift_count = 0   # H4: Uebereinstimmung — Zaehler reset
-            return  # Kein Drift — nichts zu tun.
+            self._reconcile_drift_count = 0   # H4: Uebereinstimmung, Zaehler reset
+            return  # Kein Drift, nichts zu tun.
 
-        # H4: Grace-Period — Drift muss 3 Mal in Folge bestehen, bevor wir
+        # H4: Grace-Period, Drift muss 3 Mal in Folge bestehen, bevor wir
         # persistieren und die UI anpassen (transiente Zustaende direkt nach
         # set_outputs/Device-Reinit sollen die Config nicht zerstoeren).
         self._reconcile_drift_count += 1
         if self._reconcile_drift_count < 3:
-            logger.debug("P2/H4: Output-Drift erkannt (%d/3) — warte auf Bestaetigung",
+            logger.debug("P2/H4: Output-Drift erkannt (%d/3), warte auf Bestaetigung",
                          self._reconcile_drift_count)
             return
         self._reconcile_drift_count = 0
 
-        logger.info("P2: Output-Drift erkannt — erwartet=%s, tatsaechlich=%s — korrigiere",
+        logger.info("P2: Output-Drift erkannt, erwartet=%s, tatsaechlich=%s, korrigiere",
                     sorted(expected), sorted(actual))
 
         # Internen Zustand auf die tatsaechlich aktiven Outputs zurueckbauen.
@@ -1783,7 +1779,7 @@ class AudioRouterApp(rumps.App):
         for (uid, off) in actual:
             name = uid_to_name.get(uid) or uid_to_name_scan.get(uid)
             if not name:
-                # Unbekanntes Device — koennen wir nicht im Menue darstellen, ueberspringen.
+                # Unbekanntes Device, koennen wir nicht im Menue darstellen, ueberspringen.
                 continue
             new_names.add(name)
             new_offsets.setdefault(name, []).append(off)
@@ -1828,7 +1824,7 @@ class AudioRouterApp(rumps.App):
 
         logger.info("Auto-start: lade Outputs %s", ", ".join(self._active_device_names))
 
-        # Keep-Alive wird vom C-Helper verwaltet (ab v2.6) — kein Python-ctypes-Callback.
+        # Keep-Alive wird vom C-Helper verwaltet (ab v2.6), kein Python-ctypes-Callback.
         # Default-Output idempotent setzen (nur wenn nötig).
         if not is_audio_router_default():
             # W2-1: physischen Default-Pegel VOR dem Switch lesen.
@@ -1837,7 +1833,7 @@ class AudioRouterApp(rumps.App):
             set_default_system_output_device(AUDIO_ROUTER_DEVICE_NAME)
             self._propagate_hw_volume_on_switch(prev_level)
         else:
-            logger.debug("Auto-start: Audio Router bereits Default — kein Switch nötig")
+            logger.debug("Auto-start: Audio Router bereits Default, kein Switch nötig")
 
         self._apply_best_sample_rate()
         self._apply_active_outputs()
@@ -1865,7 +1861,7 @@ class AudioRouterApp(rumps.App):
             # W2-1: zuvor hoerbaren Pegel auf physische Ziele propagieren.
             self._propagate_hw_volume_on_switch(prev_level)
 
-            # Keep-Alive wird vom C-Helper verwaltet — kein Python-ctypes-Thread nötig.
+            # Keep-Alive wird vom C-Helper verwaltet, kein Python-ctypes-Thread nötig.
 
         self._apply_active_outputs()
         if self._config.auto_sample_rate:
@@ -1879,8 +1875,7 @@ class AudioRouterApp(rumps.App):
             )
             restored_names = {d.name for d in restored}
             self._active_device_names = restored_names
-            # H5: Diff zwischen Config und tatsaechlich gefundenen Geraeten —
-            # nicht gefundene Outputs sind "unavailable" (Stale-Config).
+            # H5: Diff zwischen Config und tatsaechlich gefundenen Geraeten, # nicht gefundene Outputs sind "unavailable" (Stale-Config).
             self._unavailable_devices = set(self._config.output_device_names) - restored_names
             self._device_offsets = {
                 k: list(v) for k, v in self._config.output_device_offsets.items()
@@ -1889,7 +1884,7 @@ class AudioRouterApp(rumps.App):
                 logger.info("Outputs aus Config wiederhergestellt: %s",
                             ", ".join(d.name for d in restored))
             if self._unavailable_devices:
-                logger.info("Stale config — unavailable devices: %s",
+                logger.info("Stale config, unavailable devices: %s",
                             ", ".join(sorted(self._unavailable_devices)))
         else:
             self._unavailable_devices = set()
@@ -1898,7 +1893,7 @@ class AudioRouterApp(rumps.App):
 
 
 def _ensure_secure_base_dir() -> None:
-    """MC-5/P11: ~/.audiorouter MUSS mode=0700 haben — C-Helper prüft das."""
+    """MC-5/P11: ~/.audiorouter MUSS mode=0700 haben, C-Helper prüft das."""
     _LOCK_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(_LOCK_DIR, 0o700)
 
@@ -1907,7 +1902,7 @@ def _acquire_instance_lock() -> None:
     global _lock_fd
     _ensure_secure_base_dir()
     try:
-        # F9: Lock-File via os.open() + O_CREAT mit mode=0600 — kein "w"-Open,
+        # F9: Lock-File via os.open() + O_CREAT mit mode=0600, kein "w"-Open,
         # das das Lock-File einer laufenden Instanz vor dem flock leeren würde.
         fd = os.open(str(_LOCK_FILE), os.O_RDWR | os.O_CREAT, 0o600)
         _lock_fd = os.fdopen(fd, "r+")

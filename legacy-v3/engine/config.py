@@ -1,5 +1,5 @@
 """
-Config — Persistente Konfiguration fuer AudioRouterNow.
+Config, Persistente Konfiguration fuer AudioRouterNow.
 
 Speichert und laedt Einstellungen als JSON in ~/.audiorouter/config.json.
 
@@ -38,7 +38,7 @@ class AppConfig:
     donation_hint_shown: bool = False
     # First-Run-Wizard: wird einmalig nach der ersten Installation gezeigt
     onboarding_done: bool = False
-    # Tranche B: Safe-Take-Modus — deaktiviert alle Heilungseingriffe
+    # Tranche B: Safe-Take-Modus, deaktiviert alle Heilungseingriffe
     safe_take_mode: bool = False
     # Channel-Offsets pro Device: device_name -> Liste aktiver Offsets
     # (0 = Ch 1-2, 2 = Ch 3-4, 4 = Ch 5-6, ...)
@@ -101,7 +101,7 @@ def load_config() -> AppConfig:
     wird eine Standard-Konfiguration zurueckgegeben.
     """
     if not CONFIG_FILE.exists():
-        logger.debug("Keine Konfigurationsdatei gefunden — Standardwerte werden verwendet")
+        logger.debug("Keine Konfigurationsdatei gefunden, Standardwerte werden verwendet")
         return AppConfig()
 
     try:
@@ -110,14 +110,14 @@ def load_config() -> AppConfig:
         config = AppConfig.from_dict(data)
         logger.info(f"Konfiguration geladen: {config.output_device_names}")
         # One-Time-Migration v3.4.3 SOFORT persistieren, damit der NSPopover-Zwang
-        # auch bei einem spaeteren Force-Quit/Crash erhalten bleibt — sonst feuerte
+        # auch bei einem spaeteren Force-Quit/Crash erhalten bleibt, sonst feuerte
         # die Migration bei jedem Start neu und ueberschriebe eine spaetere
         # manuelle use_popover_menu=False-Wahl. Nur wenn der Key zuvor fehlte.
         if "popover_migrated" not in data:
             save_config(config)
         return config
     except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError, OSError) as e:
-        logger.warning(f"Konfigurationsdatei konnte nicht gelesen werden: {e} — Standardwerte")
+        logger.warning(f"Konfigurationsdatei konnte nicht gelesen werden: {e}, Standardwerte")
         return AppConfig()
 
 
@@ -134,7 +134,7 @@ def save_config(config: AppConfig):
     Version die Config speichert.
     """
     # M9: Atomares Schreiben via Temp-Datei + rename().
-    # rename() ist auf macOS/POSIX atomar (gleiche Partition) — ein Absturz
+    # rename() ist auf macOS/POSIX atomar (gleiche Partition), ein Absturz
     # während des Schreibens hinterlässt entweder die alte oder die neue
     # vollständige Datei, nie ein korrumpiertes Halb-JSON.
     try:
@@ -147,7 +147,7 @@ def save_config(config: AppConfig):
                     existing = json.load(f)
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(
-                    f"Bestehende Config nicht lesbar ({e}) — Merge-Save verwirft "
+                    f"Bestehende Config nicht lesbar ({e}), Merge-Save verwirft "
                     f"unbekannte Felder neuerer Versionen"
                 )
                 existing = {}

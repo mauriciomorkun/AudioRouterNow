@@ -1,5 +1,5 @@
 """
-DeviceManager — Verwaltet CoreAudio Output-Devices ohne sounddevice.
+DeviceManager, Verwaltet CoreAudio Output-Devices ohne sounddevice.
 
 Implementiert via ctypes direkt gegen CoreAudio.framework.
 Ersetzt die alte sounddevice-basierte Version (Phase 4: Python-Audio-Deps raus).
@@ -8,7 +8,7 @@ Aufgaben:
   - Listet alle Output-faehigen CoreAudio Devices auf (>=2 Output-Kanaele)
   - Filtert das eigene virtuelle "Audio Router" Device heraus
   - Erkennt Hot-plug via Polling
-  - Stellt UID (statt Index) bereit — UID ist persistent ueber Reboot/Replug
+  - Stellt UID (statt Index) bereit, UID ist persistent ueber Reboot/Replug
 """
 
 import ctypes
@@ -31,7 +31,7 @@ _kAudioDevicePropertyStreamConfiguration = 0x736C6179 # 'slay'
 _kAudioDevicePropertyNominalSampleRate = 0x6E737274  # 'nsrt'
 _kCFStringEncodingUTF8                 = 0x08000100
 
-# Name unseres virtuellen Devices — wird ausgefiltert
+# Name unseres virtuellen Devices, wird ausgefiltert
 VIRTUAL_DEVICE_NAME = "Audio Router"
 
 # Polling-Intervall fuer Hot-plug
@@ -138,7 +138,7 @@ def _get_output_channels(dev_id: int) -> int:
     n_bufs = int.from_bytes(bytes(raw[0:4]), "little")
     channels = 0
     # AudioBuffer: uint32 mNumberChannels, uint32 mDataByteSize, void* mData
-    # auf 64bit: 4 + 4 + 8 = 16 Bytes pro Eintrag — aber AudioBuffer kann padding haben
+    # auf 64bit: 4 + 4 + 8 = 16 Bytes pro Eintrag, aber AudioBuffer kann padding haben
     # Konservativ: nutze ctypes.sizeof(_AudioBuffer)
     buf_stride = ctypes.sizeof(_AudioBuffer)
     base = 4  # nach mNumberBuffers
@@ -224,12 +224,12 @@ class DeviceManager:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._known: Dict[str, AudioDevice] = {}  # uid -> AudioDevice
-        # ARC-3: Add-Debounce — neue Geraete erst nach 2 aufeinanderfolgenden
+        # ARC-3: Add-Debounce, neue Geraete erst nach 2 aufeinanderfolgenden
         # Scans (~4s bei 2s Poll-Intervall) als "added" melden. Verhindert
         # Flattern bei Geraeten, die waehrend der Enumeration kurz auftauchen.
         # uid -> Anzahl aufeinanderfolgender Scans, in denen das Geraet neu war.
         self._pending_new_devices: Dict[str, int] = {}
-        # Erster Scan (in start()) darf NICHT debounced werden — sonst ist die
+        # Erster Scan (in start()) darf NICHT debounced werden, sonst ist die
         # Device-Liste direkt nach start() leer (cli --list-devices, initiales
         # Menu in menu_bar_app).
         self._first_scan = True
@@ -290,7 +290,7 @@ class DeviceManager:
 
     def refresh(self) -> List[AudioDevice]:
         # N4: Bei erkannter Aenderung den on_devices_changed-Callback feuern
-        # (analog zu _poll_loop) — Callback ausserhalb des Locks aufrufen.
+        # (analog zu _poll_loop), Callback ausserhalb des Locks aufrufen.
         with self._lock:
             changed = self._scan_devices()
             result = list(self._known.values())
@@ -315,12 +315,12 @@ class DeviceManager:
         added_raw = new_uids - old_uids
         removed = old_uids - new_uids
 
-        # ARC-3: Add-Debounce — neue Geraete erst beim 2. aufeinanderfolgenden
+        # ARC-3: Add-Debounce, neue Geraete erst beim 2. aufeinanderfolgenden
         # Scan (count >= 2, ~4s) wirklich als "added" melden. Removals werden
         # weiterhin SOFORT gemeldet (kein Debounce bei Removals).
         added = set()
         if self._first_scan:
-            # Initialer Scan: Debounce ueberspringen — alle Geraete sind hier
+            # Initialer Scan: Debounce ueberspringen, alle Geraete sind hier
             # zwangslaeufig "neu"; mit Debounce waere _known nach start() leer.
             self._first_scan = False
             added = set(added_raw)
@@ -337,8 +337,7 @@ class DeviceManager:
             if uid not in added_raw:
                 self._pending_new_devices.pop(uid, None)
 
-        # Unbestaetigte neue Geraete aus der bekannten Map zurueckhalten —
-        # sonst waeren sie beim naechsten Scan nicht mehr "neu".
+        # Unbestaetigte neue Geraete aus der bekannten Map zurueckhalten, # sonst waeren sie beim naechsten Scan nicht mehr "neu".
         effective_map = {
             u: d for u, d in new_map.items() if u not in self._pending_new_devices
         }

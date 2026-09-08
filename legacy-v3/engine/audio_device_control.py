@@ -1,5 +1,5 @@
 """
-audio_device_control.py — Setzt das macOS Standard-Ausgabegeraet via CoreAudio API.
+audio_device_control.py, Setzt das macOS Standard-Ausgabegeraet via CoreAudio API.
 
 Verwendet ctypes direkt statt AppleScript (funktioniert auf allen macOS-Versionen
 einschliesslich macOS 26+, wo 'sound preferences' nicht mehr unterstuetzt wird).
@@ -23,7 +23,7 @@ _kAudioObjectPropertyElementMain        = 0
 _kCFStringEncodingUTF8                  = 0x08000100
 # Volume / Mute
 _kAudioHardwareServiceDeviceProperty_VirtualMainVolume = 0x766D766C  # 'vmvl'
-_kAudioDevicePropertyVolumeScalar       = 0x766F6C6D  # 'volm' — Device-Level-Control
+_kAudioDevicePropertyVolumeScalar       = 0x766F6C6D  # 'volm', Device-Level-Control
 _kAudioDevicePropertyMute               = 0x6D757465  # 'mute'
 
 
@@ -38,7 +38,7 @@ class _AudioObjectPropertyAddress(ctypes.Structure):
 def _load_frameworks():
     """Laedt CoreAudio + CoreFoundation GENAU EINMAL und konfiguriert
     die benoetigten Funktions-Signaturen. Ergebnis wird in _CA/_CF gecacht
-    (siehe Modul-Scope unten) — wiederholtes ctypes.CDLL() pro Aufruf
+    (siehe Modul-Scope unten), wiederholtes ctypes.CDLL() pro Aufruf
     ist teuer und unnoetig."""
     CA = ctypes.CDLL("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")
     CF = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
@@ -89,7 +89,7 @@ def get_default_output_volume() -> float:
     Liest die aktuelle Systemlautstaerke (0.0–1.0) des Standard-Ausgabegeraets.
 
     Probiert VirtualMainVolume ('vmvl') und faellt auf die Device-Level-Control-
-    Scalar-Property ('volm') zurueck — Letztere funktioniert auf dem virtuellen
+    Scalar-Property ('volm') zurueck, Letztere funktioniert auf dem virtuellen
     Audio-Router-Device, wo 'vmvl' nicht unterstuetzt wird.
 
     Gibt 1.0 zurueck bei Fehler (fail-open: kein ungewolltes Muting).
@@ -261,7 +261,7 @@ def set_default_output_device(device_name: str) -> tuple[bool, str]:
 def set_default_system_output_device(device_name: str) -> tuple[bool, str]:
     """
     Setzt das macOS Default System Output (kAudioHardwarePropertyDefaultSystemOutputDevice).
-    Keyboard-Volume-Tasten folgen dem System Output — damit diese auf
+    Keyboard-Volume-Tasten folgen dem System Output, damit diese auf
     'Audio Router' wirken (und nicht auf das physische Interface), muss
     Audio Router auch als System Output gesetzt sein.
     """
@@ -513,14 +513,13 @@ def start_audio_router_device() -> bool:
             return False
 
         # AudioDeviceStart(inDevice, inProcID=NULL)
-        # NULL als IOProc-ID startet das Device ohne eigenen IOProc —
-        # triggert aber trotzdem ARN_StartIO im HAL-Plugin.
+        # NULL als IOProc-ID startet das Device ohne eigenen IOProc, # triggert aber trotzdem ARN_StartIO im HAL-Plugin.
         CA.AudioDeviceStart.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
         CA.AudioDeviceStart.restype  = ctypes.c_int32
 
         status = CA.AudioDeviceStart(ctypes.c_uint32(device_id), None)
         if status == 0:
-            logger.info(f"AudioDeviceStart OK — Audio Router (ID {device_id}) gestartet")
+            logger.info(f"AudioDeviceStart OK, Audio Router (ID {device_id}) gestartet")
             return True
         else:
             logger.warning(f"AudioDeviceStart fehlgeschlagen (OSStatus {status})")
@@ -582,7 +581,7 @@ def get_audio_router_sample_rate() -> int:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# P1: Event-driven Volume — Property-Listener statt osascript-Polling.
+# P1: Event-driven Volume, Property-Listener statt osascript-Polling.
 # ──────────────────────────────────────────────────────────────────────────
 
 # CFUNCTYPE-Signatur des CoreAudio Property-Listeners:
@@ -604,10 +603,10 @@ _vol_listener_device_id: int = 0
 _vol_listener_selector: int = 0      # Property-Selector, auf dem registriert wurde
 _vol_listener_user_cb = None         # vom Aufrufer gesetzter Python-Callback
 # RemovePropertyListener garantiert NICHT, dass in-flight Callbacks beendet
-# sind — abgemeldete Thunks hier dauerhaft am Leben halten statt GC.
+# sind, abgemeldete Thunks hier dauerhaft am Leben halten statt GC.
 _retired_listeners: list = []
 
-# _pre_mute_volume: zuletzt bekannte Lautstaerke vor dem Muten — fuer Restore.
+# _pre_mute_volume: zuletzt bekannte Lautstaerke vor dem Muten, fuer Restore.
 _pre_mute_volume: float = 1.0
 
 _CA.AudioObjectSetPropertyData.argtypes = [
@@ -622,7 +621,7 @@ _CA.AudioObjectHasProperty.restype = ctypes.c_bool
 def _volume_selector_for(dev_id: int) -> int:
     """P1: Liefert den Volume-Property-Selector, den `dev_id` tatsaechlich
     unterstuetzt: 'vmvl' (HW-Geraete) oder 'volm' (virtuelles Audio-Router-
-    Device). Per AudioObjectHasProperty bestimmt — verhindert, dass wir auf
+    Device). Per AudioObjectHasProperty bestimmt, verhindert, dass wir auf
     eine vom Device nicht implementierte Property setzen/registrieren."""
     for selector in (_kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
                      _kAudioDevicePropertyVolumeScalar):
@@ -740,7 +739,7 @@ def get_device_volume_scalar(device_id: int) -> float:
     Device) via _volume_selector_for().
 
     Gibt -1.0 zurueck wenn das Device keine lesbare Volume-Property besitzt
-    (z.B. Interface mit reinem Hardware-Poti) oder bei Fehler — so kann der
+    (z.B. Interface mit reinem Hardware-Poti) oder bei Fehler, so kann der
     Aufrufer "kein Volume-Control" eindeutig von echtem 0% unterscheiden."""
     try:
         if device_id == 0:
@@ -776,7 +775,7 @@ def set_device_volume_scalar(device_id: int, scalar: float) -> bool:
     ('vmvl' bzw. 'volm') via _volume_selector_for().
 
     Gibt False zurueck (und greift NICHT ein) wenn das Device keine setzbare
-    Volume-Property hat — kein Crash. True nur bei OSStatus noErr."""
+    Volume-Property hat, kein Crash. True nur bei OSStatus noErr."""
     try:
         if device_id == 0:
             return False
@@ -819,7 +818,7 @@ def equalize_volume_after_switch(prev_level: float, target_uids,
          - HW-Lautstaerke < low_threshold: auf raise_to anheben
 
     raise_to = prev_level, ausser prev_level liegt selbst unter low_threshold
-    (vorheriger Default war faktisch stumm/unbekannt) — dann
+    (vorheriger Default war faktisch stumm/unbekannt), dann
     COMFORTABLE_FALLBACK_VOLUME, damit ein zu leises Ziel garantiert hoerbar
     wird.
 
@@ -847,7 +846,7 @@ def equalize_volume_after_switch(prev_level: float, target_uids,
                     # Kein Volume-Control (HW-Poti) → still ueberspringen.
                     continue
                 if cur >= low_threshold:
-                    # User-Intent respektieren — nicht anfassen.
+                    # User-Intent respektieren, nicht anfassen.
                     continue
                 if set_device_volume_scalar(dev_id, raise_to):
                     logger.info(
@@ -907,7 +906,7 @@ def register_volume_listener(callback) -> bool:
     kAudioDevicePropertyVirtualMainVolume des aktuellen Standard-Ausgabegeraets.
 
     `callback` ist ein argumentloses Python-Callable, das bei jeder
-    Lautstaerke-Aenderung aufgerufen wird (auf einem CoreAudio-Thread — der
+    Lautstaerke-Aenderung aufgerufen wird (auf einem CoreAudio-Thread, der
     Aufrufer muss thread-sicher reagieren). Ersetzt den frueheren osascript-
     Poll-Loop. Gibt True bei erfolgreicher Registrierung zurueck."""
     global _vol_listener, _vol_listener_device_id, _vol_listener_user_cb
@@ -988,7 +987,7 @@ def unregister_volume_listener() -> None:
         logger.debug(f"unregister_volume_listener Fehler: {e}")
     finally:
         # RemovePropertyListener garantiert NICHT, dass in-flight Callbacks
-        # beendet sind — alten Thunk am Leben halten statt GC zu ueberlassen.
+        # beendet sind, alten Thunk am Leben halten statt GC zu ueberlassen.
         if _vol_listener is not None:
             _retired_listeners.append(_vol_listener)
         _vol_listener = None
@@ -1002,11 +1001,11 @@ def unregister_volume_listener() -> None:
 # Diese Stubs bleiben für API-Kompatibilität.
 
 def ensure_router_keepalive() -> bool:
-    """Stub — Keep-Alive wird vom C-Helper (keepalive_ioproc) verwaltet."""
-    logger.debug("ensure_router_keepalive: Stub — Keep-Alive in C-Helper")
+    """Stub, Keep-Alive wird vom C-Helper (keepalive_ioproc) verwaltet."""
+    logger.debug("ensure_router_keepalive: Stub, Keep-Alive in C-Helper")
     return True
 
 
 def stop_router_keepalive() -> None:
-    """Stub — Keep-Alive wird vom C-Helper beim Shutdown gestoppt."""
-    logger.debug("stop_router_keepalive: Stub — Keep-Alive in C-Helper")
+    """Stub, Keep-Alive wird vom C-Helper beim Shutdown gestoppt."""
+    logger.debug("stop_router_keepalive: Stub, Keep-Alive in C-Helper")

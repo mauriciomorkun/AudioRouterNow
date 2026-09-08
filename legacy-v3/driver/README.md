@@ -1,7 +1,7 @@
-# AudioRouterNow — HAL Driver (Phase 1)
+# AudioRouterNow: HAL Driver (Phase 1)
 
 Virtuelles macOS-Audio-Device **"Audio Router"** als Apple AudioServerPlugin
-(HAL Plugin). Ersatz fuer BlackHole — ohne Kernel Extension, ohne
+(HAL Plugin). Ersatz fuer BlackHole, ohne Kernel Extension, ohne
 Security-Approval, ohne Neustart.
 
 ## Was es macht
@@ -12,7 +12,7 @@ Security-Approval, ohne Neustart.
 3. Die Samples werden **non-blocking** ueber einen Unix Domain Socket
    (`/tmp/audiorouter.sock`) an die Python Routing Engine (Phase 2)
    weitergeleitet.
-4. Lauscht noch kein Python-Prozess, werden die Frames verworfen — der
+4. Lauscht noch kein Python-Prozess, werden die Frames verworfen, der
    Treiber laeuft trotzdem stabil weiter.
 
 **Audio-Format:** Float32 · 48000 Hz (auch 44100/96000) · 512 Frames · Stereo
@@ -70,7 +70,7 @@ Alternativ ohne Python:
 system_profiler SPAudioDataType | grep -A4 "Audio Router"
 ```
 
-IPC-Verbindung pruefen — minimaler Python-Listener (Phase-2-Platzhalter):
+IPC-Verbindung pruefen, minimaler Python-Listener (Phase-2-Platzhalter):
 
 ```python
 import socket, os
@@ -80,7 +80,7 @@ s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 s.bind(p); s.listen(1)
 print("warte auf coreaudiod ...")
 conn, _ = s.accept()
-print("verbunden — empfange Audio")
+print("verbunden, empfange Audio")
 while True:
     data = conn.recv(4096)
     if not data: break
@@ -112,7 +112,7 @@ sudo make reload
 | `make` / `make all` | Baut das `.driver` Bundle |
 | `make install`      | Kopiert nach `/Library/Audio/Plug-Ins/HAL/` (root) |
 | `make uninstall`    | Entfernt das installierte Bundle (root) |
-| `make reload`       | `killall coreaudiod` — laedt Treiber neu (root) |
+| `make reload`       | `killall coreaudiod`, laedt Treiber neu (root) |
 | `make clean`        | Loescht `build/` |
 
 ## Technische Hinweise
@@ -120,8 +120,7 @@ sudo make reload
 - **Statisches Objektmodell:** PlugIn(1) → Box(2) → Device(3) →
   Output-Stream(4) + Volume(5) + Mute(6). `CreateDevice`/`DestroyDevice`
   werden nicht unterstuetzt (das Device existiert dauerhaft).
-- **RT-Sicherheit:** `DoIOOperation` laeuft auf einem Realtime-Thread —
-  kein `malloc`, kein blockierendes IO. Der Socket-Send nutzt
+- **RT-Sicherheit:** `DoIOOperation` laeuft auf einem Realtime-Thread, kein `malloc`, kein blockierendes IO. Der Socket-Send nutzt
   `MSG_DONTWAIT`; das (blockierende) `connect` erledigt ein separater
   Hintergrund-Thread, der die Verbindung alle 500 ms neu aufbaut.
 - **Sample-Rate-Wechsel** laufen ueber

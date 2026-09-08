@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     const templateEl = document.querySelector('script[type="__bundler/template"]');
     if (!manifestEl || !templateEl) {
       setStatus('Error: missing bundle data');
-      console.error('[bundler] Missing script tags — manifestEl:', !!manifestEl, 'templateEl:', !!templateEl);
+      console.error('[bundler] Missing script tags, manifestEl:', !!manifestEl, 'templateEl:', !!templateEl);
       return;
     }
 
@@ -121,7 +121,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     setStatus('Rendering...');
     for (const uuid of uuids) template = template.split(uuid).join(blobUrls[uuid]);
 
-    // Strip integrity + crossorigin — blob URLs from a file:// document inherit
+    // Strip integrity + crossorigin, blob URLs from a file:// document inherit
     // a null origin, so crossorigin forces a CORS fetch that SRI then rejects.
     // The manifest bytes are ours; SRI protects against CDN compromise, not this.
     template = template.replace(/\s+integrity="[^"]*"/gi, '').replace(/\s+crossorigin="[^"]*"/gi, '');
@@ -141,7 +141,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
 
     // Parse the template and swap the root element. Scripts inserted via
-    // DOMParser/replaceWith are inert per spec — re-create each with
+    // DOMParser/replaceWith are inert per spec, re-create each with
     // createElement so they execute, awaiting onload for src scripts to
     // preserve ordering (React before ReactDOM before Babel before text/babel).
     const doc = new DOMParser().parseFromString(template, 'text/html');

@@ -1,7 +1,7 @@
 /*
  * AudioRouterNowDriver.c
  *
- * AudioRouterNow — virtuelles Audio-Output-Device fuer macOS.
+ * AudioRouterNow, virtuelles Audio-Output-Device fuer macOS.
  * Implementiert ein Apple AudioServerPlugin (HAL Plugin), das in
  * /Library/Audio/Plug-Ins/HAL/ installiert und von coreaudiod geladen wird.
  *
@@ -19,7 +19,7 @@
  *   - Der Socket-Send nutzt MSG_DONTWAIT; ein separater Hilfsthread
  *     uebernimmt das (blockierende) connect/reconnect.
  *
- * (c) 2026 AudioRouterNow — proprietaer.
+ * (c) 2026 AudioRouterNow, proprietaer.
  */
 
 #include <CoreAudio/AudioServerPlugIn.h>
@@ -139,21 +139,21 @@ static _Atomic float                    gVolume             = 1.0f;  /* 0..1, at
 static _Atomic bool                     gMute               = false; /* atomar fuer RT-Pfad */
 
 /* Zeitbasis fuer GetZeroTimeStamp --------------------------------------- */
-/* K5: Als atomic_ullong deklariert — wird von StartIO (non-RT, unter gStateMutex)
+/* K5: Als atomic_ullong deklariert, wird von StartIO (non-RT, unter gStateMutex)
  * geschrieben und von GetZeroTimeStamp (RT-Thread) gelesen. Verhindert Data Race. */
 static atomic_ullong                    gAnchorHostTime     = 0;
 static atomic_ullong                    gNumberTimeStamps   = 0;
 /* P4: Echte vom RT-Pfad geschriebene Frame-Anzahl. GetZeroTimeStamp leitet
  * die Sample-Zeit aus den TATSAECHLICH geschriebenen Frames ab, statt aus der
- * Host-Clock — so bleibt die Sample-Zeit konsistent mit dem Ring-Fortschritt,
+ * Host-Clock, so bleibt die Sample-Zeit konsistent mit dem Ring-Fortschritt,
  * auch wenn IOProc-Calls zeitlich driften. RT-sicher: nur atomic_fetch_add. */
 static atomic_ullong                    gFramesWritten      = 0;
-/* H-4/H-5: Timeline-Seed — inkrementiert bei IO-Start + SR-Wechsel.
+/* H-4/H-5: Timeline-Seed, inkrementiert bei IO-Start + SR-Wechsel.
  * macOS nutzt outSeed zur Erkennung von Timeline-Diskontinuitaeten. */
 static atomic_uint                      gTimelineSeed       = 1;
 /*
  * gHostTicksPerFrame: wird nur von nicht-RT-Pfaden geschrieben (Initialize,
- * StartIO). Von GetZeroTimeStamp atomar gelesen — kein Mutex noetig.
+ * StartIO). Von GetZeroTimeStamp atomar gelesen, kein Mutex noetig.
  * Double hat auf arm64/x86_64 keine guaranteed atomic load via C11,
  * daher als atomic_ullong (bit-reinterpret). Schreiben nur unter gStateMutex.
  */
@@ -194,7 +194,7 @@ static pthread_t      gSHMWatchThread  = 0;
 static atomic_int     gSHMWatchRunning = 0;
 
 /*
- * arn_shm_init — oeffnet/erstellt das SHM-Segment und initialisiert den Ring.
+ * arn_shm_init, oeffnet/erstellt das SHM-Segment und initialisiert den Ring.
  * Wird in ARN_Initialize aufgerufen (nicht-RT, einmalig).
  *
  * Driver-Reload-Sicherheit (Fix 4):
@@ -209,12 +209,12 @@ static atomic_int     gSHMWatchRunning = 0;
  *   Version), Segment entfernen und frisch erstellen.
  */
 /*
- * arn_shm_init — verbindet sich mit dem vom Helper angelegten SHM-Segment.
+ * arn_shm_init, verbindet sich mit dem vom Helper angelegten SHM-Segment.
  *
  * ARCHITEKTUR v2.1: Der _coreaudiod-Sandbox-Prozess darf shm_open(O_CREAT)
  * NICHT ausfuehren (Sandbox-Restriction). Deshalb erstellt der Helper
  * (nicht-sandboxd, laeuft als mauriciomorkun) das Segment.
- * Der Driver verbindet sich NUR — kein O_CREAT hier.
+ * Der Driver verbindet sich NUR, kein O_CREAT hier.
  *
  * Falls der Helper noch nicht gestartet ist (ENOENT), kehrt diese Funktion
  * sofort zurueck und ein Hintergrund-Thread (arn_shm_retry_thread) versucht
@@ -228,7 +228,7 @@ static void arn_shm_init(void)
         return;
     }
 
-    /* C-1: fstat-Guard vor mmap — verhindert SIGBUS wenn ein anderer Prozess
+    /* C-1: fstat-Guard vor mmap, verhindert SIGBUS wenn ein anderer Prozess
      * das Segment zu klein angelegt hat (oder Helper noch nicht ftruncated hat).
      * Jeder unprivilegierte lokale Prozess könnte sonst coreaudiod crashen. */
     {
@@ -250,18 +250,18 @@ static void arn_shm_init(void)
 
     ARNSharedRing *ring = (ARNSharedRing *)ptr;
     if (ring->magic == ARN_RING_MAGIC && ring->version == ARN_RING_VERSION) {
-        /* Gueltiger Ring vom Helper — write_idx zuruecksetzen und
+        /* Gueltiger Ring vom Helper, write_idx zuruecksetzen und
          * sr_change_gen inkrementieren damit Helper neu synchronisiert. */
         uint32_t ridx = atomic_load_explicit(&ring->read_idx, memory_order_acquire);
         atomic_store_explicit(&ring->write_idx, ridx, memory_order_release);
         atomic_fetch_add_explicit(&ring->sr_change_gen, 1u, memory_order_release);
         os_log(gLog, "SHM: Verbunden (Helper-Ring) — %s (%zu Bytes)", ARN_SHM_NAME, ARN_SHM_SIZE);
     } else {
-        /* Ring noch nicht initialisiert — der Helper besitzt das Segment und
+        /* Ring noch nicht initialisiert, der Helper besitzt das Segment und
          * initialisiert es gerade. NICHT selbst arn_ring_init() aufrufen (das
          * memset()t das gesamte Segment und raced mit der Helper-Init;
          * instance_id/volume_q16 wuerden ausgeloescht). Als not-ready
-         * behandeln — Retry-/Watch-Thread versucht es in 500 ms erneut. */
+         * behandeln, Retry-/Watch-Thread versucht es in 500 ms erneut. */
         os_log(gLog, "SHM: Segment noch nicht initialisiert — warte auf Helper");
         munmap(ptr, ARN_SHM_SIZE);
         close(fd);
@@ -273,7 +273,7 @@ static void arn_shm_init(void)
 }
 
 /*
- * arn_shm_retry_thread — Hintergrund-Thread der alle 500 ms arn_shm_init()
+ * arn_shm_retry_thread, Hintergrund-Thread der alle 500 ms arn_shm_init()
  * aufruft bis gSHMRing gesetzt ist (Helper hat SHM angelegt).
  */
 static void *arn_shm_retry_thread(void *arg)
@@ -292,12 +292,12 @@ static void *arn_shm_retry_thread(void *arg)
 }
 
 /*
- * arn_shm_watch_thread — erkennt einen Helper-Neustart.
+ * arn_shm_watch_thread, erkennt einen Helper-Neustart.
  *
  * Problem: Wenn der Helper neu startet, ruft er shm_unlink() + shm_open(O_CREAT)
  * auf und erzeugt ein NEUES Segment unter demselben Namen. Der Driver hat aber
  * noch das ALTE (aus dem Namespace entfernte) Segment gemappt. Da gSHMRing != NULL
- * laeuft der Retry-Thread nicht mehr — der Driver schreibt fuer immer ins alte
+ * laeuft der Retry-Thread nicht mehr, der Driver schreibt fuer immer ins alte
  * Segment, der Helper liest vom neuen → Stille.
  *
  * Erkennung: Alle 2 s shm_open(ARN_SHM_NAME). Liefert das einen FD, der auf eine
@@ -311,7 +311,7 @@ static void *arn_shm_retry_thread(void *arg)
  *
  * RT-Sicherheit: Der IOProc laedt gSHMRing atomar in eine lokale Variable und
  * arbeitet darauf. Das alte Segment wird NICHT sofort unmappt, sondern erst im
- * naechsten Watch-Zyklus (2 s spaeter) — bis dahin sind alle in-flight IOProc-
+ * naechsten Watch-Zyklus (2 s spaeter), bis dahin sind alle in-flight IOProc-
  * Aufrufe (Dauer << 1 ms) auf dem alten Pointer garantiert beendet. So kann der
  * RT-Thread nie auf ein gerade unmapptes Segment zugreifen (kein SIGBUS).
  */
@@ -372,14 +372,14 @@ static void *arn_shm_watch_thread(void *arg)
             }
             munmap(chk_ptr, ARN_SHM_SIZE);
         }
-        /* check_fd bleibt offen falls is_new_segment — wird dann als neues gSHMFD gesetzt. */
+        /* check_fd bleibt offen falls is_new_segment, wird dann als neues gSHMFD gesetzt. */
 
         if (!is_new_segment) {
             close(check_fd);
             continue;
         }
 
-        /* C-1: fstat-Guard (Watch-Thread, zweiter mmap — nach is_new_segment-Check) */
+        /* C-1: fstat-Guard (Watch-Thread, zweiter mmap, nach is_new_segment-Check) */
         {
             struct stat shm_st2;
             if (fstat(check_fd, &shm_st2) < 0 || (size_t)shm_st2.st_size < ARN_SHM_SIZE) {
@@ -398,7 +398,7 @@ static void *arn_shm_watch_thread(void *arg)
 
         ARNSharedRing *new_ring = (ARNSharedRing *)new_ptr;
         if (new_ring->magic != ARN_RING_MAGIC || new_ring->version != ARN_RING_VERSION) {
-            /* Helper noch mitten in der Initialisierung — naechster Zyklus erneut. */
+            /* Helper noch mitten in der Initialisierung, naechster Zyklus erneut. */
             munmap(new_ptr, ARN_SHM_SIZE);
             close(check_fd);
             continue;
@@ -431,7 +431,7 @@ static void *arn_shm_watch_thread(void *arg)
 }
 
 /*
- * arn_shm_cleanup — gibt SHM-Ressourcen frei.
+ * arn_shm_cleanup, gibt SHM-Ressourcen frei.
  * Wird in ARN_Release aufgerufen.
  */
 static void arn_shm_cleanup(void)
@@ -461,7 +461,7 @@ static void arn_shm_cleanup(void)
         close(gSHMFD);
         gSHMFD = -1;
     }
-    /* SHM NICHT unlinken — Helper hat es erstellt und besitzt es */
+    /* SHM NICHT unlinken, Helper hat es erstellt und besitzt es */
     os_log(gLog, "SHM: Driver-Verbindung getrennt");
 }
 
@@ -580,7 +580,7 @@ static HRESULT ARN_QueryInterface(void *inDriver, REFIID inUUID, LPVOID *outInte
 
     HRESULT result = E_NOINTERFACE;
     /* Die SDK-Makros expandieren bereits zu vollstaendigen
-     * CFUUIDGetConstantUUIDWithBytes(...)-Aufrufen — direkt verwenden. */
+     * CFUUIDGetConstantUUIDWithBytes(...)-Aufrufen, direkt verwenden. */
     CFUUIDRef iunknown    = CFUUIDGetConstantUUIDWithBytes(NULL,
                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                               0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46);
@@ -618,7 +618,7 @@ static ULONG ARN_Release(void *inDriver)
         return 0;
     }
     /* H4: gStateMutex wird NUR fuer den Ref-Count-Decrement gehalten.
-     * arn_shm_cleanup() ruft pthread_join() auf — pthread_join unter Mutex
+     * arn_shm_cleanup() ruft pthread_join() auf, pthread_join unter Mutex
      * ist ein latentes Deadlock wenn der Join-Thread ebenfalls versucht den
      * Mutex zu akquirieren. Cleanup laeuft deshalb nach Mutex-Release. */
     pthread_mutex_lock(&gStateMutex);
@@ -629,7 +629,7 @@ static ULONG ARN_Release(void *inDriver)
     pthread_mutex_unlock(&gStateMutex);
 
     if (result == 0) {
-        /* Letzter Release — SHM freigeben (pthread_join ausserhalb von Mutex). */
+        /* Letzter Release, SHM freigeben (pthread_join ausserhalb von Mutex). */
         arn_shm_cleanup();
     }
     return result;
@@ -653,10 +653,10 @@ static OSStatus ARN_Initialize(AudioServerPlugInDriverRef inDriver,
     atomic_store(&gHostTicksPerFrameBits,
                  _f64_to_u64((1.0e9 / gSampleRate) / nanosPerTick));
 
-    /* Shared Memory Ring verbinden — Helper legt SHM an, Driver verbindet sich. */
+    /* Shared Memory Ring verbinden, Helper legt SHM an, Driver verbindet sich. */
     arn_shm_init();
     if (atomic_load_explicit(&gSHMRing, memory_order_acquire) == NULL) {
-        /* Helper noch nicht bereit — Hintergrund-Thread startet Retry alle 500ms */
+        /* Helper noch nicht bereit, Hintergrund-Thread startet Retry alle 500ms */
         atomic_store_explicit(&gSHMRetryRunning, 1, memory_order_release);
         if (pthread_create(&gSHMRetryThread, NULL, arn_shm_retry_thread, NULL) != 0) {
             atomic_store_explicit(&gSHMRetryRunning, 0, memory_order_release);
@@ -758,7 +758,7 @@ static OSStatus ARN_PerformDeviceConfigurationChange(AudioServerPlugInDriverRef 
         atomic_store(&gHostTicksPerFrameBits,
                      _f64_to_u64((1.0e9 / gSampleRate) / nanosPerTick));
         /* P4: Frame-Zaehler und Anker beim SR-Wechsel zuruecksetzen, damit die
-         * Sample-Zeit-Uhr (frame-basiert) sauber neu startet — sonst mischen
+         * Sample-Zeit-Uhr (frame-basiert) sauber neu startet, sonst mischen
          * sich Frames vor/nach dem Wechsel. */
         atomic_store(&gFramesWritten, 0);
         atomic_store(&gNumberTimeStamps, 0);
@@ -1141,7 +1141,7 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
                                                   kCFStringEncodingUTF8);
                     break;
                 default:
-                    /* NIE NULL mit noErr zurueckgeben — Clients (coreaudiod)
+                    /* NIE NULL mit noErr zurueckgeben, Clients (coreaudiod)
                      * CFRetain'en den Wert und crashen auf NULL. */
                     return kAudioHardwareUnknownPropertyError;
             }
@@ -1241,7 +1241,7 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
             written = sizeof(CFStringRef);
             break;
 
-        /* 'tran' — gemeinsam fuer Box und Device (gleicher FourCC). */
+        /* 'tran', gemeinsam fuer Box und Device (gleicher FourCC). */
         case kAudioBoxPropertyTransportType:
             WRITE_SCALAR(UInt32, kAudioDeviceTransportTypeVirtual);
             break;
@@ -1315,7 +1315,7 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
             WRITE_SCALAR(UInt32, 0);
             break;
 
-        /* 'ltnc' — gemeinsam fuer Device und Stream (gleicher FourCC).
+        /* 'ltnc', gemeinsam fuer Device und Stream (gleicher FourCC).
          * P14: Realen Pre-Roll-Versatz des Helper-Rings melden statt 0. */
         case kAudioDevicePropertyLatency:
             WRITE_SCALAR(UInt32, kReportedLatencyFrames);
@@ -1418,7 +1418,7 @@ static OSStatus ARN_GetPropertyData(AudioServerPlugInDriverRef inDriver,
                 bl->mNumberBuffers = 1;
                 bl->mBuffers[0].mNumberChannels = kChannelsPerFrame;
                 /* Byte-Groesse eines vollen IO-Buffers, nicht eines einzelnen
-                 * Frames — Clients dimensionieren danach ihre Buffer. */
+                 * Frames, Clients dimensionieren danach ihre Buffer. */
                 bl->mBuffers[0].mDataByteSize   = cfgBFS * kBytesPerFrame;
                 bl->mBuffers[0].mData           = NULL;
             } else {
@@ -1588,7 +1588,7 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             }
             /* Guard: Wenn der Ring aktiv ist und eine andere SR hat als angefordert,
              * handelt es sich um eine externe Anfrage (Spotify, Music.app, etc.).
-             * Diese ignorieren wir — SR wird ausschliesslich vom Helper gesteuert. */
+             * Diese ignorieren wir, SR wird ausschliesslich vom Helper gesteuert. */
             ARNSharedRing *ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
             if (ring != NULL) {
                 uint32_t ring_sr = atomic_load_explicit(&ring->sample_rate, memory_order_acquire);
@@ -1669,7 +1669,7 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             if (v < 0.0f) v = 0.0f;
             if (v > 1.0f) v = 1.0f;
             atomic_store_explicit(&gVolume, v, memory_order_release);
-            /* SHM volume sync — Fix M3: Driver schreibt volume_q16, Helper skaliert. */
+            /* SHM volume sync, Fix M3: Driver schreibt volume_q16, Helper skaliert. */
             {
                 ARNSharedRing *ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
                 if (ring != NULL) {
@@ -1697,7 +1697,7 @@ static OSStatus ARN_SetPropertyData(AudioServerPlugInDriverRef inDriver,
             if (db >  0.0f)  db =  0.0f;
             Float32 v = (db / 96.0f) + 1.0f;
             atomic_store_explicit(&gVolume, v, memory_order_release);
-            /* SHM volume sync — Fix M3: Driver schreibt volume_q16, Helper skaliert. */
+            /* SHM volume sync, Fix M3: Driver schreibt volume_q16, Helper skaliert. */
             {
                 ARNSharedRing *ring = atomic_load_explicit(&gSHMRing, memory_order_acquire);
                 if (ring != NULL) {
@@ -1809,13 +1809,13 @@ static OSStatus ARN_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver,
             memory_order_relaxed, memory_order_relaxed);
     }
 
-    /* Frei laufende Host-Clock — unabhaengig von gFramesWritten.
+    /* Frei laufende Host-Clock, unabhaengig von gFramesWritten.
      *
      * Die fruehre frame-zaehlerbasierte Implementierung (P4) erzeugte einen
      * Deadlock: WriteMix wird nur aufgerufen wenn die Clock laeuft, aber die
      * Clock lief nur wenn WriteMix Frames geschrieben hatte. Looesung: die Clock
      * laeuft ab dem ersten StartIO (gAnchorHostTime) kontinuierlich in
-     * mach_absolute_time() — exakt wie Apples NullAudio-Referenzimplementierung.
+     * mach_absolute_time(), exakt wie Apples NullAudio-Referenzimplementierung.
      */
     UInt64 anchor = (UInt64)atomic_load_explicit(&gAnchorHostTime, memory_order_acquire);
     UInt64 now    = mach_absolute_time();
@@ -1883,7 +1883,7 @@ static OSStatus ARN_BeginIOOperation(AudioServerPlugInDriverRef inDriver,
 }
 
 /*
- * DoIOOperation — Hot-Path, laeuft auf einem Realtime-Thread.
+ * DoIOOperation, Hot-Path, laeuft auf einem Realtime-Thread.
  * Verbote: kein malloc, kein blocking IO, kein Lock-Contention.
  * Bei WriteMix liefert ioMainBuffer interleaved Float32-Stereo-Samples,
  * die wir non-blocking ueber den Unix Socket an Python schicken.
@@ -1905,14 +1905,14 @@ static OSStatus ARN_DoIOOperation(AudioServerPlugInDriverRef inDriver,
 
         size_t byteCount = (size_t)inIOBufferFrameSize * kBytesPerFrame;
 
-        /* P4: Tatsaechlich verarbeitete Frames zaehlen — Basis fuer die
+        /* P4: Tatsaechlich verarbeitete Frames zaehlen, Basis fuer die
          * Sample-Zeit in GetZeroTimeStamp. RT-sicher (nur atomic_fetch_add,
          * kein malloc/lock/printf). Ausserhalb des ring!=NULL-Blocks, damit
          * der Takt auch dann konsistent fortschreitet, wenn der Ring gerade
          * neu gemappt wird. */
         atomic_fetch_add_explicit(&gFramesWritten, inIOBufferFrameSize, memory_order_relaxed);
 
-        /* N6: DoIOOperation wird nur aufgerufen wenn IO läuft — gDeviceIsRunning
+        /* N6: DoIOOperation wird nur aufgerufen wenn IO läuft, gDeviceIsRunning
          * war redundant und race-anfällig. Self-Heal: falls der Zustand noch
          * 0 ist (z.B. Race mit StartIO), auf 1 setzen. */
         if (atomic_load_explicit(&gDeviceIsRunning, memory_order_relaxed) == 0) {
@@ -1927,13 +1927,13 @@ static OSStatus ARN_DoIOOperation(AudioServerPlugInDriverRef inDriver,
         bool  mute = atomic_load_explicit(&gMute,   memory_order_relaxed);
 
         if (mute || vol <= 0.0f) {
-            /* Stilles Signal senden — Helper haelt ihren Takt. */
+            /* Stilles Signal senden, Helper haelt ihren Takt. */
             memset(ioMainBuffer, 0, byteCount);
         }
         // Volume-Scaling wurde in Helper delegiert (via ring->volume_q16).
-        // Doppelte Skalierung entfernt — Fix M3.
-        /* Samples unveraendert an Helper weitergeben — dieser skaliert via volume_q16. */
-        /* v2.0: SHM-Ring statt Unix Socket — kein Syscall, RT-safe.
+        // Doppelte Skalierung entfernt, Fix M3.
+        /* Samples unveraendert an Helper weitergeben, dieser skaliert via volume_q16. */
+        /* v2.0: SHM-Ring statt Unix Socket, kein Syscall, RT-safe.
          * gSHMRing EINMAL atomar laden; der Watch-Thread kann den Pointer
          * jederzeit austauschen, das alte Segment bleibt aber bis zum
          * naechsten Watch-Zyklus gemappt (kein use-after-munmap). */

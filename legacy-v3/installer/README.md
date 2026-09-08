@@ -1,4 +1,4 @@
-# AudioRouterNow — Installer Build
+# AudioRouterNow: Installer Build
 
 ## Voraussetzungen
 
@@ -30,7 +30,7 @@ Dauer: ~3–5 Minuten (beim ersten Mal laenger wegen Downloads).
 
 ## Ergebnis
 
-`~/Desktop/AudioRouterNow.dmg` — dieser DMG kann auf jeden Mac
+`~/Desktop/AudioRouterNow.dmg`, dieser DMG kann auf jeden Mac
 mit macOS 11+ kopiert und installiert werden.
 
 ## Installation auf einem neuen Mac
@@ -39,7 +39,7 @@ mit macOS 11+ kopiert und installiert werden.
 2. `AudioRouterNow.app` in `Applications` ziehen
 3. App starten
 4. Beim ersten Start: macOS fragt einmalig nach dem Passwort → HAL-Treiber wird automatisch installiert
-5. Fertig — `🎛️` erscheint in der Menueleiste
+5. Fertig, `🎛️` erscheint in der Menueleiste
 
 ## Ordnerstruktur nach dem Build
 

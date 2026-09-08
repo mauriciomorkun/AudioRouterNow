@@ -1,10 +1,10 @@
 """
-health.py — Self-Healing Layer Tranche A: Telemetrie + Health-Monitor.
+health.py, Self-Healing Layer Tranche A: Telemetrie + Health-Monitor.
 
 Liest periodisch get_status()-Daten aus und berechnet einen dreistufigen
 Health-Zustand (healthy/degraded/critical) mit Hysterese.
 
-Kein Eingriff in den Audio-Pfad — rein observierend.
+Kein Eingriff in den Audio-Pfad, rein observierend.
 """
 from __future__ import annotations
 import logging
@@ -64,7 +64,7 @@ class HealthMonitor:
         self._current_reported_level: str = "healthy"
         self._last_raw_level: str = "healthy"
         # Delta-basierte One-Shot-Events (SHM-Reconnect, Underrun-Burst) fuer
-        # DEGRADE_STREAK Polls latchen — sonst kann ein Ein-Sample-Event den
+        # DEGRADE_STREAK Polls latchen, sonst kann ein Ein-Sample-Event den
         # 2-Sample-Streak nie erfuellen und wird still verworfen.
         self._reconnect_latch: int = 0
         self._underrun_latch: int = 0
@@ -94,7 +94,7 @@ class HealthMonitor:
         ring_frames    = int(status.get("ring_frames", 0))
         ring_fill      = ring_frames / ARN_RING_CAPACITY_FRAMES
         # B2-Fix: Wenn ioproc_age_ms fehlt (alter Helper ohne Tranche-A-Counter),
-        # auf True defaulten — kein false-positive Critical gegen alte Binaries.
+        # auf True defaulten, kein false-positive Critical gegen alte Binaries.
         _ioproc_age_raw = status.get("ioproc_age_ms", None)
         ioproc_age_ms  = int(_ioproc_age_raw) if _ioproc_age_raw is not None else 0
         reconnect_count = int(status.get("reconnect_count", 0))
@@ -146,7 +146,7 @@ class HealthMonitor:
             )
             outputs.append(oh)
 
-            # Gründe sammeln — M2: stabile Kategorie-Keys ohne dynamische Zahlen
+            # Gründe sammeln, M2: stabile Kategorie-Keys ohne dynamische Zahlen
             # (title/action_key-Vergleiche im UI bleiben dadurch stabil, kein
             # Flackern). Konkrete Werte gehen ins Debug-Log.
             if stalled:
@@ -163,7 +163,7 @@ class HealthMonitor:
         reconnect_delta = max(0, reconnect_count - self._last_reconnect_count)
         self._last_reconnect_count = reconnect_count
         if reconnect_delta > 0:
-            # M2: stabiler Key — Anzahl ins Debug-Log.
+            # M2: stabiler Key, Anzahl ins Debug-Log.
             reasons.append("SHM reconnected")
             logger.debug("Health: SHM reconnected (%dx)", reconnect_delta)
 
@@ -171,7 +171,7 @@ class HealthMonitor:
             reasons.append("IOProc not responding (age > 500ms)")
 
         if audio_flowing and ring_fill < 0.10:
-            # M2: stabiler Key — Füllstand ins Debug-Log.
+            # M2: stabiler Key, Füllstand ins Debug-Log.
             reasons.append("Ring buffer critically low")
             logger.debug("Health: ring fill %.0f%%", ring_fill * 100.0)
         elif ring_fill > 0.95:
@@ -184,8 +184,7 @@ class HealthMonitor:
         any_drift      = any(abs(o.src_ratio_ppm) > 600 for o in outputs)
         fill_critical  = (ring_fill < 0.10 or ring_fill > 0.95) and audio_flowing
 
-        # Delta-basierte One-Shot-Events fuer DEGRADE_STREAK Polls latchen —
-        # ein Ein-Sample-Event (Delta gegen letzten Poll) kann den 2-Sample-
+        # Delta-basierte One-Shot-Events fuer DEGRADE_STREAK Polls latchen, # ein Ein-Sample-Event (Delta gegen letzten Poll) kann den 2-Sample-
         # Streak sonst nie erfuellen (raw_level faellt im naechsten Poll
         # zurueck und der Streak resettet).
         if reconnect_delta > 0:
@@ -223,7 +222,7 @@ class HealthMonitor:
                             "; ".join(reasons[:2]))
                 self._current_reported_level = raw_level
         elif raw_ord < current_ord:
-            # Verbesserung: langsam reagieren (IMPROVE_STREAK Samples) — kein Flackern.
+            # Verbesserung: langsam reagieren (IMPROVE_STREAK Samples), kein Flackern.
             if self._raw_level_streak >= IMPROVE_STREAK:
                 logger.info("Health: recovered to %s", raw_level)
                 self._current_reported_level = raw_level

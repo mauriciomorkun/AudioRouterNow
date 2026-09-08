@@ -1,5 +1,5 @@
 """
-helper_client.py — Steuert den AudioRouterNowHelper über den Config-Socket.
+helper_client.py, Steuert den AudioRouterNowHelper über den Config-Socket.
 
 Der Helper-Daemon ist eine native C-Binary, die unter
 ~/Library/LaunchAgents/com.audiorouter.now.helper.plist (oder manuell)
@@ -29,7 +29,7 @@ CONNECT_TIMEOUT = 2.0
 READ_TIMEOUT = 5.0
 QUICK_TIMEOUT = 0.5
 # H2: Kurzer Timeout für Menü-Aktionen, die synchron auf dem Main-Thread
-# senden (set_outputs, set_sample_rate, …) — ein hängender Helper darf die
+# senden (set_outputs, set_sample_rate, …), ein hängender Helper darf die
 # UI nicht einfrieren.
 MENU_ACTION_TIMEOUT = 1.0
 
@@ -38,7 +38,7 @@ _PRIVILEGED_CMDS = {"shutdown", "set_outputs", "set_sample_rate",
                     "reconnect_output", "set_safe_take"}
 
 # I-4: Priorität: 1. HAL-Pfad (immer aktuell), 2. App-Bundle (Fallback).
-# Der HAL-Pfad wird bei Binary-Updates (sudo cp) direkt aktualisiert — das
+# Der HAL-Pfad wird bei Binary-Updates (sudo cp) direkt aktualisiert, das
 # App-Bundle nur bei vollständigem Rebuild. Wird der Helper aus dem App-Bundle
 # gespawnt, kann nach einem HAL-Update ein veralteter Helper laufen
 # ("Zombie-Helper" Split-Brain: alter Helper liest altes SHM-Segment,
@@ -62,7 +62,7 @@ def _find_helper_binary() -> Optional[Path]:
     """
     Sucht das Helper-Binary an plausiblen Pfaden:
       1. Installierter HAL-Pfad:   /Library/Audio/Plug-Ins/HAL/AudioRouterNow.driver/Contents/MacOS/...
-         (I-4: HAL-Pfad hat Priorität — wird bei sudo-Binary-Updates sofort aktualisiert,
+         (I-4: HAL-Pfad hat Priorität, wird bei sudo-Binary-Updates sofort aktualisiert,
           das App-Bundle nur bei vollständigem Rebuild. Bundle-first führte zum
           "Zombie-Helper" Split-Brain: alter Helper liest altes SHM-Segment.)
       2. PyInstaller-Bundle:       <Resources>/AudioRouterNow.driver/Contents/MacOS/AudioRouterNowHelper
@@ -70,7 +70,7 @@ def _find_helper_binary() -> Optional[Path]:
     """
     candidates: List[Path] = []
 
-    # I-4: HAL-Pfad zuerst — immer aktuell, auch nach sudo-Binary-Updates
+    # I-4: HAL-Pfad zuerst, immer aktuell, auch nach sudo-Binary-Updates
     candidates.append(Path(HAL_HELPER))
 
     # PyInstaller: Bundle ist in sys._MEIPASS/AudioRouterNow.driver/ (Fallback)
@@ -142,11 +142,11 @@ class HelperClient:
         """
         # Schneller Check ohne langen Lock
         if self._is_socket_alive():
-            # I-5: Version-Check — Zombie-Helper (zu alt) abschießen
+            # I-5: Version-Check, Zombie-Helper (zu alt) abschießen
             if not self._check_helper_version():
                 logger.warning(
                     f"I-5: Laufender Helper ist älter als MIN_HELPER_VERSION={MIN_HELPER_VERSION}"
-                    " — shutdown und Neustart"
+                    ", shutdown und Neustart"
                 )
                 try:
                     payload = {"cmd": "shutdown"}
@@ -166,22 +166,22 @@ class HelperClient:
                 while time.monotonic() < deadline and self._is_socket_alive():
                     time.sleep(0.2)
                 if self._is_socket_alive():
-                    logger.error("I-5: Zombie-Helper laesst sich nicht beenden — Abbruch")
+                    logger.error("I-5: Zombie-Helper laesst sich nicht beenden, Abbruch")
                     return False
                 # Jetzt regulären Spawn-Pfad nehmen (Socket ist tot)
             else:
-                logger.info("Helper Socket erreichbar — warte auf SHM-Bereitschaft")
+                logger.info("Helper Socket erreichbar, warte auf SHM-Bereitschaft")
                 if self._wait_for_ready():
                     return True
-                logger.warning("Helper Socket erreichbar, SHM-Timeout — App retries via Timer")
+                logger.warning("Helper Socket erreichbar, SHM-Timeout, App retries via Timer")
                 return True
 
-        # Helper muss gespawnt werden — _spawn_lock verhindert Doppel-Spawn
+        # Helper muss gespawnt werden, _spawn_lock verhindert Doppel-Spawn
         with self._spawn_lock:
             # Double-checked: vielleicht hat ein paralleler Thread den Helper
             # gerade gespawnt waehrend wir auf _spawn_lock warteten.
             if self._is_socket_alive():
-                logger.info("Helper wurde von parallelem Thread gestartet — weiter zu Phase 2")
+                logger.info("Helper wurde von parallelem Thread gestartet, weiter zu Phase 2")
                 if self._wait_for_ready():
                     return True
                 return True
@@ -218,7 +218,7 @@ class HelperClient:
                 logger.error(f"Helper konnte nicht gestartet werden: {e}")
                 return False
 
-            # Phase 1: Warte bis Socket erreichbar (max 15s) — OHNE self._lock
+            # Phase 1: Warte bis Socket erreichbar (max 15s), OHNE self._lock
             deadline = time.monotonic() + 15.0
             while time.monotonic() < deadline:
                 if self._is_socket_alive():
@@ -229,12 +229,12 @@ class HelperClient:
                 logger.error("Helper gestartet, aber Socket nicht erreichbar")
                 return False
 
-            # Phase 2: Warte bis SHM-Ring bereit (max 10s) — OHNE self._lock
+            # Phase 2: Warte bis SHM-Ring bereit (max 10s), OHNE self._lock
             if self._wait_for_ready():
                 logger.info("Helper vollständig bereit (Socket + SHM)")
                 return True
 
-            logger.warning("Helper Socket OK, SHM-Timeout — App retries via Timer")
+            logger.warning("Helper Socket OK, SHM-Timeout, App retries via Timer")
             return True
 
     def _check_helper_version(self) -> bool:
@@ -252,7 +252,7 @@ class HelperClient:
             status = self._send_no_lock({"cmd": "get_status"})
             version_str = status.get("version", "")
             if not version_str:
-                logger.warning("I-5: Helper meldet keine version — gilt als veraltet")
+                logger.warning("I-5: Helper meldet keine version, gilt als veraltet")
                 return False
             # Vergleich als Tupel: "3.3.1" → (3, 3, 1)
             try:
@@ -262,7 +262,7 @@ class HelperClient:
                 if not ok:
                     logger.warning(f"I-5: Helper v{version_str} < MIN {MIN_HELPER_VERSION}")
                 else:
-                    logger.debug(f"I-5: Helper v{version_str} ≥ MIN {MIN_HELPER_VERSION} — OK")
+                    logger.debug(f"I-5: Helper v{version_str} ≥ MIN {MIN_HELPER_VERSION}, OK")
                 return ok
             except ValueError:
                 logger.warning(f"I-5: Unparsierbare Helper-Version: '{version_str}'")
@@ -276,7 +276,7 @@ class HelperClient:
         Wartet bis get_status() → ready:true meldet (SHM verbunden).
         Gibt True zurück wenn bereit, False bei Timeout.
 
-        P1-C: Ruft _send_no_lock() auf — darf NICHT unter self._lock aufgerufen
+        P1-C: Ruft _send_no_lock() auf, darf NICHT unter self._lock aufgerufen
         werden (würde Deadlock verursachen). ensure_running() hält self._lock
         daher nicht mehr während dieser Methode läuft.
         """
@@ -297,12 +297,12 @@ class HelperClient:
         Wenn wir den Helper selbst gespawnt haben, warten wir auf Ende.
         Wenn launchd den Helper verwaltet, wird er ggf. neu gestartet.
         """
-        # M7: Nur der Socket-Send läuft unter self._lock — das (potenziell
+        # M7: Nur der Socket-Send läuft unter self._lock, das (potenziell
         # sekundenlange) proc.wait()/terminate() danach NICHT, damit andere
         # Threads den Client nicht blockiert vorfinden.
         with self._lock:
             try:
-                # P3: shutdown ist privilegiert — Token mitschicken (inline, da
+                # P3: shutdown ist privilegiert, Token mitschicken (inline, da
                 # wir bereits self._lock halten; _send_privileged wuerde re-locken).
                 payload = {"cmd": "shutdown"}
                 if self._auth_token:
@@ -326,12 +326,12 @@ class HelperClient:
             try:
                 proc.wait(timeout=3.0)
             except subprocess.TimeoutExpired:
-                logger.warning("Helper reagiert nicht auf shutdown — terminate()")
+                logger.warning("Helper reagiert nicht auf shutdown, terminate()")
                 try:
                     proc.terminate()
                     proc.wait(timeout=2.0)
                 except subprocess.TimeoutExpired:
-                    logger.warning("Helper ignoriert SIGTERM — sende SIGKILL")
+                    logger.warning("Helper ignoriert SIGTERM, sende SIGKILL")
                     proc.kill()
                     try:
                         proc.wait(timeout=2.0)
@@ -345,7 +345,7 @@ class HelperClient:
     # ------------------------------------------------------------------
 
     def ping(self, timeout: Optional[float] = QUICK_TIMEOUT) -> bool:
-        """H2: Default-Timeout QUICK_TIMEOUT (0.5s) — ping wird vom UI-Timer
+        """H2: Default-Timeout QUICK_TIMEOUT (0.5s), ping wird vom UI-Timer
         auf dem Main-Thread aufgerufen und darf nicht lange blockieren."""
         try:
             resp = self._send({"cmd": "ping"}, timeout=timeout)
@@ -422,7 +422,7 @@ class HelperClient:
             return None
 
     # ------------------------------------------------------------------
-    # Internal — Socket-Kommunikation
+    # Internal, Socket-Kommunikation
     # ------------------------------------------------------------------
 
     def _is_socket_alive(self) -> bool:
@@ -452,8 +452,8 @@ class HelperClient:
                 payload = {**payload, "token": self._auth_token}
             resp = self._send_no_lock(payload, timeout=timeout)
             if resp.get("error") == "auth":
-                # Token koennte veraltet sein (Helper neu gestartet) — neu laden + 1x retry.
-                logger.info("Auth-Fehler — Token wird neu geladen und Request wiederholt")
+                # Token koennte veraltet sein (Helper neu gestartet), neu laden + 1x retry.
+                logger.info("Auth-Fehler, Token wird neu geladen und Request wiederholt")
                 self._load_token()
                 if self._auth_token:
                     payload = {**payload, "token": self._auth_token}

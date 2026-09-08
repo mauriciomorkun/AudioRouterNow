@@ -4,7 +4,7 @@ DMG-Hintergrundbild fuer AudioRouterNow.
 
 Fenster: 680x440pt → Background: 1360x880px @2x
 Hintergrundfarbe: dunkles Teal passend zum App-Icon (0, 20, 18).
-Kein Pfeil — nur Farbe.
+Kein Pfeil, nur Farbe.
 """
 
 import sys
@@ -13,12 +13,12 @@ from pathlib import Path
 try:
     from PIL import Image, ImageDraw, ImageFilter
 except ImportError:
-    print("Pillow nicht verfuegbar — DMG ohne Hintergrundbild")
+    print("Pillow nicht verfuegbar, DMG ohne Hintergrundbild")
     sys.exit(0)
 
 W, H = 1360, 880   # @2x für 680x440pt Fenster
 
-# Farbe des Logo-Symbols aus dem App-Icon — helles Teal-Grün
+# Farbe des Logo-Symbols aus dem App-Icon, helles Teal-Grün
 BG_TOP    = (25, 220, 168)  # oben: minimal heller
 BG_BOTTOM = (15, 185, 142)  # unten: minimal dunkler
 TEAL      = (255, 255, 255) # weisser Glow in der Mitte

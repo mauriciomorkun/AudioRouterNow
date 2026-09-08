@@ -1,5 +1,5 @@
 """
-updater.py — Sparkle 2.9.3 Auto-Update-Integration via PyObjC.
+updater.py, Sparkle 2.9.3 Auto-Update-Integration via PyObjC.
 
 Bindet Sparkle's SPUStandardUpdaterController in die rumps-basierte
 NSApplication ein. Sparkle.framework wird zur Laufzeit aus dem
@@ -88,7 +88,7 @@ class SparkleUpdater:
 
         if not _SPARKLE_AVAILABLE:
             logger.debug(
-                "SparkleUpdater init uebersprungen — Sparkle nicht verfuegbar"
+                "SparkleUpdater init uebersprungen, Sparkle nicht verfuegbar"
             )
             return
 
@@ -117,7 +117,7 @@ class SparkleUpdater:
             return True
         try:
             updater = self._controller.updater()
-            # Sparkle 2.x API: startUpdater:(NSError**)error — gibt (BOOL, NSError) zurück.
+            # Sparkle 2.x API: startUpdater:(NSError**)error, gibt (BOOL, NSError) zurück.
             # PyObjC-Mangling: startUpdater_ mit None als Error-Pointer.
             ok, err = updater.startUpdater_(None)
             if not ok:

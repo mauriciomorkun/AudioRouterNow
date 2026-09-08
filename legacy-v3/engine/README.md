@@ -1,4 +1,4 @@
-# AudioRouterNow — Python Engine (v2.0)
+# AudioRouterNow: Python Engine (v2.0)
 
 Die Python Engine ist in v2.0 ausschliesslich fuer UI und Konfiguration zustaendig.
 Das Audio-Routing selbst uebernimmt der native C-Helper-Daemon (`AudioRouterNowHelper`)
@@ -116,8 +116,8 @@ macOS System-Audio
 | `menu_bar_app.py` | macOS Menu Bar Widget (rumps) |
 | `cli.py` | Terminal-Interface fuer Diagnose und Konfiguration (v2.0) |
 | `requirements.txt` | Python-Abhaengigkeiten |
-| `socket_receiver.py` | **LEGACY** — v1, nicht mehr aktiv genutzt |
-| `routing_engine.py` | **LEGACY** — v1, nicht mehr aktiv genutzt |
+| `socket_receiver.py` | **LEGACY**, v1, nicht mehr aktiv genutzt |
+| `routing_engine.py` | **LEGACY**, v1, nicht mehr aktiv genutzt |
 
 ---
 

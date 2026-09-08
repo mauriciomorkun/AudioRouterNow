@@ -1,5 +1,5 @@
 """
-first_launch.py — HAL driver check and automatic installation on first launch.
+first_launch.py, HAL driver check and automatic installation on first launch.
 
 On app startup this module checks whether AudioRouterNow.driver is already
 installed at /Library/Audio/Plug-Ins/HAL/.
@@ -54,8 +54,7 @@ def get_installed_driver_abi_version() -> int | None:
 def driver_abi_matches() -> bool:
     """P10: True, wenn der installierte Treiber ABI-kompatibel mit dieser App ist.
 
-    Fehlt die abi_version-Datei (alter Treiber vor P10), gilt das als Mismatch —
-    der Treiber sollte dann neu installiert werden, damit beide Seiten dieselbe
+    Fehlt die abi_version-Datei (alter Treiber vor P10), gilt das als Mismatch, der Treiber sollte dann neu installiert werden, damit beide Seiten dieselbe
     shared_ring.h-ABI verwenden."""
     installed = get_installed_driver_abi_version()
     if installed is None:
@@ -67,7 +66,7 @@ def driver_abi_matches() -> bool:
 # Installation Progress Window
 # ---------------------------------------------------------------------------
 
-_ACCENT_RGB  = (0.122, 0.867, 0.682)   # #1FDDAE — Mint-Türkis aus App-Icon
+_ACCENT_RGB  = (0.122, 0.867, 0.682)   # #1FDDAE, Mint-Türkis aus App-Icon
 _BG_RGB      = (0.102, 0.102, 0.102)   # #1A1A1A
 _PANEL_RGB   = (0.145, 0.145, 0.145)   # #252525
 _FG_RGB      = (0.941, 0.941, 0.941)   # #F0F0F0
@@ -90,7 +89,7 @@ def close_active_progress_window() -> None:
     """Schließt das Treiber-Installations-Fortschrittsfenster.
 
     Wird von AudioRouterApp.__init__() aufgerufen, genau wenn der Wizard bereit
-    ist — animiert dann den Balken auf 100 % (600 ms sichtbar) und schließt.
+    ist, animiert dann den Balken auf 100 % (600 ms sichtbar) und schließt.
     Kein Effekt wenn kein Fenster aktiv ist (no-op).
     """
     global _active_progress_window
@@ -103,8 +102,7 @@ class _InstallProgressWindow:
     """Fortschritts-Fenster via AppKit (kein tkinter nötig).
 
     Nutzt NSWindow + NSProgressIndicator + NSTextField.
-    Event-Loop: NSRunLoop.mainRunLoop().runMode_beforeDate_() im Polling-Modus —
-    kein NSApplication.run() nötig (kompatibel mit späterer rumps-Initialisierung).
+    Event-Loop: NSRunLoop.mainRunLoop().runMode_beforeDate_() im Polling-Modus, kein NSApplication.run() nötig (kompatibel mit späterer rumps-Initialisierung).
     """
 
     def __init__(self) -> None:
@@ -161,7 +159,7 @@ class _InstallProgressWindow:
             return f
 
         # Titel
-        _label("AudioRouterNow — Driver Installation",
+        _label("AudioRouterNow, Driver Installation",
                24, H - 44, W - 48, 22, 13.0, bold=True)
 
         # Schritt-Text (dynamisch)
@@ -186,7 +184,7 @@ class _InstallProgressWindow:
         )
         panel.addSubview_(self._bar_track)
 
-        # Türkise Füllung (#1FDDAE) — Breite ändert sich mit Fortschritt
+        # Türkise Füllung (#1FDDAE), Breite ändert sich mit Fortschritt
         self._bar_fill = NSView.alloc().initWithFrame_(
             NSMakeRect(0, 0, 0, _BAR_H)
         )
@@ -235,7 +233,7 @@ class _InstallProgressWindow:
     def complete_then_close(self) -> None:
         """Animiert Balken auf 100 %, hält 600 ms sichtbar, dann schließt.
 
-        Wird von close_active_progress_window() aufgerufen — genau dann wenn
+        Wird von close_active_progress_window() aufgerufen, genau dann wenn
         der Wizard bereit ist. So bedeutet 100% = 'Wizard ist da'.
         """
         if self._closed:
@@ -255,7 +253,7 @@ class _InstallProgressWindow:
 
 def _get_driver_source_path() -> Path:
     """
-    Returns the path to the .driver bundle — depending on whether the app is
+    Returns the path to the .driver bundle, depending on whether the app is
     frozen (PyInstaller) or running in development mode.
 
     PyInstaller (frozen):
@@ -319,7 +317,7 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
     # ------------------------------------------------------------------
     # Temp-Dateien für Progress-Kommunikation
     # ------------------------------------------------------------------
-    # H-7: tempfile.mkstemp() statt fester /tmp-Pfade — verhindert
+    # H-7: tempfile.mkstemp() statt fester /tmp-Pfade, verhindert
     # Symlink-Preplacement-Angriff (O_CREAT|O_EXCL intern, kein O_FOLLOW).
     import tempfile as _tempfile
     try:
@@ -328,7 +326,7 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
         progress_file = Path(_ppath)
         progress_file.write_text("0")
     except OSError:
-        # H-7: KEIN fester /tmp-Pfad als Fallback — das Install-Script schreibt
+        # H-7: KEIN fester /tmp-Pfad als Fallback, das Install-Script schreibt
         # als root in diese Datei; ein preplaced Symlink koennte den Root-Write
         # umleiten. Stattdessen mkstemp im Per-User-TMPDIR, dann ~/.audiorouter.
         try:
@@ -337,7 +335,7 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
             progress_file = Path(_ppath)
             progress_file.write_text("0")
         except OSError as exc:
-            logger.warning("Progress-Datei nicht erstellbar: %s — Fallback ~/.audiorouter.", exc)
+            logger.warning("Progress-Datei nicht erstellbar: %s, Fallback ~/.audiorouter.", exc)
             progress_file = Path.home() / ".audiorouter" / ".arn_install_progress"
             try:
                 progress_file.parent.mkdir(parents=True, exist_ok=True)
@@ -355,11 +353,10 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
     shell_script = (
         f"#!/bin/bash\n"
         f"echo 1 > {q_progress}\n"                        # Kopiere…
-        # GitHub #1: /Library/Audio/Plug-Ins/HAL/ existiert nicht auf jedem Mac —
-        # es wird erst angelegt, wenn ein HAL-Plugin installiert wird. `cp` erzeugt
+        # GitHub #1: /Library/Audio/Plug-Ins/HAL/ existiert nicht auf jedem Mac, # es wird erst angelegt, wenn ein HAL-Plugin installiert wird. `cp` erzeugt
         # keine Elternverzeichnisse und scheitert dann mit ENOENT.
         f"mkdir -p {q_dst_dir} || {{ echo 9 > {q_progress}; exit 1; }}\n"
-        f"rm -rf {q_dst}\n"                               # stale Bundle entfernen — BSD cp kopiert sonst IN das existierende Verzeichnis (ABI-Reinstall)
+        f"rm -rf {q_dst}\n"                               # stale Bundle entfernen, BSD cp kopiert sonst IN das existierende Verzeichnis (ABI-Reinstall)
         f"cp -Rf {q_source} {q_dst} || {{ echo 9 > {q_progress}; exit 1; }}\n"
         f"echo 2 > {q_progress}\n"                        # Neustart…
         f"killall coreaudiod || true\n"
@@ -372,7 +369,7 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
         script_file.write_text(shell_script)
         script_file.chmod(0o755)
     except OSError as exc:
-        logger.warning("Could not write install script: %s — falling back.", exc)
+        logger.warning("Could not write install script: %s, falling back.", exc)
         script_file = None
 
     # ------------------------------------------------------------------
@@ -412,7 +409,7 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
             _result["stderr"]     = "Timeout during driver installation (120s)."
         except FileNotFoundError:
             _result["returncode"] = -1
-            _result["stderr"]     = "osascript not found — is this a Mac?"
+            _result["stderr"]     = "osascript not found, is this a Mac?"
         except Exception as exc:  # noqa: BLE001
             _result["returncode"] = -1
             _result["stderr"]     = str(exc)
@@ -447,13 +444,13 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
             if not install_thread.is_alive():
                 if not _codesign_shown:
                     _codesign_shown = True
-                    win.set_step(*_STEPS[3])   # 80% — Signiere
+                    win.set_step(*_STEPS[3])   # 80%, Signiere
                     return False               # noch eine Runde warten
                 # keep_open: 100% wird erst in complete_then_close() gezeigt (= Wizard bereit)
                 if keep_open:
                     win.set_step(90, "✓ Installation complete")
                 else:
-                    win.set_step(*_STEPS[4])   # 100% — Fertig
+                    win.set_step(*_STEPS[4])   # 100%, Fertig
                 return True
 
             try:
@@ -516,14 +513,14 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
     if _result["returncode"] != 0:
         stderr = _result["stderr"]
         if "-128" in stderr:
-            return False, "Installation cancelled — password was not entered."
+            return False, "Installation cancelled, password was not entered."
         msg = f"Driver installation failed:\n{stderr}"
         logger.error("Installation failed (rc=%d): %s", _result["returncode"], stderr)
         return False, msg
 
     logger.info("Driver successfully installed at: %s", DRIVER_INSTALL_PATH)
 
-    # Sign the installed driver (ad-hoc, best-effort — kein admin nötig)
+    # Sign the installed driver (ad-hoc, best-effort, kein admin nötig)
     logger.info("Signing installed driver (ad-hoc)...")
     _cs = subprocess.run(
         ["codesign", "--force", "--deep", "--sign", "-", str(DRIVER_INSTALL_PATH)],
@@ -533,7 +530,7 @@ def install_driver(keep_open: bool = False) -> tuple[bool, str]:
     )
     if _cs.returncode != 0:
         logger.warning(
-            "Ad-hoc codesign of installed driver failed (rc=%d): %s — "
+            "Ad-hoc codesign of installed driver failed (rc=%d): %s, "
             "coreaudiod may refuse to load the driver.",
             _cs.returncode, _cs.stderr.strip(),
         )
@@ -570,7 +567,7 @@ def is_launchd_agent_installed() -> bool:
 
 def _ensure_no_launchd_agent() -> None:
     """
-    Ensures the Helper is NOT managed by launchd — the app manages the helper
+    Ensures the Helper is NOT managed by launchd, the app manages the helper
     lifecycle directly via ensure_running().
 
     If a launchd agent is registered or the plist exists, it is removed to
@@ -585,7 +582,7 @@ def _ensure_no_launchd_agent() -> None:
             capture_output=True, text=True, timeout=10,
         )
         if list_result.returncode == 0:
-            logger.info("LaunchAgent '%s' is registered — disabling to prevent dual-helper conflict.", LAUNCHD_LABEL)
+            logger.info("LaunchAgent '%s' is registered, disabling to prevent dual-helper conflict.", LAUNCHD_LABEL)
             subprocess.run(
                 ["launchctl", "bootout", f"gui/{uid}", str(LAUNCHD_INSTALL_PATH)],
                 capture_output=True, timeout=15,
@@ -619,16 +616,16 @@ def check_and_install() -> bool:
     """
     if is_driver_installed():
         # P10: ABI-Version pruefen. Stimmt sie nicht (oder fehlt sie, alter
-        # Treiber), den Treiber neu installieren — sonst koennten App und
+        # Treiber), den Treiber neu installieren, sonst koennten App und
         # Treiber inkompatible shared_ring.h-Layouts verwenden.
         if driver_abi_matches():
-            logger.info("Driver already installed and ABI-compatible — no action needed.")
+            logger.info("Driver already installed and ABI-compatible, no action needed.")
             _ensure_no_launchd_agent()
             return True
 
         installed_abi = get_installed_driver_abi_version()
         logger.warning(
-            "Driver ABI mismatch: installed=%s, expected=%d — reinstalling driver.",
+            "Driver ABI mismatch: installed=%s, expected=%d, reinstalling driver.",
             installed_abi, APP_EXPECTED_ABI_VERSION,
         )
         _show_install_dialog()
@@ -644,11 +641,11 @@ def check_and_install() -> bool:
                 "Please restart AudioRouterNow."
             )
             return False
-        logger.info("Driver reinstalled — ABI now matches.")
+        logger.info("Driver reinstalled, ABI now matches.")
         _ensure_no_launchd_agent()
         return True
 
-    logger.info("Driver not found — starting installation.")
+    logger.info("Driver not found, starting installation.")
 
     # rumps is not yet initialised when check_and_install() is called,
     # so we use subprocess + osascript for the info dialog.
@@ -664,7 +661,7 @@ def check_and_install() -> bool:
     # GitHub #1: this used to claim the driver "was installed but is missing",
     # which is self-contradictory and left users with nothing to act on. The
     # installer reports success, so reaching this branch means the copy silently
-    # failed — log the state and tell the user what to check.
+    # failed, log the state and tell the user what to check.
     if not is_driver_installed():
         hal_dir = DRIVER_INSTALL_PATH.parent
         logger.error(
@@ -689,19 +686,19 @@ def check_and_install() -> bool:
 
     logger.info("Driver installation completed and verified.")
 
-    # Clean up any launchd agent — app manages helper directly
+    # Clean up any launchd agent, app manages helper directly
     _ensure_no_launchd_agent()
 
     return True
 
 
 # ---------------------------------------------------------------------------
-# Helper functions — native macOS dialogs via osascript
+# Helper functions, native macOS dialogs via osascript
 # ---------------------------------------------------------------------------
 
 def uninstall_all() -> tuple[bool, str]:
     """
-    Removes all AudioRouterNow components — the inverse of install_driver().
+    Removes all AudioRouterNow components, the inverse of install_driver().
 
     Order (critical):
       1. Stop helper daemon (helper_client.shutdown, or pkill fallback; max 2s grace)
@@ -765,9 +762,9 @@ def uninstall_all() -> tuple[bool, str]:
         logger.warning("Uninstall step 2: LaunchAgent deactivation failed: %s", exc)
 
     # --- Step 3: Remove POSIX shared memory segment -------------------------
-    # /audiorouter_shm — see helper/shared_ring.h (ARN_SHM_NAME).
+    # /audiorouter_shm, see helper/shared_ring.h (ARN_SHM_NAME).
     # Note: on macOS shm_unlink() of a missing segment raises OSError with
-    # errno EINVAL (22) or ENOENT (2), not FileNotFoundError — treat both as
+    # errno EINVAL (22) or ENOENT (2), not FileNotFoundError, treat both as
     # "already absent" so we don't emit a misleading warning.
     import errno as _errno
     try:
@@ -816,7 +813,7 @@ def uninstall_all() -> tuple[bool, str]:
             return False, "Timeout while removing the audio driver (60s)."
         except FileNotFoundError:
             logger.error("Uninstall step 4: osascript not found.")
-            return False, "osascript not found — is this a Mac?"
+            return False, "osascript not found, is this a Mac?"
 
         if result.returncode != 0:
             stderr = result.stderr.strip()
@@ -829,7 +826,7 @@ def uninstall_all() -> tuple[bool, str]:
 
         logger.info("Uninstall step 4: HAL driver removed.")
     else:
-        logger.info("Uninstall step 4: HAL driver already absent — skipping.")
+        logger.info("Uninstall step 4: HAL driver already absent, skipping.")
 
     # --- Step 5: Remove config directory ------------------------------------
     try:
@@ -881,7 +878,7 @@ def uninstall_all() -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
-# Helper functions — native macOS dialogs via osascript
+# Helper functions, native macOS dialogs via osascript
 # ---------------------------------------------------------------------------
 
 def _show_uninstall_confirm() -> bool:
@@ -897,7 +894,7 @@ def _show_uninstall_confirm() -> bool:
         'This will remove the audio driver, helper daemon and all settings." '
         'buttons {"Cancel", "Uninstall"} default button "Cancel" '
         'cancel button "Cancel" '
-        'with title "AudioRouterNow — Uninstall" '
+        'with title "AudioRouterNow, Uninstall" '
         'with icon caution'
     )
     try:
@@ -924,10 +921,10 @@ def _show_install_dialog() -> None:
     """
     script = (
         'display dialog "AudioRouterNow needs to install the audio driver.\\n\\n'
-        "macOS will ask for your password — "
+        "macOS will ask for your password, "
         'this is a one-time step." '
         'buttons {"OK"} default button "OK" '
-        'with title "AudioRouterNow — Driver Installation" '
+        'with title "AudioRouterNow, Driver Installation" '
         'with icon note'
     )
     try:
@@ -937,7 +934,7 @@ def _show_install_dialog() -> None:
             timeout=30,
         )
     except Exception:
-        # Dialog failure is non-critical — installation proceeds regardless
+        # Dialog failure is non-critical, installation proceeds regardless
         pass
 
 
@@ -950,7 +947,7 @@ def _show_error_dialog(message: str) -> None:
     script = (
         f'display dialog "{safe_message}" '
         'buttons {"OK"} default button "OK" '
-        'with title "AudioRouterNow — Error" '
+        'with title "AudioRouterNow, Error" '
         'with icon stop'
     )
     try:

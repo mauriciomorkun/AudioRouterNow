@@ -1,5 +1,5 @@
 """
-CLI — Terminal-Interface fuer AudioRouterNow (Diagnose und Steuerung).
+CLI, Terminal-Interface fuer AudioRouterNow (Diagnose und Steuerung).
 
 Audio laeuft ueber den nativen C-Helper-Daemon (AudioRouterNowHelper).
 Python ist nur noch fuer UI und Konfiguration via Unix-Socket zustaendig.
@@ -124,7 +124,7 @@ def cmd_set_outputs(uid_offset_pairs: list):
     for pair in uid_offset_pairs:
         parts = pair.rsplit(":", 1)
         if len(parts) != 2:
-            print(f"FEHLER: Ungaeltiges Format '{pair}' — erwartet uid:ch_offset")
+            print(f"FEHLER: Ungaeltiges Format '{pair}', erwartet uid:ch_offset")
             sys.exit(1)
         uid, ch_offset_str = parts
         try:
@@ -193,25 +193,25 @@ def cmd_stop_helper():
 
     helper = HelperClient()
     if not helper.ping():
-        print("FEHLER: Helper nicht erreichbar — nichts zu stoppen.")
+        print("FEHLER: Helper nicht erreichbar, nichts zu stoppen.")
         print("  Tipp: python cli.py --ping")
         sys.exit(1)
     print("Sende Shutdown an Helper...")
     helper.shutdown()
-    # Kurz warten — der Helper beendet sich asynchron nach der Antwort.
+    # Kurz warten, der Helper beendet sich asynchron nach der Antwort.
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline and helper.ping():
         time.sleep(0.2)
     if helper.ping():
         print("WARNUNG: Helper antwortet weiterhin (Shutdown abgelehnt oder von launchd neu gestartet).")
         sys.exit(1)
-    print("Shutdown-Kommando gesendet — Helper gestoppt.")
+    print("Shutdown-Kommando gesendet, Helper gestoppt.")
     print("Hinweis: Wenn launchd den Helper verwaltet, wird er ggf. neu gestartet.")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="AudioRouterNow CLI — Diagnose und Steuerung",
+        description="AudioRouterNow CLI, Diagnose und Steuerung",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Beispiele:
@@ -314,7 +314,7 @@ Hinweis: --test-socket (v1) wurde durch --ping ersetzt.
         cmd_stop_helper()
         return
 
-    # Keine Argumente — Hilfe anzeigen
+    # Keine Argumente, Hilfe anzeigen
     parser.print_help()
 
 

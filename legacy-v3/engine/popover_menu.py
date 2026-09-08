@@ -1,14 +1,13 @@
 """
-popover_menu.py — NSPopover-Praesentationsschicht fuer AudioRouterNow.
+popover_menu.py, NSPopover-Praesentationsschicht fuer AudioRouterNow.
 
 Option B der NSPopover-Migration: Ein NSPopover-Container mit custom
-NSStackView-Rows ersetzt — wenn das Feature-Flag `use_popover_menu` aktiv ist —
-das klassische NSMenu. Der entscheidende Nutzer-Vorteil: der Popover bleibt nach
+NSStackView-Rows ersetzt, wenn das Feature-Flag `use_popover_menu` aktiv ist, das klassische NSMenu. Der entscheidende Nutzer-Vorteil: der Popover bleibt nach
 einem Klick GEOEFFNET (NSMenu schliesst bei jedem Klick), sodass mehrere Devices
 oder Channel-Pairs hintereinander getoggelt werden koennen.
 
 Architektur-Invarianten (siehe menu_bar_app.py):
-  * Das komplette State-/Logik-Modell der App bleibt unangetastet — diese Datei
+  * Das komplette State-/Logik-Modell der App bleibt unangetastet, diese Datei
     rendert nur und ruft die BESTEHENDEN Python-Callbacks (z.B. _toggle_device).
   * Alle View-Mutationen laufen auf dem Main-Thread. refresh() besitzt einen
     NSThread-Guard (Defense-in-Depth) und wird ausschliesslich aus dem 0.5s-
@@ -18,7 +17,7 @@ Architektur-Invarianten (siehe menu_bar_app.py):
     StatusPopover; der NSPopover haelt den ViewController. Sonst → GC-Crash.
 
 Plattform: NSPopover (10.7+), NSStatusItem.button() (10.10+). Deployment-Target
-der App ist macOS 11.0 — beide garantiert verfuegbar.
+der App ist macOS 11.0, beide garantiert verfuegbar.
 """
 
 import logging
@@ -57,7 +56,7 @@ _MAX_HEIGHT = 560.0
 class Row:
     """Eine logische Menue-Zeile. kind in {'item','header','separator','status'}.
 
-    Reine Datenklasse — haelt keinerlei AppKit-Objekte. Wird in
+    Reine Datenklasse, haelt keinerlei AppKit-Objekte. Wird in
     AudioRouterApp.build_rows() erzeugt und vom _RowsController in Views
     uebersetzt. callback erhaelt beim Klick den NSButton als sender (analog zur
     rumps-MenuItem-Callback-Signatur).
@@ -92,7 +91,7 @@ class _Target(NSObject):
     def fire_(self, sender):
         try:
             self._cb(sender)
-        except Exception:  # noqa: BLE001 — UI-Callback darf den Runloop nie killen
+        except Exception:  # noqa: BLE001, UI-Callback darf den Runloop nie killen
             logger.exception("Popover-Row-Callback fehlgeschlagen")
 
 
@@ -143,7 +142,7 @@ class _RowsController(NSViewController):
             scroll.setAutohidesScrollers_(True)
             stack.setFrameSize_(NSMakeSize(width, height))
             scroll.setDocumentView_(stack)
-            # Oben starten (NSScrollView ist flipped-abhaengig — DocumentView an
+            # Oben starten (NSScrollView ist flipped-abhaengig, DocumentView an
             # den oberen Rand scrollen).
             doc = scroll.documentView()
             if doc is not None and not scroll.contentView().isFlipped():
@@ -162,8 +161,8 @@ class _RowsController(NSViewController):
             return box
 
         # WARNING-1-Fix: Klickbare Status-Zeile. Wenn build_rows() der Status-Row
-        # einen callback (_status_action) gibt — d.h. action_key war
-        # restart_helper / reinstall_driver / switch_audio — darf sie NICHT als
+        # einen callback (_status_action) gibt, d.h. action_key war
+        # restart_helper / reinstall_driver / switch_audio, darf sie NICHT als
         # reines Label gerendert werden, sonst ist die Aktion im Popover-Modus
         # unerreichbar. Borderloser NSButton (kein Checkbox-State, wirkt wie
         # fetter Text) ueber dieselbe _Target/'fire:'-Bridge wie Item-Zeilen.
@@ -247,7 +246,7 @@ class StatusPopover(NSObject):
             btn.setTarget_(self)
             btn.setAction_("togglePopover:")
         else:
-            logger.warning("StatusPopover: statusItem.button() ist nil — "
+            logger.warning("StatusPopover: statusItem.button() ist nil, "
                            "Klick-Routing nicht moeglich")
         return self
 
@@ -258,7 +257,7 @@ class StatusPopover(NSObject):
             return
         # WARNING-3-Fix (Flicker-Guard): Bei NSPopoverBehaviorTransient schliesst
         # ein Klick auf den StatusItem-Button den offenen Popover bereits per
-        # Transient-Dismiss, BEVOR diese Action feuert — isShown() ist hier dann
+        # Transient-Dismiss, BEVOR diese Action feuert, isShown() ist hier dann
         # schon False. Ohne Guard fuehrt das zu Dismiss→sofortiges Reopen =
         # Flicker. War der letzte Close gerade eben (derselbe Klick), nur
         # geschlossen lassen. Echtes Wieder-Oeffnen liegt > Reaktionszeit
@@ -297,7 +296,7 @@ class StatusPopover(NSObject):
     def refresh(self):
         """Live-Update NUR wenn sichtbar. Tauscht den ViewController in-place,
         ruft KEIN erneutes show (das wuerde re-ankern/flackern). No-op bei
-        geschlossenem Popover — beim naechsten Oeffnen liest _present() den
+        geschlossenem Popover, beim naechsten Oeffnen liest _present() den
         State ohnehin frisch.
 
         Main-Thread-Guard (Defense-in-Depth): Aufrufer sind stets Main-Thread

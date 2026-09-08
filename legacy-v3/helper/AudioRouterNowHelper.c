@@ -1,5 +1,5 @@
 /*
- * AudioRouterNowHelper.c — v3.1.2 (Multi-Device + Config-Socket + Volume-Polling + launchd-ready)
+ * AudioRouterNowHelper.c, v3.1.2 (Multi-Device + Config-Socket + Volume-Polling + launchd-ready)
  *
  * Liest Audio-Frames aus dem POSIX-SHM-Ring (geschrieben vom HAL-Plugin)
  * und gibt sie via CoreAudio AudioDeviceIOProc an EIN ODER MEHRERE physische
@@ -10,7 +10,7 @@
  *   - Pro Output-Device gibt es eine eigene IOProc + eigenen `local_ridx`
  *     (lokale Leseposition, nicht im SHM-Header).
  *   - Damit der Producer nicht ueberfaehrt: ring->read_idx wird vom Helper
- *     periodisch auf das MINIMUM aller local_ridx gesetzt — so bleibt der
+ *     periodisch auf das MINIMUM aller local_ridx gesetzt, so bleibt der
  *     Driver mit dem Original-SPSC-Verhalten ABI-kompatibel.
  *
  * Aufruf (Test im Terminal):
@@ -18,7 +18,7 @@
  *   AudioRouterNowHelper <device-uid-1> [<uid-2> ...] # Bestimmte Devices per UID
  *
  * Config-Socket (Phase 3):
- *   /tmp/audiorouter.config.sock — JSON-Lines Protokoll, von Python steuerbar.
+ *   /tmp/audiorouter.config.sock, JSON-Lines Protokoll, von Python steuerbar.
  *
  * Build:
  *   cd helper && make
@@ -59,7 +59,7 @@
 
 /* ── Konfiguration ──────────────────────────────────────────────────────── */
 
-/* I-5: Versions-Fallback — sollte NIE greifen, da beide Makefiles
+/* I-5: Versions-Fallback, sollte NIE greifen, da beide Makefiles
  * (helper/Makefile + driver/Makefile) -DARN_HELPER_VERSION via python3
  * aus engine/version.py injizieren. "UNKNOWN" macht einen Build-Fehler
  * sofort sichtbar statt still die falsche Version zu melden. */
@@ -71,16 +71,16 @@ static const char g_helper_version[] = ARN_HELPER_VERSION;
 #define OUR_DEVICE_UID         "com.audiorouter.now.device"   /* virtuelles Device ausschliessen */
 #define SHM_RETRY_INTERVAL_US  500000                          /* 500ms zwischen shm_open-Versuchen */
 /* H7: Socket in user-privatem Verzeichnis statt world-writable /tmp.
- * Pfad wird zur Laufzeit aus $HOME gebildet — kein TOCTOU-Risiko. */
+ * Pfad wird zur Laufzeit aus $HOME gebildet, kein TOCTOU-Risiko. */
 static char g_config_socket_path[512] = {0};
 #define VOLUME_POLL_INTERVAL_US 50000                          /* 50ms Volume-Polling */
 #define STALL_TIMEOUT_NS  (1000ULL * 1000ULL * 1000ULL)  /* K2: 1000ms ohne Fortschritt = Stall
-                                                            * (erhöht von 300ms — SRC-Boundary-
+                                                            * (erhöht von 300ms, SRC-Boundary-
                                                             * Instabilität braucht mehr Settle-Zeit) */
-/* P6: Hard-Stall — schnellere Erkennung (~300ms) NUR wenn der IOProc nachweislich
+/* P6: Hard-Stall, schnellere Erkennung (~300ms) NUR wenn der IOProc nachweislich
  * laeuft (ioproc_calls steigt) aber NICHT konsumiert (ridx eingefroren) UND der
  * Ring sehr voll ist (>75%). Diese Kombination ist kein normaler Underrun und
- * tritt auch bei 44.1kHz nicht faelschlich auf — daher das kurze Fenster. */
+ * tritt auch bei 44.1kHz nicht faelschlich auf, daher das kurze Fenster. */
 #define HARD_STALL_TIMEOUT_NS  (300ULL * 1000ULL * 1000ULL)  /* 300ms */
 #define HARD_STALL_FILL_NUM    3u   /* Ring-Fill-Schwelle: > 75% = 3/4 der Kapazitaet */
 #define HARD_STALL_FILL_DEN    4u
@@ -88,7 +88,7 @@ static char g_config_socket_path[512] = {0};
 #define MAX_OUTPUTS            8
 
 /* ARC-4: Pre-Roll High-Water-Mark. 2048 Frames ≈ 43ms @48kHz.
- * (Vorher ARN_RING_CAPACITY/4 = 4096 Frames ≈ 85ms — der Kommentar "43ms"
+ * (Vorher ARN_RING_CAPACITY/4 = 4096 Frames ≈ 85ms, der Kommentar "43ms"
  * war korrekt, der Wert falsch.) */
 #define ARN_PREROLL_FRAMES (ARN_RING_CAPACITY / 8u)   /* 2048 frames ≈ 43ms @48kHz */
 
@@ -107,7 +107,7 @@ static char g_token_path[512] = {0};
 /* P11/H7: Stellt sicher, dass ~/.audiorouter/ mit 0700 existiert und befuellt
  * g_config_socket_path + g_lock_path. MUSS vor helper_acquire_instance_lock()
  * laufen, damit das Verzeichnis fuer die Lock-Datei bereits existiert.
- * MC-5: Prueft nach mkdir per lstat Owner + Permissions des Verzeichnisses —
+ * MC-5: Prueft nach mkdir per lstat Owner + Permissions des Verzeichnisses, 
  * ein untergeschobenes Verzeichnis (Symlink, fremder Owner, lockere Rechte)
  * fuehrt zum Abbruch. Rueckgabe: true = OK, false = Sicherheitsfehler. */
 static bool config_socket_path_init(void)
@@ -119,7 +119,7 @@ static bool config_socket_path_init(void)
     snprintf(dir, sizeof(dir), "%s/.audiorouter", home);
     mkdir(dir, 0700);  /* Fehler (existiert schon) ignorieren */
 
-    /* MC-5: Ownership/Permission-Pruefung — lstat folgt Symlinks NICHT,
+    /* MC-5: Ownership/Permission-Pruefung, lstat folgt Symlinks NICHT,
      * ein Symlink anstelle des Verzeichnisses faellt durch S_ISDIR. */
     struct stat st;
     if (lstat(dir, &st) != 0) {
@@ -144,7 +144,7 @@ static bool config_socket_path_init(void)
     return true;
 }
 
-/* P3: Constant-time Vergleich — verhindert Timing-Seitenkanal beim Token-Check.
+/* P3: Constant-time Vergleich, verhindert Timing-Seitenkanal beim Token-Check.
  * Vergleicht IMMER alle n Bytes, kein Short-Circuit (im Gegensatz zu memcmp).
  * Rueckgabe: 0 wenn gleich, !=0 sonst. */
 static int ct_memcmp(const void *a, const void *b, size_t n)
@@ -241,7 +241,7 @@ static bool auth_check(const char *line)
     if (!parse_token(line, tok, sizeof(tok))) {
         return false;
     }
-    /* Laengenpruefung VOR ct_memcmp — sonst koennte ein kuerzeres Token
+    /* Laengenpruefung VOR ct_memcmp, sonst koennte ein kuerzeres Token
      * out-of-bounds vergleichen. Beide muessen exakt 64 Zeichen sein. */
     if (strlen(tok) != 64 || strlen(g_auth_token) != 64) {
         return false;
@@ -249,9 +249,9 @@ static bool auth_check(const char *line)
     return ct_memcmp(tok, g_auth_token, 64) == 0;
 }
 
-/* M8/P11: Single-Instance-Lock — verhindert zwei parallele Helper-Instanzen die
+/* M8/P11: Single-Instance-Lock, verhindert zwei parallele Helper-Instanzen die
  * sich gegenseitig SHM und Config-Socket ueberschreiben wuerden.
- * O_NOFOLLOW: ein untergeschobener Symlink wird nicht gefolgt (ELOOP) — in dem
+ * O_NOFOLLOW: ein untergeschobener Symlink wird nicht gefolgt (ELOOP), in dem
  * Fall brechen wir hart ab (potentieller Angriff). */
 static int helper_acquire_instance_lock(void)
 {
@@ -291,7 +291,7 @@ typedef struct DeviceOutput {
     char                 name[256];
     bool                 active;
     _Atomic uint32_t     underruns;      /* Diagnostic: Underrun-Zaehler         */
-    /* K2: Stall-Detection — nur vom Volume-Thread gelesen/geschrieben (kein Lock nötig
+    /* K2: Stall-Detection, nur vom Volume-Thread gelesen/geschrieben (kein Lock nötig
      * da nur ein Thread diese Felder modifiziert). stalled ist atomic für Diagnose. */
     uint32_t         last_ridx_sample;   /* zuletzt gesehener local_ridx-Wert    */
     uint64_t         last_progress_ns;   /* mach_absolute_time() der letzten Bewegung */
@@ -314,16 +314,16 @@ typedef struct DeviceOutput {
      * stoppt/neu erstellt, gibt der IOProc reine Stille aus (kein Klicken durch
      * inkonsistente Ring-SR / halb-rekonfigurierte Devices). Atomar, RT-gelesen. */
     _Atomic uint32_t sr_changing;           /* 1=IOProc gibt Stille (SR-Wechsel laeuft) */
-    /* Tranche C: PI-Regler State — NUR vom volume_poll_thread gelesen/geschrieben.
+    /* Tranche C: PI-Regler State, NUR vom volume_poll_thread gelesen/geschrieben.
      * Kein Atomic nötig: ausschließlich non-RT-Zugriff unter g_outputs_lock. */
     double fill_ewma;    /* EWMA des Ring-Füllstands in Frames (Tranche C Glättung) */
     double integ_error;  /* Integrator-Akkumulator für I-Term */
-    /* Phase 6 — Adaptive SRC fuer Clock-Drift-Kompensation */
-    double               src_frac_ridx;    /* fraktionaler Leseindex — NUR vom IOProc-Thread gelesen/geschrieben */
+    /* Phase 6, Adaptive SRC fuer Clock-Drift-Kompensation */
+    double               src_frac_ridx;    /* fraktionaler Leseindex, NUR vom IOProc-Thread gelesen/geschrieben */
     _Atomic uint32_t     src_ratio_q20;    /* Q20-Ratio: base_ratio = 1<<20. Volume-Thread schreibt, IOProc liest */
     uint32_t             src_ring_target;  /* Ziel-Fuellstand in Samples (= ARN_RING_CAPACITY/2) */
     double               base_ratio;       /* ring_sr / device_sr: 1.0 bei gleicher Rate, z.B. 1.0884 bei 44100->48000 */
-    /* K6/KC-3: RT-sicherer Pending-Reset fuer src_frac_ridx — Generationszaehler.
+    /* K6/KC-3: RT-sicherer Pending-Reset fuer src_frac_ridx, Generationszaehler.
      * Volume-Thread/sr_reinit darf src_frac_ridx NICHT direkt schreiben
      * (Data Race mit IOProc). Stattdessen: Zielwert setzen (release), dann
      * frac_ridx_reset_gen inkrementieren (acq_rel). Der IOProc vergleicht
@@ -340,27 +340,27 @@ typedef struct DeviceOutput {
 /* ── Globaler Zustand ───────────────────────────────────────────────────── */
 
 static atomic_int              g_running        = 1;
-/* F1: Signal-Zaehler — zweites SIGTERM/SIGINT erzwingt sofortiges _exit(1). */
+/* F1: Signal-Zaehler, zweites SIGTERM/SIGINT erzwingt sofortiges _exit(1). */
 static _Atomic int             g_signal_count   = 0;
-/* H2: g_ring als atomarer Pointer — IOProc lädt ihn einmal per acquire
+/* H2: g_ring als atomarer Pointer, IOProc lädt ihn einmal per acquire
  * am Call-Anfang; Reconnect-Code kann ihn sicher per release-Store tauschen
  * ohne SIGBUS-Risiko für laufende IOProcs. */
 static _Atomic(ARNSharedRing *) g_ring           = NULL;
 static int                     g_shm_fd         = -1;
 
 static DeviceOutput            g_outputs[MAX_OUTPUTS];
-/* Tombstoning (Batch 9): g_n_outputs ist eine HIGH-WATER-MARK — "hoechster je
+/* Tombstoning (Batch 9): g_n_outputs ist eine HIGH-WATER-MARK, "hoechster je
  * belegter Slot-Index + 1". Sie waechst monoton (Reset nur in outputs_stop_all).
  * Ein Slot ist FREI wenn active==false UND uid[0]=='\0' (Tombstone).
- * output_remove markiert Slots nur als Tombstone, verschiebt sie NIE —
+ * output_remove markiert Slots nur als Tombstone, verschiebt sie NIE, 
  * dadurch bleibt &g_outputs[slot] (inClientData der IOProcs) stabil und
  * uninvolvierte Outputs muessen bei einem Remove nicht neu gestartet werden. */
 static int                     g_n_outputs      = 0;
-/* Anzahl derzeit AKTIVER Outputs (active==true) — fuer Diagnose/Status.
+/* Anzahl derzeit AKTIVER Outputs (active==true), fuer Diagnose/Status.
  * Wird unter g_outputs_lock via recount_active_locked() gepflegt. */
 static int                     g_n_active_outputs = 0;
 static pthread_mutex_t         g_outputs_lock   = PTHREAD_MUTEX_INITIALIZER;
-/* MC-6: Generationszaehler fuer g_outputs[] — wird in outputs_stop_all()
+/* MC-6: Generationszaehler fuer g_outputs[], wird in outputs_stop_all()
  * inkrementiert. output_add() vergleicht die Generation vor/nach dem
  * lockfreien CoreAudio-Block und bricht ab wenn der Watchdog (oder Shutdown)
  * waehrenddessen alle Outputs gestoppt hat (Race-Schutz). */
@@ -381,7 +381,7 @@ static atomic_int              g_config_running   = 0;
 /* Volume-Polling Thread */
 static pthread_t               g_volume_thread;
 static atomic_int              g_volume_running   = 0;
-/* NC-1: pthread_t ist ein opaker Typ — darf nicht als Wahrheitswert genutzt
+/* NC-1: pthread_t ist ein opaker Typ, darf nicht als Wahrheitswert genutzt
  * werden. Explizites Flag, gesetzt nach erfolgreichem pthread_create. */
 static bool                    g_volume_thread_started = false;
 
@@ -391,7 +391,7 @@ static atomic_int              g_hotplug_registered = 0;
 /* SHM-Bereitschafts-Flag: 0 = noch nicht verbunden, 1 = Ring bereit */
 static atomic_int              g_shm_ready          = 0;
 
-/* Tranche B: Safe-Take-Modus — deaktiviert alle Heiler-Aktuatoren,
+/* Tranche B: Safe-Take-Modus, deaktiviert alle Heiler-Aktuatoren,
  * erlaubt nur Telemetrie. Fuer Recording/Live-Situationen. */
 static atomic_int              g_safe_take          = 0;
 
@@ -399,13 +399,13 @@ static atomic_int              g_safe_take          = 0;
  * (kein Forcieren von 48kHz). 0 = Manueller Modus (set_sample_rate steuert). */
 static atomic_int              g_auto_sample_rate   = 1;
 
-/* H3: Hot-Plug-Flag — Callback setzt nur dieses Flag, Volume-Thread reagiert.
+/* H3: Hot-Plug-Flag, Callback setzt nur dieses Flag, Volume-Thread reagiert.
  * Kein CoreAudio-Call im Property-Callback-Kontext (Re-Entry-Deadlock-Risiko). */
 static atomic_int              g_hotplug_pending    = 0;
 
-/* Keep-Alive IOProc — hält das virtuelle "Audio Router" Device dauerhaft running.
+/* Keep-Alive IOProc, hält das virtuelle "Audio Router" Device dauerhaft running.
  * Registriert in C (nicht Python) damit der Funktionszeiger für die gesamte
- * Lebensdauer des Helper-Prozesses stabil bleibt — kein Stale-Pointer-Problem
+ * Lebensdauer des Helper-Prozesses stabil bleibt, kein Stale-Pointer-Problem
  * wie bei Python-ctypes-Callbacks nach Prozess-Exit. */
 static AudioDeviceID           g_keepalive_dev_id  = kAudioDeviceUnknown;
 static AudioDeviceIOProcID     g_keepalive_proc_id = NULL;
@@ -414,7 +414,7 @@ static AudioDeviceIOProcID     g_keepalive_proc_id = NULL;
 
 static inline uint64_t get_time_ns(void);  /* K2: Stall-Detection Zeitstempel */
 static int   output_add(const char *uid, uint32_t ch_offset);
-/* output_add_locked: entfernt in v2.8 (H1) — ersetzt durch output_add() */
+/* output_add_locked: entfernt in v2.8 (H1), ersetzt durch output_add() */
 static void  output_remove_locked(const char *uid, uint32_t ch_offset);
 static void  outputs_stop_all(void);
 static char *device_get_uid(AudioDeviceID dev_id);
@@ -437,13 +437,13 @@ static void handle_alarm(int sig) { (void)sig; _exit(1); }
 /* ── Keep-Alive IOProc ──────────────────────────────────────────────────── */
 
 /*
- * keepalive_ioproc — No-Op-Callback auf dem virtuellen "Audio Router" Device.
+ * keepalive_ioproc, No-Op-Callback auf dem virtuellen "Audio Router" Device.
  *
  * Hält gDeviceIsRunning=1 im HAL-Driver dauerhaft aufrecht, unabhängig davon
  * ob externe Apps (Apple Music, Spotify) gerade einen IOProc hören.
  *
  * Läuft auf einem CoreAudio-RT-Thread. Darf keine Locks, malloc oder blocking
- * Calls enthalten. Diese Implementierung tut genau nichts — korrekt so.
+ * Calls enthalten. Diese Implementierung tut genau nichts, korrekt so.
  */
 static OSStatus keepalive_ioproc(AudioDeviceID           inDevice,
                                   const AudioTimeStamp   *inNow,
@@ -508,7 +508,7 @@ static ARNSharedRing *shm_connect(void)
 
     ARNSharedRing *ring = (ARNSharedRing *)ptr;
 
-    /* ABI-Versionscheck — Segment muss vom aktuellen Plugin stammen. */
+    /* ABI-Versionscheck, Segment muss vom aktuellen Plugin stammen. */
     if (ring->magic != ARN_RING_MAGIC || ring->version != ARN_RING_VERSION) {
         fprintf(stderr, "Helper: SHM magic/version mismatch "
                 "(got magic=0x%08X ver=%u, expected 0x%08X ver=%u) — warte...\n",
@@ -518,7 +518,7 @@ static ARNSharedRing *shm_connect(void)
         return NULL;
     }
 
-    /* NC-6: Layout-Validierung — capacity/channels muessen zur kompilierten
+    /* NC-6: Layout-Validierung, capacity/channels muessen zur kompilierten
      * Ring-Geometrie passen. Ein abweichendes Segment (fremder/korrupter
      * Writer) wuerde sonst zu Out-of-Bounds-Indexierung im IOProc fuehren. */
     if (ring->capacity != ARN_RING_CAPACITY || ring->channels != 2u) {
@@ -536,13 +536,13 @@ static ARNSharedRing *shm_connect(void)
     return ring;
 }
 
-/* H2: Deferred-Unmap — beim Live-Reconnect das alte Segment nicht sofort
+/* H2: Deferred-Unmap, beim Live-Reconnect das alte Segment nicht sofort
  * unmappen, sondern erst im naechsten Volume-Zyklus (50ms spaeter).
  * Bis dahin sind alle in-flight IOProc-Calls (<1ms) garantiert durch. */
 static ARNSharedRing *g_pending_unmap_ring = NULL;
 static int            g_pending_unmap_fd   = -1;
 /* KC-2: Epoch des Defer-Zeitpunkts (CLOCK_MONOTONIC, ns). munmap() erfolgt
- * erst wenn seit dem Defer mindestens 150ms vergangen sind — damit ist
+ * erst wenn seit dem Defer mindestens 150ms vergangen sind, damit ist
  * garantiert, dass auch ein IOProc, der den alten g_ring-Pointer unmittelbar
  * vor dem Swap geladen hat, laengst fertig ist (IOProc-Laufzeit < 1ms;
  * jeder neue Call laedt g_ring per acquire neu und sieht NULL/neu). */
@@ -579,7 +579,7 @@ static void shm_flush_pending_unmap(void)
  * IOProcs vorher atomic-NULL sehen. */
 static void shm_disconnect_deferred(void)
 {
-    /* Erst vorherigen Pending-Rest freigeben — hier unconditional (force):
+    /* Erst vorherigen Pending-Rest freigeben, hier unconditional (force):
      * das Segment wurde bereits beim letzten Defer aus g_ring entfernt,
      * in-flight IOProcs (<1ms) sind durch. Mit dem Epoch-Guard wuerde der
      * Pointer sonst ueberschrieben werden → Leak. */
@@ -589,14 +589,14 @@ static void shm_disconnect_deferred(void)
     g_pending_unmap_ring = old;
     g_pending_unmap_fd   = g_shm_fd;
     g_shm_fd = -1;
-    /* KC-2: Defer-Epoch setzen — startet die 150ms-Grace-Period. */
+    /* KC-2: Defer-Epoch setzen, startet die 150ms-Grace-Period. */
     atomic_store(&g_deferred_unmap_timestamp_ns,
                  clock_gettime_nsec_np(CLOCK_MONOTONIC));
 }
 
 static void shm_disconnect(void)
 {
-    /* F5: atomarer Exchange statt load+store — kein Fenster, in dem ein
+    /* F5: atomarer Exchange statt load+store, kein Fenster, in dem ein
      * IOProc den alten Pointer nach munmap noch laden koennte. */
     ARNSharedRing *old_ring = atomic_exchange_explicit(&g_ring, NULL, memory_order_acq_rel);
     if (old_ring != NULL) {
@@ -707,7 +707,7 @@ static AudioDeviceID find_device_by_uid(const char *uid)
     AudioDeviceID result = kAudioDeviceUnknown;
     for (UInt32 i = 0; i < count; i++) {
         char *dev_uid = device_get_uid(devices[i]);
-        if (!dev_uid) continue;  /* M4: malloc-Fehler — Slot überspringen */
+        if (!dev_uid) continue;  /* M4: malloc-Fehler, Slot überspringen */
         if (strcmp(dev_uid, uid) == 0 && device_output_channels(devices[i]) >= 2) {
             result = devices[i];
             free(dev_uid);
@@ -767,7 +767,7 @@ static AudioDeviceID find_audio_router_device(void) {
  * Auto-Auswahl: erstes echtes Output-Device (>=2 Kanaele), das nicht das
  * eigene virtuelle ist. Wird verwendet wenn kein UID-Hint vorhanden ist.
  *
- * P5: KEINE Bevorzugung von 48kHz mehr — der Ring folgt im Auto-Modus der
+ * P5: KEINE Bevorzugung von 48kHz mehr, der Ring folgt im Auto-Modus der
  * nativen Rate des gewaehlten Devices (siehe output_add / g_auto_sample_rate).
  */
 static AudioDeviceID find_default_output_device(void)
@@ -797,7 +797,7 @@ static AudioDeviceID find_default_output_device(void)
         char *uid = device_get_uid(devices[i]);
         UInt32 out_ch = device_output_channels(devices[i]);
         if (out_ch >= 2 && uid && strcmp(uid, OUR_DEVICE_UID) != 0) {
-            /* Erstes geeignetes Device gewinnt — unabhaengig von seiner SR. */
+            /* Erstes geeignetes Device gewinnt, unabhaengig von seiner SR. */
             result = devices[i];
             free(uid);
             break;
@@ -808,10 +808,10 @@ static AudioDeviceID find_default_output_device(void)
     return result;
 }
 
-/* ── CoreAudio IOProc — pro Device ──────────────────────────────────────── */
+/* ── CoreAudio IOProc, pro Device ──────────────────────────────────────── */
 
 /*
- * device_ioproc — pro DeviceOutput aufgerufen vom CoreAudio RT-Thread.
+ * device_ioproc, pro DeviceOutput aufgerufen vom CoreAudio RT-Thread.
  *
  * Liest aus dem SHM-Ring via lokalem read_idx (NICHT der globale ring->read_idx),
  * sodass mehrere Outputs unabhaengig konsumieren koennen.
@@ -831,22 +831,22 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
 
     atomic_fetch_add_explicit(&g_ioproc_calls, 1u, memory_order_relaxed);
     /* Tranche A: Zeitstempel des letzten echten Audio-IOProc-Calls (nur device_ioproc,
-     * NICHT keepalive_ioproc — keepalive macht kein echtes Audio). RT-safe relaxed store. */
+     * NICHT keepalive_ioproc, keepalive macht kein echtes Audio). RT-safe relaxed store. */
     atomic_store_explicit(&g_last_ioproc_call_ns, get_time_ns(), memory_order_relaxed);
 
     DeviceOutput  *dev  = (DeviceOutput *)inClientData;
-    /* H2: g_ring atomar mit acquire laden — sieht immer entweder das alte
+    /* H2: g_ring atomar mit acquire laden, sieht immer entweder das alte
      * oder das neue (nie ein Halb-Pointer) und verhindert SIGBUS nach
      * deferred-munmap im Reconnect-Pfad. */
     ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
 
     if (!dev || !ring || !outOutputData) return noErr;
 
-    /* P6: Pro-Output IOProc-Call-Zaehler — Basis fuer Hard-Stall-Detection.
+    /* P6: Pro-Output IOProc-Call-Zaehler, Basis fuer Hard-Stall-Detection.
      * RT-safe: nur relaxed atomic increment. */
     atomic_fetch_add_explicit(&dev->ioproc_calls, 1u, memory_order_relaxed);
 
-    /* K6/KC-3: Pending-Reset fuer src_frac_ridx — RT-safe, kein Lock.
+    /* K6/KC-3: Pending-Reset fuer src_frac_ridx, RT-safe, kein Lock.
      * Volume-Thread/sr_reinit schreibt erst frac_ridx_reset_widx (release),
      * dann inkrementiert er frac_ridx_reset_gen (acq_rel). Der acquire-Load
      * auf gen macht den widx-Store sichtbar. IOProc wendet den Reset hier an
@@ -863,7 +863,7 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
         }
     }
 
-    /* P9: SR-Wechsel-Gate — VOR dem Pre-Roll-Gate pruefen. Waehrend
+    /* P9: SR-Wechsel-Gate, VOR dem Pre-Roll-Gate pruefen. Waehrend
      * sr_reinit_all_outputs laeuft (Device gestoppt/neu konfiguriert, Ring-SR
      * im Umbruch), gibt der IOProc reine Stille aus statt potentiell falsch
      * geratete Samples → kein Klicken/Knacken. RT-safe: nur ein acquire-load
@@ -876,7 +876,7 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
         return noErr;
     }
 
-    /* Tranche B: Pre-Roll Gate — gibt Stille bis Ring ≥ HWM (43ms @48kHz).
+    /* Tranche B: Pre-Roll Gate, gibt Stille bis Ring ≥ HWM (43ms @48kHz).
      * RT-safe: nur relaxed-atomic loads + ein release-store. Kein malloc, kein lock. */
     if (atomic_load_explicit(&dev->preroll_armed, memory_order_relaxed)) {
         uint32_t hwm    = atomic_load_explicit(&dev->preroll_target_frames, memory_order_relaxed);
@@ -884,14 +884,14 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
         uint32_t frac_s = (uint32_t)(dev->src_frac_ridx * 2.0);
         uint32_t behind_p = widx_p - frac_s;
         if (behind_p / 2u < hwm) {
-            /* Noch nicht genug gepuffert — Stille ausgeben, Position NICHT bewegen */
+            /* Noch nicht genug gepuffert, Stille ausgeben, Position NICHT bewegen */
             for (UInt32 b = 0; b < outOutputData->mNumberBuffers; b++) {
                 memset(outOutputData->mBuffers[b].mData, 0,
                        outOutputData->mBuffers[b].mDataByteSize);
             }
             return noErr;
         }
-        /* HWM erreicht — Pre-Roll abschalten (einmalig, release) */
+        /* HWM erreicht, Pre-Roll abschalten (einmalig, release) */
         atomic_store_explicit(&dev->preroll_armed, 0u, memory_order_release);
     }
 
@@ -902,10 +902,10 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
     UInt32 nBufs = outOutputData->mNumberBuffers;
     if (nBufs == 0) return noErr;
 
-    /* nFrames bestimmen — bei non-interleaved nehmen wir Buffer 0 als Referenz */
+    /* nFrames bestimmen, bei non-interleaved nehmen wir Buffer 0 als Referenz */
     UInt32 nFrames;
     if (nBufs >= 2) {
-        /* MC-3: Non-interleaved Buffer koennen >1 Channel pro Buffer tragen —
+        /* MC-3: Non-interleaved Buffer koennen >1 Channel pro Buffer tragen, 
          * mNumberChannels beruecksichtigen statt 1 Kanal anzunehmen. */
         UInt32 ch_per_buf = outOutputData->mBuffers[0].mNumberChannels;
         if (ch_per_buf == 0) ch_per_buf = 1;
@@ -916,7 +916,7 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
         nFrames = outOutputData->mBuffers[0].mDataByteSize / sizeof(float) / nCh;
     }
 
-    /* K7: BSS-Overflow-Guard — nFrames darf temp_buf[ARN_RING_CAPACITY] nie
+    /* K7: BSS-Overflow-Guard, nFrames darf temp_buf[ARN_RING_CAPACITY] nie
      * ueberlaufen (max Index = (nFrames-1)*2+1 <= ARN_RING_CAPACITY-1).
      * CoreAudio liefert normalerweise <= 4096, aber ohne Clamp waere ein
      * nFrames > 8192 ein stiller BSS-Overflow. */
@@ -931,7 +931,7 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
      *   Frame i → L = ring->samples[i*2], R = ring->samples[i*2+1]
      * widx (write_idx) = Sample-Index → Vergleich via src_frac_ridx * 2.0
      *
-     * Underrun-Strategie: Position NICHT zurücksetzen — nur Stille ausgeben
+     * Underrun-Strategie: Position NICHT zurücksetzen, nur Stille ausgeben
      * und beim nächsten IOProc-Call mehr Daten abwarten. Nur bei Ring-Overflow
      * (wir sind weiter als ARN_RING_CAPACITY hinter write_idx) wird
      * src_frac_ridx auf write_idx gesprungen (veraltete Daten überspringen). */
@@ -954,13 +954,13 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
      * wenn ratio genau an der Grenze liegt (z.B. 48000/44100 = 1.0884 →
      * needed = 1114, Ring liefert mal 1113 mal 1115 je nach Timing-Jitter).
      * Ohne Toleranz → alternierende Underruns → Stall-Detection feuert.
-     * Die 4 fehlenden Samples werden mit Stille aufgefüllt — unhörbar. */
+     * Die 4 fehlenden Samples werden mit Stille aufgefüllt, unhörbar. */
     uint32_t needed_samples = (uint32_t)(nFrames * ratio * 2.0);
     const uint32_t JITTER_TOLERANCE = 4u;  /* 2 Stereo-Frames Toleranz */
 
     int underrun = 0;
     if (behind + JITTER_TOLERANCE < needed_samples) {
-        /* Underrun: Stille — Position NICHT veraendern, naechster Call holt auf */
+        /* Underrun: Stille, Position NICHT veraendern, naechster Call holt auf */
         memset(dev->temp_buf, 0, nSamplesStereo * sizeof(float));
         underrun = 1;
         atomic_fetch_add_explicit(&dev->underruns, 1u, memory_order_relaxed);
@@ -970,7 +970,7 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
             float    frac = (float)(dev->src_frac_ridx - (double)idx0);
             float    inv  = 1.0f - frac;
 
-            /* MC-2: Stale-Read-Guard — die JITTER_TOLERANCE erlaubt, dass die
+            /* MC-2: Stale-Read-Guard, die JITTER_TOLERANCE erlaubt, dass die
              * letzten 1-2 Frames knapp HINTER write_idx interpolieren wuerden
              * (= alte Ring-Daten vom vorherigen Umlauf). Fuer diese Tail-Frames
              * Stille (0.0f) ausgeben statt stale Daten zu lesen. Die Position
@@ -996,7 +996,7 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
              * zentriert auf idx0. Ersetzt den frueheren 3-Tap-Box-Filter:
              * staerkere Daempfung der Spiegelfrequenzen bei minimal hoeherem
              * RT-Budget (5 statt 3 MACs pro Channel). Upsampling (ratio <= 1.0)
-             * bleibt reine Linear-Interpolation — dort kein Aliasing-Problem.
+             * bleibt reine Linear-Interpolation, dort kein Aliasing-Problem.
              * Koeffizienten summen-normalisiert (Summe = 1.0): kein Pegelversatz.
              * MC-2: FIR liest bis idx0+2 → braucht 6 gueltige Samples, sonst
              * Fallback auf die Linear-Interpolation oben. */
@@ -1029,7 +1029,7 @@ static OSStatus device_ioproc(AudioDeviceID           inDevice,
 
             dev->src_frac_ridx += ratio;
 
-            /* P16: Fold src_frac_ridx um 2^31 nach jedem Advance — verhindert
+            /* P16: Fold src_frac_ridx um 2^31 nach jedem Advance, verhindert
              * float→uint32_t Cast-UB (Undefined Behavior) nach ~12h Dauerbetrieb.
              * 2^31 ist ein Vielfaches von ARN_RING_CAPACITY (2^13), daher vollstaendig transparent:
              *   • frac_as_samp = (uint32_t)(ridx*2): Fold aendert Wert um 2^32 ≡ 0 (mod 2^32)
@@ -1111,7 +1111,7 @@ static void update_global_read_idx(void)
 
     pthread_mutex_lock(&g_outputs_lock);
 
-    /* Tombstoning: kein g_n_outputs==0-Spezialfall mehr noetig — die Schleife
+    /* Tombstoning: kein g_n_outputs==0-Spezialfall mehr noetig, die Schleife
      * unten liefert have_active=false wenn kein aktiver Output existiert
      * (Tombstones werden via active-Check uebersprungen) und setzt dann
      * read_idx == write_idx (Ring leeren). */
@@ -1123,7 +1123,7 @@ static void update_global_read_idx(void)
     bool     have_active = false;
     for (int i = 0; i < g_n_outputs; i++) {
         if (!g_outputs[i].active) continue;
-        /* K2: Gestallte Outputs aus dem Aggregat ausschließen — ein eingefrorener
+        /* K2: Gestallte Outputs aus dem Aggregat ausschließen, ein eingefrorener
          * local_ridx darf nicht den globalen read_idx einfrieren und damit alle
          * anderen Outputs in den Underrun treiben. */
         if (atomic_load_explicit(&g_outputs[i].stalled, memory_order_acquire)) continue;
@@ -1164,7 +1164,7 @@ static int find_output_slot_locked(const char *uid, uint32_t ch_offset)
 }
 
 /* Duplikat-Check fuer output_add: matcht auch IN-FLIGHT Slots (uid gesetzt,
- * active noch false — Phase 3a committet mit active=false, Phase 3c setzt
+ * active noch false, Phase 3a committet mit active=false, Phase 3c setzt
  * active erst nach bis zu ~700 ms CoreAudio-Arbeit). Ohne diesen Check kann
  * ein paralleles output_add fuer dasselbe (uid, ch_offset) einen zweiten
  * Slot belegen → doppelter IOProc → doppeltes Audio. */
@@ -1184,7 +1184,7 @@ static int find_occupied_slot_locked(const char *uid, uint32_t ch_offset)
  * Tombstoning-Helper. Alle MUESSEN unter g_outputs_lock aufgerufen werden.
  */
 
-/* Zaehlt aktive Outputs neu (max. 8 Iterationen — billig und robust gegen
+/* Zaehlt aktive Outputs neu (max. 8 Iterationen, billig und robust gegen
  * vergessene +/-1-Buchhaltung). */
 static int recount_active_locked(void)
 {
@@ -1210,7 +1210,7 @@ static int find_free_slot_locked(void)
     return -1;
 }
 
-/* true wenn KEIN Slot belegt ist (weder aktiv noch in-flight) —
+/* true wenn KEIN Slot belegt ist (weder aktiv noch in-flight), 
  * Tombstones zaehlen nicht als belegt. Ersetzt das alte (g_n_outputs == 0). */
 static bool no_occupied_slots_locked(void)
 {
@@ -1221,7 +1221,7 @@ static bool no_occupied_slots_locked(void)
 }
 
 /*
- * output_add — Fügt Output-Device hinzu ohne langfristige Lock-Hold.
+ * output_add, Fügt Output-Device hinzu ohne langfristige Lock-Hold.
  *
  * H1: Drei-Phasen-Ansatz:
  *   Phase 1 (Lock): Duplikat/Kapazitäts-Check, start_widx lesen.
@@ -1240,7 +1240,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
         pthread_mutex_unlock(&g_outputs_lock);
         return 0;  /* idempotent (auch gegen in-flight Slots) */
     }
-    /* Tombstoning: Kapazitaet = "gibt es einen freien Slot?" — nicht mehr
+    /* Tombstoning: Kapazitaet = "gibt es einen freien Slot?", nicht mehr
      * g_n_outputs (High-Water-Mark, schrumpft nie). */
     if (find_free_slot_locked() < 0) {
         fprintf(stderr, "Helper: MAX_OUTPUTS (%d) erreicht, kann '%s' nicht hinzufuegen\n",
@@ -1251,7 +1251,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
     ARNSharedRing *ring_snap = atomic_load_explicit(&g_ring, memory_order_acquire);
     uint32_t start_widx = ring_snap
         ? atomic_load_explicit(&ring_snap->write_idx, memory_order_acquire) : 0u;
-    /* P5: Ist das der erste Output? (unter Lock gelesen) — entscheidet, ob der
+    /* P5: Ist das der erste Output? (unter Lock gelesen), entscheidet, ob der
      * Ring im Auto-Modus die native SR dieses Devices uebernimmt.
      * Tombstoning: "erster Output" = kein belegter Slot (Tombstones zaehlen nicht). */
     bool is_first_output = no_occupied_slots_locked();
@@ -1289,7 +1289,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
     tmp.last_progress_ns = get_time_ns();
     atomic_store_explicit(&tmp.stalled, 0u, memory_order_relaxed);
     atomic_store_explicit(&tmp.recovery_count, 0u, memory_order_relaxed);
-    /* Tranche B/ARC-4: Pre-Roll — Consumer wartet auf ARN_PREROLL_FRAMES (2048 Frames ≈ 43ms @48kHz) */
+    /* Tranche B/ARC-4: Pre-Roll, Consumer wartet auf ARN_PREROLL_FRAMES (2048 Frames ≈ 43ms @48kHz) */
     atomic_store_explicit(&tmp.preroll_target_frames, ARN_PREROLL_FRAMES, memory_order_relaxed);
     atomic_store_explicit(&tmp.preroll_armed, 1u, memory_order_relaxed);
 
@@ -1342,10 +1342,10 @@ static int output_add(const char *uid, uint32_t ch_offset)
     tmp.fill_ewma   = (double)ARN_RING_CAPACITY / 4.0;   /* = src_ring_target / 2 = target_frames */
     tmp.integ_error = 0.0;
 
-    /* H1: USB-Settle-Wartezeit OHNE Lock — der teure Teil */
+    /* H1: USB-Settle-Wartezeit OHNE Lock, der teure Teil */
     if (sr_was_changed) {
         fprintf(stdout, "Helper: Warte auf USB-Settle nach SR-Wechsel fuer '%s'...\n", uid);
-        usleep(400000);  /* 400ms — USB-Devices benoetigen Zeit zum Rekonfigurieren */
+        usleep(400000);  /* 400ms, USB-Devices benoetigen Zeit zum Rekonfigurieren */
     }
 
     /* ── Phase 3a: Commit unter Lock (schnell) ── */
@@ -1365,7 +1365,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
         return -1;
     }
 
-    /* Slot committen — active=false damit Volume-Thread ihn ueberspringt.
+    /* Slot committen, active=false damit Volume-Thread ihn ueberspringt.
      * proc_id wird in Phase 3b (lockfrei) gesetzt. */
     DeviceOutput *slot = &g_outputs[slot_idx];
     *slot = tmp;
@@ -1383,7 +1383,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
      * Unter Lock ausgefuehrt koennen sie ewig blockieren wenn coreaudiod spinnt.
      * Die Slot-Adresse ist stabil: g_outputs ist ein statisches Array, active=false
      * verhindert dass der Volume-Thread den Slot beruehrt. */
-    AudioDeviceIOProcID new_proc_id = NULL;  /* H1: lokal — erst in Phase 3c unter Lock committen */
+    AudioDeviceIOProcID new_proc_id = NULL;  /* H1: lokal, erst in Phase 3c unter Lock committen */
     OSStatus err = kAudioHardwareNotRunningError;
     for (int attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) usleep(100000);  /* 100ms Retry-Pause, lockfrei */
@@ -1425,7 +1425,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
 
     /* ── Phase 3c: active=true unter Lock (kurz) ── */
     pthread_mutex_lock(&g_outputs_lock);
-    /* MC-6: Generation vergleichen — hat outputs_stop_all() (Watchdog/Shutdown)
+    /* MC-6: Generation vergleichen, hat outputs_stop_all() (Watchdog/Shutdown)
      * waehrend des lockfreien CoreAudio-Blocks alle Outputs weggeraeumt, ist
      * unser committeter Slot ungueltig: IOProc aufraeumen und abbrechen. */
     bool gen_changed = (atomic_load_explicit(&g_outputs_generation,
@@ -1439,7 +1439,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
         g_n_active_outputs = recount_active_locked();
     } else {
         /* Slot ist nicht mehr vorhanden (getombstoned) oder per Watchdog gestoppt
-         * — IOProc sauber stoppen. */
+         *, IOProc sauber stoppen. */
         pthread_mutex_unlock(&g_outputs_lock);
         AudioDeviceStop(dev_id, new_proc_id);
         AudioDeviceDestroyIOProcID(dev_id, new_proc_id);
@@ -1449,7 +1449,7 @@ static int output_add(const char *uid, uint32_t ch_offset)
     }
     pthread_mutex_unlock(&g_outputs_lock);
 
-    /* K1: read_idx sofort aktualisieren — neuer Consumer wird nicht erst nach
+    /* K1: read_idx sofort aktualisieren, neuer Consumer wird nicht erst nach
      * bis zu 50ms vom naechsten Volume-Poll-Takt beruecksichtigt. */
     update_global_read_idx();
 
@@ -1465,14 +1465,14 @@ static int output_add(const char *uid, uint32_t ch_offset)
  * des letzten Slots an die freie Position). Stattdessen wird nur das Ziel-Device
  * gestoppt und der Slot als Tombstone (active=false, uid leer) markiert.
  * Effekt: Alle anderen Outputs behalten ihre Slot-Adresse (inClientData der
- * IOProcs) und laufen UNUNTERBROCHEN weiter — kein IOProc-Neustart, kein
+ * IOProcs) und laufen UNUNTERBROCHEN weiter, kein IOProc-Neustart, kein
  * Pre-Roll-Re-Arm, keine 85ms+ Stille fuer uninvolvierte Devices mehr.
  *
  * P7 bleibt erhalten: Die schweren CoreAudio-Calls (AudioDeviceStop/Destroy)
  * laufen OHNE g_outputs_lock.
  *
  *   Phase 1 (Lock gehalten): Slot finden, active=false + proc_id=NULL setzen,
- *            Device-Infos in Stack-Kopien sichern. uid bleibt vorerst GESETZT —
+ *            Device-Infos in Stack-Kopien sichern. uid bleibt vorerst GESETZT, 
  *            der Slot gilt damit noch nicht als frei und kann waehrend des
  *            lockfreien Stop-Fensters nicht von output_add() reklamiert werden.
  *   Phase 2 (KEIN Lock): AudioDeviceStop/DestroyIOProcID fuer das Ziel.
@@ -1488,7 +1488,7 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
     if (slot < 0) return;
 
     /* ── Phase 1 (Lock): deaktivieren + Stack-Kopien ──
-     * Hinweis: uid kann auf g_outputs[slot].uid selbst zeigen (Caller-Loops) —
+     * Hinweis: uid kann auf g_outputs[slot].uid selbst zeigen (Caller-Loops), 
      * daher alle benoetigten Infos VOR dem Tombstonen kopieren. */
     AudioDeviceID       tgt_dev  = g_outputs[slot].dev_id;
     AudioDeviceIOProcID tgt_proc = g_outputs[slot].proc_id;
@@ -1521,7 +1521,7 @@ static void output_remove_locked(const char *uid, uint32_t ch_offset)
 }
 
 /*
- * sr_reinit_all_outputs — Reagiert auf Sample-Rate-Wechsel (sr_change_gen).
+ * sr_reinit_all_outputs, Reagiert auf Sample-Rate-Wechsel (sr_change_gen).
  *
  * P0-A FIX: Nicht mehr vom Caller unter g_outputs_lock aufgerufen.
  * Die Funktion verwaltet den Lock selbst, um CoreAudio-Calls (Mach-IPC)
@@ -1535,7 +1535,7 @@ static void sr_reinit_all_outputs(void) {
     ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
     if (!ring) return;
     uint32_t new_sr = atomic_load_explicit(&ring->sample_rate, memory_order_acquire);
-    /* SHM ist 0666 — sample_rate ist von fremden Prozessen beschreibbar.
+    /* SHM ist 0666, sample_rate ist von fremden Prozessen beschreibbar.
      * Whitelist erzwingen; verhindert u.a. new_sr=0 → base_ratio-NaN-Pfad. */
     static const uint32_t ok_rates[] = {44100, 48000, 88200, 96000, 176400, 192000};
     bool sr_valid = false;
@@ -1580,7 +1580,7 @@ static void sr_reinit_all_outputs(void) {
         UInt32  sz = sizeof(Float64);
         AudioObjectGetPropertyData(dev_id, &sr_prop, 0, NULL, &sz, &device_sr);
 
-        /* Fix 3b: SR stimmt bereits ueberein — kein disruptiver Stop/Start. */
+        /* Fix 3b: SR stimmt bereits ueberein, kein disruptiver Stop/Start. */
         if ((uint32_t)device_sr == new_sr) {
             g_outputs[i].base_ratio = 1.0;
             uint32_t q20 = (uint32_t)(1.0 * (double)(1u << 20));
@@ -1602,7 +1602,7 @@ static void sr_reinit_all_outputs(void) {
         g_n_active_outputs = recount_active_locked();
         /* Leseposition zuruecksetzen (IOProc gestoppt gleich). */
         atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
-        /* HC-4: KEIN Direktschreiben in src_frac_ridx — der IOProc koennte
+        /* HC-4: KEIN Direktschreiben in src_frac_ridx, der IOProc koennte
          * hier noch laufen (Stop erfolgt erst nach Lock-Release). Stattdessen
          * Pending-Mechanismus: der alte ODER der neu erzeugte IOProc wendet
          * den Reset RT-safe an (frac_ridx_applied_gen ueberlebt im Slot). */
@@ -1637,7 +1637,7 @@ static void sr_reinit_all_outputs(void) {
         }
         uint32_t init_q20 = (uint32_t)(base_ratio * (double)(1u << 20));
 
-        /* Schritt 3: IOProc neu erzeugen — mit Retry nach SR-Wechsel (lockfrei). */
+        /* Schritt 3: IOProc neu erzeugen, mit Retry nach SR-Wechsel (lockfrei). */
         AudioDeviceIOProcID new_proc = NULL;
         OSStatus err = kAudioHardwareNotRunningError;
 
@@ -1711,7 +1711,7 @@ static void sr_reinit_all_outputs(void) {
                         g_outputs[i].ch_offset + 2);
             }
         } else {
-            /* Slot verschwunden (Hot-Unplug waehrend Reinit) — IOProc sauber stoppen */
+            /* Slot verschwunden (Hot-Unplug waehrend Reinit), IOProc sauber stoppen */
             pthread_mutex_unlock(&g_outputs_lock);
             if (err == noErr) {
                 AudioDeviceStop(dev_id, new_proc);
@@ -1740,7 +1740,7 @@ static void outputs_stop_all(void)
 
     pthread_mutex_lock(&g_outputs_lock);
     for (int i = 0; i < g_n_outputs; i++) {
-        /* Tombstones haben proc_id == NULL und sind bereits genullt — der
+        /* Tombstones haben proc_id == NULL und sind bereits genullt, der
          * Check unten ueberspringt sie automatisch. */
         if (g_outputs[i].proc_id) {
             to_stop[n_stop].dev_id  = g_outputs[i].dev_id;
@@ -1752,12 +1752,12 @@ static void outputs_stop_all(void)
     /* Einziger Ort an dem die High-Water-Mark zurueckgesetzt wird. */
     g_n_outputs = 0;
     g_n_active_outputs = 0;
-    /* MC-6: Generation inkrementieren — laufende output_add()-Aufrufe erkennen
+    /* MC-6: Generation inkrementieren, laufende output_add()-Aufrufe erkennen
      * in Phase 3, dass ihr committeter Slot soeben weggeraeumt wurde. */
     atomic_fetch_add_explicit(&g_outputs_generation, 1u, memory_order_release);
     pthread_mutex_unlock(&g_outputs_lock);
 
-    /* Phase B: Mach-IPC OHNE Lock — haengt coreaudiod, blockiert nur diesen Thread. */
+    /* Phase B: Mach-IPC OHNE Lock, haengt coreaudiod, blockiert nur diesen Thread. */
     for (int i = 0; i < n_stop; i++) {
         AudioDeviceStop(to_stop[i].dev_id, to_stop[i].proc_id);
         AudioDeviceDestroyIOProcID(to_stop[i].dev_id, to_stop[i].proc_id);
@@ -1777,14 +1777,14 @@ static OSStatus devices_changed_listener(AudioObjectID inObjectID,
                                          void *inClientData)
 {
     (void)inObjectID; (void)inNumberAddresses; (void)inAddresses; (void)inClientData;
-    /* H3: Kein Lock, kein CoreAudio-Call im Property-Callback — nur Flag setzen.
+    /* H3: Kein Lock, kein CoreAudio-Call im Property-Callback, nur Flag setzen.
      * Der Volume-Thread fuehrt die eigentliche Reaktion ausserhalb des
      * CoreAudio-Property-Callback-Kontexts aus (kein Re-Entry-Deadlock). */
     atomic_store_explicit(&g_hotplug_pending, 1, memory_order_release);
     return noErr;
 }
 
-/* H3: Eigentliche Hot-Plug-Reaktion — laeuft im Volume-Thread (nicht im Callback).
+/* H3: Eigentliche Hot-Plug-Reaktion, laeuft im Volume-Thread (nicht im Callback).
  *
  * P2-A FIX: AudioDeviceStop/DestroyIOProcID sind Mach-IPC zu coreaudiod.
  * Unter g_outputs_lock aufgerufen koennen sie bei coreaudiod-Spin blockieren.
@@ -1795,14 +1795,14 @@ static OSStatus devices_changed_listener(AudioObjectID inObjectID,
  */
 static void process_hotplug_removals(void)
 {
-    /* Phase A: Snapshot unter Lock — find_device_by_uid + deaktivieren */
+    /* Phase A: Snapshot unter Lock, find_device_by_uid + deaktivieren */
     typedef struct { AudioDeviceID dev_id; AudioDeviceIOProcID proc_id; char name[256]; } RemoveEntry;
     RemoveEntry to_remove[MAX_OUTPUTS];
     int n_remove = 0;
 
     pthread_mutex_lock(&g_outputs_lock);
     for (int i = 0; i < g_n_outputs; i++) {
-        /* Tombstones/freie Slots ueberspringen — find_device_by_uid("") wuerde
+        /* Tombstones/freie Slots ueberspringen, find_device_by_uid("") wuerde
          * sonst leere Slots als "verschwunden" melden. */
         if (!g_outputs[i].uid[0]) continue;
         if (!g_outputs[i].active) continue; /* H1: in-flight/removing slot überspringen */
@@ -1818,7 +1818,7 @@ static void process_hotplug_removals(void)
                     sizeof(to_remove[n_remove].name) - 1);
             to_remove[n_remove].name[sizeof(to_remove[n_remove].name)-1] = '\0';
             n_remove++;
-            /* Tombstoning: Slot als freien Tombstone markieren — KEIN Kompaktieren.
+            /* Tombstoning: Slot als freien Tombstone markieren, KEIN Kompaktieren.
              * Alle anderen Outputs behalten ihre Slot-Adresse und laufen weiter. */
             memset(&g_outputs[i], 0, sizeof(DeviceOutput));
         }
@@ -1867,7 +1867,7 @@ static void hotplug_unregister(void)
     atomic_store_explicit(&g_hotplug_registered, 0, memory_order_release);
 }
 
-/* K2: Mach-Timebase-Faktor (numer/denom) — einmalig initialisiert in main(). */
+/* K2: Mach-Timebase-Faktor (numer/denom), einmalig initialisiert in main(). */
 static double g_mach_ns_per_tick = 1.0;
 
 /* Gibt aktuelle Zeit in Nanosekunden (monoton). */
@@ -1888,11 +1888,11 @@ static void *volume_poll_thread(void *arg)
 
         ARNSharedRing *ring = atomic_load_explicit(&g_ring, memory_order_acquire);
         if (ring) {
-            /* Robustheit: Driver wurde evtl. neu geladen — magic/version pruefen.
+            /* Robustheit: Driver wurde evtl. neu geladen, magic/version pruefen.
              * Bei Mismatch (z.B. coreaudiod restart): SHM neu verbinden. */
             if (ring->magic != ARN_RING_MAGIC || ring->version != ARN_RING_VERSION) {
                 fprintf(stderr, "Helper: SHM-Header invalid — Driver wurde neu geladen, reconnect...\n");
-                /* H2: Deferred-Disconnect — IOProcs sehen sofort NULL (acquire),
+                /* H2: Deferred-Disconnect, IOProcs sehen sofort NULL (acquire),
                  * altes Segment wird erst im naechsten Zyklus wirklich unmappt. */
                 shm_disconnect_deferred();
 
@@ -1914,24 +1914,24 @@ static void *volume_poll_thread(void *arg)
                         uint32_t w = atomic_load_explicit(&reconnected->write_idx, memory_order_acquire);
                         pthread_mutex_lock(&g_outputs_lock);
                         for (int i = 0; i < g_n_outputs; i++) {
-                            /* Tombstones ueberspringen (belegte Slots — aktiv
-                             * oder in-flight output_add — werden resettet). */
+                            /* Tombstones ueberspringen (belegte Slots, aktiv
+                             * oder in-flight output_add, werden resettet). */
                             if (!g_outputs[i].uid[0]) continue;
                             atomic_store_explicit(&g_outputs[i].local_ridx, w, memory_order_release);
-                            /* K6: Pending-Reset — IOProc koennte weiter laufen waehrend
+                            /* K6: Pending-Reset, IOProc koennte weiter laufen waehrend
                              * wir reconnecten. Direktschreiben in src_frac_ridx = Data Race. */
                             atomic_store_explicit(&g_outputs[i].frac_ridx_reset_widx, w,
                                                   memory_order_release);
                             atomic_fetch_add_explicit(&g_outputs[i].frac_ridx_reset_gen, 1u,
                                                       memory_order_acq_rel);
-                            /* B1-Fix: last_ridx_sample + last_progress_ns synchronisieren —
+                            /* B1-Fix: last_ridx_sample + last_progress_ns synchronisieren, 
                              * verhindert false-positive recovery_count-Inkremente nach Reconnect.
                              * Ohne Fix: cur_ridx(=w) != last_ridx_sample(=alter Wert) → sofortiger
                              * recovery++ obwohl kein echter Stall-Recovery stattfand. */
                             g_outputs[i].last_ridx_sample = w;
                             g_outputs[i].last_progress_ns = get_time_ns();
                             atomic_store_explicit(&g_outputs[i].stalled, 0u, memory_order_release);
-                            /* Tranche B: Pre-Roll re-arm nach SHM-Reconnect — Ring wurde
+                            /* Tranche B: Pre-Roll re-arm nach SHM-Reconnect, Ring wurde
                              * neu verbunden, erst wieder HWM aufbauen bevor Audio fliesst. */
                             atomic_store_explicit(&g_outputs[i].preroll_armed, 1u, memory_order_release);
                             /* Tranche C: PI State zurücksetzen */
@@ -1945,12 +1945,12 @@ static void *volume_poll_thread(void *arg)
             }
 
             /* ── Phase 6: Adaptive SRC-Ratio pro Output-Device aktualisieren ── */
-            #define SRC_P_GAIN       0.01f    /* P-Verstaerkung — stabil bei +/-500ppm Headroom */
+            #define SRC_P_GAIN       0.01f    /* P-Verstaerkung, stabil bei +/-500ppm Headroom */
             #define SRC_MAX_PPM      500.0f   /* Maximale Korrektur +/-500ppm                   */
             #define SRC_RATIO_CLAMP  (SRC_MAX_PPM / 1000000.0f)
             /* Tranche C: PI-Regler Parameter */
             #define SRC_EWMA_ALPHA   0.1f   /* EWMA-Glättung: τ ≈ 10 Polls × 50ms = 500ms */
-            #define SRC_KI           0.0005f /* I-Verstärkung: sehr klein — Drift ist ein langsamer Prozess */
+            #define SRC_KI           0.0005f /* I-Verstärkung: sehr klein, Drift ist ein langsamer Prozess */
             #define SRC_DT           0.05f   /* Poll-Intervall in Sekunden */
             /* Anti-Windup: I-Term darf max. ±300ppm beitragen (Gesamt-Clamp bleibt ±500ppm) */
             #define SRC_KI_CLAMP     (300.0f / 1000000.0f)
@@ -1962,7 +1962,7 @@ static void *volume_poll_thread(void *arg)
                 DeviceOutput *dev = &g_outputs[i];
                 if (!dev->active) continue;
 
-                /* K2: Stall-Detection — prüfe ob local_ridx Fortschritt macht. */
+                /* K2: Stall-Detection, prüfe ob local_ridx Fortschritt macht. */
                 uint32_t cur_ridx = atomic_load_explicit(&dev->local_ridx, memory_order_acquire);
                 uint64_t now_ns   = get_time_ns();
 
@@ -1986,7 +1986,7 @@ static void *volume_poll_thread(void *arg)
                     if (dev->hard_stall_since_ns == 0) {
                         dev->hard_stall_since_ns = now_ns;  /* Fenster startet */
                     } else if ((now_ns - dev->hard_stall_since_ns) > HARD_STALL_TIMEOUT_NS) {
-                        /* Hard-Stall bestaetigt — gleiche Recovery wie Soft-Stall. */
+                        /* Hard-Stall bestaetigt, gleiche Recovery wie Soft-Stall. */
                         atomic_store_explicit(&dev->stalled, 1u, memory_order_release);
                         atomic_store_explicit(&dev->frac_ridx_reset_widx, w_now, memory_order_release);
                         atomic_fetch_add_explicit(&dev->frac_ridx_reset_gen, 1u, memory_order_acq_rel);
@@ -1998,7 +1998,7 @@ static void *volume_poll_thread(void *arg)
                         fprintf(stderr, "Helper: Output '%s' HARD-STALL — IOProc laeuft, "
                                 "ridx eingefroren, Ring >75%% seit >300ms. "
                                 "Position auf write_idx zurueckgesetzt.\n", dev->name);
-                        /* Stall gesetzt + Position auf w_now korrigiert — Soft-Stall-
+                        /* Stall gesetzt + Position auf w_now korrigiert, Soft-Stall-
                          * Logik und P-Regler fuer diesen Tick ueberspringen. */
                         continue;
                     }
@@ -2008,7 +2008,7 @@ static void *volume_poll_thread(void *arg)
                 }
 
                 if (cur_ridx != dev->last_ridx_sample) {
-                    /* Fortschritt — Stall zurücksetzen */
+                    /* Fortschritt, Stall zurücksetzen */
                     dev->last_ridx_sample  = cur_ridx;
                     dev->last_progress_ns  = now_ns;
                     if (atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
@@ -2021,14 +2021,14 @@ static void *volume_poll_thread(void *arg)
                                 dev->name);
                     }
                 } else {
-                    /* Kein Fortschritt — nur als Stall werten wenn auch Daten vorhanden
+                    /* Kein Fortschritt, nur als Stall werten wenn auch Daten vorhanden
                      * (bei Underrun ist kein Fortschritt normal, kein echter Stall). */
                     uint32_t fill = w_now - cur_ridx;
                     if (fill >= 4u /* mindestens 2 Stereo-Frames verfügbar */
                         && (now_ns - dev->last_progress_ns) > STALL_TIMEOUT_NS) {
                         if (!atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
                             atomic_store_explicit(&dev->stalled, 1u, memory_order_release);
-                            /* K2-FIX: Pending-Reset auf write_idx — bricht den Endlos-Underrun-Zyklus.
+                            /* K2-FIX: Pending-Reset auf write_idx, bricht den Endlos-Underrun-Zyklus.
                              * Ohne Reset: IOProc springt per Overflow-Guard auf widx, hat behind=0
                              * und needed>0 → immer Underrun → local_ridx bewegt sich nie → Stall bleibt.
                              * Mit Reset: IOProc setzt src_frac_ridx=widx/2, naechste Calls recovern
@@ -2050,27 +2050,27 @@ static void *volume_poll_thread(void *arg)
                     }
                 }
 
-                /* K2-FIX: P-Regler auf gestallten Outputs NICHT anwenden —
+                /* K2-FIX: P-Regler auf gestallten Outputs NICHT anwenden, 
                  * fill = w_now - w_now = 0 nach dem Reset oben, ratio bleibt bei base_ratio. */
                 if (atomic_load_explicit(&dev->stalled, memory_order_acquire)) {
                     continue;
                 }
 
-                /* ARC-5: Lag-Eviction — Output der dauerhaft >90% hinter write_idx
+                /* ARC-5: Lag-Eviction, Output der dauerhaft >90% hinter write_idx
                  * liegt wird force-resynct, bevor er den gesamten Ring-Headroom des
                  * Producers auffrisst (read_idx-Aggregat = min aller Positionen).
                  * src_frac_ridx ist IOProc-privat; der Read hier ist eine Naeherung
                  * (64-bit aligned double-Load, auf arm64 nicht torn).
                  * Obergrenze 2*CAPACITY als Sanity-Check: liegt die Position durch
                  * Sampling-Skew knapp VOR w_now, ergibt die wrapped-uint32-Differenz
-                 * einen riesigen Wert — der darf keine False-Positive-Eviction
+                 * einen riesigen Wert, der darf keine False-Positive-Eviction
                  * ausloesen (echter Lag ist durch den Producer auf ~CAPACITY begrenzt). */
                 {
                     uint32_t lag_ridx = (uint32_t)(dev->src_frac_ridx * 2.0); /* ungefaehre Position */
                     uint32_t distance = w_now - lag_ridx; /* wrapped uint32 arithmetic */
                     if (distance > (ARN_RING_CAPACITY * 9u) / 10u &&
                         distance <= ARN_RING_CAPACITY * 2u) {
-                        /* Output ist mehr als 90% hinter write_idx — force-resync */
+                        /* Output ist mehr als 90% hinter write_idx, force-resync */
                         atomic_store_explicit(&dev->frac_ridx_reset_widx, w_now,
                                               memory_order_release);
                         atomic_fetch_add_explicit(&dev->frac_ridx_reset_gen, 1u,
@@ -2092,7 +2092,7 @@ static void *volume_poll_thread(void *arg)
                 uint32_t fill_frames   = fill_samples / 2u;   /* Stereo -> /2 */
                 uint32_t target_frames = dev->src_ring_target / 2u;
 
-                /* Tranche C: EWMA-Glättung des Füllstands — trennt echten Drift von Jitter.
+                /* Tranche C: EWMA-Glättung des Füllstands, trennt echten Drift von Jitter.
                  * Zeitkonstante ≈ 10 Polls × 50ms = 500ms.
                  * NUR vom volume_poll_thread: kein Atomic nötig. */
                 dev->fill_ewma = SRC_EWMA_ALPHA * (double)fill_frames
@@ -2106,7 +2106,7 @@ static void *volume_poll_thread(void *arg)
                 float p_term = error_norm * SRC_P_GAIN;
 
                 /* I-Term: Akkumuliert langfristigen Clock-Drift.
-                 * Anti-Windup: Clamp BEVOR Akkumulation — verhindert Integrator-Explosion. */
+                 * Anti-Windup: Clamp BEVOR Akkumulation, verhindert Integrator-Explosion. */
                 float ki_contrib = error_norm * SRC_KI * SRC_DT;
                 dev->integ_error += (double)ki_contrib;
                 /* Anti-Windup: I-Term-Beitrag auf ±SRC_KI_CLAMP begrenzen */
@@ -2132,7 +2132,7 @@ static void *volume_poll_thread(void *arg)
             }
             pthread_mutex_unlock(&g_outputs_lock);
 
-            /* Auch globalen read_idx aktualisieren — Producer kann sonst voll laufen. */
+            /* Auch globalen read_idx aktualisieren, Producer kann sonst voll laufen. */
             update_global_read_idx();
         }
 
@@ -2156,7 +2156,7 @@ static void *volume_poll_thread(void *arg)
             process_hotplug_removals();
         }
 
-        /* F6: coreaudiod CPU-Poll entfernt — proc_pid_rusage/Mach-IPC kann bei
+        /* F6: coreaudiod CPU-Poll entfernt, proc_pid_rusage/Mach-IPC kann bei
          * degradiertem coreaudiod blockieren und den Volume-Thread haengen. */
 
         usleep(VOLUME_POLL_INTERVAL_US);
@@ -2180,7 +2180,7 @@ static int json_has_cmd(const char *line, const char *cmd)
     return (strstr(line, needle1) != NULL || strstr(line, needle2) != NULL);
 }
 
-/* MC-9: Strikte Integer-Konvertierung via strtol — ersetzt atoi, das bei
+/* MC-9: Strikte Integer-Konvertierung via strtol, ersetzt atoi, das bei
  * ungueltiger Eingabe stillschweigend 0 liefert und Overflow nicht erkennt.
  * Rueckgabe: true bei Erfolg (*out gesetzt), false bei Parse-/Range-Fehler. */
 static bool parse_int_strict(const char *str, int *out)
@@ -2197,7 +2197,7 @@ static bool parse_int_strict(const char *str, int *out)
 
 /*
  * Parst alle (uid, ch_offset) Tupel aus dem "outputs"-Array.
- * Ein primitiver Parser — sucht "uid":"..." und "ch_offset":N Paare.
+ * Ein primitiver Parser, sucht "uid":"..." und "ch_offset":N Paare.
  * Erwartetes Format:
  *   "outputs": [{"uid":"...","ch_offset":0}, ...]
  *
@@ -2288,7 +2288,7 @@ static void send_line(int fd, const char *s)
     }
 }
 
-/* H6: JSON-String-Escaping — escaped ", \, \n, \r, \t und Control-Chars.
+/* H6: JSON-String-Escaping, escaped ", \, \n, \r, \t und Control-Chars.
  * Schreibt immer NUL-terminiert in dst (max dstsz-1 nutzbaren Chars).
  * Verhindert kaputtes JSON wenn Device-UIDs Sonderzeichen enthalten. */
 static void json_escape_into(char *dst, size_t dstsz, const char *src)
@@ -2326,11 +2326,11 @@ static bool format_active_outputs(char *buf, size_t bufsz)
 
     int n_emitted = 0;
     for (int i = 0; i < g_n_outputs && pos < bufsz; i++) {
-        /* Tombstoning: nur aktive Outputs ausgeben — freie/in-flight Slots
+        /* Tombstoning: nur aktive Outputs ausgeben, freie/in-flight Slots
          * ueberspringen. */
         if (!g_outputs[i].active) continue;
         const char *sep = (n_emitted == 0) ? "" : ",";
-        /* H6: UID und Name JSON-korrekt escapen — verhindert kaputtes JSON
+        /* H6: UID und Name JSON-korrekt escapen, verhindert kaputtes JSON
          * bei Device-UIDs/Namen mit Anführungszeichen oder Backslashes. */
         char safe_name[512];
         char safe_uid[1024];
@@ -2348,7 +2348,7 @@ static bool format_active_outputs(char *buf, size_t bufsz)
         uint32_t recovery_count = atomic_load_explicit(&g_outputs[i].recovery_count,
                                                        memory_order_relaxed);
         /* Tranche C: fill_ewma fuer Drift-Tracking in health.py.
-         * Non-atomic — sicher gelesen unter g_outputs_lock (Volume-Thread schreibt
+         * Non-atomic, sicher gelesen unter g_outputs_lock (Volume-Thread schreibt
          * ebenfalls nur unter diesem Lock). */
         double fill_ewma = g_outputs[i].fill_ewma;
         written = snprintf(buf + pos, bufsz - pos,
@@ -2357,7 +2357,7 @@ static bool format_active_outputs(char *buf, size_t bufsz)
                            "\"recovery_count\":%u}",
                            sep, safe_uid, safe_name, g_outputs[i].ch_offset,
                            src_ratio, fill_ewma, underruns, stalled, recovery_count);
-        /* MC-7: Truncation-Detection — Eintrag passt nicht vollstaendig
+        /* MC-7: Truncation-Detection, Eintrag passt nicht vollstaendig
          * (inkl. Platz fuer das schliessende ']'): Eintrag verwerfen. */
         if (written < 0 || (size_t)written + 1 >= bufsz - pos) {
             buf[pos] = '\0';
@@ -2376,12 +2376,12 @@ static bool format_active_outputs(char *buf, size_t bufsz)
 }
 
 /*
- * parse_and_execute — verarbeitet eine JSON-Zeile, schreibt Antwort auf fd.
+ * parse_and_execute, verarbeitet eine JSON-Zeile, schreibt Antwort auf fd.
  * Rueckgabe: 0=continue, 1=shutdown angefordert.
  */
 static int parse_and_execute(int fd, const char *line)
 {
-    /* MC-7: 24KB — muss active_buf (16KB) plus Status-Felder fassen. */
+    /* MC-7: 24KB, muss active_buf (16KB) plus Status-Felder fassen. */
     char resp[24576];
 
     if (json_has_cmd(line, "ping")) {
@@ -2401,7 +2401,7 @@ static int parse_and_execute(int fd, const char *line)
         return 1;
     }
 
-    /* Commands die SHM benoetigen — noch nicht bereit? */
+    /* Commands die SHM benoetigen, noch nicht bereit? */
     if (!atomic_load_explicit(&g_shm_ready, memory_order_acquire) && !json_has_cmd(line, "ping") && !json_has_cmd(line, "shutdown") && !json_has_cmd(line, "get_status")) {
         snprintf(resp, sizeof(resp), "{\"ok\":false,\"error\":\"not_ready\"}");
         send_line(fd, resp);
@@ -2409,7 +2409,7 @@ static int parse_and_execute(int fd, const char *line)
     }
 
     if (json_has_cmd(line, "get_status")) {
-        /* I-5: version via %s — kein Makro-String-Concat, da ARN_HELPER_VERSION
+        /* I-5: version via %s, kein Makro-String-Concat, da ARN_HELPER_VERSION
          * erst spaeter im File als #ifndef-Fallback definiert wird. Wird beim
          * Build ohne -DARN_HELPER_VERSION-Flag (z.B. Driver-Makefile) korrekt
          * aufgeloest, weil g_helper_version[] am Datei-Anfang steht. */
@@ -2436,9 +2436,9 @@ static int parse_and_execute(int fd, const char *line)
         } else {
             ioproc_age_ms = (unsigned long long)((get_time_ns() - last_ioproc_ns) / 1000000ULL);
         }
-        /* Tranche B: Safe-Take-State exponieren — Python kann aktuellen Modus lesen. */
+        /* Tranche B: Safe-Take-State exponieren, Python kann aktuellen Modus lesen. */
         int safe_take = atomic_load_explicit(&g_safe_take, memory_order_acquire);
-        /* I-5: version via %s — keine Makro-Concatenation nötig */
+        /* I-5: version via %s, keine Makro-Concatenation nötig */
         snprintf(resp, sizeof(resp),
                  "{\"ok\":true,\"active\":%s,\"ring_frames\":%u,\"ioproc_calls\":%u,"
                  "\"reconnect_count\":%u,\"ioproc_age_ms\":%llu,\"safe_take\":%d,"
@@ -2460,7 +2460,7 @@ static int parse_and_execute(int fd, const char *line)
         memset(new_offs, 0, sizeof(new_offs));
         int n_new = parse_outputs(line, new_uids, new_offs);
 
-        /* H1: output_add() verwaltet Lock selbst — hier OHNE Lock aufrufen */
+        /* H1: output_add() verwaltet Lock selbst, hier OHNE Lock aufrufen */
         int failures = 0;
         for (int k = 0; k < n_new; k++) {
             pthread_mutex_lock(&g_outputs_lock);
@@ -2479,7 +2479,7 @@ static int parse_and_execute(int fd, const char *line)
             if (find_output_slot_locked(new_uids[k], new_offs[k]) >= 0) n_added_successfully++;
         }
         if (n_new == 0 || n_added_successfully > 0) {
-            /* Tombstoning: Slot-Indizes bleiben nach einem Remove stabil —
+            /* Tombstoning: Slot-Indizes bleiben nach einem Remove stabil, 
              * daher einfache for-Schleife. Tombstones/in-flight Slots
              * (active=false) ueberspringen. */
             for (int i = 0; i < g_n_outputs; i++) {
@@ -2547,7 +2547,7 @@ static int parse_and_execute(int fd, const char *line)
             return 0;
         }
 
-        /* P5: Explizite SR-Wahl deaktiviert den Auto-Modus — ab jetzt steuert
+        /* P5: Explizite SR-Wahl deaktiviert den Auto-Modus, ab jetzt steuert
          * der User die Rate, neue Outputs ziehen sich auf diese Ring-SR. */
         atomic_store_explicit(&g_auto_sample_rate, 0, memory_order_release);
 
@@ -2584,7 +2584,7 @@ static int parse_and_execute(int fd, const char *line)
         return 0;
     }
 
-    /* Tranche B: reconnect_output — Python-Brain kann gezielt einen Output neu starten */
+    /* Tranche B: reconnect_output, Python-Brain kann gezielt einen Output neu starten */
     if (json_has_cmd(line, "reconnect_output")) {
         if (!auth_check(line)) {
             send_line(fd, "{\"ok\":false,\"error\":\"auth\"}");
@@ -2622,7 +2622,7 @@ static int parse_and_execute(int fd, const char *line)
             if (col2) {
                 col2++;
                 while (*col2 == ' ' || *col2 == '\t') col2++;
-                int v = 0;  /* MC-9: strtol statt atoi — Parse-Fehler → 0 */
+                int v = 0;  /* MC-9: strtol statt atoi, Parse-Fehler → 0 */
                 if (!parse_int_strict(col2, &v)) v = 0;
                 if (v < 0 || v > 32) v = 0;  /* Clamp wie in parse_outputs */
                 ch_offset = (uint32_t)v;
@@ -2652,7 +2652,7 @@ static int parse_and_execute(int fd, const char *line)
         return 0;
     }
 
-    /* Tranche B: set_safe_take — deaktiviert/aktiviert alle Heiler-Aktuatoren */
+    /* Tranche B: set_safe_take, deaktiviert/aktiviert alle Heiler-Aktuatoren */
     if (json_has_cmd(line, "set_safe_take")) {
         if (!auth_check(line)) {
             send_line(fd, "{\"ok\":false,\"error\":\"auth\"}");
@@ -2665,7 +2665,7 @@ static int parse_and_execute(int fd, const char *line)
             if (col) {
                 col++;
                 while (*col == ' ' || *col == '\t') col++;
-                int en_i = 0;  /* MC-9: strtol statt atoi — Parse-Fehler → disabled */
+                int en_i = 0;  /* MC-9: strtol statt atoi, Parse-Fehler → disabled */
                 if (parse_int_strict(col, &en_i)) {
                     enabled = (uint32_t)(en_i != 0);
                 }
@@ -2691,7 +2691,7 @@ static void handle_config_client(int fd)
     while (atomic_load_explicit(&g_config_running, memory_order_acquire) &&
            atomic_load_explicit(&g_running, memory_order_acquire)) {
         if (pos >= sizeof(linebuf) - 1) {
-            /* Linie zu lang — Verbindung schliessen */
+            /* Linie zu lang, Verbindung schliessen */
             break;
         }
 
@@ -2705,7 +2705,7 @@ static void handle_config_client(int fd)
             if (errno == EINTR) continue;
             break;
         }
-        if (sel == 0) continue; /* Timeout — Loop weiter */
+        if (sel == 0) continue; /* Timeout, Loop weiter */
 
         ssize_t n = read(fd, linebuf + pos, sizeof(linebuf) - 1 - pos);
         if (n <= 0) {
@@ -2723,7 +2723,7 @@ static void handle_config_client(int fd)
             if (*line_start) {
                 int sd = parse_and_execute(fd, line_start);
                 if (sd) {
-                    /* shutdown — Client und Loop beenden */
+                    /* shutdown, Client und Loop beenden */
                     return;
                 }
             }
@@ -2753,7 +2753,7 @@ static int config_socket_create(void)
 
     unlink(g_config_socket_path);
 
-    /* H7: umask VOR bind setzen — Socket entsteht direkt mit 0600,
+    /* H7: umask VOR bind setzen, Socket entsteht direkt mit 0600,
      * kein TOCTOU-Fenster zwischen bind und chmod. */
     mode_t old_umask = umask(0177);
     int bind_rc = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
@@ -2765,11 +2765,11 @@ static int config_socket_create(void)
         return -1;
     }
 
-    if (chmod(g_config_socket_path, 0600) != 0) {  /* Nur Owner — Security Fix 3a */
+    if (chmod(g_config_socket_path, 0600) != 0) {  /* Nur Owner, Security Fix 3a */
         /* nicht fatal */
     }
 
-    /* M3: Backlog auf 16 erhöht — verhindert ECONNREFUSED bei schnellen Reconnects */
+    /* M3: Backlog auf 16 erhöht, verhindert ECONNREFUSED bei schnellen Reconnects */
     if (listen(fd, 16) < 0) {
         fprintf(stderr, "Helper: listen() fehlgeschlagen (errno=%d)\n", errno);
         close(fd);
@@ -2790,7 +2790,7 @@ static void *config_thread_main(void *arg)
     (void)arg;
     while (atomic_load_explicit(&g_config_running, memory_order_acquire) &&
            atomic_load_explicit(&g_running, memory_order_acquire)) {
-        /* Defensiv: fd einmal snapshotten — main() schliesst den fd beim
+        /* Defensiv: fd einmal snapshotten, main() schliesst den fd beim
          * Shutdown; ein negativer Wert darf nie in FD_SET/select/accept. */
         int lfd = g_config_listen_fd;
         if (lfd < 0) break;
@@ -2825,7 +2825,7 @@ static void *config_thread_main(void *arg)
 
 int main(int argc, char *argv[])
 {
-    /* NC-4: sigaction statt signal() — definierte Semantik + SA_RESTART
+    /* NC-4: sigaction statt signal(), definierte Semantik + SA_RESTART
      * (unterbrochene Syscalls werden automatisch neu gestartet). */
     {
         struct sigaction sa;
@@ -2837,7 +2837,7 @@ int main(int argc, char *argv[])
         sigaction(SIGINT,  &sa, NULL);
     }
     signal(SIGPIPE, SIG_IGN);
-    signal(SIGALRM, handle_alarm);  /* F1: SIGALRM-Watchdog — _exit(1) wenn Cleanup haengt */
+    signal(SIGALRM, handle_alarm);  /* F1: SIGALRM-Watchdog, _exit(1) wenn Cleanup haengt */
 
     /* K2: Mach-Timebase für Stall-Detection initialisieren. */
     {
@@ -2854,7 +2854,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /* M8/P11: Single-Instance-Guard — direkt nach der Pfad-Init, vor allem anderen. */
+    /* M8/P11: Single-Instance-Guard, direkt nach der Pfad-Init, vor allem anderen. */
     if (helper_acquire_instance_lock() != 0) {
         return 1;
     }
@@ -2876,7 +2876,7 @@ int main(int argc, char *argv[])
             ARN_RING_CAPACITY / 2u,
             (ARN_RING_CAPACITY / 2.0) / 48000.0 * 1000.0);
 
-    /* 1. Config-Socket ZUERST starten — damit die App waehrend des SHM-Wartens
+    /* 1. Config-Socket ZUERST starten, damit die App waehrend des SHM-Wartens
      *    bereits verbinden kann (ping beantwortet, andere Commands liefern not_ready). */
     g_config_listen_fd = config_socket_create();
     if (g_config_listen_fd >= 0) {
@@ -2890,12 +2890,12 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* 2. SHM proaktiv erstellen — der Driver-Sandbox-Prozess (_coreaudiod) kann
+    /* 2. SHM proaktiv erstellen, der Driver-Sandbox-Prozess (_coreaudiod) kann
      *    shm_open(O_CREAT) nicht ausfuehren. Der Helper laeuft als normaler User
      *    ohne Sandbox-Restriktion und erstellt das Segment.
      *
      *    HINWEIS: fchown()/fchmod() sind auf POSIX-SHM-FDs unter macOS nicht
-     *    implementiert und schlagen mit EINVAL fehl — Permissions koennen
+     *    implementiert und schlagen mit EINVAL fehl, Permissions koennen
      *    ausschliesslich ueber das mode-Argument von shm_open(O_CREAT) gesetzt
      *    werden (gefiltert durch umask). Da _coreaudiod keine gemeinsame Gruppe
      *    mit dem eingeloggten User teilt, ist 0666 zwingend erforderlich.
@@ -2912,7 +2912,7 @@ int main(int argc, char *argv[])
                 if (ptr != MAP_FAILED) {
                     ARNSharedRing *init_ring = (ARNSharedRing *)ptr;
                     arn_ring_init(init_ring);
-                    /* K3: instance_id setzen — eindeutiger Wert pro SHM-Erstellung.
+                    /* K3: instance_id setzen, eindeutiger Wert pro SHM-Erstellung.
                      * Driver-Watch-Thread vergleicht dieses Feld statt Inodes. */
                     uint64_t iid = mach_absolute_time() ^ (uint64_t)getpid();
                     if (iid == 0) iid = 1; /* Niemals 0 (= nicht initialisiert) */
@@ -2932,7 +2932,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* 3. SHM-Ring verbinden (direkt — wir haben es gerade selbst angelegt) */
+    /* 3. SHM-Ring verbinden (direkt, wir haben es gerade selbst angelegt) */
     fprintf(stdout, "Warte auf SHM-Ring vom Plugin...\n");
     while (atomic_load_explicit(&g_running, memory_order_acquire) &&
            atomic_load_explicit(&g_ring, memory_order_acquire) == NULL) {
@@ -2947,7 +2947,7 @@ int main(int argc, char *argv[])
         atomic_store_explicit(&g_config_running, 0, memory_order_release);
         if (g_config_listen_fd >= 0) {
             /* ERST joinen (Thread beendet sich via g_config_running/g_running
-             * binnen ~100 ms), DANN fd schliessen — sonst kann der Thread
+             * binnen ~100 ms), DANN fd schliessen, sonst kann der Thread
              * FD_SET(-1)/select(-1) auf dem geschlossenen fd ausfuehren
              * (Out-of-Bounds-Write im fd_set). */
             pthread_join(g_config_thread, NULL);
@@ -2958,19 +2958,19 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    /* SHM bereit — ab jetzt sind alle Commands erlaubt */
+    /* SHM bereit, ab jetzt sind alle Commands erlaubt */
     atomic_store_explicit(&g_shm_ready, 1, memory_order_release);
     fprintf(stdout, "Helper: SHM bereit — Routing kann starten\n");
 
     /* Keep-Alive IOProc auf dem virtuellen Device starten.
-     * Hält gDeviceIsRunning=1 im HAL-Driver — Musik-Apps finden beim
+     * Hält gDeviceIsRunning=1 im HAL-Driver, Musik-Apps finden beim
      * Default-Output-Switch ein bereits laufendes Device vor. */
     keepalive_start(find_device_by_uid(OUR_DEVICE_UID));
 
     /* 3. Hot-Plug-Listener registrieren */
     hotplug_register();
 
-    /* 4. Outputs hinzufuegen — entweder aus CLI-Args oder Auto-Default */
+    /* 4. Outputs hinzufuegen, entweder aus CLI-Args oder Auto-Default */
     /* H1: output_add() verwaltet Lock selbst */
     if (argc >= 2) {
         for (int a = 1; a < argc && g_n_outputs < MAX_OUTPUTS; a++) {
@@ -3043,7 +3043,7 @@ int main(int argc, char *argv[])
         pthread_join(g_volume_thread, NULL);
     }
     if (g_config_listen_fd >= 0) {
-        /* ERST joinen, DANN fd schliessen — siehe Early-Exit-Pfad. */
+        /* ERST joinen, DANN fd schliessen, siehe Early-Exit-Pfad. */
         pthread_join(g_config_thread, NULL);
         close(g_config_listen_fd);
         g_config_listen_fd = -1;

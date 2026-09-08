@@ -1,5 +1,5 @@
 """
-diagnostic.py — Diagnostic Report Generator for AudioRouterNow.
+diagnostic.py, Diagnostic Report Generator for AudioRouterNow.
 
 Sammelt System-Info, Logs und Helper-Status in einem strukturierten .txt-Report
 und öffnet Mail.app mit der Datei bereits angehängt (ein Klick = Senden).
@@ -31,7 +31,7 @@ HELPER_ERR       = LOG_DIR / "helper.err"
 MAX_EVENT_LINES  = 200
 # Letzten N Bytes aus helper.log lesen (3 MB reicht für recent events)
 LOG_READ_TAIL    = 3_000_000
-# Letzten N Bytes aus helper.err lesen (1 MB — Schutz vor crash-loop-Aufblähung)
+# Letzten N Bytes aus helper.err lesen (1 MB, Schutz vor crash-loop-Aufblähung)
 ERR_READ_TAIL    = 1_000_000
 # Grobe IOProc-Rate bei 48 kHz / 512 frames
 IOPROC_PER_SEC   = 93.5
@@ -78,7 +78,7 @@ def _read_helper_err() -> str:
         if not text:
             return "(empty)"
         if read_from > 0:
-            return f"[... {read_from:,} bytes skipped — showing last 1 MB ...]\n{text}"
+            return f"[... {read_from:,} bytes skipped, showing last 1 MB ...]\n{text}"
         return text
     except Exception as exc:
         return f"(Read error: {exc})"
@@ -159,7 +159,7 @@ def _extract_log_events(max_events: int = MAX_EVENT_LINES) -> tuple[str, dict]:
 
 
 def _fmt_float(val, prec: int = 3) -> str:
-    """Defensive float formatter — leaves non-numeric placeholders untouched."""
+    """Defensive float formatter, leaves non-numeric placeholders untouched."""
     try:
         return f"{float(val):.{prec}f}"
     except (TypeError, ValueError):
@@ -170,7 +170,7 @@ def _fanout_summary(status: Optional[dict]) -> str:
     """
     Human-readable summary of the helper's fan-out state.
 
-    Reuses the already-fetched get_status_quick() dict — does NOT make a second
+    Reuses the already-fetched get_status_quick() dict, does NOT make a second
     helper call. Surfaces whether audio is actually being routed to physical
     outputs, the producer ring level, and per-output health (src ratio, fill,
     underruns, stall/recovery).
@@ -185,7 +185,7 @@ def _fanout_summary(status: Optional[dict]) -> str:
 
     lines = []
     if not active:
-        lines.append("Fan-out active on 0 outputs — NO audible routing")
+        lines.append("Fan-out active on 0 outputs, NO audible routing")
     else:
         lines.append(f"Fan-out active on {len(active)} output(s):")
         for e in active:
@@ -226,7 +226,7 @@ def _audio_router_state() -> str:
     Reports whether 'Audio Router' is the current system default output and
     which device is actually the default right now.
 
-    Uses CoreAudio via audio_device_control (ctypes, fast) — NO system_profiler
+    Uses CoreAudio via audio_device_control (ctypes, fast), NO system_profiler
     call. All external calls are wrapped defensively so a failure here never
     aborts report generation.
     """
@@ -268,7 +268,7 @@ def _format_report(
     stats:      dict,
 ) -> str:
     """Baut den vollständigen Report-Text zusammen."""
-    # Einmalige Zeit-Instanz — verhindert Diskrepanz bei Mitternachts-Übergang.
+    # Einmalige Zeit-Instanz, verhindert Diskrepanz bei Mitternachts-Übergang.
     dt     = datetime.now().astimezone()
     now    = dt.strftime("%Y-%m-%d %H:%M:%S")
     zone   = dt.strftime("%Z")
@@ -298,7 +298,7 @@ def _format_report(
 
     parts = [
         f"╔{_HDIV}╗",
-        f"║{'AudioRouterNow — Diagnostic Report':^56}║",
+        f"║{'AudioRouterNow, Diagnostic Report':^56}║",
         f"╚{_HDIV}╝",
         "",
         f"Generated : {now} {zone}",
@@ -308,7 +308,7 @@ def _format_report(
         f"Arch      : {sys_info.get('arch', 'unknown')}",
         "",
         "NOTE: This report contains audio device identifiers",
-        "      (hardware model info only — no personal data).",
+        "      (hardware model info only, no personal data).",
         "",
         _DIV,
         "STATISTICS",
@@ -332,7 +332,7 @@ def _format_report(
         _fanout_summary(status),
         "",
         _DIV,
-        "ERROR LOG  (helper.err — last 1 MB)",
+        "ERROR LOG  (helper.err, last 1 MB)",
         _DIV,
         err_text,
         "",
@@ -399,7 +399,7 @@ def open_mail_with_report(report_path: Path) -> bool:
     script = f'''
 tell application "Mail"
     set theFile to POSIX file "{posix}" as alias
-    set newMsg to make new outgoing message with properties {{subject:"AudioRouterNow Bug Report — {date_str}", content:"Hi Mauricio,\\n\\nI experienced an issue with AudioRouterNow. Please find the diagnostic report attached.\\n\\n[Describe your issue here]\\n\\nThanks!"}}
+    set newMsg to make new outgoing message with properties {{subject:"AudioRouterNow Bug Report, {date_str}", content:"Hi Mauricio,\\n\\nI experienced an issue with AudioRouterNow. Please find the diagnostic report attached.\\n\\n[Describe your issue here]\\n\\nThanks!"}}
     tell newMsg
         make new to recipient with properties {{address:"{DEVELOPER_EMAIL}"}}
         make new attachment with properties {{file name:theFile}} at after last paragraph

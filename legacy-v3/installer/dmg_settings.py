@@ -9,7 +9,7 @@ Pfade werden via -D von build.sh uebergeben:
   -D icon_path=<...>   Pfad zur AudioRouterNow.icns (Volume-Icon)
   -D bg_path=<...>     Pfad zum Hintergrundbild (PNG, enthaelt weissen Pfeil)
 
-Der Pfeil ist direkt ins Hintergrundbild eingezeichnet — keine extra Datei
+Der Pfeil ist direkt ins Hintergrundbild eingezeichnet, keine extra Datei
 im DMG-Fenster. Nur 2 Icons: App (links) und Applications-Alias (rechts).
 Finder zeigt Icon-Labels bei dunklem Hintergrund automatisch in Weiss.
 """
@@ -20,7 +20,7 @@ _icon  = defines.get('icon_path',  '')
 _bg    = defines.get('bg_path',    '')
 
 # ── Inhalte -------------------------------------------------------------------
-# Nur die App — kein Arrow-File mehr (Pfeil ist im Hintergrundbild)
+# Nur die App, kein Arrow-File mehr (Pfeil ist im Hintergrundbild)
 files    = [_app]
 symlinks = {'Applications': '/Applications'}
 
@@ -46,7 +46,7 @@ window_rect = ((200, 120), (680, 440))
 
 # ── Icon-Darstellung ---------------------------------------------------------
 icon_size = 100
-text_size = 13   # sichtbare Labels — Finder zeigt Weiss auf dunklem Hintergrund
+text_size = 13   # sichtbare Labels, Finder zeigt Weiss auf dunklem Hintergrund
 
 # ── Icon-Positionen (Mittelpunkt im Fenster, in Punkten) ---------------------
 icon_locations = {

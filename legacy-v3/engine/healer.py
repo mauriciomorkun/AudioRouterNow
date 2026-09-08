@@ -1,8 +1,8 @@
 """
-healer.py — Self-Healing Layer Tranche B: Sanfte Out-of-RT-Heilung.
+healer.py, Self-Healing Layer Tranche B: Sanfte Out-of-RT-Heilung.
 
 Verarbeitet SystemHealth-Objekte aus health.py und löst gezielt
-reconnect_output-Befehle aus — mit exponentiellem Backoff und Circuit Breaker.
+reconnect_output-Befehle aus, mit exponentiellem Backoff und Circuit Breaker.
 
 Alle Entscheidungen im Python-Brain. Der Helper-C-Code ist reiner Aktuator.
 Safe-Take-Modus deaktiviert alle Heilungseingriffe.
@@ -29,7 +29,7 @@ STALL_PERSIST_SAMPLES = 3  # 3 × 200ms = 600ms
 # W2-2: Karenzfenster nach Output-Add. coreaudiod erzwingt beim Hinzufuegen
 # eines weiteren Outputs (z.B. BuiltInSpeaker als 3. Device) einen IOWorkLoop-
 # Transport-Restart, der IOProcs anderer Outputs transient stoppt. Diese
-# transienten Stalls duerfen KEINEN reconnect_output ausloesen — coreaudiod
+# transienten Stalls duerfen KEINEN reconnect_output ausloesen, coreaudiod
 # stabilisiert sich selbst.
 GRACE_PERIOD_S = 2.0
 # Ein Stall mit ioproc_age_ms ueber dieser Schwelle gilt als ECHTER Ausfall und
@@ -53,7 +53,7 @@ class Healer:
     Policy-Engine für Self-Healing.
 
     Wird aus dem health-poll-Thread (200ms) aufgerufen.
-    H-6: threading.Lock schützt alle public Methoden — process() läuft im
+    H-6: threading.Lock schützt alle public Methoden, process() läuft im
     health-poll-Thread, reset_all() wird vom UI-Timer-Thread aufgerufen.
     """
 
@@ -65,10 +65,10 @@ class Healer:
         self._helper = helper_client
         self._safe_take = safe_take_getter
         self._breakers: Dict[Tuple[str, int], CircuitBreaker] = {}
-        # M1: Eviction-Karenz — zählt Aufrufe in Folge, in denen ein Breaker-Key
+        # M1: Eviction-Karenz, zählt Aufrufe in Folge, in denen ein Breaker-Key
         # nicht mehr in health.outputs vorkam. Eviction erst ab 2.
         self._evict_pending: Dict[Tuple[str, int], int] = {}
-        # H-6: Thread-Safety — process()/tripped_outputs()/breaker_name() laufen
+        # H-6: Thread-Safety, process()/tripped_outputs()/breaker_name() laufen
         # im health-poll-Thread; reset_all() kommt vom UI-Timer-Thread.
         self._lock = threading.Lock()
         # W2-2: Karenzfenster-State. _last_add_ts: monotonic-Zeitpunkt des
@@ -85,7 +85,7 @@ class Healer:
             # _process_output zwischenspeichern (laeuft unter demselben Lock).
             self._last_ioproc_age_ms = int(getattr(health, "ioproc_age_ms", 0) or 0)
 
-            # M1: Breaker-Eviction — Breaker entfernen, deren Output nicht mehr in
+            # M1: Breaker-Eviction, Breaker entfernen, deren Output nicht mehr in
             # health.outputs vorkommt (Karenz: erst nach 2 aufeinanderfolgenden
             # Aufrufen ohne den Output, damit transiente Lücken nicht evicten).
             current_keys = {(o.uid, o.ch_offset) for o in health.outputs}
@@ -119,9 +119,9 @@ class Healer:
             cb.name = output.name
 
         if not output.stalled:
-            # Output gesund — Breaker zurücksetzen
+            # Output gesund, Breaker zurücksetzen
             if cb.stall_samples > 0 or cb.failures > 0:
-                logger.debug("Healer: %s Ch%d erholt — Breaker reset",
+                logger.debug("Healer: %s Ch%d erholt, Breaker reset",
                              output.name, output.ch_offset + 1)
                 cb.stall_samples = 0
                 cb.failures = 0
@@ -133,10 +133,10 @@ class Healer:
         cb.stall_samples += 1
 
         if cb.tripped:
-            return  # Circuit Breaker offen — keine weiteren Versuche
+            return  # Circuit Breaker offen, keine weiteren Versuche
 
         if cb.stall_samples < STALL_PERSIST_SAMPLES:
-            return  # Noch warten — interne C-Recovery könnte noch greifen
+            return  # Noch warten, interne C-Recovery könnte noch greifen
 
         now = time.monotonic()
         if now < cb.open_until:
@@ -145,7 +145,7 @@ class Healer:
         if cb.failures >= MAX_ATTEMPTS:
             cb.tripped = True
             logger.error(
-                "Healer: Circuit Breaker für '%s' Ch%d ausgelöst nach %d Versuchen — "
+                "Healer: Circuit Breaker für '%s' Ch%d ausgelöst nach %d Versuchen, "
                 "manuelle Intervention nötig",
                 output.name, output.ch_offset + 1, MAX_ATTEMPTS
             )
@@ -157,7 +157,7 @@ class Healer:
         if self._last_add_ts > 0.0 and (now - self._last_add_ts) < GRACE_PERIOD_S:
             if self._last_ioproc_age_ms <= HARD_STALL_MS:
                 logger.debug(
-                    "Healer: reconnect für '%s' Ch%d unterdrückt — Karenz nach "
+                    "Healer: reconnect für '%s' Ch%d unterdrückt, Karenz nach "
                     "Output-Add (ioproc_age=%dms)",
                     output.name, output.ch_offset + 1, self._last_ioproc_age_ms)
                 return
@@ -175,7 +175,7 @@ class Healer:
         if resp is not None and resp.get("ok") is True:
             logger.info("Healer: reconnect_output OK für '%s' Ch%d",
                         output.name, output.ch_offset + 1)
-            # Stall-Samples zurücksetzen — warten ob es hält.
+            # Stall-Samples zurücksetzen, warten ob es hält.
             # WICHTIG: failures/Backoff trotzdem erhöhen. Ein 'ok' vom Helper
             # heißt nur, dass der Befehl ausgeführt wurde. Bleibt der Stall
             # bestehen, würde sonst alle 600ms erneut reconnected und der
@@ -213,7 +213,7 @@ class Healer:
         """M1: Setzt alle Circuit Breaker zurück (z.B. nach Helper-Respawn)."""
         with self._lock:
             if self._breakers:
-                logger.info("Healer: reset_all — %d Breaker zurückgesetzt", len(self._breakers))
+                logger.info("Healer: reset_all, %d Breaker zurückgesetzt", len(self._breakers))
             self._breakers.clear()
             self._evict_pending.clear()
 
