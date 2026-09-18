@@ -1,11 +1,24 @@
 # AudioRouterNow: Vollständige Projekt-Dokumentation
 
-**Stand:** 10. Juni 2026 (Kapitel 46, v3.2.0 Stability & Security Release)
-**Version:** 3.2.0  
-**Autor:** Mauricio Morkun  
-**Lizenz:** GPL-3.0  
+**Stand:** 18. September 2026 (Build- und Release-Kapitel auf v3.4.5 aktualisiert)
+**Gegenstand:** AudioRouterNow **v3** (Legacy, Python + HAL-Plugin), aktuell **3.4.5**
+**Autor:** Mauricio Morkun
+**Lizenz:** GPL-3.0
+
+> ⚠️ **Diese Datei beschreibt v3, nicht v4.**
+> v4 ist der Swift-Rewrite für den Mac App Store (Process Tap API, macOS 14.4+,
+> Apple Silicon, Apache-2.0). Dessen Architektur steht in [`v4/ARCHITECTURE.md`](v4/ARCHITECTURE.md).
+> v3 bleibt gepflegt, weil es auf macOS 11 bis 14.3 und auf Intel die einzige Option ist.
 
 > **Schnelle Versions-Übersicht:** Siehe [`RELEASE_NOTES.md`](RELEASE_NOTES.md), zweigeteilt in "For Everyone" (Klartext) und "For Power Users" (technische Details). Diese Datei enthält die vollständige Architektur- und Implementierungsdokumentation.
+
+> **Build und Release:** Der vollständige Ablauf mit Voraussetzungen, Fallstricken
+> und Checkliste steht in [`legacy-v3/installer/README.md`](legacy-v3/installer/README.md).
+> Die Kapitel 5 und 9 hier beschreiben die Mechanik, die Checkliste dort das Vorgehen.
+
+> **Historische Kapitel:** Die Abschnitte ab Kapitel 13 sind Chronik. Sie halten fest,
+> wie einzelne Probleme gelöst wurden, und werden bewusst nicht nachgeführt. Wo eine
+> Aussage vom heutigen Stand abweicht, gelten die Kapitel 1 bis 12.
 
 ---
 
@@ -447,8 +460,9 @@ _kAudioObjectPropertyScopeOutput                       = 0x6F757470  # 'outp'
 
 | Datei | Beschreibung |
 |-------|-------------|
-| `build.sh` | Haupt-Build-Script: venv → PyInstaller → Signierung → DMG |
-| `AudioRouterNow.spec` | PyInstaller-Spec mit `icon=AudioRouterNow.icns` |
+| `build.sh` | Haupt-Build-Script: venv → PyInstaller → Developer-ID-Signierung → Notarisierung → Stapling → DMG. Voraussetzungen, Fallstricke und Release-Checkliste stehen in `legacy-v3/installer/README.md` |
+| `build_local.sh` | Variante ohne Notarisierung, nur zum lokalen Testen |
+| `AudioRouterNow.spec` | PyInstaller-Spec mit `icon=AudioRouterNow.icns`. Liest `APP_VERSION` aus `engine/version.py`, die App-`Info.plist` wird daraus erzeugt |
 | `create_dmg_background.py` | Generiert DMG-Hintergrundbild mit weißen Labels |
 | `entitlements.plist` | `com.apple.security.cs.disable-library-validation = true` |
 | `AudioRouterNow.icns` | App-Icon (teal Routing-Baum, alle Größen) |
@@ -457,28 +471,56 @@ _kAudioObjectPropertyScopeOutput                       = 0x6F757470  # 'outp'
 ### build.sh, Ablauf
 
 ```
-1. Voraussetzungen prüfen (python3, clang, DRIVER_BUILD vorhanden)
-2. Python venv erstellen / prüfen (.venv/)
-3. requirements.txt installieren
-4. PyInstaller + Pillow installieren
-5. PyInstaller Build → dist/AudioRouterNow.app
-6. Ad-hoc Code-Signierung (bottom-up, ohne --deep):
-   a. xattr -cr (Extended Attributes entfernen)
-   b. Alle .dylib Dateien signieren
-   c. Alle .so Dateien signieren
-   d. Python Shared Library signieren (überschreibt Homebrew Team-ID)
-   e. MacOS/AudioRouterNow executable signieren (mit Entitlements)
-   f. .app Bundle signieren (mit Entitlements)
-7. DMG-Hintergrundbild generieren (create_dmg_background.py)
-8. DMG erstellen:
-   a. Staging-Verzeichnis: .app + Applications-Symlink + .background/
-   b. hdiutil create (UDRW)
-   c. Mounten
-   d. Volume-Icon setzen (.VolumeIcon.icns + xattr kHasCustomIcon=0x0400)
-   e. Fenster-Layout via AppleScript (background picture, icon positions, text size 10)
-   f. Aushängen + konvertieren zu UDZO (komprimiert)
-9. DMG-Datei-Icon setzen (AppKit NSWorkspace.setIcon_forFile_options_)
+ 1. Voraussetzungen prüfen (python3, clang, DRIVER_BUILD vorhanden)
+ 2. HAL-Treiber + Helper bauen (Universal Binary: arm64 + x86_64)
+ 3. Python venv einrichten, MIT Funktionsprüfung (venv_is_healthy)
+ 4. requirements.txt + PyInstaller + Pillow + dmgbuild installieren
+ 5. PyInstaller Build → dist/AudioRouterNow.app
+ 6. Developer-ID-Signierung (bottom-up, ohne --deep):
+    a. xattr -cr (Extended Attributes entfernen)
+    b. Alle .dylib Dateien signieren
+    c. Alle .so Dateien signieren
+    d. Python Shared Library signieren (überschreibt Homebrew Team-ID)
+    e. Sparkle.framework signieren (XPC-Dienste, Autoupdate, Framework)
+    f. MacOS/AudioRouterNow executable signieren (mit Entitlements)
+    g. .app Bundle signieren (Hardened Runtime + Timestamp)
+ 7. GATE: codesign --verify --deep --strict über App + Sparkle
+ 8. App notarisieren und stapeln  ← VOR dem DMG-Bau
+    a. ditto -c -k --keepParent → .zip
+    b. xcrun notarytool submit --wait
+    c. xcrun stapler staple + validate
+ 9. DMG-Hintergrundbild generieren (create_dmg_background.py)
+10. DMG erstellen (dmgbuild + Finder-AppleScript für den Hintergrund)
+11. DMG-Datei-Icon setzen (AppKit NSWorkspace.setIcon_forFile_options_)
+12. DMG signieren
+13. DMG notarisieren und stapeln
+14. GATE: DMG mounten, prüfen ob die App DARIN ein Ticket hat
+    und ob Gatekeeper sie akzeptiert
 ```
+
+### Warum die App vor dem DMG gestapelt wird
+
+Bis einschliesslich 3.4.5 lief Schritt 8 erst **nach** dem DMG-Bau, und dann nur
+auf der Kopie unter `dist/`. Die Kopie im DMG blieb ohne Notarisierungs-Ticket.
+Wer die App aus dem DMG zog und ohne Internet startete, zwang Gatekeeper zu einer
+Online-Nachfrage, die dann scheiterte. Mit Netz fiel es nicht auf, deshalb blieb
+es von 3.4.0 bis 3.4.5 unbemerkt.
+
+`ditto` statt `zip`, weil `zip` Symlinks und erweiterte Attribute in App-Bundles
+zerstört und die Notarisierung damit fehlschlägt.
+
+Schritt 14 ist die Konsequenz daraus: Das Skript prüft seit dem Fix nicht mehr nur
+seine eigene Absicht, sondern das ausgelieferte Artefakt.
+
+### Warum das venv geprüft wird
+
+venvs schreiben absolute Pfade in `pyvenv.cfg` und in die Shebang-Zeilen unter
+`bin/`. Nach dem Umbau des Repos auf `legacy-v3/` zeigte das bestehende venv auf
+`<repo>/installer/.venv`, ein Pfad der nicht mehr existiert, und `pip` starb mit
+`bad interpreter`. Das Skript prüfte damals nur, ob das Verzeichnis existiert.
+`venv_is_healthy()` startet jetzt Interpreter und `pip` tatsächlich und baut das
+venv bei Bedarf neu. `pip` wird getrennt geprüft, weil es eine eigene Shebang-Zeile
+hat.
 
 ### Code-Signierung, Warum ohne --deep?
 
@@ -680,25 +722,47 @@ Kein gleichzeitiger Versuch, dasselbe Device zweimal zu öffnen.
 - Python 3.10+
 - Xcode Command Line Tools: `xcode-select --install`
 
+Für einen **veröffentlichungsfähigen** Build kommen dazu: Developer-ID-Zertifikat,
+Notarisierungs-Profil `AudioRouterNow-Notarization` und der Sparkle-Signaturschlüssel
+im Keychain. Prüfbefehle und Einrichtung: `legacy-v3/installer/README.md`.
+
 ### Treiber bauen und installieren
 
 ```bash
-cd AudioRouterNow/driver
-make                                     # Kompiliert Universal Binary
+cd legacy-v3/driver
+make build                               # Kompiliert Universal Binary (arm64 + x86_64)
 sudo make install                        # → /Library/Audio/Plug-Ins/HAL/
 sudo make reload                         # killall coreaudiod → Treiber aktiv
 ```
 
+`build.sh` baut den Treiber ohnehin selbst, der manuelle Weg ist nur für die
+Treiber-Entwicklung nötig.
+
 ### App bauen (.dmg)
 
 ```bash
-cd AudioRouterNow/installer
-chmod +x build.sh
+cd legacy-v3/installer
 ./build.sh
-# → ~/Desktop/AudioRouterNow.dmg
+# → ~/Desktop/AudioRouterNow.dmg, signiert, notarisiert, gestapelt
 ```
 
-Der Build-Prozess dauert ~2–5 Minuten (PyInstaller bündelt ~200MB Python-Runtime).
+Dauer etwa 12 bis 18 Minuten. Der größte Anteil sind **zwei** Notarisierungsrunden
+bei Apple, je 2 bis 5 Minuten, auf die das Skript wartet: einmal für die `.app`,
+einmal für das fertige DMG.
+
+Ohne Apple-Zugangsdaten stattdessen `./build_local.sh`, das überspringt die
+Notarisierung und erzeugt ein DMG, das nur auf dem eigenen Rechner brauchbar ist.
+
+### Release veröffentlichen
+
+Der Build ist nur der erste von elf Schritten. Die vollständige Checkliste mit
+Versions-Bump, Tag, GitHub Release, **Homebrew-Cask**, Appcast und
+**Landing-Page-Deploy** steht in `legacy-v3/installer/README.md`.
+
+Zwei Schritte daraus wurden in der Vergangenheit vergessen und hatten beide direkte
+Folgen für Nutzer: der Cask-Bump (bei 3.4.4 sechs Tage zu spät, der Melder von Issue
+#1 bekam deshalb noch die kaputte Version) und der Landing-Page-Deploy (bei 3.4.5,
+die Website bot stundenlang weiter die Vorgängerversion an).
 
 ### Installation auf einem neuen Mac
 
@@ -706,6 +770,10 @@ Der Build-Prozess dauert ~2–5 Minuten (PyInstaller bündelt ~200MB Python-Runt
 2. `AudioRouterNow.app` in `Applications` ziehen
 3. App starten → macOS fragt einmalig nach Passwort (Treiber-Installation)
 4. Fertig, `🎛️` erscheint in der Menüleiste
+
+Schlägt Schritt 3 fehl, nennt die App seit 3.4.5 den konkreten Grund, die
+Diagnosebefehle und den Pfad zum Log. Vorher meldete sie fälschlich Erfolg
+(siehe Kapitel 11, bekannte Limitierungen).
 
 ### Treiber-Update (nach C-Quellcode-Änderungen)
 
@@ -911,6 +979,24 @@ macOS Finder erlaubt es **nicht**, die Textfarbe von Icon-Labels programmatisch 
 ### Treiber-Installation erfordert sudo
 
 Apple-AudioServerPlugin-Bundles müssen in `/Library/Audio/Plug-Ins/HAL/` liegen, root-geschützt. `coreaudiod` muss danach neu gestartet werden. User wird einmalig beim ersten App-Start nach Passwort gefragt.
+
+### Behoben in 3.4.5: stiller Fehlschlag der Treiber-Installation
+
+Bis einschliesslich 3.4.4 schlug die Treiber-Installation auf Macs fehl, auf denen
+nie zuvor ein Audio-Plug-in installiert war: `/Library/Audio/Plug-Ins/HAL/` existierte
+dort nicht, und `cp` legt keine Elternverzeichnisse an.
+
+Verschärfend kam hinzu, dass das Installer-Skript mit `echo` endete. Sein Exit-Code
+war damit **immer 0**, ein fehlgeschlagener Kopiervorgang wurde als Erfolg gemeldet.
+Der Nutzer sah „installiert", danach funktionierte nichts, und die Fehlermeldung war
+in sich widersprüchlich („was installed but is missing").
+
+Betraf 3.4.0 bis 3.4.4, also die gesamte Linie. Gemeldet als GitHub Issue #1,
+behoben in `8251570`, ausgeliefert mit 3.4.5. Die Prüfung `cp -Rf … || exit 1` war
+bereits in `7f951d4` committet, aber nie in einem Release enthalten.
+
+Relevant, weil v4 macOS 14.4+ und Apple Silicon verlangt: auf macOS 11 bis 14.3 und
+auf Intel ist v3 die einzige Option, und dort war der Erststart still kaputt.
 
 ### sounddevice-Puffertiefe (entfernt in v2.0)
 

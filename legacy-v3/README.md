@@ -1,7 +1,9 @@
 # AudioRouterNow v3 (Legacy: Python/HAL)
 
-> ⚠️ **This version is no longer actively developed.**
+> ⚠️ **No longer actively developed, but still maintained for critical fixes.**
 > The current version is [AudioRouterNow 4 (Swift, App Store)](../v4/).
+> v4 requires macOS 14.4+ and Apple Silicon, so v3 remains the only option
+> on macOS 11 through 14.3 and on Intel.
 
 ## What is v3?
 
@@ -10,11 +12,11 @@ It runs without the App Store and without Swift, directly as a system audio driv
 
 ## Last stable release
 
-**v3.4.4**, see [CHANGELOG](../CHANGELOG.md)
+**v3.4.5**, see [CHANGELOG](../CHANGELOG.md) · [Release](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.5)
 
 ## Installation
 
-See `installer/` for build instructions.
+See `installer/` for build instructions, including the release checklist.
 
 ## License
 
