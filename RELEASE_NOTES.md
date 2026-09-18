@@ -27,7 +27,7 @@ AudioRouterNow 4 is a complete rewrite from the ground up in Swift. It does ever
 - **Optional Tip Jar.** If AudioRouterNow saves you time, you can buy a Coffee ☕ ($1.99) or Beer 🍺 ($4.99), entirely optional, the app is fully free without it.
 
 **Requirements:** macOS 14.2 (Sonoma) or later, Apple Silicon.  
-If you're on macOS 11–14.1, [v3.4.4](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.4) still works and is still maintained for critical fixes.
+If you're on macOS 11–14.1, [v3.4.5](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.5) still works and is still maintained for critical fixes.
 
 ### For Power Users
 
@@ -74,6 +74,32 @@ If you're on macOS 11–14.1, [v3.4.4](https://github.com/mauriciomorkun/AudioRo
 - `@MainActor` boundary: `EngineController` publishes to SwiftUI via `@Published`, no direct UI calls from CoreAudio threads
 
 **Audit:** Single-pass Fable 5 audit, all 5 checks PASS (thread safety, listener symmetry, loop prevention, BT volume fallback, App Store sandbox). No second iteration required.
+
+---
+
+## v3.4.5, September 18, 2026
+
+### For Everyone
+
+**Fixes driver installation failing on first launch, while the app reported success.**
+
+On Macs where no audio plug-in had ever been installed, the folder the driver goes into (`/Library/Audio/Plug-Ins/HAL/`) does not exist. The installer copied the driver into that folder without creating it first, so the copy failed. Worse, the app then told you the installation had worked. Routing simply never started, with nothing on screen explaining why.
+
+This release creates the folder before copying, and the app now tells you the truth if the installation fails, including the exact commands to check and fix it, and where to find the log.
+
+If you ever installed AudioRouterNow and it never routed any audio, this is very likely why. Install 3.4.5 and run the driver installation again.
+
+### For Power Users
+
+| Fix | Component | Root Cause | Resolution |
+|-----|-----------|------------|------------|
+| **Driver install aborts with ENOENT** | `legacy-v3` installer (script path and fallback path) | `cp` does not create parent directories. On systems with no pre-existing HAL plug-in, `/Library/Audio/Plug-Ins/HAL/` is absent and the copy aborts. | `mkdir -p` on the target directory before the copy, in both paths. |
+| **Failure reported as success** | installer script exit code | The script ended with `echo`, so its exit status was always 0 regardless of whether `cp` succeeded. The error check `cp -Rf … \|\| exit 1` was committed in `7f951d4` but never shipped. | 3.4.5 is the first release that actually contains the error check. |
+| **Self-contradictory dialog** | post-install verification | The dialog read *"The driver was installed but is missing at the expected path"*, which told the user nothing actionable. | States that the installation failed, prints the `ls -la` diagnose and `sudo mkdir -p` workaround commands, points to the log. Real state of both paths is written to the log. |
+
+**Reported by:** GitHub Issue [#1](https://github.com/mauriciomorkun/AudioRouterNow/issues/1). **Commit:** `8251570`
+
+> **Note:** the root cause was inferred from the code and never reproduced locally, so the issue stays open until the reporter confirms the fix.
 
 ---
 

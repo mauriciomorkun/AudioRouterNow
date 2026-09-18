@@ -84,7 +84,7 @@ Full technical details for each release: [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
-## [3.4.5], unreleased · _Legacy (macOS 11+, direct download)_
+## [3.4.5], 2026-09-18 · _Legacy (macOS 11+, direct download)_
 
 ### Fixed
 - **Driver installation failed on first launch when `/Library/Audio/Plug-Ins/HAL/` did
