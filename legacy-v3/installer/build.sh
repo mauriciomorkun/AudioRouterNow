@@ -39,6 +39,45 @@ STAGING_DIR="/tmp/${APP_NAME}_dmg_staging"
 SIGN_IDENTITY="Developer ID Application: MAURICIO MORAIS DA CUNHA (5D52U34B3W)"
 NOTARIZE_PROFILE="AudioRouterNow-Notarization"
 
+# --- Notarisierung als Funktion ----------------------------------------------
+# Wird zweimal gebraucht: einmal fuer die .app (vor dem DMG-Bau, damit das
+# Ticket mit ins DMG wandert) und einmal fuer das fertige DMG selbst.
+# $1 = Pfad zum einzureichenden Artefakt (.zip oder .dmg)
+# $2 = Klartextname fuer die Log-Ausgabe
+notarize() {
+    local artifact="$1" label="$2" out exit_code=0 submission_id
+
+    log "Sende $label zur Apple-Notarisierung (kann 2-5 Minuten dauern)..."
+    out=$(xcrun notarytool submit "$artifact" \
+        --keychain-profile "$NOTARIZE_PROFILE" \
+        --wait \
+        2>&1) || exit_code=$?
+    echo "$out"
+
+    if echo "$out" | grep -q "status: Accepted"; then
+        ok "Notarisierung erfolgreich: $label"
+        return 0
+    fi
+
+    submission_id=$(echo "$out" | grep -E "^[[:space:]]*id:" | head -1 | awk '{print $2}')
+
+    if echo "$out" | grep -q "status: Invalid"; then
+        warn "Notarisierung ABGELEHNT ($label), lade Log..."
+        [[ -n "$submission_id" ]] && xcrun notarytool log "$submission_id" \
+            --keychain-profile "$NOTARIZE_PROFILE" || true
+        fail "Notarisierung fehlgeschlagen ($label). Siehe Log oben."
+    fi
+
+    # Frueher wurde hier nur gewarnt und weitergebaut. Das ist gefaehrlich:
+    # ohne akzeptierte Notarisierung schlaegt das anschliessende Stapling
+    # ohnehin fehl, nur eben spaeter und mit unklarerer Meldung. Ein
+    # unklarer Status ist ein Abbruchgrund, kein Hinweis.
+    warn "Notarisierungs-Status unklar ($label), notarytool-Exit: $exit_code"
+    [[ -n "$submission_id" ]] && xcrun notarytool log "$submission_id" \
+        --keychain-profile "$NOTARIZE_PROFILE" || true
+    fail "Notarisierung nicht bestaetigt ($label). Abbruch statt Blindflug."
+}
+
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════╗${NC}"
 echo -e "${BOLD}║     AudioRouterNow — Build Script    ║${NC}"
@@ -68,11 +107,35 @@ ok "Driver + Helper gebaut (werden in App-Bundle neu signiert)"
 # --- Python venv -------------------------------------------------------------
 log "Richte Python-Umgebung ein..."
 
-if [[ ! -d "$VENV_DIR" ]]; then
-    "$PYTHON" -m venv "$VENV_DIR"
-    ok "venv erstellt: $VENV_DIR"
+# Ein venv gilt nur dann als brauchbar, wenn sein Interpreter auch startet.
+# Die alleinige Existenz des Verzeichnisses reicht nicht: venvs schreiben
+# absolute Pfade fest (pyvenv.cfg, Shebangs in bin/). Nach einem Verschieben
+# oder Umbenennen des Projekts zeigen sie ins Leere, und pip scheitert dann
+# mit "bad interpreter: No such file or directory".
+# Genau das ist beim 3.4.5-Release passiert: das venv stammte noch aus der
+# Zeit vor der Umstrukturierung nach legacy-v3/ und verwies auf
+# <repo>/installer/.venv statt <repo>/legacy-v3/installer/.venv.
+venv_is_healthy() {
+    [[ -x "$VENV_DIR/bin/python3" ]] || return 1
+    "$VENV_DIR/bin/python3" -c 'import sys' >/dev/null 2>&1 || return 1
+    # pip separat pruefen: es hat eine eigene Shebang-Zeile, die unabhaengig
+    # vom Interpreter-Symlink kaputtgehen kann.
+    [[ -x "$VENV_DIR/bin/pip" ]] || return 1
+    "$VENV_DIR/bin/pip" --version >/dev/null 2>&1 || return 1
+    return 0
+}
+
+if [[ -d "$VENV_DIR" ]] && venv_is_healthy; then
+    ok "venv vorhanden und funktionsfaehig"
 else
-    ok "venv bereits vorhanden"
+    if [[ -d "$VENV_DIR" ]]; then
+        warn "venv vorhanden, aber unbrauchbar (Interpreter oder pip startet nicht)."
+        warn "Ursache ist meist ein verschobenes Projektverzeichnis. Wird neu gebaut."
+        rm -rf "$VENV_DIR"
+    fi
+    "$PYTHON" -m venv "$VENV_DIR" || fail "venv konnte nicht erstellt werden."
+    venv_is_healthy || fail "Frisch erstelltes venv ist nicht funktionsfaehig: $VENV_DIR"
+    ok "venv erstellt: $VENV_DIR"
 fi
 
 VENV_PY="$VENV_DIR/bin/python3"
@@ -361,6 +424,40 @@ codesign --verify --deep --strict --verbose=2 "$APP_PATH" \
     || fail "Sparkle.framework-Verifikation fehlgeschlagen — Signing prüfen"; }
 ok "Signing-Gate bestanden ✓"
 
+# --- Notarisierung + Stapling der .app (VOR dem DMG-Bau) ---------------------
+# Reihenfolge ist wichtig und war bis 3.4.5 falsch herum: frueher wurde erst
+# das DMG gebaut und notarisiert und die .app erst danach gestapelt. Das
+# Ticket landete damit nur in der Kopie unter dist/, nie in der Kopie im DMG.
+# Wer die App aus dem DMG herauszog, hatte also kein lokales Ticket, und
+# Gatekeeper musste beim ersten Start online nachfragen. Ohne Netz konnte das
+# den Erststart verzoegern oder scheitern lassen.
+#
+# Jetzt: .app notarisieren, Ticket stapeln, DANN das DMG aus der bereits
+# gestapelten App bauen. Kostet eine zweite Notarisierungsrunde, macht den
+# Offline-Erststart aber verlaesslich. Genau das behauptete der alte
+# Kommentar an dieser Stelle schon, ohne dass der Code es tat.
+#
+# ditto statt zip: notarytool braucht ein Archiv, das Symlinks und erweiterte
+# Attribute erhaelt. `zip` zerstoert beides in App-Bundles.
+APP_NOTARIZE_ZIP="$BUILD_OUTPUT/${APP_NAME}_notarize.zip"
+mkdir -p "$BUILD_OUTPUT"
+rm -f "$APP_NOTARIZE_ZIP"
+
+log "Packe .app fuer die Notarisierung (ditto)..."
+/usr/bin/ditto -c -k --keepParent "$APP_PATH" "$APP_NOTARIZE_ZIP" \
+    || fail "Konnte .app nicht fuer die Notarisierung packen."
+ok "Archiv erstellt: $(basename "$APP_NOTARIZE_ZIP")"
+
+notarize "$APP_NOTARIZE_ZIP" ".app"
+
+log "Staple Notarization Ticket in .app..."
+xcrun stapler staple "$APP_PATH" || fail "Stapling der .app fehlgeschlagen"
+xcrun stapler validate "$APP_PATH" >/dev/null 2>&1 \
+    || fail "Stapling der .app nicht verifizierbar."
+ok ".app Ticket gestapelt und verifiziert ✓"
+
+rm -f "$APP_NOTARIZE_ZIP"
+
 # --- DMG-Grafiken generieren -------------------------------------------------
 # Hintergrundbild enthaelt den weissen Pfeil direkt eingezeichnet.
 # Keine separate Pfeil-Datei im DMG-Fenster — nur App + Applications.
@@ -524,37 +621,40 @@ codesign \
     "$DMG_OUTPUT" || fail "DMG-Signierung fehlgeschlagen"
 ok "DMG signiert: $DMG_OUTPUT"
 
-# --- Notarisierung (Apple Notary Service) ------------------------------------
-log "Sende DMG zur Apple-Notarisierung (kann 2-5 Minuten dauern)..."
-NOTARY_EXIT=0
-NOTARY_OUTPUT=$(xcrun notarytool submit "$DMG_OUTPUT" \
-    --keychain-profile "$NOTARIZE_PROFILE" \
-    --wait \
-    2>&1) || NOTARY_EXIT=$?
-echo "$NOTARY_OUTPUT"
+# --- Notarisierung des DMG (Apple Notary Service) ----------------------------
+# Die .app ist zu diesem Zeitpunkt bereits notarisiert und gestapelt, das
+# Ticket liegt also schon in der Kopie im DMG. Diese zweite Runde gilt dem
+# DMG als eigenem Artefakt, damit auch der Download selbst ein Ticket traegt.
+notarize "$DMG_OUTPUT" "DMG"
 
-if echo "$NOTARY_OUTPUT" | grep -q "status: Accepted"; then
-    ok "Notarisierung erfolgreich!"
-elif echo "$NOTARY_OUTPUT" | grep -q "status: Invalid"; then
-    SUBMISSION_ID=$(echo "$NOTARY_OUTPUT" | grep -E "^\s*id:" | head -1 | awk '{print $2}')
-    warn "Notarisierung ABGELEHNT — lade Log..."
-    [[ -n "$SUBMISSION_ID" ]] && xcrun notarytool log "$SUBMISSION_ID" \
-        --keychain-profile "$NOTARIZE_PROFILE" || true
-    fail "Notarisierung fehlgeschlagen. Siehe Log oben."
-else
-    warn "Notarisierung-Status unklar — prüfe Ausgabe oben"
-fi
-
-# --- Stapling ----------------------------------------------------------------
-# App zuerst stapeln → dann DMG (enthält bereits gestapelte App).
-# Robusterer Offline-Erststart: Gatekeeper findet Ticket lokal ohne Netz.
-log "Staple Notarization Ticket in .app..."
-xcrun stapler staple "$APP_PATH" || fail "Stapling der .app fehlgeschlagen"
-ok ".app Notarization Ticket gestapelt ✓"
-
+# --- Stapling des DMG --------------------------------------------------------
 log "Staple Notarization Ticket in DMG..."
-xcrun stapler staple "$DMG_OUTPUT" || fail "Stapling fehlgeschlagen"
-ok "DMG Notarization Ticket gestapelt ✓"
+xcrun stapler staple "$DMG_OUTPUT" || fail "Stapling des DMG fehlgeschlagen"
+xcrun stapler validate "$DMG_OUTPUT" >/dev/null 2>&1 \
+    || fail "Stapling des DMG nicht verifizierbar."
+ok "DMG Ticket gestapelt und verifiziert ✓"
+
+# --- Abschluss-Gate: ist die App IM DMG wirklich gestapelt? -------------------
+# Der eigentliche Test fuer den Fix. Fruehere Releases haben hier stillschweigend
+# eine ungestapelte App ausgeliefert, weil niemand in das fertige DMG geschaut hat.
+log "Abschluss-Gate: pruefe die .app im fertigen DMG..."
+VERIFY_MOUNT="/tmp/${APP_NAME}_verify_$$"
+rm -rf "$VERIFY_MOUNT"
+if hdiutil attach "$DMG_OUTPUT" -nobrowse -quiet -mountpoint "$VERIFY_MOUNT" 2>/dev/null; then
+    _verify_fail=""
+    xcrun stapler validate "$VERIFY_MOUNT/${APP_NAME}.app" >/dev/null 2>&1 \
+        || _verify_fail="Die .app im DMG hat KEIN gestapeltes Ticket."
+    if [[ -z "$_verify_fail" ]]; then
+        spctl --assess --type execute "$VERIFY_MOUNT/${APP_NAME}.app" >/dev/null 2>&1 \
+            || _verify_fail="Gatekeeper lehnt die .app im DMG ab."
+    fi
+    hdiutil detach "$VERIFY_MOUNT" -quiet 2>/dev/null || true
+    rm -rf "$VERIFY_MOUNT"
+    [[ -n "$_verify_fail" ]] && fail "$_verify_fail"
+    ok "App im DMG: Ticket gestapelt, Gatekeeper akzeptiert ✓"
+else
+    warn "DMG liess sich zur Pruefung nicht mounten, Abschluss-Gate uebersprungen"
+fi
 
 # --- Fertig ------------------------------------------------------------------
 echo ""
