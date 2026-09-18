@@ -6,16 +6,13 @@
   <title>AudioRouterNow: Speakers, Headphones &amp; Interfaces. All at Once.</title>
   <meta name="description" content="Send your Mac's sound to speakers, headphones, and your interface at once. One click. Volume works. Setup stays after reboot. Free on the Mac App Store. macOS 14.4+, Apple Silicon.">
   <meta property="og:title" content="AudioRouterNow: Speakers, Headphones &amp; Interfaces. All at Once.">
-  <!-- PRE-LAUNCH: og/twitter description nennt das Launch-Datum (Link-Previews vor dem 08.09.).
-       Nach Release zurücksetzen auf: "Speakers, headphones, and your interface, all at once.
-       One click, volume works, setup stays. Free &amp; open source." -->
-  <meta property="og:description" content="Speakers, headphones, and your interface, all at once. One click, volume works, setup stays. Free &amp; open source, launching September 8, 2026.">
+  <meta property="og:description" content="Speakers, headphones, and your interface, all at once. One click, volume works, setup stays. Free &amp; open source.">
   <meta property="og:image" content="https://audiorouternow.mauriciomorkun.com/screenshot.png">
   <meta property="og:url" content="https://audiorouternow.mauriciomorkun.com">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="AudioRouterNow: Speakers, Headphones &amp; Interfaces. All at Once.">
-  <meta name="twitter:description" content="Speakers, headphones, and your interface, all at once. One click, volume works, setup stays. Free &amp; open source, launching September 8, 2026.">
+  <meta name="twitter:description" content="Speakers, headphones, and your interface, all at once. One click, volume works, setup stays. Free &amp; open source.">
   <meta name="twitter:image" content="https://audiorouternow.mauriciomorkun.com/screenshot.png">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -363,15 +360,6 @@
     .as-badge-text strong { display: block; font-size: 20px; color: white; letter-spacing: -.025em; line-height: 1.2; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 700; }
     .badge-meta { font-size: .74rem; color: #4a4a4a; letter-spacing: .02em; margin-bottom: 1.5rem; }
 
-    /* ── PRE-LAUNCH STATE (entfernen nach Release am 08.09.2026, 06:00 CEST) ── */
-    .launch-pill { display: inline-flex; align-items: center; gap: .55rem; background: rgba(64,220,165,.09); border: 1px solid rgba(64,220,165,.3); border-radius: 999px; padding: .45rem 1rem .45rem .8rem; margin-bottom: 1rem; font-size: .8rem; color: var(--accent); letter-spacing: .01em; }
-    .launch-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; animation: launchPulse 2s ease-in-out infinite; }
-    @keyframes launchPulse { 0%, 100% { opacity: 1; transform: scale(1) } 50% { opacity: .45; transform: scale(.8) } }
-    @media (prefers-reduced-motion: reduce) { .launch-dot { animation: none } }
-    .launch-countdown { font-variant-numeric: tabular-nums; color: rgba(255,255,255,.55); font-size: .74rem; letter-spacing: .02em; margin-bottom: 1.25rem; }
-    .as-badge-wrap.is-pending { opacity: .38; cursor: default; pointer-events: none; filter: saturate(0); }
-    .as-badge-wrap.is-pending:hover { transform: none; opacity: .38; }
-
     /* ── LEGACY GATE ── */
     .legacy-gate { margin-top: 1.25rem; text-align: center; width: 100%; max-width: 380px; }
     .legacy-gate summary { cursor: pointer; font-size: .78rem; color: #3a3a3a; list-style: none; user-select: none; padding: .35rem .6rem; border-radius: 6px; display: inline-block; transition: color .15s, background .15s; }
@@ -469,46 +457,19 @@
       Route your Mac's audio to <strong>headphones, speakers and interfaces, all at once.</strong><br>
       No driver. No restart. Sandboxed. Free.
     </p>
-    <!-- ══ PRE-LAUNCH BLOCK: komplett entfernen nach Release (08.09.2026, 06:00 CEST) ══ -->
-    <p class="launch-pill" id="launch-pill">
-      <span class="launch-dot"></span>
-      <span>Launching September&nbsp;8, 2026</span>
-    </p>
-    <!-- ══ ENDE PRE-LAUNCH BLOCK ══ -->
 
     <!-- App Store Badge: primary CTA -->
-    <!-- Nach Release: class="as-badge-wrap" (is-pending entfernen), href + target + rel wieder aktivieren -->
-    <a class="as-badge-wrap is-pending" id="app-store-link" aria-label="AudioRouterNow launches on the Mac App Store on September 8, 2026" aria-disabled="true">
+    <a class="as-badge-wrap" href="https://apps.apple.com/app/audiorouternow/id6787215635" target="_blank" rel="noopener noreferrer" id="app-store-link" aria-label="Download on the Mac App Store">
       <div class="as-badge-inner">
         <span class="as-badge-apple"></span>
         <span class="as-badge-text">
-          <small>Coming to the</small>
+          <small>Download on the</small>
           <strong>Mac App Store</strong>
         </span>
       </div>
     </a>
     <p class="badge-meta">macOS 14.4+ &nbsp;&middot;&nbsp; Free &nbsp;&middot;&nbsp; Open Source (Apache 2.0)</p>
 
-    <!-- ══ PRE-LAUNCH COUNTDOWN: mit obigem Block entfernen ══ -->
-    <p class="launch-countdown" id="launch-countdown"></p>
-    <script>
-      (function () {
-        var target = new Date('2026-09-08T06:00:00+02:00').getTime();
-        var el = document.getElementById('launch-countdown');
-        if (!el) return;
-        function tick() {
-          var diff = target - Date.now();
-          if (diff <= 0) { el.textContent = 'Available now on the Mac App Store'; return; }
-          var d = Math.floor(diff / 864e5),
-              h = Math.floor(diff % 864e5 / 36e5),
-              m = Math.floor(diff % 36e5 / 6e4);
-          el.textContent = d + 'd ' + h + 'h ' + m + 'm to go';
-          setTimeout(tick, 30000);
-        }
-        tick();
-      })();
-    </script>
-    <!-- ══ ENDE COUNTDOWN ══ -->
 
     <!-- Smart Gate: v3 fallback for older macOS. NOTE (08.09.2026): summary text
          must never imply the App Store build isn't open source (it is)
@@ -606,6 +567,18 @@
   </div>
 
   <hr class="section-divider">
+
+  <!-- ORIGIN STORY: added 08.09.2026. Wording anchored to facts.md
+       ("Persona / Entstehungsgeschichte") and reuses the already-approved
+       T-2 Buffer post opening line verbatim, so this doesn't introduce a
+       new, unvetted formulation of the story. Do not edit without
+       checking facts.md first. -->
+  <div style="max-width:560px;margin:0 auto clamp(3.5rem,8vw,5rem);padding:0 1.5rem;text-align:center;">
+    <p class="screenshots-label" style="margin-bottom:1rem;">Why this exists</p>
+    <p style="font-size:.92rem;line-height:1.75;color:var(--muted);">
+      This started because I wanted active studio monitors and a passive pair on an amp running at the same time, off one interface. I assumed macOS had a setting for that. It doesn't. Audio MIDI Setup gets you a Multi-Output Device, but it breaks your volume keys and falls apart every time a device changes. A mixer would have solved it, but I didn't want another box on the desk. So I had this built instead. When it worked, there was no reason to keep it to myself. That's why it's free.
+    </p>
+  </div>
 
   <!-- SCOPE NOTE -->
   <p style="max-width:480px;margin:0 auto clamp(4rem,9vw,6rem);padding:0 1.5rem;
