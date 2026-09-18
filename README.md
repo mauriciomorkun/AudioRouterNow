@@ -14,7 +14,7 @@
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS%2011%2B-lightgrey?logo=apple)](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 [![Latest Release](https://img.shields.io/github/v/release/mauriciomorkun/AudioRouterNow)](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 
-> **Latest release: [v3.4.4](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.4)**, [Download AudioRouterNow.dmg](https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.4/AudioRouterNow.dmg)
+> **Latest release: [v3.4.5](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.5)**, [Download AudioRouterNow.dmg](https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.5/AudioRouterNow.dmg)
 
 **Play macOS system audio through every output at once, speakers, headphones, and interfaces together.**
 
@@ -86,7 +86,7 @@ macOS System Audio
 
 **Option A, Direct download**
 
-1. Download [`AudioRouterNow.dmg` (v3.4.4)](https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.4/AudioRouterNow.dmg) from [Releases](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
+1. Download [`AudioRouterNow.dmg` (v3.4.5)](https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.5/AudioRouterNow.dmg) from [Releases](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 2. Open the DMG and drag the app to Applications
 3. Launch the app, macOS will ask for your password once to install the audio driver
 4. `🎛️` appears in your menu bar, you're done
@@ -97,8 +97,8 @@ No Terminal. No restart. No security approval.
 
 ```sh
 shasum -a 256 ~/Downloads/AudioRouterNow.dmg
-# Expected (v3.4.4):
-# 65e1ac5a8d340ae71ba5ab3c1b7eb54f251980c20d48e797ec65a69e8c8231b2
+# Expected (v3.4.5):
+# 6b92f8cee95a27afb84cee1564140dff1cb98696e25c6ec00c175172f069ed01
 ```
 
 **Option B, Homebrew Cask (optional)**
