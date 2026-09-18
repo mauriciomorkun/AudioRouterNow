@@ -17,6 +17,27 @@
          6. docs/appcast.xml committen + pushen (GitHub Pages publiziert automatisch)
     -->
     <item>
+      <title>Version 3.4.5</title>
+      <description><![CDATA[
+        <p><strong>Fixes driver installation failing on first launch, while the app reported success.</strong></p>
+        <ul>
+          <li><strong>The driver folder is now created before the driver is copied into it.</strong> On Macs where no audio plug-in had ever been installed, <code>/Library/Audio/Plug-Ins/HAL/</code> did not exist, so the copy failed and routing never started.</li>
+          <li><strong>A failed installation is no longer reported as success.</strong> The app now states that the installation failed, shows the exact commands to check and work around it, and points to the log file.</li>
+        </ul>
+        <p>If you ever installed AudioRouterNow and it never routed any audio, this is very likely why. Update, then run the driver installation again.</p>
+        <p>No action required for anyone whose routing already works. Update normally.</p>
+      ]]></description>
+      <pubDate>Fri, 18 Sep 2026 03:06:12 +0000</pubDate>
+      <sparkle:version>3.4.5</sparkle:version>
+      <sparkle:shortVersionString>3.4.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.5</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.5/AudioRouterNow.dmg"
+                 sparkle:edSignature="uTB8dqxlkUYUDnNiUf3V9bOLMdhx+oUgc1sH3042j+4zV4h6yP2QPPjx/n9R3mj63Tw3KZnbRi2yUUNiECR9Dg=="
+                 length="13353092"
+                 type="application/octet-stream"/>
+    </item>
+    <item>
       <title>Version 3.4.4</title>
       <description><![CDATA[
         <p><strong>Fixes audio routing to devices with non-ASCII characters in their internal ID.</strong></p>
