@@ -9,6 +9,101 @@ Each release contains **two sections**:
 
 ---
 
+## AudioRouterNow 4.0.1 (Build 8), September 23, 2026
+_Mac App Store, macOS 14.4 or later, Apple Silicon_
+
+### For Everyone
+
+**This is a stability update. It fixes a crash and adds a way to report bugs from inside the app.**
+
+- **Fixed a crash.** Some users saw the app quit unexpectedly. The cause was in the animated waveform at the top of the menu, not in the audio routing itself: the animation kept running at full speed even when the menu was closed, and under rare conditions an invalid audio measurement could reach the drawing code. Both are fixed.
+- **Better battery behaviour.** The waveform now stops completely when the menu is closed or when you switch to another app, and runs at a lower frame rate when nothing is being routed. Previously it ran continuously in the background, whether or not anyone was looking at it.
+- **New: report a bug from the app.** A small ladybug icon in the footer opens a pre-filled email with your app version, macOS version and Mac model already filled in, so you do not have to look any of it up. If you have no mail app set up, it opens GitHub Issues instead.
+
+> **Please note: you need to re-enable "Launch at Login" once.**
+>
+> If you had "Launch at Login" turned on, this update switches it off and you have to turn it on again. This is not a bug. AudioRouterNow deliberately ties that setting to the exact app version it was granted for, so that an app update can never silently keep starting your Mac's audio routing without you agreeing to it again. It is a one-time click in the menu footer.
+
+**Privacy note on the bug report button:** the email includes your app version, build number, macOS version, Mac model, how many outputs you have configured, and whether routing is currently on. It does **not** include the names of your audio devices, because those are often named after their owner. Nothing is sent anywhere until you press send in your own mail app.
+
+### For Power Users
+
+Full analysis: [`feedback/CASE-003_appstore_crash_displaycycle.md`](feedback/CASE-003_appstore_crash_displaycycle.md).
+
+#### Root cause: two independent defects in the panel render path
+
+**1. Visibility gap.** `MenuBarExtra(.window)` does not tear down its view tree when the panel closes. There is no reliable SwiftUI `onDisappear` for this. Consequently both of these ran unbounded for the entire app lifetime:
+
+| Consumer | Rate | Ran while panel was closed |
+|----------|------|---------------------------|
+| `TimelineView(.animation)` in `WaveHeaderView` | up to 60 fps | yes |
+| `.task` device poll in `MenuBarView` | every 3 s | yes |
+
+**2. Infinity, not NaN.** `FanOutEngine` collects per-column min/max with `if s < wMin` / `if s > wMax`. `NaN` fails both comparisons and can never enter the ring buffer. `Infinity` wins both and enters cleanly. One `Inf` sample makes the normalisation divisor `Inf`, and `Inf / Inf` is `NaN`, so every derived y-coordinate becomes `NaN`. The existing guard read:
+
+```swift
+if yMin - yMax < 1 { /* collapse to zero line */ }
+```
+
+`NaN < 1` is false, so the corrective branch was skipped precisely when it was needed, and the `NaN` went straight into a `CGPoint`.
+
+`.drawingGroup()` is treated as an amplifier rather than a cause (it moves drawing into its own Metal render pass) and was deliberately left in place pending a reproduction measurement.
+
+#### Implementation
+
+**`PanelVisibility` (new, `AudioRouterNow4/UI/PanelVisibility.swift`)**
+- `@MainActor ObservableObject`, `@Published private(set) var isVisible`
+- The state is bound to the panel's **actual `NSWindow`**, not to the SwiftUI lifecycle. Binding it to the lifecycle would contradict the very finding this case rests on: if the view tree is never torn down, `onAppear` fires only on the first appearance, and the state would be stuck at `false` from the second opening onwards
+- The window reference comes from `PanelWindowProbe`, an `NSViewRepresentable` with no drawing and no intrinsic size, placed in `MenuBarView`'s `.background`. Its `NSView` subclass overrides `viewDidMoveToWindow()` and reports the window upwards. Canonical AppKit, no private API
+- Up signal: `NSWindow.didBecomeKeyNotification`, filtered to `object: panelWindow`. The panel becomes key on **every** opening
+- Down signal: `NSWindow.didResignKeyNotification`, same filter. Deliberately **not** `willCloseNotification`, MenuBarExtra uses `orderOut()` and never closes the window
+- The `object:` filter also keeps modal `NSAlert`s from being mistaken for the panel. That case is self-correcting: the alert takes key status (the wave pauses for the duration of the dialog), and the panel becomes key again when it closes
+- Key status rather than `window.isVisible`, because `orderOut()` reliably removes key status and ships a matching notification pair. `isVisible` has no such pair and would need KVO, for which `NSWindow` makes no documented guarantee
+- Initial sync from `window.isKeyWindow` when the probe attaches, in case the window became key before the probe was in the hierarchy. Deliberately deferred through a `Task { @MainActor }`: `viewDidMoveToWindow()` is an AppKit layout callback that can sit inside a SwiftUI update pass
+- `MenuBarView.onAppear` → `panelDidAppear()` is kept as a redundant early up signal. The risks are asymmetric: a stray `true` matches 4.0.0 behaviour and is corrected on the next key change, a stray `false` would leave the wave and the device poll dead
+- **No** `NSApplication.didResignActiveNotification`. A down signal with no counterpart is the same asymmetry described above and could pin the state at `false`. Nothing is lost: `WaveHeaderView` already folds app activity into its pause gate via `@Environment(\.controlActiveState)`
+- Observers removed in `deinit`. The token array is `nonisolated(unsafe)` because `deinit` of a MainActor-isolated class is itself nonisolated; it is written only on the MainActor and read only in `deinit`, which runs once no reference is left, so there is no concurrent-access window
+
+**`WaveHeaderView`**
+- `TimelineView(.animation)` → `TimelineView(.animation(minimumInterval:paused:))`
+- `paused` when `!panelVisibility.isVisible || controlActiveState == .inactive`
+- `minimumInterval` 1/30 while routing or starting, 1/8 when idle
+- Canvas entry guard against degenerate layout sizes: `guard size.width.isFinite, size.height.isFinite, size.width >= 1, size.height >= 1 else { return }`
+- Minimum-height check restated positively, so the safe branch is the default:
+  `guard yMax.isFinite, yMin.isFinite, yMin - yMax >= 1 else { /* zero-line tick */ continue }`
+
+**`WaveformGeometry` (new, `AudioRouterKit`)**
+- `sanitize(_:)` maps non-finite values to 0 and clamps to [-1, 1]
+- `normalizationAmplitude(_:)` skips non-finite values instead of letting them poison the divisor; the result is always finite and >= 0, including for empty input
+- Uses `isFinite`, not `isNaN`, for the reason given above
+- Lives in the kit (testable without a UI bootstrap) and runs on the MainActor **after** the ring buffer. The realtime IOProc path is untouched
+- 13 swift-testing cases in `WaveformGeometryTests.swift`
+
+**`MenuBarView`**
+- Device poll gated: `guard panelVisibility.isVisible else { continue }`. Beyond the wasted CoreAudio enumeration, the real hazard was the `@Published` write it performs, which publishes into the panel view tree and could land during window teardown
+- `onAppear` now calls `refreshAvailableDevices()` once explicitly, so the gated poll does not leave a stale list on open
+- Hosts `PanelWindowProbe` in `.background`, sized 0 by 0, which is how `PanelVisibility` learns about the panel window
+
+**`EngineController.openBugReport()`**
+- `mailto` via `URLComponents`, opened with `NSWorkspace.open`, the same sandbox-compatible pattern already used by `openTCCSettings()`
+- Hardware model via `sysctlbyname("hw.model", …)`; CoreAudio behaviour and buffer sizes differ across model lines
+- Device names excluded (frequently contain real names). `ProcessInfo.systemUptime` excluded: required-reason API, would force a `PrivacyInfo.xcprivacy` entry for negligible diagnostic value
+- Falls back to GitHub Issues when `NSWorkspace.open` returns false
+
+#### Launch at Login consent reset
+
+`CURRENT_PROJECT_VERSION` 7 → 8. `hasValidLaunchAtLoginConsent()` compares the stored consent build against `CFBundleVersion`, so consent granted under build 7 is now invalid and `ensureLoginItemCompliance()` unregisters the Login Item on first launch. Existing users must re-enable the toggle once. This is the intended mechanism under Guideline 2.4.5(iii), not a side effect of the bump.
+
+#### Still open
+
+- The raw `.ips` was not available during analysis. Both defects are independently justified and were derived from the code, but that they fix *the reported* crash is unverified
+- The load-bearing assumption of the visibility fix is that the panel window becomes key on every opening. That can only be proven on a running app: open and close the panel five times, the wave has to come back every time
+- Reproduction measurement in Instruments still pending
+- `.drawingGroup()` keep-or-remove decision deferred until that measurement exists
+- Fallback path if crashes persist: replace `TimelineView` with an `EngineController`-driven timer that only runs while the panel is visible
+
+---
+
 ## AudioRouterNow 4 (v4.0.0, Build 4.0.0), July 24, 2026
 _Mac App Store, macOS 14.2 or later, Apple Silicon_
 

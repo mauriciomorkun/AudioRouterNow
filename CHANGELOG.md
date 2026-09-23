@@ -1,5 +1,52 @@
 # Changelog
 
+## [4.0.1 (8)], 2026-09-23
+
+> **Label note:** this is `MARKETING_VERSION 4.0.1`, build 8. It is a different
+> thing from the older `## [4.0.1], 2026-08-05` entry further down, which tracked
+> App Store re-submit Build 3 under the old labelling scheme. Entries in the
+> `X.Y.Z (build)` form use the current scheme.
+
+### Fixed
+- **Crash in the SwiftUI display cycle** (CASE-003). A `MenuBarExtra(.window)`
+  panel does not tear down its view tree when it closes. The wave header's
+  `TimelineView(.animation)` therefore kept driving the canvas at full frame rate
+  indefinitely, and a `.task` loop kept enumerating CoreAudio every 3 seconds,
+  both while the panel was closed. Panel visibility is now modelled explicitly
+  (`PanelVisibility`): the timeline pauses when the panel is closed or the app is
+  in the background, and the device poll is gated on the same signal.
+- **Non-finite sample values could reach CoreGraphics** (CASE-003). A single
+  `Infinity` sample made the waveform normalisation divisor `Infinity`, and
+  `Inf / Inf` is `NaN`, so every derived y-coordinate became `NaN`. The existing
+  minimum-height guard was written as `if yMin - yMax < 1`, which is always false
+  for `NaN`, so it was skipped exactly when it was needed. Sample values are now
+  sanitised before any coordinate is computed (`WaveformGeometry` in
+  AudioRouterKit, covered by 13 unit tests), and the guard is stated positively so
+  the safe branch is the default.
+
+### Added
+- **Bug report button** in the footer (`ladybug` icon with tooltip). Opens a
+  pre-filled email containing app version, build, macOS version, hardware model,
+  number of configured outputs and routing state. Device *names* are deliberately
+  omitted, they frequently contain real names. `ProcessInfo.systemUptime` is
+  deliberately omitted, it is a required-reason API and would force a
+  `PrivacyInfo.xcprivacy` entry. Falls back to GitHub Issues if no mail client is
+  configured.
+
+### Changed
+- **Wave header frame rate is now bounded**: 30 fps while routing or starting,
+  8 fps when idle, fully paused when the panel is closed. Previously it ran
+  unbounded via `TimelineView(.animation)`.
+
+### Note for existing users
+- Build number moves from 7 to 8. `hasValidLaunchAtLoginConsent()` validates the
+  stored consent against the build number, so **"Launch at Login" has to be
+  enabled once more after updating**. This is intended behaviour under Guideline
+  2.4.5(iii): the build-number binding is what prevents a Login Item from
+  surviving an app update without fresh consent.
+
+---
+
 ## [4.0.0 (7)], 2026-08-13
 
 ### Fixed
