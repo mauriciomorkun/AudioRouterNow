@@ -28,15 +28,12 @@ struct MenuBarView: View {
     /// Der geteilte Engine-Controller (injiziert von ``AudioRouterNowApp``).
     @EnvironmentObject var controller: EngineController
 
-    /// v4.0.1 (CASE-003): Sichtbarkeit des Panels (injiziert von ``AudioRouterNowApp``).
-    @EnvironmentObject var panelVisibility: PanelVisibility
-
     var body: some View {
         let ui = ARNUIState(status: controller.status, isStarting: controller.isStarting)
         VStack(alignment: .leading, spacing: 0) {
 
             // ── Wellen-Header ────────────────────────────────────────────
-            WaveHeaderView(state: ui)
+            WaveHeaderView(state: ui, clock: controller.waveClock)
 
             // ── Status-Bar ───────────────────────────────────────────────
             statusBar(ui)
@@ -79,39 +76,27 @@ struct MenuBarView: View {
         // Bug-Fix: MenuBarExtra(.window)-Panel erhält sonst keine korrekte
         // Inhaltshöhe, fixedSize erzwingt die ideale vertikale Größe.
         .fixedSize(horizontal: false, vertical: true)
-        // CASE-003: Sonde ohne Darstellung und ohne Eigengrösse. Sie liefert
-        // die Referenz auf das echte Panel-Fenster, an dem der
-        // Sichtbarkeitszustand hängt. Über den SwiftUI-Lebenszyklus wäre das
-        // nicht zu haben, der Baum des Panels wird beim Schliessen nicht abgebaut.
-        .background {
-            PanelWindowProbe { window in
-                panelVisibility.attach(to: window)
-            }
-            .frame(width: 0, height: 0)
-        }
         .onAppear {
             // W5: SMAppService-Status bei jedem Öffnen neu spiegeln
             // (Onboarding registriert direkt; User kann in Systemeinstellungen entfernen).
             controller.refreshLaunchAtLoginStatus()
-            // CASE-003: frühes Aufwärts-Signal. Massgeblich ist der Key-Status
-            // des Panel-Fensters, dies hier greift nur beim allerersten
-            // Erscheinen, siehe PanelVisibility.panelDidAppear().
-            panelVisibility.panelDidAppear()
-            // Der Geräte-Poll unten ruht bei geschlossenem Panel. Damit die Liste
-            // beim Öffnen trotzdem sofort aktuell ist, hier einmal explizit lesen.
+            // Geräteliste beim Öffnen sofort auffrischen, statt bis zum nächsten
+            // Durchlauf des 3-Sekunden-Polls unten zu warten.
             controller.refreshAvailableDevices()
         }
         .task {
             controller.refreshAvailableDevices()
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
-                // CASE-003: Der .task überlebt das Schliessen des Panels, der
-                // View-Baum wird nicht abgebaut. Ungegatet würde hier also alle
-                // 3 s CoreAudio enumeriert, obwohl das Ergebnis niemand sieht.
-                // Teurer ist die zweite Folge: refreshAvailableDevices() schreibt
-                // eine @Published-Property, ein solcher Schreibzugriff mitten im
-                // Teardown des Panel-Fensters ist ein eigener Absturzkandidat.
-                guard panelVisibility.isVisible else { continue }
+                // CASE-003, Anmerkung: dieser .task überlebt das Schliessen des
+                // Panels, der View-Baum wird nicht abgebaut. Die Enumeration läuft
+                // also auch dann alle 3 s, wenn niemand hinsieht. Ein Gate darauf
+                // gab es in einer Zwischenfassung, es hing an der Sichtbarkeit des
+                // Panel-Fensters und wurde wieder entfernt: diese liess sich weder
+                // über den Key-Status noch über occlusionState zuverlässig
+                // bestimmen, und ein Gate, das fälschlich sperrt, friert die
+                // Geräteliste ein. Alle 3 s zu enumerieren ist der geringere
+                // Schaden und entspricht dem Verhalten von 4.0.0.
                 controller.refreshAvailableDevices()
             }
         }

@@ -19,10 +19,10 @@
 		7115531B94BA0E9DF2DA87A6 /* AudioRouterKitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B98FDB53F61010BF230A941C /* AudioRouterKitTests.swift */; };
 		7EF9EF1FB2D68DD07B41E847 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 014FD48878E629F533B86187 /* Assets.xcassets */; };
 		830B2A0485BB02ABF88D5200 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D53535CC9DE7CBE38BAABD0E /* PrivacyInfo.xcprivacy */; };
+		997CA0C300EED3D2E124D5F7 /* WaveClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCFA42955CC57D9D2C8DEBAB /* WaveClock.swift */; };
 		9DEE30D68FA6AE19047C4E4D /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 631476EA35031D21D3106EBD /* Theme.swift */; };
 		AF57C12BF149965A25477D90 /* TipJarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CED67DB0AB6D1756E378170 /* TipJarView.swift */; };
 		B8389104B9AB2E8FA8D0A6E1 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECF3D80DBFF34C85BB47CDA /* MenuBarView.swift */; };
-		B85E82FB9DA62549622F1505 /* PanelVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFC073C502DB0ED761F49E1 /* PanelVisibility.swift */; };
 		B920DDB6A84F690C96624D61 /* AudioRouterNow.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 35BC3881509937A6F008735A /* AudioRouterNow.storekit */; };
 		C2B0674831C4A95053E191BC /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C49B89F76CABE326345D32E6 /* AppDelegate.swift */; };
 		E7B291523E5F9BF03535CA0A /* AudioRouterKit in Frameworks */ = {isa = PBXBuildFile; productRef = EBD933CC0F28D96A5245FFB9 /* AudioRouterKit */; };
@@ -48,7 +48,6 @@
 		74E9A681D53A6C11F701ABB6 /* AudioRouterNow4.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AudioRouterNow4.entitlements; sourceTree = "<group>"; };
 		79DF8597C2793331AC6C3E10 /* EngineController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineController.swift; sourceTree = "<group>"; };
 		8C5C2457054F5D487E24DED9 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
-		8FFC073C502DB0ED761F49E1 /* PanelVisibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelVisibility.swift; sourceTree = "<group>"; };
 		ACF60009A2D3E78F787E2A27 /* WaveHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveHeaderView.swift; sourceTree = "<group>"; };
 		B98FDB53F61010BF230A941C /* AudioRouterKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRouterKitTests.swift; sourceTree = "<group>"; };
 		C49B89F76CABE326345D32E6 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -57,6 +56,7 @@
 		DB30957D7B44C998B9912850 /* AudioRouterKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AudioRouterKit; path = AudioRouterKit; sourceTree = SOURCE_ROOT; };
 		E3F7387550039CA30B39AC96 /* AudioRouterKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AudioRouterKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E8A444C4945C7A89E74FA695 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		FCFA42955CC57D9D2C8DEBAB /* WaveClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveClock.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -165,11 +165,11 @@
 			isa = PBXGroup;
 			children = (
 				26551DEE2CC0C9EC56EBD85D /* DeviceCardView.swift */,
-				8FFC073C502DB0ED761F49E1 /* PanelVisibility.swift */,
 				8C5C2457054F5D487E24DED9 /* README.md */,
 				68F846B0D609C9CD99B0D6F8 /* RoutingControls.swift */,
 				631476EA35031D21D3106EBD /* Theme.swift */,
 				6CED67DB0AB6D1756E378170 /* TipJarView.swift */,
+				FCFA42955CC57D9D2C8DEBAB /* WaveClock.swift */,
 				ACF60009A2D3E78F787E2A27 /* WaveHeaderView.swift */,
 			);
 			path = UI;
@@ -276,11 +276,11 @@
 				13E69707240F7ECC1C33631A /* EngineController.swift in Sources */,
 				B8389104B9AB2E8FA8D0A6E1 /* MenuBarView.swift in Sources */,
 				25FE9F12EC074F1DEFB24802 /* OnboardingView.swift in Sources */,
-				B85E82FB9DA62549622F1505 /* PanelVisibility.swift in Sources */,
 				0CCBC3EA7574CE8AC3FD5878 /* RoutingControls.swift in Sources */,
 				9DEE30D68FA6AE19047C4E4D /* Theme.swift in Sources */,
 				2EDF2FAC2EF5208A2C40C5BA /* TipJarStore.swift in Sources */,
 				AF57C12BF149965A25477D90 /* TipJarView.swift in Sources */,
+				997CA0C300EED3D2E124D5F7 /* WaveClock.swift in Sources */,
 				3F46993CF89A935CCA620B10 /* WaveHeaderView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

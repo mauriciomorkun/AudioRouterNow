@@ -1132,11 +1132,15 @@ public final class FanOutEngine {
         peaks.level(slotIndex: slotIndex)
     }
 
-    /// Oszilloskop-Snapshot: die letzten `count` (min, max)-Mono-Mix-Werte
-    /// (oldest→newest, `count` gegen ``WaveformBridge/capacity`` geklemmt).
+    /// Oszilloskop-Bild: die letzten `count` (min, max)-Mono-Mix-Werte
+    /// (oldest→newest, `count` gegen ``WaveformBridge/capacity`` geklemmt) plus
+    /// die Teilpixel-Phase, mit der die Darstellung zwischen zwei Callbacks
+    /// weiterläuft.
     /// Thread-safe via ``WaveformBridge``, Polling-sicher bei 60fps.
-    public func waveformSnapshot(count: Int) -> [(min: Float32, max: Float32)] {
-        waveform.snapshot(count: count)
+    /// Der IOProc bleibt davon unberührt: der Zeitstempel entsteht im Ring,
+    /// nicht beim Aufrufer von `push`.
+    public func waveformFrame(count: Int) -> WaveformFrame {
+        waveform.frame(count: count)
     }
 
     /// Public UID→AudioObjectID Auflösung für den Kontroll-Layer

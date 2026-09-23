@@ -3,19 +3,26 @@
 //  AudioRouterNow4
 //
 //  Phase 3 (UI-Layer): Oszilloskop-Header mit ECHTEN Audiodaten.
-//  `TimelineView(.animation)` + `Canvas` + `.drawingGroup()` (Metal-Compositing).
+//  `Canvas` + `.drawingGroup()` (Metal-Compositing), getaktet vom Audio-Poll.
 //
-//  Aktiv: Der Canvas liest bei 60fps `controller.waveformSnapshot(count:)`, 
-//  die (min, max)-Mono-Mix-Werte, die der IOProc pro Callback in die
+//  Aktiv: Der Canvas liest `controller.waveformFrame(count:)`, also die
+//  (min, max)-Mono-Mix-Werte, die der IOProc pro Callback in die
 //  RT-sichere `WaveformBridge` schreibt. Gezeichnet werden vertikale Balken
 //  (min→max pro Spalte) um eine Nulllinie, echte ±Halbwellen wie in
 //  Logic Pro / Audacity: Kick-Drums, Transienten und Dynamik sind sichtbar.
 //
 //  Idle: subtile Sinus-Animation als Fallback (keine Audiodaten verfügbar).
 //
-//  v4.0.1 (CASE-003): Die Zeitachse ist jetzt getaktet und wird angehalten,
-//  sobald das Panel zu oder die App im Hintergrund ist. Ausserdem werden die
-//  Sample-Werte gehärtet, bevor daraus Koordinaten entstehen.
+//  v4.0.1: Die Kurve wird zusätzlich um einen Bruchteil einer Spalte nach
+//  links versetzt (``WaveformFrame/phase``). Pro Callback trifft genau eine
+//  Spalte ein, das passt bei keiner Bildrate glatt auf ganze Spalten. Ohne den
+//  Versatz springt die Darstellung abwechselnd um eine und um zwei Spalten,
+//  und genau das ist als Ruckeln sichtbar.
+//
+//  v4.0.1 (CASE-003): Die Zeitachse (`TimelineView`) ist ersatzlos entfallen,
+//  der Takt kommt jetzt aus dem Audio-Poll. Damit verschwindet der
+//  Display-Cycle-Beobachter, in dem der gemeldete Absturz steht. Ausserdem
+//  werden die Sample-Werte gehärtet, bevor daraus Koordinaten entstehen.
 //
 //  Copyright 2026 Mauricio Moraïs da Cunha. Apache License 2.0.
 //
@@ -25,11 +32,11 @@ import AudioRouterKit
 
 /// Oszilloskop-Header, der echte IOProc-Audiodaten als ±Halbwellen zeichnet.
 ///
-/// Baut auf `TimelineView(.animation)` + `Canvas` + `.drawingGroup()`
-/// (Metal-Compositing) für flüssiges Rendern bei bis zu 60 fps. Aktiv liest der
-/// Canvas ``EngineController/waveformSnapshot(count:)`` (die RT-sicheren
-/// (min, max)-Mono-Paare aus der ``WaveformBridge``); im Idle-Zustand läuft eine
-/// subtile Sinus-Fallback-Animation.
+/// Baut auf `Canvas` + `.drawingGroup()` (Metal-Compositing), getaktet vom
+/// 20fps-Wave-Poll des Controllers. Aktiv liest der
+/// Canvas ``EngineController/waveformFrame(count:)`` (die RT-sicheren
+/// (min, max)-Mono-Paare aus der ``WaveformBridge``, dazu die Teilpixel-Phase);
+/// im Idle-Zustand steht eine statische Sinuslinie.
 ///
 /// Die Kurve wird pro Snapshot auf die maximale Amplitude NORMALISIERT (füllt
 /// stets ~60 % der Höhe), damit auch leise Passagen sichtbar bleiben; unter
@@ -38,38 +45,49 @@ struct WaveHeaderView: View {
     /// Effektive UI-Phase (steuert Aktiv-/Idle-Darstellung und Intensität).
     let state: ARNUIState
     @EnvironmentObject private var controller: EngineController
-    @EnvironmentObject private var panelVisibility: PanelVisibility
 
-    /// Fenster-Aktivität. `.inactive` heisst: eine andere App liegt vorne, die
-    /// Welle wäre dann bestenfalls Dekoration in einem Fenster, das niemand ansieht.
-    @Environment(\.controlActiveState) private var controlActiveState
+    /// Taktgeber des Canvas. Bewusst getrennt vom Controller injiziert, siehe
+    /// ``WaveClock``: an diesem Objekt hängt nur der Header, nicht das Panel.
+    @ObservedObject var clock: WaveClock
+
+    /// Hält den geglätteten Normierungsfaktor über Bilder hinweg fest, damit
+    /// die Kurvenhöhe nicht bei jedem ein- oder auswandernden Transienten
+    /// springt. Siehe ``WaveNormalizer``.
+    @State private var normalizer = WaveNormalizer()
 
     /// Header-Intensität [0…1] aus dem UI-State, treibt Farbe, Glow und Gradient.
     private var intensity: Double { state.waveIntensity }
 
-    /// CASE-003: Die Zeitachse steht still, wenn niemand hinsieht.
+    /// CASE-003: Der Takt kommt aus dem Audio-Poll, nicht aus dem Display-Cycle.
     ///
-    /// Der View-Baum eines `MenuBarExtra(.window)`-Panels wird beim Schliessen
-    /// NICHT abgebaut. Ohne dieses Gate liefe `TimelineView(.animation)` bei
-    /// geschlossenem Panel unbegrenzt weiter und triebe den Canvas samt
-    /// `.drawingGroup()` dauerhaft durch den Display-Cycle.
+    /// Bis 4.0.1 stand hier ein `TimelineView(.animation)`. Das registriert
+    /// einen Display-Cycle-Beobachter am Fenster, und genau dort steht der
+    /// gemeldete Absturz (`__NSWindowGetDisplayCycleObserver`). Da der View-Baum
+    /// eines `MenuBarExtra(.window)`-Panels beim Schliessen NICHT abgebaut wird,
+    /// lief die Zeitachse ausserdem unbegrenzt weiter, auch wenn das Panel zu war.
     ///
-    /// Bewusst auch im Idle vollständig pausiert: eine Sinuswelle, die hinter
-    /// einem geschlossenen Panel driftet, hat keinen Gegenwert.
-    private var isPaused: Bool {
-        !panelVisibility.isVisible || controlActiveState == .inactive
-    }
-
-    /// Takt der Zeitachse. Die Oszilloskop-Darstellung braucht 30 fps, damit
-    /// Transienten nicht verschluckt werden. Die Idle-Sinuswelle driftet mit
-    /// 0.25 rad/s, dort sind 8 fps optisch nicht von 60 fps zu unterscheiden.
-    private var frameInterval: Double {
-        (state.isActive || state.isStarting) ? 1.0 / 30.0 : 1.0 / 8.0
-    }
-
+    /// Zwei Versuche, die Sichtbarkeit des Panels zu ermitteln und die Zeitachse
+    /// daran zu pausieren, sind gescheitert: der Key-Status ist falsch (ein
+    /// Fenster kann sichtbar sein, ohne Key zu sein, bei einer
+    /// `LSUIElement`-App der Normalfall) und `occlusionState` erwies sich als
+    /// unzuverlässig. Beide Male fror die Kurve bei offenem Panel ein.
+    ///
+    /// Jetzt ohne Zeitachse: das Neuzeichnen hängt an
+    /// ``WaveClock``, die der ohnehin vorhandene Wave-Poll des Controllers
+    /// hochzählt (60 fps). Der läuft nur bei aktivem Routing und wird in
+    /// `stopRouting()`
+    /// abgebrochen. Damit ruht die Animation im Leerlauf von selbst, es gibt
+    /// keinen Display-Cycle-Beobachter mehr, und der Fensterzustand muss
+    /// nirgends erraten werden.
+    ///
+    /// Folge fürs Idle: die Sinuswelle steht still statt zu driften. Bewusst in
+    /// Kauf genommen, sie ist reine Dekoration ohne Signalbezug.
     var body: some View {
-        TimelineView(.animation(minimumInterval: frameInterval, paused: isPaused)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
+        // Erzeugt die Abhängigkeit zum Poll-Takt. Ohne diese Zeile zeichnet
+        // SwiftUI den Canvas nicht neu, der Wert selbst wird nicht gebraucht.
+        let _ = clock.tick
+        let t = Date.timeIntervalSinceReferenceDate
+        Group {
             Canvas { ctx, size in
                 // Entartete Layout-Grössen kommen beim Aufbau und beim Teardown
                 // des Panels vor. Ohne diesen Riegel entstünden daraus direkt
@@ -88,20 +106,41 @@ struct WaveHeaderView: View {
                 if state.isActive || state.isStarting {
                     // ── Oszilloskop: echte IOProc-Samples ────────────────
                     // 2pt pro Sample-Spalte (320pt → 160 Samples ≈ 1,9 s Audio).
-                    let sampleCount = max(1, Int(size.width / 2))
+                    let visibleColumns = max(1, Int(size.width / 2))
+                    // Eine Spalte mehr als sichtbar anfordern: die Zeichnung wird
+                    // gleich um einen Bruchteil einer Spalte nach links versetzt
+                    // und wandert dabei vom rechten Rand weg. Die Reservespalte
+                    // sitzt genau am Rand und rückt nach, ohne sie klaffte dort
+                    // eine ganze Spalte plus Versatz.
+                    let frame = controller.waveformFrame(count: visibleColumns + 1)
                     // CASE-003: Härten, BEVOR aus den Werten Koordinaten werden.
                     // Der Ring kann ±Infinity enthalten, siehe WaveformGeometry.
-                    let samples = controller.waveformSnapshot(count: sampleCount)
-                        .map(WaveformGeometry.sanitize)
+                    let samples = frame.samples.map(WaveformGeometry.sanitize)
                     if !samples.isEmpty {
                         let scale = size.height * 0.30   // ±30% von Mitte = 60% der Höhe genutzt
-                        let step = size.width / CGFloat(samples.count)
+                        // Spaltenbreite aus der GELIEFERTEN Menge, nicht aus der
+                        // angeforderten: der Ring gibt höchstens seine Kapazität
+                        // her. Die n Spalten spannen n-1 Schritte über die Breite,
+                        // die letzte sitzt damit genau am rechten Rand.
+                        let step = size.width / CGFloat(max(1, samples.count - 1))
+                        // Teilpixel-Versatz gegen das Ruckeln: pro Callback trifft
+                        // genau eine Spalte ein, bei 86 Callbacks/s und 60 Bildern/s
+                        // ist das kein ganzzahliges Verhältnis. Ohne den Bruchteil
+                        // springt die Kurve abwechselnd um eine und um zwei Spalten.
+                        // Mit ihm läuft sie zwischen zwei Callbacks weiter.
+                        let shift = CGFloat(frame.phase) * step
 
                         // Normalisierung: grösste Absolut-Amplitude (|max| bzw.
                         // |min|) über den GESAMTEN Snapshot bestimmen. Diese dient
                         // gleich als Divisor → die lauteste Stelle nutzt immer die
                         // volle Höhe, leise Passagen bleiben trotzdem sichtbar.
-                        let maxAmp = WaveformGeometry.normalizationAmplitude(samples)
+                        //
+                        // Über Bilder hinweg geglättet: der Rohwert springt,
+                        // sobald ein lauter Schlag in den sichtbaren Ausschnitt
+                        // hinein oder rechts wieder hinaus wandert, und mit ihm
+                        // spränge die Höhe der ganzen Kurve. Siehe ``WaveNormalizer``.
+                        let maxAmp = normalizer.smoothed(
+                            towards: WaveformGeometry.normalizationAmplitude(samples))
                         // Silence-Detection: unter 0.01 (~−40 dBFS) würde die
                         // Normalisierung reines Grundrauschen bildschirmfüllend
                         // aufblasen → stattdessen flache Nulllinie zeichnen.
@@ -142,18 +181,32 @@ struct WaveHeaderView: View {
                             }
                         }
 
+                        // Eigene Kopie des Kontexts für alles, was mitwandern soll.
+                        // `GraphicsContext` ist ein Werttyp, Clip und Verschiebung
+                        // enden mit der Kopie. Die Nulllinie ist ohnehin schon
+                        // gezeichnet und bleibt deshalb ortsfest, ebenso der
+                        // Idle-Zweig im else. Geclippt wird VOR dem Verschieben,
+                        // sonst ragte die Reservespalte über den Rand hinaus.
+                        var wave = ctx
+                        wave.clip(to: Path(CGRect(origin: .zero, size: size)))
+                        wave.translateBy(x: -shift, y: 0)
+
                         // Glow: energie-skalierter Blur-Schein hinter der Waveform
                         if state.isActive, energy > 0.02, !isSilence {
-                            ctx.drawLayer { glow in
+                            wave.drawLayer { glow in
                                 glow.addFilter(.blur(radius: 2.5))
                                 glow.stroke(path, with: .color(ARNColor.accent.opacity(0.25)), lineWidth: 3)
                             }
                         }
                         let waveColor = ARNColor.accent
                             .opacity(0.85 * max(0.1, intensity))
-                        ctx.stroke(path, with: .color(waveColor), lineWidth: 1.5)
+                        wave.stroke(path, with: .color(waveColor), lineWidth: 1.5)
                     }
                 } else {
+                    // Bezugswert fallen lassen, sonst startete die Kurve beim
+                    // nächsten Routing mit dem Maßstab der letzten Sitzung und
+                    // wäre für einen Moment sichtbar zu flach oder zu hoch.
+                    normalizer.reset()
                     // ── Idle-Fallback: subtile Sinus-Animation ───────────
                     let amp = 6.0 * max(0.08, intensity)
                     var sinePath = Path()
@@ -207,15 +260,13 @@ struct WaveHeaderView: View {
 // das Key werden könnte. Ohne den Schalter bliebe die Zeitachse pausiert und
 // die Vorschau zeigte ein Standbild.
 #Preview("Idle") {
-    WaveHeaderView(state: .idle)
+    WaveHeaderView(state: .idle, clock: WaveClock())
         .environmentObject(EngineController())
-        .environmentObject(PanelVisibility(initiallyVisible: true))
         .frame(width: 320)
 }
 
 #Preview("Active") {
-    WaveHeaderView(state: .active)
+    WaveHeaderView(state: .active, clock: WaveClock())
         .environmentObject(EngineController())
-        .environmentObject(PanelVisibility(initiallyVisible: true))
         .frame(width: 320)
 }

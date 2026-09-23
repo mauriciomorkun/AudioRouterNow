@@ -29,7 +29,7 @@ import os
 ///   Volume/Mute.
 /// - ``wavePollTask`` (20 fps, 50 ms): Peak-Level + perceptual ``waveEnergy``
 ///   für flüssige Signal-Meter und den Wellen-Header.
-/// - Das Oszilloskop liest ``waveformSnapshot(count:)`` direkt im Canvas bei
+/// - Das Oszilloskop liest ``waveformFrame(count:)`` direkt im Canvas bei
 ///   bis zu 60 fps (kein `@Published`, kein Polling).
 ///
 /// - Warning: Alle Methoden sind MainActor-gebunden. Lifecycle-Callbacks kommen
@@ -73,6 +73,25 @@ final class EngineController: ObservableObject {
     /// 20fps-Wave-Poll (50 ms) direkt aus `engine.peakLevel()` gespeist und
     /// per EMA geglättet (schneller Attack, langsamer Release, VU-Meter).
     @Published private(set) var waveEnergy: Float32 = 0
+
+    /// Taktgeber für das Oszilloskop (60 fps bei aktivem Routing).
+    ///
+    /// CASE-003: Bis 4.0.1 zeichnete der Wellen-Header aus einem
+    /// `TimelineView(.animation)`, also getrieben vom Display-Cycle von AppKit.
+    /// Genau dort steht der gemeldete Absturz
+    /// (`__NSWindowGetDisplayCycleObserver`). Der Takt kommt deshalb jetzt von
+    /// hier: ``wavePollTask`` existiert ohnehin, läuft ausschliesslich bei
+    /// aktivem Routing und wird in ``stopRouting()`` abgebrochen. Damit ruht die
+    /// Animation im Leerlauf von selbst, ohne dass irgendjemand den
+    /// Fensterzustand erraten müsste. Zwei Versuche, ihn zuverlässig zu
+    /// ermitteln (Key-Status, dann `occlusionState`), sind zuvor gescheitert.
+    ///
+    /// Bewusst ein EIGENES Objekt und keine `@Published`-Property hier: jede
+    /// Änderung am Controller lässt SwiftUI den gesamten Panel-Baum neu
+    /// bewerten. Bei 60 Hz wäre das um ein Vielfaches mehr Arbeit als nötig,
+    /// denn neu zu zeichnen ist nur der Canvas. An ``WaveClock`` hängt
+    /// ausschliesslich ``WaveHeaderView``.
+    let waveClock = WaveClock()
 
     @Published private(set) var outputConfigs: [OutputConfig] = []
     @Published private(set) var availableDevices: [(uid: String, name: String, channelCount: Int)] = []
@@ -437,10 +456,14 @@ final class EngineController: ObservableObject {
         peakLevels["\(config.uid):\(config.channelOffset)"]
     }
 
-    /// Waveform-Snapshot für Oszilloskop-Anzeige. Thread-safe via WaveformBridge, 
-    /// wird direkt vom Canvas bei 60fps gelesen (kein @Published, kein Polling).
-    func waveformSnapshot(count: Int) -> [(min: Float32, max: Float32)] {
-        engine.waveformSnapshot(count: count)
+    /// Waveform-Bild (Samples plus Teilpixel-Phase) für die Oszilloskop-Anzeige.
+    /// Thread-safe via WaveformBridge, wird direkt vom Canvas bei 60fps gelesen.
+    ///
+    /// Bewusst kein `@Published`: ein veröffentlichter Wert würde bei jedem Bild
+    /// den gesamten Panel-Baum neu bewerten, obwohl nur der Header neu zu
+    /// zeichnen ist.
+    func waveformFrame(count: Int) -> WaveformFrame {
+        engine.waveformFrame(count: count)
     }
 
     /// Latenz-Info für eine Output-Config (oder `nil`, wenn nicht verfügbar).
@@ -626,9 +649,19 @@ final class EngineController: ObservableObject {
     private func startWavePoll() {
         wavePollTask?.cancel()
         wavePollTask = Task { [weak self] in
+            // Der Poll läuft mit 60 fps für die Wellenform, die Pegelglättung
+            // aber weiterhin mit 20 fps: die EMA-Konstanten in
+            // `updateWaveEnergy()` (Attack 0.55, Release 0.10) sind auf 20 Hz
+            // abgestimmt, bei 60 Hz würde daraus ein dreimal so schnelles
+            // Ein- und Ausschwingen und die Pegelanzeigen bekämen ein anderes
+            // Verhalten. Deshalb nur jeder dritte Durchlauf.
+            var step: UInt8 = 0
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 50_000_000)   // 50 ms = 20 fps
-                self?.updateWaveEnergy()
+                try? await Task.sleep(nanoseconds: 16_666_667)   // ~16,7 ms = 60 fps
+                step = (step &+ 1) % 3
+                if step == 0 { self?.updateWaveEnergy() }
+                // Treibt die Neuzeichnung des Oszilloskops, siehe ``waveClock``.
+                self?.waveClock.advance()
             }
         }
     }
