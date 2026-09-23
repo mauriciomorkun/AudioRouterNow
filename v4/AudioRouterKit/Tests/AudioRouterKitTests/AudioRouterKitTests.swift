@@ -90,7 +90,7 @@ struct FanOutEngineTests {
         #expect(engine.status == .idle)
     }
 
-    @Test("start() wirft RouterError in CI (kein Audio/TCC) — oder routet auf echtem Mac")
+    @Test("start() wirft RouterError in CI (kein Audio/TCC), oder routet auf echtem Mac")
     @MainActor
     func startBehaviour() {
         let engine = FanOutEngine()
@@ -103,7 +103,7 @@ struct FanOutEngineTests {
             #expect(engine.status == .idle, "Nach Fehler muss Status idle bleiben")
             _ = error
         } catch {
-            Issue.record("Unerwarteter Error-Typ: \(error) — nur RouterError erlaubt")
+            Issue.record("Unerwarteter Error-Typ: \(error), nur RouterError erlaubt")
         }
     }
 
