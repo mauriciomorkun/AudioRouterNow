@@ -13,10 +13,15 @@
 //
 //  Idle: subtile Sinus-Animation als Fallback (keine Audiodaten verfügbar).
 //
+//  v4.0.1 (CASE-003): Die Zeitachse ist jetzt getaktet und wird angehalten,
+//  sobald das Panel zu oder die App im Hintergrund ist. Ausserdem werden die
+//  Sample-Werte gehärtet, bevor daraus Koordinaten entstehen.
+//
 //  Copyright 2026 Mauricio Moraïs da Cunha. Apache License 2.0.
 //
 
 import SwiftUI
+import AudioRouterKit
 
 /// Oszilloskop-Header, der echte IOProc-Audiodaten als ±Halbwellen zeichnet.
 ///
@@ -33,14 +38,44 @@ struct WaveHeaderView: View {
     /// Effektive UI-Phase (steuert Aktiv-/Idle-Darstellung und Intensität).
     let state: ARNUIState
     @EnvironmentObject private var controller: EngineController
+    @EnvironmentObject private var panelVisibility: PanelVisibility
+
+    /// Fenster-Aktivität. `.inactive` heisst: eine andere App liegt vorne, die
+    /// Welle wäre dann bestenfalls Dekoration in einem Fenster, das niemand ansieht.
+    @Environment(\.controlActiveState) private var controlActiveState
 
     /// Header-Intensität [0…1] aus dem UI-State, treibt Farbe, Glow und Gradient.
     private var intensity: Double { state.waveIntensity }
 
+    /// CASE-003: Die Zeitachse steht still, wenn niemand hinsieht.
+    ///
+    /// Der View-Baum eines `MenuBarExtra(.window)`-Panels wird beim Schliessen
+    /// NICHT abgebaut. Ohne dieses Gate liefe `TimelineView(.animation)` bei
+    /// geschlossenem Panel unbegrenzt weiter und triebe den Canvas samt
+    /// `.drawingGroup()` dauerhaft durch den Display-Cycle.
+    ///
+    /// Bewusst auch im Idle vollständig pausiert: eine Sinuswelle, die hinter
+    /// einem geschlossenen Panel driftet, hat keinen Gegenwert.
+    private var isPaused: Bool {
+        !panelVisibility.isVisible || controlActiveState == .inactive
+    }
+
+    /// Takt der Zeitachse. Die Oszilloskop-Darstellung braucht 30 fps, damit
+    /// Transienten nicht verschluckt werden. Die Idle-Sinuswelle driftet mit
+    /// 0.25 rad/s, dort sind 8 fps optisch nicht von 60 fps zu unterscheiden.
+    private var frameInterval: Double {
+        (state.isActive || state.isStarting) ? 1.0 / 30.0 : 1.0 / 8.0
+    }
+
     var body: some View {
-        TimelineView(.animation) { timeline in
+        TimelineView(.animation(minimumInterval: frameInterval, paused: isPaused)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             Canvas { ctx, size in
+                // Entartete Layout-Grössen kommen beim Aufbau und beim Teardown
+                // des Panels vor. Ohne diesen Riegel entstünden daraus direkt
+                // nicht-endliche oder negative Koordinaten.
+                guard size.width.isFinite, size.height.isFinite,
+                      size.width >= 1, size.height >= 1 else { return }
                 let midY = size.height * 0.55
                 let energy = Double(controller.waveEnergy)
 
@@ -54,7 +89,10 @@ struct WaveHeaderView: View {
                     // ── Oszilloskop: echte IOProc-Samples ────────────────
                     // 2pt pro Sample-Spalte (320pt → 160 Samples ≈ 1,9 s Audio).
                     let sampleCount = max(1, Int(size.width / 2))
+                    // CASE-003: Härten, BEVOR aus den Werten Koordinaten werden.
+                    // Der Ring kann ±Infinity enthalten, siehe WaveformGeometry.
                     let samples = controller.waveformSnapshot(count: sampleCount)
+                        .map(WaveformGeometry.sanitize)
                     if !samples.isEmpty {
                         let scale = size.height * 0.30   // ±30% von Mitte = 60% der Höhe genutzt
                         let step = size.width / CGFloat(samples.count)
@@ -63,9 +101,7 @@ struct WaveHeaderView: View {
                         // |min|) über den GESAMTEN Snapshot bestimmen. Diese dient
                         // gleich als Divisor → die lauteste Stelle nutzt immer die
                         // volle Höhe, leise Passagen bleiben trotzdem sichtbar.
-                        let maxAmp = samples.reduce(Float32(0)) { acc, s in
-                            max(acc, abs(s.max), abs(s.min))
-                        }
+                        let maxAmp = WaveformGeometry.normalizationAmplitude(samples)
                         // Silence-Detection: unter 0.01 (~−40 dBFS) würde die
                         // Normalisierung reines Grundrauschen bildschirmfüllend
                         // aufblasen → stattdessen flache Nulllinie zeichnen.
@@ -86,13 +122,20 @@ struct WaveHeaderView: View {
                                 // y wächst nach unten → deshalb midY − n·scale.
                                 let nMax = CGFloat(sample.max / maxAmp)
                                 let nMin = CGFloat(sample.min / maxAmp)
-                                var yMax = midY - nMax * scale
-                                var yMin = midY - nMin * scale
-                                // Mindesthöhe 1pt, damit sehr leise Spalten nicht
-                                // zu einem unsichtbaren 0-Pixel-Balken kollabieren.
-                                if yMin - yMax < 1 {
-                                    yMax = midY - 0.5
-                                    yMin = midY + 0.5
+                                let yMax = midY - nMax * scale
+                                let yMin = midY - nMin * scale
+                                // CASE-003: positiv formuliert. Gezeichnet wird die
+                                // echte Spalte nur, wenn beide Koordinaten endlich
+                                // sind UND die Spalte mindestens 1pt hoch ist (sonst
+                                // kollabierte sie zu einem unsichtbaren 0-Pixel-Balken).
+                                // Alles andere fällt auf den sicheren Strich an der
+                                // Nulllinie zurück. Die frühere Fassung `if yMin - yMax < 1`
+                                // war mit NaN-Koordinaten IMMER falsch und lief damit
+                                // genau in dem Fall ins Leere, für den sie gedacht war.
+                                guard yMax.isFinite, yMin.isFinite, yMin - yMax >= 1 else {
+                                    path.move(to: CGPoint(x: x, y: midY - 0.5))
+                                    path.addLine(to: CGPoint(x: x, y: midY + 0.5))
+                                    continue
                                 }
                                 path.move(to: CGPoint(x: x, y: yMax))
                                 path.addLine(to: CGPoint(x: x, y: yMin))
@@ -125,7 +168,12 @@ struct WaveHeaderView: View {
                     ctx.stroke(sinePath, with: .color(ARNColor.accentDim.opacity(0.5)), lineWidth: 1)
                 }
             }
-            .drawingGroup()   // Metal-Compositing für ruckelfreie Kurve
+            // Metal-Compositing für ruckelfreie Kurve.
+            // CASE-003, offener Punkt: drawingGroup gilt als Verstärker des
+            // Absturzes (es verlagert das Zeichnen in eine eigene Render-Passe).
+            // Bleibt bis zur Reproduktionsmessung drin, ein Entfernen ohne
+            // Messung wäre geraten, nicht belegt.
+            .drawingGroup()
         }
         .frame(height: 112)
         .background(headerGradient)
@@ -155,14 +203,19 @@ struct WaveHeaderView: View {
     }
 }
 
+// `initiallyVisible: true`, weil in der Preview kein Panel-Fenster existiert,
+// das Key werden könnte. Ohne den Schalter bliebe die Zeitachse pausiert und
+// die Vorschau zeigte ein Standbild.
 #Preview("Idle") {
     WaveHeaderView(state: .idle)
         .environmentObject(EngineController())
+        .environmentObject(PanelVisibility(initiallyVisible: true))
         .frame(width: 320)
 }
 
 #Preview("Active") {
     WaveHeaderView(state: .active)
         .environmentObject(EngineController())
+        .environmentObject(PanelVisibility(initiallyVisible: true))
         .frame(width: 320)
 }

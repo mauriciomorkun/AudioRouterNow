@@ -41,6 +41,11 @@ struct AudioRouterNowApp: App {
     /// StoreKit-2-Tip-Jar-Store (Consumable-IAPs, Main-Thread-gebunden).
     @StateObject private var tipJarStore = TipJarStore()
 
+    /// v4.0.1 (CASE-003): Sichtbarkeit des Menu-Bar-Panels. Muss hier leben und
+    /// nicht in der View, der View-Baum des Panels überlebt das Schliessen und
+    /// bräuchte sonst bei jedem Öffnen einen frischen Zustand.
+    @StateObject private var panelVisibility = PanelVisibility()
+
     /// UserDefaults-Key: wurde das Onboarding bereits gezeigt?
     private static let hasShownOnboardingKey = "arn.v4.hasShownOnboarding"
 
@@ -52,6 +57,7 @@ struct AudioRouterNowApp: App {
             MenuBarView()
                 .environmentObject(controller)
                 .environmentObject(tipJarStore)
+                .environmentObject(panelVisibility)
         }
         .menuBarExtraStyle(.window)
     }
