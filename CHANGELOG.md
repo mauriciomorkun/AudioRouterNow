@@ -8,13 +8,24 @@
 > `X.Y.Z (build)` form use the current scheme.
 
 ### Fixed
-- **Crash in the SwiftUI display cycle** (CASE-003). A `MenuBarExtra(.window)`
-  panel does not tear down its view tree when it closes. The wave header's
-  `TimelineView(.animation)` therefore kept driving the canvas at full frame rate
-  indefinitely, and a `.task` loop kept enumerating CoreAudio every 3 seconds,
-  both while the panel was closed. Panel visibility is now modelled explicitly
-  (`PanelVisibility`): the timeline pauses when the panel is closed or the app is
-  in the background, and the device poll is gated on the same signal.
+- **Crash in the SwiftUI display cycle** (CASE-003). The reported crash sits in
+  `__NSWindowGetDisplayCycleObserver`, AppKit's per-window display cycle. The wave
+  header drove its canvas from a `TimelineView(.animation)`, which registers an
+  observer there, and a `MenuBarExtra(.window)` panel does not tear down its view
+  tree when it closes, so that timeline kept running indefinitely with the panel
+  shut.
+
+  The timeline is gone rather than paused. The canvas is now driven by the wave
+  poll that already existed in `EngineController`, which only runs while routing
+  is active and is cancelled in `stopRouting()`. No display cycle observer is
+  registered at all, and the animation stops on its own when routing stops.
+
+  Two earlier attempts to keep the timeline and pause it on panel visibility were
+  written and discarded, both froze the waveform while the panel was open and
+  visible. Key window status is the wrong question (a window can be visible
+  without being key, which is the normal case for an `LSUIElement` app), and
+  `occlusionState` proved unreliable for this panel. The approach that survived
+  needs no window state at all.
 - **Non-finite sample values could reach CoreGraphics** (CASE-003). A single
   `Infinity` sample made the waveform normalisation divisor `Infinity`, and
   `Inf / Inf` is `NaN`, so every derived y-coordinate became `NaN`. The existing
@@ -34,9 +45,19 @@
   configured.
 
 ### Changed
-- **Wave header frame rate is now bounded**: 30 fps while routing or starting,
-  8 fps when idle, fully paused when the panel is closed. Previously it ran
-  unbounded via `TimelineView(.animation)`.
+- **Wave header redraw is now driven by audio, not by the display**: 60 fps while
+  routing, nothing at all when idle. Previously it ran unbounded via
+  `TimelineView(.animation)` regardless of whether anyone was looking.
+- **Waveform scrolls smoothly instead of stepping**. The IOProc pushes one column
+  per CoreAudio callback, about 86 per second at 44.1 kHz with 512 frames, which
+  is 172 pt/s across 2 pt columns. Redrawing at 60 fps means 2.87 pt per frame,
+  not a multiple of the 2 pt column width, so the picture advanced by one column
+  on some frames and two on others. Raising the frame rate cannot fix that, it is
+  arithmetic. `WaveformBridge` now measures its own push interval and reports a
+  phase, and the canvas offsets the drawing by a fraction of a column.
+- **Waveform amplitude no longer jumps** as loud transients enter and leave the
+  visible window. The normalisation reference is smoothed across frames with a
+  fast attack and a slow release, the same shape as the level meters.
 
 ### Note for existing users
 - Build number moves from 7 to 8. `hasValidLaunchAtLoginConsent()` validates the

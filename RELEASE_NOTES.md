@@ -30,14 +30,16 @@ _Mac App Store, macOS 14.4 or later, Apple Silicon_
 
 Full analysis: [`feedback/CASE-003_appstore_crash_displaycycle.md`](feedback/CASE-003_appstore_crash_displaycycle.md).
 
-#### Root cause: two independent defects in the panel render path
+#### Root cause: three defects in the panel render path
 
-**1. Visibility gap.** `MenuBarExtra(.window)` does not tear down its view tree when the panel closes. There is no reliable SwiftUI `onDisappear` for this. Consequently both of these ran unbounded for the entire app lifetime:
+**1. The timeline outlived the panel.** `MenuBarExtra(.window)` does not tear down its view tree when the panel closes, and there is no reliable SwiftUI `onDisappear` for it. Both of these therefore ran unbounded for the entire app lifetime:
 
 | Consumer | Rate | Ran while panel was closed |
 |----------|------|---------------------------|
 | `TimelineView(.animation)` in `WaveHeaderView` | up to 60 fps | yes |
 | `.task` device poll in `MenuBarView` | every 3 s | yes |
+
+The crash frame is `__NSWindowGetDisplayCycleObserver`, AppKit's per-window display cycle. `TimelineView(.animation)` registers an observer exactly there.
 
 **2. Infinity, not NaN.** `FanOutEngine` collects per-column min/max with `if s < wMin` / `if s > wMax`. `NaN` fails both comparisons and can never enter the ring buffer. `Infinity` wins both and enters cleanly. One `Inf` sample makes the normalisation divisor `Inf`, and `Inf / Inf` is `NaN`, so every derived y-coordinate becomes `NaN`. The existing guard read:
 
@@ -49,28 +51,41 @@ if yMin - yMax < 1 { /* collapse to zero line */ }
 
 `.drawingGroup()` is treated as an amplifier rather than a cause (it moves drawing into its own Metal render pass) and was deliberately left in place pending a reproduction measurement.
 
+**3. The waveform could not scroll smoothly, by arithmetic.** The IOProc pushes one column per CoreAudio callback: 44100 / 512 is about 86.1 per second, and at 2 pt per column that is 172.2 pt/s. A 60 fps redraw would need 2.87 pt per frame, which is not a multiple of the 2 pt column width. The picture advanced by one column on some frames and two on others. This is structural, not an implementation weakness, and raising the frame rate does not help. It was tried, from 20 fps to 60 fps, with no improvement.
+
+#### Two discarded approaches, recorded on purpose
+
+The first two attempts kept `TimelineView` and tried to pause it on panel visibility. Both shipped to a test build and both failed the same way: the waveform froze while the panel was open and visible, with level meters and the callback counter still updating beside it.
+
+- **Key window status.** Wrong question. A window can be visible without being key, and for an `LSUIElement` app that is the normal case: clicking the menu bar item shows the panel without necessarily activating the app. `@Environment(\.controlActiveState)` in the pause condition made it worse for the same reason.
+- **`occlusionState`.** Notification-backed and semantically correct, but unreliable for this panel in practice.
+
+The conclusion that survived: the window state of a `MenuBarExtra` panel is not a dependable source, and the fix should not need it.
+
 #### Implementation
 
-**`PanelVisibility` (new, `AudioRouterNow4/UI/PanelVisibility.swift`)**
-- `@MainActor ObservableObject`, `@Published private(set) var isVisible`
-- The state is bound to the panel's **actual `NSWindow`**, not to the SwiftUI lifecycle. Binding it to the lifecycle would contradict the very finding this case rests on: if the view tree is never torn down, `onAppear` fires only on the first appearance, and the state would be stuck at `false` from the second opening onwards
-- The window reference comes from `PanelWindowProbe`, an `NSViewRepresentable` with no drawing and no intrinsic size, placed in `MenuBarView`'s `.background`. Its `NSView` subclass overrides `viewDidMoveToWindow()` and reports the window upwards. Canonical AppKit, no private API
-- Up signal: `NSWindow.didBecomeKeyNotification`, filtered to `object: panelWindow`. The panel becomes key on **every** opening
-- Down signal: `NSWindow.didResignKeyNotification`, same filter. Deliberately **not** `willCloseNotification`, MenuBarExtra uses `orderOut()` and never closes the window
-- The `object:` filter also keeps modal `NSAlert`s from being mistaken for the panel. That case is self-correcting: the alert takes key status (the wave pauses for the duration of the dialog), and the panel becomes key again when it closes
-- Key status rather than `window.isVisible`, because `orderOut()` reliably removes key status and ships a matching notification pair. `isVisible` has no such pair and would need KVO, for which `NSWindow` makes no documented guarantee
-- Initial sync from `window.isKeyWindow` when the probe attaches, in case the window became key before the probe was in the hierarchy. Deliberately deferred through a `Task { @MainActor }`: `viewDidMoveToWindow()` is an AppKit layout callback that can sit inside a SwiftUI update pass
-- `MenuBarView.onAppear` → `panelDidAppear()` is kept as a redundant early up signal. The risks are asymmetric: a stray `true` matches 4.0.0 behaviour and is corrected on the next key change, a stray `false` would leave the wave and the device poll dead
-- **No** `NSApplication.didResignActiveNotification`. A down signal with no counterpart is the same asymmetry described above and could pin the state at `false`. Nothing is lost: `WaveHeaderView` already folds app activity into its pause gate via `@Environment(\.controlActiveState)`
-- Observers removed in `deinit`. The token array is `nonisolated(unsafe)` because `deinit` of a MainActor-isolated class is itself nonisolated; it is written only on the MainActor and read only in `deinit`, which runs once no reference is left, so there is no concurrent-access window
+**`WaveClock` and `WaveNormalizer` (new, `AudioRouterNow4/UI/WaveClock.swift`)**
+- `WaveClock` is a tiny `@MainActor ObservableObject` whose `tick` the wave poll advances. Deliberately **not** a `@Published` on `EngineController`: any change there re-evaluates the whole panel tree (device cards, meters, footer), which at 60 Hz is far more work than redrawing one canvas. Only `WaveHeaderView` observes this object
+- `WaveNormalizer` holds the normalisation reference across frames. It is a reference type because the `Canvas` draw closure cannot mutate a view struct, and writing to it deliberately does not invalidate the view, which would loop. Fast attack (0.5), slow release (0.04, about 0.4 s at 60 fps), the same shape as the level meters. Reset when routing stops
+
+**`EngineController`**
+- `wavePollTask` now ticks at 60 fps, but calls `updateWaveEnergy()` only every third pass. The EMA constants there (attack 0.55, release 0.10) are tuned for 20 Hz; running them at 60 Hz would make the level meters behave three times as fast
+- `waveformSnapshot(count:)` replaced by `waveformFrame(count:)`, which returns samples and scroll phase from a single lock section
 
 **`WaveHeaderView`**
-- `TimelineView(.animation)` → `TimelineView(.animation(minimumInterval:paused:))`
-- `paused` when `!panelVisibility.isVisible || controlActiveState == .inactive`
-- `minimumInterval` 1/30 while routing or starting, 1/8 when idle
+- `TimelineView` removed entirely. The canvas redraws on `WaveClock.tick`, which only advances while routing is active and stops when `stopRouting()` cancels the poll. No display cycle observer is registered, and no window state is consulted
+- Consequence accepted: the idle sine is static rather than drifting. It is decoration with no signal behind it
+- Sub-pixel scroll: one column more than visible is requested, the drawing is translated left by `phase * step` on a clipped copy of the context, so the zero line stays put
 - Canvas entry guard against degenerate layout sizes: `guard size.width.isFinite, size.height.isFinite, size.width >= 1, size.height >= 1 else { return }`
 - Minimum-height check restated positively, so the safe branch is the default:
   `guard yMax.isFinite, yMin.isFinite, yMin - yMax >= 1 else { /* zero-line tick */ continue }`
+
+**`WaveformBridge`**
+- Measures its own push interval and smooths it (EMA, alpha 0.1, about 100 ms at 86 Hz). Deliberately self-measuring rather than taking sample rate and buffer size from the engine: it then stays correct if either changes, and needs no new wiring through three layers
+- Intervals outside 0.5 ms to 250 ms are discarded so that a warm restart or a pause cannot poison the average. The timestamp is still updated, otherwise the next measurement would include the gap
+- `CACurrentMediaTime()` inside the existing `os_unfair_lock` section, no second lock. It is `mach_absolute_time()` underneath: no syscall, no allocation. This file is otherwise off limits; the exception is recorded here on purpose
+- Samples and phase come from one call, which also rules out a push landing between two reads and making the waveform jump back a column
+- Injectable clock, so the phase logic is testable without real waiting. 14 swift-testing cases in `WaveformPhaseTests.swift`
 
 **`WaveformGeometry` (new, `AudioRouterKit`)**
 - `sanitize(_:)` maps non-finite values to 0 and clamps to [-1, 1]
@@ -80,9 +95,8 @@ if yMin - yMax < 1 { /* collapse to zero line */ }
 - 13 swift-testing cases in `WaveformGeometryTests.swift`
 
 **`MenuBarView`**
-- Device poll gated: `guard panelVisibility.isVisible else { continue }`. Beyond the wasted CoreAudio enumeration, the real hazard was the `@Published` write it performs, which publishes into the panel view tree and could land during window teardown
-- `onAppear` now calls `refreshAvailableDevices()` once explicitly, so the gated poll does not leave a stale list on open
-- Hosts `PanelWindowProbe` in `.background`, sized 0 by 0, which is how `PanelVisibility` learns about the panel window
+- The device poll is **not** gated. A gate existed in the discarded approaches and was removed with them: it depended on the same unreliable visibility signal, and a gate that wrongly locks freezes the device list. Enumerating every 3 s matches 4.0.0 behaviour and is the smaller harm
+- `onAppear` calls `refreshAvailableDevices()` once explicitly so the list is current the moment the panel opens
 
 **`EngineController.openBugReport()`**
 - `mailto` via `URLComponents`, opened with `NSWorkspace.open`, the same sandbox-compatible pattern already used by `openTCCSettings()`
@@ -96,11 +110,11 @@ if yMin - yMax < 1 { /* collapse to zero line */ }
 
 #### Still open
 
-- The raw `.ips` was not available during analysis. Both defects are independently justified and were derived from the code, but that they fix *the reported* crash is unverified
-- The load-bearing assumption of the visibility fix is that the panel window becomes key on every opening. That can only be proven on a running app: open and close the panel five times, the wave has to come back every time
-- Reproduction measurement in Instruments still pending
-- `.drawingGroup()` keep-or-remove decision deferred until that measurement exists
-- Fallback path if crashes persist: replace `TimelineView` with an `EngineController`-driven timer that only runs while the panel is visible
+- The raw `.ips` was never available. Every defect here was derived from the code and is independently justified, but that this fixes *the reported* crash is unverified. Only the crash statistics over the coming weeks can answer that
+- Reproduction was never achieved. The crash came from one device out of 21, on macOS 26.6.2. The display cycle frame points at a screen-specific condition (external monitor, refresh rate mismatch, display sleep, resolution change)
+- `.drawingGroup()` keep-or-remove decision deferred until a reproduction measurement exists
+- Residual frame-timing jitter: `Task.sleep` guarantees only a minimum duration and the poll shares the MainActor with the whole UI, so frame spacing varies by a few milliseconds. `CVDisplayLink` would fix that and is a different mechanism from the crashed one, but it is deprecated on recent macOS and was judged too large a change for a patch release
+- Runtime verification was done by hand on a debug build: panel opened and closed repeatedly with music playing, waveform present every time, level meters unchanged, routing stop settles the animation
 
 ---
 
@@ -901,7 +915,7 @@ Fixes audio not working on macOS 26 (Tahoe) unless you manually toggled the outp
 
 ---
 
-## v2.1 – v2.4, May 2026
+## v2.1 to v2.4, May 2026
 
 ### For Everyone
 
