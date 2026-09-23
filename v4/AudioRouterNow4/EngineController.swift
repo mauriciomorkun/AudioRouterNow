@@ -523,6 +523,90 @@ final class EngineController: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+    /// v4.0.1: Öffnet einen vorbereiteten Bug-Report im Standard-Mail-Client.
+    ///
+    /// Folgt demselben Muster wie ``openTCCSettings()``: `NSWorkspace.open` ist
+    /// der einzige Weg, der innerhalb der App-Sandbox ohne zusätzliches
+    /// Entitlement funktioniert.
+    ///
+    /// Der Entwurf enthält oben einen Freitextbereich und darunter die
+    /// technischen Eckdaten, die eine Rückfrage sonst kosten würde.
+    ///
+    /// ## Was bewusst NICHT mitgeschickt wird
+    /// - **Gerätenamen.** Audio-Geräte heissen in der Praxis oft nach ihrem
+    ///   Besitzer („Marias AirPods"). Die reine ANZAHL reicht für die Diagnose.
+    /// - **`ProcessInfo.systemUptime`.** Das ist eine begründungspflichtige API
+    ///   und würde einen Eintrag in `PrivacyInfo.xcprivacy` erzwingen. Der
+    ///   diagnostische Wert rechtfertigt das nicht.
+    func openBugReport() {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Self.currentBuildNumber
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+        let routingState: String
+        switch status {
+        case .idle:    routingState = isStarting ? "starting" : "idle"
+        case .routing: routingState = "routing"
+        case .error:   routingState = "error"
+        }
+
+        let body = """
+        Describe the problem here:
+
+
+
+        What did you expect to happen?
+
+
+
+        Steps to reproduce:
+        1.
+        2.
+        3.
+
+        ---
+        Technical details (please keep, this saves a round trip):
+        App version: \(version) (build \(build))
+        macOS: \(os)
+        Hardware: \(Self.hardwareModel())
+        Configured outputs: \(outputConfigs.count)
+        Routing state: \(routingState)
+        """
+
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.path = "dev@mauriciomorkun.com"
+        components.queryItems = [
+            URLQueryItem(name: "subject", value: "AudioRouterNow \(version) (\(build)): Bug report"),
+            URLQueryItem(name: "body", value: body)
+        ]
+
+        // Fallback nicht optional: ohne konfigurierten Mail-Client liefert
+        // NSWorkspace.open false und der Klick bliebe sonst wirkungslos.
+        if let url = components.url, NSWorkspace.shared.open(url) {
+            return
+        }
+        logger.error("openBugReport: mailto konnte nicht geöffnet werden, weiche auf GitHub Issues aus")
+        if let fallback = URL(string: "https://github.com/mauriciomorkun/AudioRouterNow/issues") {
+            NSWorkspace.shared.open(fallback)
+        }
+    }
+
+    /// Hardware-Kennung (z.B. `Mac14,3`) via `sysctl hw.model`.
+    ///
+    /// Wichtig für Audio-Bugs: CoreAudio verhält sich auf Apple Silicon anders
+    /// als auf Intel, und die Buffer-Grössen unterscheiden sich je Modellreihe.
+    /// `sysctlbyname` wird zweimal gerufen, der erste Aufruf liefert nur die
+    /// benötigte Puffergrösse.
+    private static func hardwareModel() -> String {
+        var size = 0
+        guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 0 else { return "unknown" }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctlbyname("hw.model", &buffer, &size, nil, 0) == 0 else { return "unknown" }
+        // sysctl liefert einen null-terminierten C-String, das Terminator-Byte
+        // gehört nicht in den Swift-String (sonst hängt ein \0 im Mail-Body).
+        return String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
+    }
+
     // MARK: Privat
 
     private func startPolling() {

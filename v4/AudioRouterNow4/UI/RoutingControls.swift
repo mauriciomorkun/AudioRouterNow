@@ -206,6 +206,18 @@ struct FooterRow: View {
                     ? "Output locked: macOS can't switch the output device while routing (e.g. on Bluetooth connect)"
                     : "Output unlocked: macOS may switch the output device automatically")
                 Spacer()
+                // v4.0.1: Bug-Report. Bewusst ein Icon und kein Textbutton,
+                // die Footer-Zeile hat bei 320pt Panel-Breite keinen Platz mehr.
+                Button {
+                    controller.openBugReport()
+                } label: {
+                    Image(systemName: "ladybug")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Report a bug: opens a pre-filled email with your app version and system details")
+                Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
                     .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
             }

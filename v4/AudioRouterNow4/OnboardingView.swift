@@ -43,7 +43,7 @@ struct OnboardingView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("System Audio Recording")
                             .font(.headline)
-                        Text("macOS will ask for this permission when you first start routing. AudioRouterNow uses it to capture system audio in real time — **nothing is ever recorded or stored.**")
+                        Text("macOS will ask for this permission when you first start routing. AudioRouterNow uses it to capture system audio in real time: **nothing is ever recorded or stored.**")
                             .font(.body)
                             .foregroundStyle(.secondary)
                     }
