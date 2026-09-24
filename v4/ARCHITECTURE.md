@@ -169,7 +169,8 @@ Public Methoden (UI-Consumer):
 | Datei | Zweck |
 |-------|-------|
 | `UI/Theme.swift` | `ARNUIState` (State-Machine), `ARNColor` (Tokens), `ARNAudioMath` (dBFS) |
-| `UI/WaveHeaderView.swift` | Animierter 3-Layer-Sinuswellen-Header (TimelineView + Canvas) |
+| `UI/WaveHeaderView.swift` | Oszilloskop-Header (`Canvas`, getaktet von `WaveClock`; seit 4.0.1 ohne `TimelineView`, siehe [`docs/v4.0.1/`](../docs/v4.0.1/)) |
+| `UI/WaveClock.swift` | Taktgeber des Headers (`WaveClock`) und geglätteter Normierungsfaktor (`WaveNormalizer`) |
 | `UI/RoutingControls.swift` | `PulsingDot`, `MintSpinner`, `VolumeRow`, `RoutingButton`, `FooterRow` |
 | `UI/DeviceCardView.swift` | Glass-Card mit Accordion, Kanal-Chips, `SignalMeter`, `StatsGrid`, `AddDeviceRow` |
 | `MenuBarView.swift` | Container: Header · Status-Bar · TCC/Error · Volume · ScrollView-Geräteliste · Button · Footer |
@@ -220,6 +221,10 @@ Die UI-seitige Release-Glättung (`max(raw, prev * 0.6)`) im `poll()` verhindert
 dass der Meter beim 500-ms-Polling flackert: Attack sofort, Release ~40 %/Tick.
 
 ## Wichtige Design-Entscheidungen
+
+> Die Entscheidungen zu v4.0.1 (Wellen-Header ohne `TimelineView`, Teilpixel-Scroll,
+> Inf-Härtung) stehen samt Begründung und den drei verworfenen Ansätzen in
+> [`docs/v4.0.1/`](../docs/v4.0.1/).
 
 ### Composite-Key für Peak-Dict
 Der Peak-Key ist `"<uid>:<channelOffset>"`, nicht nur die UID. Mehrere

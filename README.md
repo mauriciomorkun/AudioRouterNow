@@ -10,6 +10,10 @@
 > **On macOS 11 through 14.3, or on Intel?** Use the legacy Python/HAL version:
 > [v3 (legacy-v3/)](legacy-v3/), currently v3.4.5. Still maintained for critical fixes.
 
+> **How 4.0.1 came about:** [`docs/v4.0.1/`](docs/v4.0.1/) is the full record of the
+> first update after launch. Crash analysis, every decision with its reasoning, the
+> three approaches that were discarded and why, and what is still unverified.
+
 ---
 
 [![Build Check](https://github.com/mauriciomorkun/AudioRouterNow/actions/workflows/build.yml/badge.svg)](https://github.com/mauriciomorkun/AudioRouterNow/actions/workflows/build.yml)

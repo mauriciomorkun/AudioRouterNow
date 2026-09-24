@@ -12,6 +12,11 @@
 
 > **Schnelle Versions-Übersicht:** Siehe [`RELEASE_NOTES.md`](RELEASE_NOTES.md), zweigeteilt in "For Everyone" (Klartext) und "For Power Users" (technische Details). Diese Datei enthält die vollständige Architektur- und Implementierungsdokumentation.
 
+> **v4.0.1, das erste Update nach dem Launch:** Die vollständige Begründungskette
+> steht in [`docs/v4.0.1/`](docs/v4.0.1/) (auf Englisch, weil öffentlich neben
+> CHANGELOG und RELEASE_NOTES): Absturzanalyse, alle Entscheidungen, die drei
+> verworfenen Ansätze mit Grund des Scheiterns, und was ungeprüft bleibt.
+
 > **Build und Release:** Der vollständige Ablauf mit Voraussetzungen, Fallstricken
 > und Checkliste steht in [`legacy-v3/installer/README.md`](legacy-v3/installer/README.md).
 > Die Kapitel 5 und 9 hier beschreiben die Mechanik, die Checkliste dort das Vorgehen.

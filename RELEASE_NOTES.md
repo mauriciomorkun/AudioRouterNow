@@ -12,12 +12,16 @@ Each release contains **two sections**:
 ## AudioRouterNow 4.0.1 (Build 8), September 23, 2026
 _Mac App Store, macOS 14.4 or later, Apple Silicon_
 
+> **Status: prepared, not yet submitted.** The code is on `main`, nothing is
+> tagged and nothing has gone to App Review. The date above is when the work was
+> finished, not when it shipped.
+
 ### For Everyone
 
 **This is a stability update. It fixes a crash and adds a way to report bugs from inside the app.**
 
 - **Fixed a crash.** Some users saw the app quit unexpectedly. The cause was in the animated waveform at the top of the menu, not in the audio routing itself: the animation kept running at full speed even when the menu was closed, and under rare conditions an invalid audio measurement could reach the drawing code. Both are fixed.
-- **Better battery behaviour.** The waveform now stops completely when the menu is closed or when you switch to another app, and runs at a lower frame rate when nothing is being routed. Previously it ran continuously in the background, whether or not anyone was looking at it.
+- **Better battery behaviour.** The waveform animation now runs only while audio is actually being routed, and stops completely as soon as you stop routing. Previously it ran continuously for as long as the app was open, whether or not anything was playing and whether or not anyone was looking at it.
 - **New: report a bug from the app.** A small ladybug icon in the footer opens a pre-filled email with your app version, macOS version and Mac model already filled in, so you do not have to look any of it up. If you have no mail app set up, it opens GitHub Issues instead.
 
 > **Please note: you need to re-enable "Launch at Login" once.**
@@ -28,7 +32,7 @@ _Mac App Store, macOS 14.4 or later, Apple Silicon_
 
 ### For Power Users
 
-Full analysis: [`feedback/CASE-003_appstore_crash_displaycycle.md`](feedback/CASE-003_appstore_crash_displaycycle.md).
+Full record: [`docs/v4.0.1/`](docs/v4.0.1/). It covers the crash analysis, every decision with its reasoning, the three discarded approaches and why each failed, and what is still unverified.
 
 #### Root cause: three defects in the panel render path
 

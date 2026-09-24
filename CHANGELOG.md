@@ -1,6 +1,10 @@
 # Changelog
 
-## [4.0.1 (8)], 2026-09-23
+## [4.0.1 (8)], 2026-09-23 · _prepared, not yet submitted to App Review_
+
+> **Full record:** [`docs/v4.0.1/`](docs/v4.0.1/) documents the decisions behind
+> this release, including the three approaches that were written or considered
+> and discarded, and the list of things that remain unverified.
 
 > **Label note:** this is `MARKETING_VERSION 4.0.1`, build 8. It is a different
 > thing from the older `## [4.0.1], 2026-08-05` entry further down, which tracked
