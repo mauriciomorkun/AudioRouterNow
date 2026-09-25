@@ -9,6 +9,102 @@ Each release contains **two sections**:
 
 ---
 
+## v3.4.6, September 25, 2026
+_Direct download, macOS 11 or later, Apple Silicon_
+
+### For Everyone
+
+**If AudioRouterNow never opened on your Mac, this is the release that fixes it.**
+
+On macOS versions older than the machine the app was built on, AudioRouterNow did not
+start. Not slowly, not with an error: nothing happened at all. No window, no menu bar
+icon, no message. Double-clicking it appeared to do nothing.
+
+The cause was in the build process, not in the app itself. The app ships with its own
+copy of Python, and that copy was accidentally built in a way that marked it as
+requiring a very recent macOS. macOS then refused to load it before the app could run
+or report anything. The download page has said "macOS 11 or later" since the first
+release. For the affected builds that was not true, and this release is the first one
+where it is.
+
+If you previously downloaded AudioRouterNow and it seemed to do nothing when you opened
+it, download this version and try again. Nothing on your Mac needs to be cleaned up
+first, and your settings are kept.
+
+There are no other changes. Routing, volume handling and the driver behave exactly as in
+3.4.5.
+
+### For Power Users
+
+#### Root cause
+
+`legacy-v3/installer/build.sh` selected its interpreter with:
+
+```bash
+PYTHON=$(command -v python3)
+```
+
+On the build machine that resolved to Homebrew's Python. Homebrew compiles its
+interpreter against the system it is installed on, so its deployment target follows the
+build machine rather than the project's documented minimum. PyInstaller then copies that
+interpreter, its extension modules and its dylibs into the bundle unchanged.
+
+Measured on the shipped 3.4.5 bundle:
+
+| Item | Value |
+|------|-------|
+| `Contents/Frameworks/Python` | `LC_BUILD_VERSION`, `platform MACOS`, `minos 26.0` |
+| Offending Mach-O files in the bundle | 57 |
+| Interpreter actually bundled | Homebrew Python 3.14 (`Frameworks/python3__dot__14/`) |
+| Documented minimum | macOS 11.0 |
+
+`dyld` rejects a load command whose `minos` exceeds the running system, and it does so
+during image loading, before any application code executes. That is why the failure is
+completely silent. It is also invisible from the build machine, where the condition is
+always satisfied, which is why it survived from 3.4.0 through 3.4.5.
+
+Reported by a user running macOS 12.7.6.
+
+#### Fix
+
+| Change | Detail |
+|--------|--------|
+| Interpreter pinned | `/Library/Frameworks/Python.framework/Versions/3.13/bin/python3`, the python.org framework build. Its arm64 slice declares `minos 11.0`, its x86_64 slice `LC_VERSION_MIN_MACOSX 10.13`. The build aborts with the download URL if it is absent. |
+| Single declared minimum | `MACOS_MIN_VERSION` is defined once in the script. Every check reads it, no other line restates the version. |
+| Foreign venv rejected | `venv_matches_interpreter()` compares `home` in `pyvenv.cfg` against the pinned interpreter's directory. A venv from another interpreter keeps using that interpreter's standard library, so a leftover would have defeated the pin silently. Mismatches are discarded and rebuilt. |
+| Deployment target gate | `check_minos_gate()` runs after PyInstaller and before signing. It walks every Mach-O file in the bundle, reads every slice's target, collects all violations and fails with the complete list. |
+
+#### Notes on the gate
+
+A universal binary reports one load command per slice, and the two forms are not
+interchangeable. The python.org build carries `LC_VERSION_MIN_MACOSX` with a `version`
+field of 10.13 on x86_64 and `LC_BUILD_VERSION` with a `minos` field of 11.0 on arm64.
+Both are read. A target lower than the declared minimum is never a fault, since such
+binaries also run on newer systems, so only higher values are treated as violations. The
+`version` line that appears inside an `LC_BUILD_VERSION` block belongs to the linker
+tool, not to the target, and is ignored.
+
+The gate runs after the driver, the helper and `Sparkle.framework` are in place, so all
+of them are covered. Checking the `.app` also covers the DMG, which contains that bundle
+unchanged and no other Mach-O files.
+
+#### Dependency check
+
+All dependencies resolve on Python 3.13 with no pins: `pyobjc-core` 12.2.2 and
+`pyobjc-framework-Cocoa` 12.2.2, both `macosx_10_13_universal2`, `rumps` 0.4.0 (pure
+Python), and the `pyinstaller` 6.22.3 bootloader, also `macosx_10_13_universal2`. All are
+at or below the declared minimum.
+
+#### Limits of this release
+
+The gate proves a necessary condition: nothing in the bundle demands a system newer than
+macOS 11.0. Had it failed, the app could not possibly have started. It is not a
+sufficient condition, because a correct deployment target says nothing about a library
+calling an API introduced in a later macOS. This release should therefore be read as
+"fixed by measurement", with runtime confirmation on a pre-26 system still outstanding.
+
+---
+
 ## AudioRouterNow 4.0.1 (Build 8), September 23, 2026
 _Mac App Store, macOS 14.4 or later, Apple Silicon_
 
@@ -140,7 +236,7 @@ AudioRouterNow 4 is a complete rewrite from the ground up in Swift. It does ever
 - **Optional Tip Jar.** If AudioRouterNow saves you time, you can buy a Coffee ☕ ($1.99) or Beer 🍺 ($4.99), entirely optional, the app is fully free without it.
 
 **Requirements:** macOS 14.2 (Sonoma) or later, Apple Silicon.  
-If you're on macOS 11–14.1, [v3.4.5](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.5) still works and is still maintained for critical fixes.
+If you're on macOS 11–14.1, [v3.4.6](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.6) still works and is still maintained for critical fixes.
 
 ### For Power Users
 

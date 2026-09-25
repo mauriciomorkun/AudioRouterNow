@@ -5,7 +5,8 @@
 #
 # Voraussetzungen:
 #   - macOS 11+
-#   - Python 3.10+
+#   - Python 3.13 als Framework-Build von python.org (NICHT Homebrew, NICHT
+#     das System-Python). Begruendung siehe Abschnitt "Voraussetzungen pruefen".
 #   - Xcode Command Line Tools (xcode-select --install)
 #   - Fertiger HAL-Treiber in ../driver/build/AudioRouterNow.driver
 #
@@ -38,6 +39,13 @@ DMG_OUTPUT="$HOME/Desktop/${APP_NAME}.dmg"
 STAGING_DIR="/tmp/${APP_NAME}_dmg_staging"
 SIGN_IDENTITY="Developer ID Application: MAURICIO MORAIS DA CUNHA (5D52U34B3W)"
 NOTARIZE_PROFILE="AudioRouterNow-Notarization"
+
+# Die aelteste macOS-Version, die dieses Build unterstuetzen soll. Das ist die
+# Zahl, die README, Landing Page und Appcast dem Nutzer versprechen. Sie steht
+# hier genau einmal; jede Pruefung weiter unten liest diese Variable und
+# schreibt die Version nirgends erneut hin. Wer den Wert aendert, aendert damit
+# auch das minos-Gate, und nicht nur die Beschriftung.
+MACOS_MIN_VERSION="11.0"
 
 # --- Notarisierung als Funktion ----------------------------------------------
 # Wird zweimal gebraucht: einmal fuer die .app (vor dem DMG-Bau, damit das
@@ -87,7 +95,25 @@ echo ""
 # --- Voraussetzungen pruefen -------------------------------------------------
 log "Pruefe Voraussetzungen..."
 
-PYTHON=$(command -v python3) || fail "python3 nicht gefunden."
+# Der Interpreter wird festgenagelt und nicht mehr in der Umgebung gesucht.
+#
+# Bis einschliesslich 3.4.5 stand hier `PYTHON=$(command -v python3)`. Das
+# lieferte auf diesem Build-Mac das Homebrew-Python. Homebrew uebersetzt seinen
+# Interpreter gegen das gerade laufende System, sein Deployment-Target ist also
+# die macOS-Version des Build-Macs und nicht die, die wir versprechen.
+# PyInstaller kopiert diesen Interpreter unveraendert ins Bundle. Auf jedem
+# aelteren System bricht dann der dynamische Linker ab, bevor die erste Zeile
+# Anwendungscode laeuft: kein Fenster, kein Icon, keine Fehlermeldung. Der
+# Fehler ist vom Build-Mac aus unsichtbar, weil dort alles passt.
+#
+# Der Framework-Build von python.org hat ein fest eingebautes Target von 11.0
+# und ist deshalb die einzige zulaessige Quelle.
+PYTHON="/Library/Frameworks/Python.framework/Versions/3.13/bin/python3"
+[[ -x "$PYTHON" ]] || fail "Benoetigter Python-Framework-Build fehlt: $PYTHON
+   Gebraucht wird genau dieser Interpreter, nicht Homebrew und nicht das
+   System-Python. Ein anderer Interpreter erzeugt ein Bundle, das auf
+   aelteren macOS-Versionen wortlos nicht startet.
+   Download: https://www.python.org/downloads/macos/"
 PY_VERSION=$("$PYTHON" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 ok "Python $PY_VERSION ($PYTHON)"
 
@@ -125,16 +151,41 @@ venv_is_healthy() {
     return 0
 }
 
-if [[ -d "$VENV_DIR" ]] && venv_is_healthy; then
-    ok "venv vorhanden und funktionsfaehig"
+# Gesund heisst noch nicht richtig. Ein venv merkt sich in pyvenv.cfg unter
+# 'home' das bin-Verzeichnis des Interpreters, aus dem es erzeugt wurde, und
+# benutzt dessen Standardbibliothek und dessen Binaries weiter. Ein venv, das
+# frueher einmal aus Homebrew-Python entstanden ist, bleibt also ein
+# Homebrew-venv, egal was $PYTHON hier oben sagt. Damit waere die Festlegung
+# des Interpreters wirkungslos und der Fehler von 3.4.5 kaeme still zurueck.
+venv_matches_interpreter() {
+    local cfg="$VENV_DIR/pyvenv.cfg" home
+    [[ -f "$cfg" ]] || return 1
+    # 'home = /pfad/zum/bin' auslesen. Bewusst am ersten '=' getrennt, damit
+    # Pfade mit '=' im Namen nicht zerschnitten werden.
+    home="$(awk '/^[[:space:]]*home[[:space:]]*=/ {
+        sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print; exit
+    }' "$cfg")"
+    [[ -n "$home" ]] || return 1
+    [[ "$home" == "$(dirname "$PYTHON")" ]]
+}
+
+if [[ -d "$VENV_DIR" ]] && venv_is_healthy && venv_matches_interpreter; then
+    ok "venv vorhanden, funktionsfaehig und aus dem richtigen Interpreter"
 else
     if [[ -d "$VENV_DIR" ]]; then
-        warn "venv vorhanden, aber unbrauchbar (Interpreter oder pip startet nicht)."
-        warn "Ursache ist meist ein verschobenes Projektverzeichnis. Wird neu gebaut."
+        if ! venv_is_healthy; then
+            warn "venv vorhanden, aber unbrauchbar (Interpreter oder pip startet nicht)."
+            warn "Ursache ist meist ein verschobenes Projektverzeichnis. Wird neu gebaut."
+        else
+            warn "venv stammt aus einem fremden Interpreter, nicht aus $PYTHON."
+            warn "Wird verworfen und neu gebaut, sonst erbt das Bundle dessen Target."
+        fi
         rm -rf "$VENV_DIR"
     fi
     "$PYTHON" -m venv "$VENV_DIR" || fail "venv konnte nicht erstellt werden."
     venv_is_healthy || fail "Frisch erstelltes venv ist nicht funktionsfaehig: $VENV_DIR"
+    venv_matches_interpreter \
+        || fail "Frisch erstelltes venv zeigt nicht auf $PYTHON. pyvenv.cfg pruefen."
     ok "venv erstellt: $VENV_DIR"
 fi
 
@@ -279,6 +330,127 @@ rm -rf "$SPARKLE_DST"
 cp -R "$SPARKLE_SRC" "$SPARKLE_DST"
 xattr -cr "$SPARKLE_DST" 2>/dev/null || true
 ok "Sparkle.framework eingebettet → $SPARKLE_DST"
+
+# --- minos-Gate (nach PyInstaller, vor dem Signieren) ------------------------
+# Prueft, dass keine ausgelieferte Mach-O-Datei ein neueres macOS verlangt als
+# $MACOS_MIN_VERSION. Das ist der eigentliche Nachweis fuer das Versprechen im
+# README, und er wurde bis 3.4.6 nie gefuehrt.
+#
+# Die Pruefung laeuft bewusst hier: spaet genug, dass Treiber, Helper und
+# Sparkle.framework bereits im Bundle liegen und miterfasst werden, aber frueh
+# genug, dass ein kaputtes Build in Sekunden auffliegt statt erst nach einer
+# Notarisierungsrunde bei Apple.
+#
+# Zwei Formen muessen gelesen werden, und eine Universal-Datei enthaelt beide,
+# je eine pro Slice:
+#   LC_BUILD_VERSION       Zeile 'minos'     (arm64-Slice von python.org: 11.0)
+#   LC_VERSION_MIN_MACOSX  Zeile 'version'   (x86_64-Slice von python.org: 10.13)
+# Im LC_BUILD_VERSION-Block steht ausserdem eine 'version'-Zeile, die zum
+# Linker-Werkzeug gehoert und nichts mit dem Zielsystem zu tun hat. Sie darf
+# nicht mitgelesen werden, sonst meldet das Gate Unsinn wie macOS 1053.12.
+#
+# Ein niedrigerer Wert als $MACOS_MIN_VERSION ist nie ein Problem, solche
+# Binaries laufen auch auf neueren Systemen. Nur ein hoeherer Wert ist ein
+# Verstoss. Es werden alle Verstoesse gesammelt und vollstaendig ausgegeben,
+# nicht nur der erste, damit eine Fehlersuche nicht zum Ratespiel wird.
+#
+# Das Gate prueft die .app und deckt damit auch das DMG ab: das DMG enthaelt
+# genau dieses Bundle unveraendert und sonst keine Mach-O-Dateien.
+check_minos_gate() {
+    local target="$1"
+    local list vtool_out violations x86_only count
+
+    log "minos-Gate: pruefe Bundle gegen macOS $MACOS_MIN_VERSION..."
+
+    list="$(mktemp -t arn_macho)"
+    vtool_out="$(mktemp -t arn_vtool)"
+
+    # Erst die Mach-O-Dateien einsammeln. 'file' laeuft gebuendelt ueber alle
+    # Pfade, das ist deutlich schneller als ein Prozess je Datei. Der eigene
+    # Trenner '@@@' macht das Zerlegen unabhaengig davon, ob ein Pfad einen
+    # Doppelpunkt enthaelt. Zeilen ohne Trenner sind Fortsetzungszeilen von
+    # Universal-Binaries und werden uebersprungen.
+    find "$target" -type f -print0 \
+        | xargs -0 file -F '@@@' 2>/dev/null \
+        | awk -F '@@@' '
+            NF > 1 && $2 ~ /Mach-O/ {
+                onlyx86 = ($2 ~ /x86_64/ && $2 !~ /arm64/) ? 1 : 0
+                print $1 "\t" onlyx86
+            }' > "$list" || true
+
+    count=$(wc -l < "$list" | tr -d ' ')
+    [[ "$count" -gt 0 ]] \
+        || fail "minos-Gate: keine einzige Mach-O-Datei in $target gefunden. Bundle unvollstaendig?"
+
+    # vtool nimmt nur genau eine Datei je Aufruf. Vor jede Ausgabe wird eine
+    # Markierung gesetzt, damit die Auswertung danach in einem Durchgang laeuft.
+    while IFS=$'\t' read -r f _; do
+        printf '===FILE===\t%s\n' "$f"
+        vtool -show-build "$f" 2>/dev/null || true
+    done < "$list" > "$vtool_out"
+
+    violations="$(awk -v min="$MACOS_MIN_VERSION" '
+        # Versionen wie 10.13, 11.0 oder 26.0 stellenweise numerisch vergleichen.
+        function vgt(a, b,   x, y, i) {
+            split(a, x, "."); split(b, y, ".")
+            for (i = 1; i <= 4; i++) {
+                if ((x[i] + 0) > (y[i] + 0)) return 1
+                if ((x[i] + 0) < (y[i] + 0)) return 0
+            }
+            return 0
+        }
+        function check(v) { if (vgt(v, min)) print file "\t" arch "\t" v }
+
+        index($0, "===FILE===\t") == 1 {
+            file = substr($0, 12); arch = "thin"; cmdname = ""; platform = ""
+            next
+        }
+        # Kopfzeile je Slice einer Universal-Datei. Thin-Dateien haben keine,
+        # dort bleibt die Beschriftung "thin".
+        /\(architecture [^)]+\):$/ {
+            match($0, /\(architecture [^)]+\):$/)
+            arch = substr($0, RSTART + 14, RLENGTH - 16)
+            next
+        }
+        $1 == "cmd"      { cmdname = $2; platform = ""; vmin_taken = 0; next }
+        $1 == "platform" { platform = $2; next }
+        # Nur MACOS zaehlt. Bei MACCATALYST und iOS bedeuten die Zahlen etwas
+        # anderes und duerfen nicht gegen ein macOS-Minimum gehalten werden.
+        $1 == "minos" && cmdname == "LC_BUILD_VERSION" && platform == "MACOS" {
+            check($2); next
+        }
+        # LC_VERSION_MIN_MACOSX ist per Definition macOS. Nur der erste
+        # version-Eintrag des Blocks ist das Zielsystem.
+        $1 == "version" && cmdname == "LC_VERSION_MIN_MACOSX" && vmin_taken == 0 {
+            vmin_taken = 1; check($2); next
+        }
+    ' "$vtool_out")"
+
+    x86_only="$(awk -F '\t' '$2 == 1 { print $1 }' "$list")"
+
+    rm -f "$list" "$vtool_out"
+
+    # Nur-x86_64-Dateien sind kein Abbruchgrund, aber ein Hinweis: das
+    # ausgelieferte Binary zielt auf Apple Silicon.
+    if [[ -n "$x86_only" ]]; then
+        warn "Nur-x86_64-Dateien im Bundle (Zielplattform ist Apple Silicon):"
+        echo "$x86_only" | while read -r f; do
+            warn "    ${f#"$target"/}"
+        done
+    fi
+
+    if [[ -n "$violations" ]]; then
+        echo -e "${RED}minos-Gate: folgende Slices verlangen mehr als macOS $MACOS_MIN_VERSION:${NC}" >&2
+        echo "$violations" | while IFS=$'\t' read -r f a v; do
+            echo -e "${RED}    ${f#"$target"/} [${a}] verlangt macOS ${v}${NC}" >&2
+        done
+        fail "minos-Gate: $(echo "$violations" | wc -l | tr -d ' ') Verstoss/Verstoesse. Das Bundle wuerde auf macOS $MACOS_MIN_VERSION nicht starten. Interpreter und Wheels pruefen."
+    fi
+
+    ok "minos-Gate bestanden: $count Mach-O-Dateien, keine ueber macOS $MACOS_MIN_VERSION"
+}
+
+check_minos_gate "$APP_PATH"
 
 # --- Code-Signierung (Developer ID + Hardened Runtime) -----------------------
 # PyInstaller bündelt Homebrew-Python (andere Team-ID als unsere App).

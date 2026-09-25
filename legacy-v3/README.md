@@ -12,7 +12,7 @@ It runs without the App Store and without Swift, directly as a system audio driv
 
 ## Last stable release
 
-**v3.4.5**, see [CHANGELOG](../CHANGELOG.md) · [Release](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.5)
+**v3.4.6**, see [CHANGELOG](../CHANGELOG.md) · [Release](https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.6)
 
 ## Installation
 

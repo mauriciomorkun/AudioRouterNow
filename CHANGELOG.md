@@ -1,5 +1,48 @@
 # Changelog
 
+## [3.4.6], 2026-09-25 · _Legacy (macOS 11+, direct download)_
+
+### Fixed
+- **The app did not start at all on macOS versions older than the machine it was
+  built on.** `installer/build.sh` resolved its interpreter with
+  `PYTHON=$(command -v python3)`, which picked up Homebrew's Python. Homebrew
+  compiles its interpreter against the running system, so the Python runtime that
+  PyInstaller copied into the bundle carried the build machine's minimum OS version
+  instead of the documented one. Measured on the shipped 3.4.5 bundle,
+  `Contents/Frameworks/Python` reports a minimum of macOS 26.0, and 57 Mach-O files
+  in that bundle require it.
+
+  Below that version the dynamic linker refuses to load the runtime before a single
+  line of application code runs. There is no window, no icon and no error message.
+  Seen from the build machine the result looks correct, which is how this survived
+  three months and several releases. Reported by a user on macOS 12.7.6.
+
+  The build now uses the python.org framework build of Python 3.13 at a fixed
+  absolute path, whose deployment target is macOS 11.0. The README has promised
+  macOS 11 or later since launch, and this is the first release in which that is
+  actually true.
+
+### Added
+- **Deployment target gate in the build script.** After the PyInstaller step and
+  before signing, every Mach-O file in the bundle is checked with `vtool -show-build`
+  against a single declared minimum. Both `LC_BUILD_VERSION` and
+  `LC_VERSION_MIN_MACOSX` are read, once per architecture slice, since a universal
+  binary can carry a different target in each. All violations are listed before the
+  build aborts, rather than only the first. Files built for x86_64 alone are reported
+  as a warning.
+- **The build refuses a virtual environment created by a different interpreter.** A
+  venv records its origin in `pyvenv.cfg` and keeps using that interpreter's standard
+  library, so a leftover venv would have silently defeated the fix above. Mismatches
+  are now discarded and rebuilt.
+
+> **What this release proves and what it does not.** The gate establishes that no
+> file in the bundle demands a system newer than macOS 11.0, which is a necessary
+> condition for the app to launch. It is not a sufficient one: a correct deployment
+> target says nothing about a code path calling an API that only exists in a later
+> macOS. Confirmation on a real pre-26 system is separate from the measurement.
+
+---
+
 ## [4.0.1 (8)], 2026-09-23 · _prepared, not yet submitted to App Review_
 
 > **Full record:** [`docs/v4.0.1/`](docs/v4.0.1/) documents the decisions behind
