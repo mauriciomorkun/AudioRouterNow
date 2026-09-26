@@ -31,8 +31,20 @@ If you previously downloaded AudioRouterNow and it seemed to do nothing when you
 it, download this version and try again. Nothing on your Mac needs to be cleaned up
 first, and your settings are kept.
 
-There are no other changes. Routing, volume handling and the driver behave exactly as in
-3.4.5.
+**Second fix: automatic updates had never worked.**
+
+AudioRouterNow has carried a built-in updater since 3.4.0, and it had never once
+started. It failed instantly on every launch, wrote one line into a log file nobody
+reads, and said nothing. From the outside this is invisible, because an updater that
+finds nothing and an updater that never runs look exactly the same: like nothing at all.
+
+This matters to you in one practical way. **If you already have an older version
+installed, it will not tell you about this release.** The updater in your copy is dead,
+and repairing it in the new version cannot reach back into the old one. You have to
+download this one by hand, once. From 3.4.6 onward you will be notified normally.
+
+Apart from these two fixes, nothing changed. Routing, volume handling and the driver
+behave exactly as in 3.4.5.
 
 ### For Power Users
 
@@ -95,6 +107,38 @@ All dependencies resolve on Python 3.13 with no pins: `pyobjc-core` 12.2.2 and
 Python), and the `pyinstaller` 6.22.3 bootloader, also `macosx_10_13_universal2`. All are
 at or below the declared minimum.
 
+#### The updater had never started
+
+Found while testing the fix above, not reported by anyone.
+
+`updater.py` called `SPUUpdater.startUpdater:` and unpacked the result into a pair. The
+measured signature is `b'B@:^@'`: a `BOOL` return and an `NSError **` that carries no
+output-parameter marking. PyObjC only applies that marking automatically to selectors
+ending in `error:`, and ships no metadata for third-party frameworks. So the call
+returned a plain boolean, the unpacking raised, the exception was caught and logged, and
+Sparkle never ran. Every launch since 3.4.0.
+
+Two changes. The metadata is registered explicitly, after the framework loads and before
+any `SPUUpdater` method is bound, which turns the argument into `o^@` and restores the
+real `NSError`. And the call site now accepts either shape, so this line cannot again be
+the single reason updates die quietly, whatever a future PyObjC does with the signature.
+
+Before trusting the fix, the rest of the chain was checked separately, because the
+failure had been hiding everything behind it: the feed returns HTTP 200, the
+`SUPublicEDKey` in `Info.plist` is identical to the signing key, and `sign_update
+--verify` returns 0 for a real signature and 1 for a forged one.
+
+A second gate was added next to the deployment target one. It compares the public key in
+the built `Info.plist` against the signing key, since a mismatch would make every
+installed client reject every update in silence, and it asserts the selector exposes its
+error as an output parameter. An unreadable keychain is a warning rather than a failure:
+being unable to look is not evidence of a mismatch. Both checks were tested against
+failure cases before being trusted, not only against the passing one.
+
+The fix counts as proven from the fetch, not from the code change. The appcast is in the
+URL cache of the installed build at 7140 bytes, the exact size the server returns, timed
+to the second `SULastCheckTime` records.
+
 #### Limits of this release
 
 The gate proves a necessary condition: nothing in the bundle demands a system newer than
@@ -102,6 +146,10 @@ macOS 11.0. Had it failed, the app could not possibly have started. It is not a
 sufficient condition, because a correct deployment target says nothing about a library
 calling an API introduced in a later macOS. This release should therefore be read as
 "fixed by measurement", with runtime confirmation on a pre-26 system still outstanding.
+
+The updater fix carries no such caveat. It was demonstrated end to end on an installed
+build, which is why `auto_updates` could be restored in the Homebrew cask, in a separate
+commit, so the claim and its evidence sit together in the history.
 
 ---
 

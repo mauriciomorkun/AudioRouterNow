@@ -484,7 +484,10 @@ _kAudioObjectPropertyScopeOutput                       = 0x6F757470  # 'outp'
  4. requirements.txt + PyInstaller + Pillow + dmgbuild installieren
  5. PyInstaller Build → dist/AudioRouterNow.app
  6. GATE: minos jeder Mach-O-Datei im Bundle gegen MACOS_MIN_VERSION messen
- 7. Developer-ID-Signierung (bottom-up, ohne --deep):
+ 7. GATE: Sparkle prüfen
+    a. SUPublicEDKey der gebauten App gegen den Signierschlüssel im Keychain
+    b. startUpdater: liefert den NSError als Ausgabeparameter
+ 8. Developer-ID-Signierung (bottom-up, ohne --deep):
     a. xattr -cr (Extended Attributes entfernen)
     b. Alle .dylib Dateien signieren
     c. Alle .so Dateien signieren
@@ -492,17 +495,17 @@ _kAudioObjectPropertyScopeOutput                       = 0x6F757470  # 'outp'
     e. Sparkle.framework signieren (XPC-Dienste, Autoupdate, Framework)
     f. MacOS/AudioRouterNow executable signieren (mit Entitlements)
     g. .app Bundle signieren (Hardened Runtime + Timestamp)
- 8. GATE: codesign --verify --deep --strict über App + Sparkle
- 9. App notarisieren und stapeln  ← VOR dem DMG-Bau
+ 9. GATE: codesign --verify --deep --strict über App + Sparkle
+10. App notarisieren und stapeln  ← VOR dem DMG-Bau
     a. ditto -c -k --keepParent → .zip
     b. xcrun notarytool submit --wait
     c. xcrun stapler staple + validate
-10. DMG-Hintergrundbild generieren (create_dmg_background.py)
-11. DMG erstellen (dmgbuild + Finder-AppleScript für den Hintergrund)
-12. DMG-Datei-Icon setzen (AppKit NSWorkspace.setIcon_forFile_options_)
-13. DMG signieren
-14. DMG notarisieren und stapeln
-15. GATE: DMG mounten, prüfen ob die App DARIN ein Ticket hat
+11. DMG-Hintergrundbild generieren (create_dmg_background.py)
+12. DMG erstellen (dmgbuild + Finder-AppleScript für den Hintergrund)
+13. DMG-Datei-Icon setzen (AppKit NSWorkspace.setIcon_forFile_options_)
+14. DMG signieren
+15. DMG notarisieren und stapeln
+16. GATE: DMG mounten, prüfen ob die App DARIN ein Ticket hat
     und ob Gatekeeper sie akzeptiert
 ```
 
@@ -583,6 +586,55 @@ Bundle unverändert enthält und sonst keine Mach-O-Dateien.
 von 3.4.5 enthält 73 Mach-O-Dateien, davon meldet das Gate **57 als Verstoss**,
 exakt Interpreter und Standardbibliothek. Die Prüfung schlägt also nicht nur
 theoretisch an, sie hätte jedes bisherige Release gestoppt.
+
+### Warum der Updater gegen sich selbst geprüft wird
+
+Dieses Gate kam erst am 26.09.2026 dazu, nach dem minos-Gate und aus demselben
+Grund. Beim Funktionstest von 3.4.6 zeigte sich, dass **Sparkle seit 3.4.0 nie
+gestartet ist**. Die automatische Aktualisierung war über die gesamte
+öffentliche Lebenszeit der App tot, ohne dass es je jemand gemeldet hätte.
+
+Die Ursache lag in einer Annahme, die nie geprüft wurde. `updater.py` rief auf:
+
+```python
+ok, err = updater.startUpdater_(None)
+```
+
+Die tatsächliche Signatur lautet aber `b'B@:^@'`. Der `NSError**`-Parameter ist
+ein nackter Zeiger und **nicht** als Ausgabeparameter markiert. PyObjC erkennt
+solche Parameter automatisch nur bei Selektoren, die auf `error:` enden, und für
+Fremdframeworks wie Sparkle bringt es keine Metadaten mit. Zurück kam also ein
+blankes `bool`, das sich nicht in zwei Namen entpacken lässt. Die Ausnahme wurde
+abgefangen, protokolliert, und die App fiel auf einen Browser-Hinweis zurück.
+
+Warum das niemandem auffiel, ist der interessante Teil: **Einem stillen Updater
+sieht man nicht an, ob er nichts findet oder gar nicht erst anspringt.** Beides
+sieht für den Nutzer identisch aus, nämlich nach gar nichts.
+
+Behoben wird es an zwei Stellen. Die Metadaten werden nachgereicht, womit PyObjC
+das erwartete Paar liefert und der echte `NSError` auswertbar bleibt. Zusätzlich
+nimmt die Aufrufstelle beide Formen an, damit diese Zeile nie wieder die
+alleinige Ursache dafür sein kann, dass die Aktualisierung lautlos ausfällt.
+
+Das Gate prüft zwei Dinge, beide statisch und beide vor dem Signieren:
+
+1. **Schlüsselabgleich.** `SUPublicEDKey` der gebauten App gegen den privaten
+   Schlüssel im Keychain. Weichen sie ab, lehnt **jeder** installierte Client
+   **jedes** Update ab, und zwar stillschweigend. Ein unlesbarer Keychain ist
+   dabei bewusst nur eine Warnung: nicht nachsehen zu können ist kein Beleg für
+   eine Abweichung. Diese Entscheidung zahlte sich noch am selben Tag aus, als
+   `sign_update` beim Release auf eine Keychain-Freigabe wartete. Wäre der Fall
+   ein Abbruch, wäre der Build mitten im Ablauf gescheitert.
+2. **Selektorform.** Das Framework wird im Build-venv geladen, die Metadaten
+   werden registriert, und es wird geprüft, dass das Argument danach `o^@` ist.
+   Das vorangestellte `o` markiert den Ausgabeparameter. Damit ist genau der
+   Defekt abgesichert, der hier beschrieben ist.
+
+Beide Prüfungen wurden vor dem Einbau gegen Fehlerfälle getestet, nicht nur
+gegen den Gutfall: falscher Schlüssel bricht ab, fehlender Schlüssel bricht ab,
+richtiger besteht. Ein Gate, das nur bestehen kann, ist Dekoration.
+
+Vollständige Analyse: `feedback/CASE-006`, Planung in `docs/v3.4.6/03-sparkle-plan.md`.
 
 ### Warum die App vor dem DMG gestapelt wird
 
@@ -1122,6 +1174,45 @@ verspricht, muss der Build vor dem Ausliefern messen.** Beide Gates existieren a
 diesem einen Satz heraus.
 
 Gemeldet von einem Nutzer auf macOS 12.7.6 am 24.09.2026.
+
+### Behoben in 3.4.6: die automatische Aktualisierung hatte nie funktioniert
+
+Der zweite Defekt dieser Version, gefunden beim Funktionstest des Fixes oben.
+Von niemandem gemeldet, und das ist kein Zufall.
+
+**Sparkle war seit 3.4.0 eingebettet und ist nie gestartet.** `updater.py`
+entpackte das Ergebnis von `startUpdater_` in zwei Namen, die tatsächliche
+Signatur `b'B@:^@'` liefert aber ein blankes `bool`. Die Ausnahme wurde bei
+jedem einzelnen Start geworfen, abgefangen, protokolliert, und die App fiel auf
+einen Browser-Hinweis zurück. Die technische Erklärung steht in Kapitel 5 unter
+„Warum der Updater gegen sich selbst geprüft wird".
+
+Zur Einordnung, warum es drei Monate überdauerte: **Einem stillen Updater sieht
+man nicht an, ob er nichts findet oder gar nicht erst anspringt.** Es gibt keine
+Nutzerbeobachtung, die den Unterschied zeigt. Anders als beim macOS-26-Fehler
+konnte hier niemand etwas melden, weil es nichts zu bemerken gab.
+
+Verschärfend wirkte der Homebrew-Cask. Dort stand `auto_updates true`, was
+Homebrew mitteilt, die App aktualisiere sich selbst, weshalb `brew upgrade` sie
+überspringt. Zwei Mechanismen, von denen jeder auf den anderen vertraute und
+keiner arbeitete: Homebrew-Nutzer hatten überhaupt keinen Weg zu einer neuen
+Version.
+
+Der Fix gilt ausdrücklich erst als belegt seit dem tatsächlichen Abruf, nicht
+seit der Codeänderung. Nachweis am 26.09.2026: der Appcast liegt mit **7140
+Bytes** im URL-Cache der installierten App, exakt die Grösse, die der Server
+liefert, mit einem Zeitstempel deckungsgleich zu `SULastCheckTime`. Erst danach
+wurde `auto_updates` im Cask wieder auf `true` gesetzt, in einem eigenen Commit,
+damit Behauptung und Beleg in der Historie beieinanderstehen.
+
+**Praktische Folge für bestehende Installationen:** Wer eine Version vor 3.4.6
+installiert hat, wird über 3.4.6 **nicht** benachrichtigt. Der Updater in seiner
+Kopie ist tot, und daran ändert eine Reparatur in der neuen Version nichts. Ein
+einmaliger Download von Hand ist unvermeidlich. Genau deshalb waren die
+Ankündigung im MacRumors-Thread und die Landing Page für dieses Release keine
+Kür, sondern die einzigen Wege nach draussen.
+
+Vollständige Analyse: `feedback/CASE-006`.
 
 ### Behoben in 3.4.5: stiller Fehlschlag der Treiber-Installation
 

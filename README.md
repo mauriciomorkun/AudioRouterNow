@@ -15,6 +15,12 @@
 > first update after launch. Crash analysis, every decision with its reasoning, the
 > three approaches that were discarded and why, and what is still unverified.
 
+> **How 3.4.6 came about:** [`docs/v3.4.6/`](docs/v3.4.6/) is the same record for v3.
+> Two defects that had been in every release since launch and were both invisible from
+> outside: the app did not start below macOS 26, and the updater had never started at
+> all. Includes the plans as written, the premises that turned out to be wrong, and the
+> measurement that is still missing.
+
 ---
 
 [![Build Check](https://github.com/mauriciomorkun/AudioRouterNow/actions/workflows/build.yml/badge.svg)](https://github.com/mauriciomorkun/AudioRouterNow/actions/workflows/build.yml)
