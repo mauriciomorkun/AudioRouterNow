@@ -9,7 +9,7 @@ Each release contains **two sections**:
 
 ---
 
-## v3.4.6, September 25, 2026
+## v3.4.6, September 26, 2026
 _Direct download, macOS 11 or later, Apple Silicon_
 
 ### For Everyone

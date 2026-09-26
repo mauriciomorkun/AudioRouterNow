@@ -106,7 +106,7 @@ No Terminal. No restart. No security approval.
 ```sh
 shasum -a 256 ~/Downloads/AudioRouterNow.dmg
 # Expected (v3.4.6):
-# SHA256_PLACEHOLDER_FILL_AFTER_BUILD
+# 239e71d3969963ce4962063bdce2739262d5d1162174157d99df259c9ec18f9d
 ```
 
 **Option B, Homebrew Cask (optional)**

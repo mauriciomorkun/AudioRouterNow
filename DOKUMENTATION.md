@@ -1,6 +1,6 @@
 # AudioRouterNow: Vollständige Projekt-Dokumentation
 
-**Stand:** 25. September 2026 (Build- und Release-Kapitel auf v3.4.6 aktualisiert)
+**Stand:** 26. September 2026 (Build- und Release-Kapitel auf v3.4.6 aktualisiert)
 **Gegenstand:** AudioRouterNow **v3** (Legacy, Python + HAL-Plugin), aktuell **3.4.6**
 **Autor:** Mauricio Morkun
 **Lizenz:** GPL-3.0

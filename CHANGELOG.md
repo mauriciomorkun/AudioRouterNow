@@ -1,6 +1,6 @@
 # Changelog
 
-## [3.4.6], 2026-09-25 · _Legacy (macOS 11+, direct download)_
+## [3.4.6], 2026-09-26 · _Legacy (macOS 11+, direct download)_
 
 ### Fixed
 - **The app did not start at all on macOS versions older than the machine it was
