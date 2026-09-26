@@ -248,9 +248,24 @@ Build ist messbar korrekt, der Laufzeit-Beweis ist ausstehend.
 
 ## 10. Was jetzt noch aussteht
 
-Diese Schritte sind bewusst nicht ausgeführt. Die beiden Commits liegen lokal und sind nicht
-gepusht, weil das README bereits "Latest release v3.4.6" mit einem Download-Link ausführt,
-der noch nicht existiert.
+> **Nachtrag vom 26.09.2026, abends: erledigt.** v3.4.6 ist veröffentlicht.
+> GitHub Release, Appcast, Homebrew-Cask und Landing Page stehen auf 3.4.6, die
+> heruntergeladene Datei trägt die erwartete Prüfsumme, ist notarisiert und
+> gestapelt, und keine Datei im Bündel verlangt mehr als macOS 11. Melder und
+> MacRumors-Thread sind informiert.
+>
+> Zwischen dem Schreiben dieses Berichts und der Veröffentlichung kam ein
+> zweiter Defekt hinzu, der hier noch nicht stehen konnte: Sparkle hat seit
+> 3.4.0 nie gestartet. Gefunden beim Funktionstest, behoben und belegt, siehe
+> `03-sparkle-plan.md` und `feedback/CASE-006`. Deshalb hat v3.4.6 zwei Tore im
+> Build statt einem.
+>
+> Offen bleibt genau ein Punkt, und es ist derselbe wie in Abschnitt 9: die
+> Bestätigung auf einem echten System unterhalb macOS 26. Sie kann nur von außen
+> kommen.
+
+Die folgende Liste ist der Stand bei Abfassung des Berichts und bleibt als
+solcher stehen.
 
 | Schritt | Hinweis |
 |---------|---------|
