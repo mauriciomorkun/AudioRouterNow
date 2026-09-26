@@ -7,8 +7,9 @@
 > **Current version: [AudioRouterNow 4](v4/), Swift rewrite, [on the Mac App Store](https://apps.apple.com/app/audiorouternow/id6787215635)**
 > Requires macOS 14.4+ and Apple Silicon. No driver, no admin password, fully sandboxed.
 >
-> **On macOS 11 through 14.3, or on Intel?** Use the legacy Python/HAL version:
-> [v3 (legacy-v3/)](legacy-v3/), currently v3.4.6. Still maintained for critical fixes.
+> **On macOS 11 through 14.3?** Use the legacy Python/HAL version:
+> [v3 (legacy-v3/)](legacy-v3/), currently v3.4.6. Apple Silicon only, still maintained
+> for critical fixes.
 
 > **How 4.0.1 came about:** [`docs/v4.0.1/`](docs/v4.0.1/) is the full record of the
 > first update after launch. Crash analysis, every decision with its reasoning, the
@@ -85,7 +86,7 @@ macOS System Audio
 ## Requirements
 
 - macOS 11 (Big Sur) or later
-- Apple Silicon (arm64), Intel Macs are not supported by the prebuilt binary. The entire app must be rebuilt from source (Apple Silicon only).
+- Apple Silicon (arm64). Intel Macs are not supported.
 
 ---
 
@@ -205,7 +206,12 @@ No kernel extension. No restart. No runtime dependencies on Homebrew, SwitchAudi
 
 ## Build from source
 
-**Requirements:** Xcode Command Line Tools (`xcode-select --install`), Python 3.10+
+**Requirements:** Xcode Command Line Tools (`xcode-select --install`), and the
+[python.org](https://www.python.org/downloads/macos/) 3.13 framework build at
+`/Library/Frameworks/Python.framework/Versions/3.13`. Homebrew Python is not
+interchangeable here: it compiles against the build machine's own macOS, which
+produces an app that will not start on older systems. `build.sh` checks for the
+pinned interpreter and aborts if it is missing.
 
 ```bash
 # 1. Build and install the HAL driver

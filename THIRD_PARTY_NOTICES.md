@@ -4,7 +4,7 @@ AudioRouterNow bundles the following open-source components. Their licenses are 
 
 ---
 
-## Python 3.14
+## Python 3.13
 
 - **License:** Python Software Foundation License (PSF-2.0)
 - **Source:** https://www.python.org

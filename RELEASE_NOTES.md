@@ -70,7 +70,7 @@ Reported by a user running macOS 12.7.6.
 | Change | Detail |
 |--------|--------|
 | Interpreter pinned | `/Library/Frameworks/Python.framework/Versions/3.13/bin/python3`, the python.org framework build. Its arm64 slice declares `minos 11.0`, its x86_64 slice `LC_VERSION_MIN_MACOSX 10.13`. The build aborts with the download URL if it is absent. |
-| Single declared minimum | `MACOS_MIN_VERSION` is defined once in the script. Every check reads it, no other line restates the version. |
+| Single declared minimum | `MACOS_MIN_VERSION` is declared once, in `legacy-v3/engine/version.py`. The build script, the PyInstaller spec and both Makefiles derive it from there, so the value the gate compares against, the value macOS reads at launch and the value the compiler stamps into the binaries cannot drift apart. One exception is deliberate and named in `version.py`: `legacy-v3/driver/resources/Info.plist` is copied verbatim and still carries the number by hand. |
 | Foreign venv rejected | `venv_matches_interpreter()` compares `home` in `pyvenv.cfg` against the pinned interpreter's directory. A venv from another interpreter keeps using that interpreter's standard library, so a leftover would have defeated the pin silently. Mismatches are discarded and rebuilt. |
 | Deployment target gate | `check_minos_gate()` runs after PyInstaller and before signing. It walks every Mach-O file in the bundle, reads every slice's target, collects all violations and fails with the complete list. |
 

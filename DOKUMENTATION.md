@@ -1,14 +1,15 @@
 # AudioRouterNow: Vollständige Projekt-Dokumentation
 
-**Stand:** 18. September 2026 (Build- und Release-Kapitel auf v3.4.5 aktualisiert)
-**Gegenstand:** AudioRouterNow **v3** (Legacy, Python + HAL-Plugin), aktuell **3.4.5**
+**Stand:** 25. September 2026 (Build- und Release-Kapitel auf v3.4.6 aktualisiert)
+**Gegenstand:** AudioRouterNow **v3** (Legacy, Python + HAL-Plugin), aktuell **3.4.6**
 **Autor:** Mauricio Morkun
 **Lizenz:** GPL-3.0
 
 > ⚠️ **Diese Datei beschreibt v3, nicht v4.**
 > v4 ist der Swift-Rewrite für den Mac App Store (Process Tap API, macOS 14.4+,
 > Apple Silicon, Apache-2.0). Dessen Architektur steht in [`v4/ARCHITECTURE.md`](v4/ARCHITECTURE.md).
-> v3 bleibt gepflegt, weil es auf macOS 11 bis 14.3 und auf Intel die einzige Option ist.
+> v3 bleibt gepflegt, weil es auf macOS 11 bis 14.3 die einzige Option ist.
+> Apple Silicon setzen beide Versionen voraus, Intel wird von keiner unterstützt.
 
 > **Schnelle Versions-Übersicht:** Siehe [`RELEASE_NOTES.md`](RELEASE_NOTES.md), zweigeteilt in "For Everyone" (Klartext) und "For Power Users" (technische Details). Diese Datei enthält die vollständige Architektur- und Implementierungsdokumentation.
 
@@ -467,7 +468,7 @@ _kAudioObjectPropertyScopeOutput                       = 0x6F757470  # 'outp'
 |-------|-------------|
 | `build.sh` | Haupt-Build-Script: venv → PyInstaller → Developer-ID-Signierung → Notarisierung → Stapling → DMG. Voraussetzungen, Fallstricke und Release-Checkliste stehen in `legacy-v3/installer/README.md` |
 | `build_local.sh` | Variante ohne Notarisierung, nur zum lokalen Testen |
-| `AudioRouterNow.spec` | PyInstaller-Spec mit `icon=AudioRouterNow.icns`. Liest `APP_VERSION` aus `engine/version.py`, die App-`Info.plist` wird daraus erzeugt |
+| `AudioRouterNow.spec` | PyInstaller-Spec mit `icon=AudioRouterNow.icns`. Liest `APP_VERSION` **und** `MACOS_MIN_VERSION` aus `engine/version.py`, `CFBundleVersion`, `CFBundleShortVersionString` und `LSMinimumSystemVersion` der App-`Info.plist` werden daraus erzeugt |
 | `create_dmg_background.py` | Generiert DMG-Hintergrundbild mit weißen Labels |
 | `entitlements.plist` | `com.apple.security.cs.disable-library-validation = true` |
 | `AudioRouterNow.icns` | App-Icon (teal Routing-Baum, alle Größen) |
@@ -476,32 +477,112 @@ _kAudioObjectPropertyScopeOutput                       = 0x6F757470  # 'outp'
 ### build.sh, Ablauf
 
 ```
- 1. Voraussetzungen prüfen (python3, clang, DRIVER_BUILD vorhanden)
+ 1. Voraussetzungen prüfen (fest verdrahteter Interpreter, clang, DRIVER_BUILD)
  2. HAL-Treiber + Helper bauen (Universal Binary: arm64 + x86_64)
- 3. Python venv einrichten, MIT Funktionsprüfung (venv_is_healthy)
+ 3. Python venv einrichten, MIT Funktions- UND Herkunftsprüfung
+    (venv_is_healthy + venv_matches_interpreter)
  4. requirements.txt + PyInstaller + Pillow + dmgbuild installieren
  5. PyInstaller Build → dist/AudioRouterNow.app
- 6. Developer-ID-Signierung (bottom-up, ohne --deep):
+ 6. GATE: minos jeder Mach-O-Datei im Bundle gegen MACOS_MIN_VERSION messen
+ 7. Developer-ID-Signierung (bottom-up, ohne --deep):
     a. xattr -cr (Extended Attributes entfernen)
     b. Alle .dylib Dateien signieren
     c. Alle .so Dateien signieren
-    d. Python Shared Library signieren (überschreibt Homebrew Team-ID)
+    d. Python Shared Library signieren (überschreibt fremde Team-ID)
     e. Sparkle.framework signieren (XPC-Dienste, Autoupdate, Framework)
     f. MacOS/AudioRouterNow executable signieren (mit Entitlements)
     g. .app Bundle signieren (Hardened Runtime + Timestamp)
- 7. GATE: codesign --verify --deep --strict über App + Sparkle
- 8. App notarisieren und stapeln  ← VOR dem DMG-Bau
+ 8. GATE: codesign --verify --deep --strict über App + Sparkle
+ 9. App notarisieren und stapeln  ← VOR dem DMG-Bau
     a. ditto -c -k --keepParent → .zip
     b. xcrun notarytool submit --wait
     c. xcrun stapler staple + validate
- 9. DMG-Hintergrundbild generieren (create_dmg_background.py)
-10. DMG erstellen (dmgbuild + Finder-AppleScript für den Hintergrund)
-11. DMG-Datei-Icon setzen (AppKit NSWorkspace.setIcon_forFile_options_)
-12. DMG signieren
-13. DMG notarisieren und stapeln
-14. GATE: DMG mounten, prüfen ob die App DARIN ein Ticket hat
+10. DMG-Hintergrundbild generieren (create_dmg_background.py)
+11. DMG erstellen (dmgbuild + Finder-AppleScript für den Hintergrund)
+12. DMG-Datei-Icon setzen (AppKit NSWorkspace.setIcon_forFile_options_)
+13. DMG signieren
+14. DMG notarisieren und stapeln
+15. GATE: DMG mounten, prüfen ob die App DARIN ein Ticket hat
     und ob Gatekeeper sie akzeptiert
 ```
+
+### Warum der Interpreter festgenagelt ist
+
+Bis einschliesslich 3.4.5 stand in `build.sh` die Zeile `PYTHON=$(command -v python3)`.
+Auf der Build-Maschine lieferte das Homebrew-Python. Homebrew übersetzt seinen
+Interpreter grundsätzlich gegen das gerade laufende System, sein Deployment-Target
+ist also die macOS-Version des Build-Macs. PyInstaller kopiert diesen Interpreter
+unverändert ins Bundle.
+
+Die Folge: Jedes jemals veröffentlichte v3-Release trug eine Python-Laufzeit mit
+`minos 26.0`. Unterhalb von macOS 26 kann der dynamische Linker sie nicht laden,
+der Prozess stirbt, bevor eine einzige Zeile Anwendungscode läuft. Kein Fenster,
+kein Icon, keine Fehlermeldung. Das README versprach seit dem Launch macOS 11.
+
+Seit 3.4.6 steht dort ein absoluter Pfad auf den Framework-Build von python.org,
+`/Library/Frameworks/Python.framework/Versions/3.13/bin/python3`. Dieser Build hat
+ein fest eingebautes Target von 11.0. Fehlt er, bricht das Skript mit der
+Download-Adresse ab, statt still etwas Falsches zu bauen.
+
+Das allein genügt aber nicht. Ein venv merkt sich in `pyvenv.cfg` unter `home` das
+bin-Verzeichnis, aus dem es erzeugt wurde, und benutzt dessen Standardbibliothek
+weiter. Ein venv aus Homebrew-Zeiten bliebe also ein Homebrew-venv, egal was oben
+im Skript steht. Deshalb prüft `venv_matches_interpreter()` die Herkunft und
+verwirft das venv bei Abweichung.
+
+### Warum das Bündel gegen die Mindestversion gemessen wird
+
+Der Interpreter-Fix behebt den konkreten Fall. Das Gate verhindert seine
+Wiederkehr, und zwar unabhängig davon, woher eine Datei ins Bundle gerät.
+
+`check_minos_gate()` sammelt jede Mach-O-Datei im fertigen `.app` ein und liest zu
+jedem Slice das Deployment-Target. Der Schwellwert kommt aus `MACOS_MIN_VERSION` in
+`engine/version.py`, also aus derselben Datei, aus der die Makefiles ihr
+`-mmacosx-version-min` beziehen. Ein Gate, das seinen Schwellwert selbst definiert,
+würde nur sich selbst bestätigen.
+
+**Zwei Formen, und eine Universal-Datei enthält beide, je eine pro Slice.** Am
+python.org-Interpreter gemessen:
+
+```
+$ vtool -show-build /Library/Frameworks/Python.framework/Versions/3.13/Python
+… (architecture x86_64):
+      cmd LC_VERSION_MIN_MACOSX
+  version 10.13            ← hier heisst das Zielsystem "version"
+      sdk 15.4
+… (architecture arm64):
+      cmd LC_BUILD_VERSION
+ platform MACOS
+    minos 11.0             ← hier heisst es "minos"
+      sdk 15.4
+   ntools 1
+     tool LD
+  version 1053.12          ← NICHT lesen, das ist die Version des Linkers
+```
+
+Die letzte Zeile ist die Falle. Im `LC_BUILD_VERSION`-Block steht hinter `ntools`
+eine zweite `version`-Zeile, die zum Linker-Werkzeug gehört und mit dem Zielsystem
+nichts zu tun hat. Wer sie mitliest, bekommt Meldungen über ein angebliches
+macOS 1053.12. Das Gate zählt deshalb pro `LC_VERSION_MIN_MACOSX`-Block nur den
+ersten `version`-Eintrag und ignoriert `version` innerhalb von `LC_BUILD_VERSION`
+vollständig. Ebenso zählt nur `platform MACOS`: bei MACCATALYST und iOS bedeuten
+dieselben Zahlen etwas anderes.
+
+Ein **niedrigerer** Wert als das Minimum ist nie ein Problem, solche Binaries laufen
+auch auf neueren Systemen. Nur ein höherer ist ein Verstoss. Das Gate sammelt alle
+Verstösse und gibt sie vollständig aus, nicht nur den ersten, damit die Fehlersuche
+kein Ratespiel wird. Nur-`x86_64`-Dateien erzeugen eine Warnung, keinen Abbruch.
+
+**Warum vor dem Signieren:** Ein kaputtes Bundle fliegt so in Sekunden auf statt
+erst nach einer Notarisierungsrunde bei Apple. Gleichzeitig spät genug, dass
+Treiber, Helper und `Sparkle.framework` bereits eingebettet sind und miterfasst
+werden. Die Prüfung der `.app` deckt das DMG mit ab, weil das DMG genau dieses
+Bundle unverändert enthält und sonst keine Mach-O-Dateien.
+
+**Gegen das alte Artefakt gegengeprüft**, bevor es überschrieben wurde: Das Bündel
+von 3.4.5 enthält 73 Mach-O-Dateien, davon meldet das Gate **57 als Verstoss**,
+exakt Interpreter und Standardbibliothek. Die Prüfung schlägt also nicht nur
+theoretisch an, sie hätte jedes bisherige Release gestoppt.
 
 ### Warum die App vor dem DMG gestapelt wird
 
@@ -724,8 +805,16 @@ Kein gleichzeitiger Versuch, dasselbe Device zweimal zu öffnen.
 ### Voraussetzungen
 
 - macOS 11.0+
-- Python 3.10+
+- Python 3.13 als **Framework-Build von python.org**, installiert unter
+  `/Library/Frameworks/Python.framework/Versions/3.13`
 - Xcode Command Line Tools: `xcode-select --install`
+
+Der Interpreter ist keine Empfehlung, sondern eine Bedingung. `build.sh` sucht
+`python3` seit 3.4.6 nicht mehr in der Umgebung, sondern benutzt genau diesen
+Pfad und bricht ab, wenn er fehlt. Homebrew-Python lässt den Build **absichtlich**
+scheitern: Es übersetzt gegen das macOS des bauenden Rechners und erzeugt damit
+ein Bundle, das auf älteren Systemen wortlos nicht startet. Begründung im Detail
+in Kapitel 5, "Warum der Interpreter festgenagelt ist".
 
 Für einen **veröffentlichungsfähigen** Build kommen dazu: Developer-ID-Zertifikat,
 Notarisierungs-Profil `AudioRouterNow-Notarization` und der Sparkle-Signaturschlüssel
@@ -985,6 +1074,55 @@ macOS Finder erlaubt es **nicht**, die Textfarbe von Icon-Labels programmatisch 
 
 Apple-AudioServerPlugin-Bundles müssen in `/Library/Audio/Plug-Ins/HAL/` liegen, root-geschützt. `coreaudiod` muss danach neu gestartet werden. User wird einmalig beim ersten App-Start nach Passwort gefragt.
 
+### Behoben in 3.4.6: die App startete unterhalb von macOS 26 überhaupt nicht
+
+Jedes jemals veröffentlichte v3-Release, von 3.4.0 bis 3.4.5, bündelte eine
+Python-Laufzeit mit `minos 26.0`. Unterhalb von macOS 26 kann der dynamische
+Linker sie nicht laden, der Prozess endet vor der ersten Zeile Anwendungscode.
+Für den Nutzer sichtbar: nichts. Kein Menüleistensymbol, kein Fenster, kein
+Fehlerdialog.
+
+Das README versprach seit dem Launch am 14.06.2026 "macOS 11 (Big Sur) or later".
+Diese Zusage war nie erfüllt. Es ist **keine Regression**, sondern ein Defekt über
+die gesamte öffentliche Lebenszeit von v3.
+
+**Ursache:** eine Zeile in `build.sh`, `PYTHON=$(command -v python3)`. Sie nahm den
+Interpreter aus der Umgebung, dort stand Homebrew-Python, und Homebrew übersetzt
+gegen das System des bauenden Rechners. Jede Komponente mit explizit gesetztem
+Deployment-Target war korrekt: Treiber, Helper, PyObjC, Sparkle, alle auf 11.0.
+Falsch war ausschliesslich die eine, die aus der Umgebung kam.
+
+**Warum es über drei Monate unentdeckt blieb:** Die Build-Maschine ist immer die
+neueste, dort läuft alles. Der Fehler ist stumm, es gibt nichts zu melden ausser
+"nichts passiert". Wer die App nicht starten kann, erzeugt auch keinen
+Diagnosebericht, alle früheren Fälle stammen von Systemen, auf denen sie lief. Und
+die naheliegende Stichprobe bestätigt die falsche Annahme: das Hauptbinary allein
+meldet brav `minos 11.0`, die 57 fehlerhaften Dateien liegen darunter.
+
+**Behoben durch zwei Dinge.** Der Interpreter ist auf den Framework-Build von
+python.org festgenagelt (`minos 11.0`, universal2). Und `build.sh` misst seit
+3.4.6 jede Mach-O-Datei im fertigen Bundle gegen `MACOS_MIN_VERSION` aus
+`engine/version.py`, bevor signiert wird. Gegen das alte 3.4.5-Bündel gehalten
+meldet dieses Gate 57 Verstösse bei 73 Dateien.
+
+**Was damit bewiesen ist, und was nicht.** Das Gate belegt eine **notwendige**
+Bedingung: keine Datei im Bundle verlangt ein System neuer als 11.0. Wäre das
+verletzt, könnte die App unmöglich starten. Es ist keine **hinreichende**
+Bedingung: ein korrektes `minos` sagt nichts darüber, ob eine Bibliothek zur
+Laufzeit eine API aufruft, die es erst in späteren macOS-Versionen gibt. Die
+Messung allein ist deshalb kein bestätigter Fix. Der Nachweis auf einem echten
+System unterhalb macOS 26 steht aus. Eine lokale VM auf macOS 12 ist die
+dauerhafte Antwort für künftige v3-Builds.
+
+**Prozessuale Einordnung.** Das ist dieselbe Fehlerklasse wie der fehlende
+Notarisierungsbeleg im DMG (3.4.5, siehe unten): Der Build behauptete eine
+Eigenschaft, die er nie gemessen hat. Beide Male fiel es nicht auf, weil die
+Build-Maschine der falscheste denkbare Prüfstand ist. **Was das Projekt öffentlich
+verspricht, muss der Build vor dem Ausliefern messen.** Beide Gates existieren aus
+diesem einen Satz heraus.
+
+Gemeldet von einem Nutzer auf macOS 12.7.6 am 24.09.2026.
+
 ### Behoben in 3.4.5: stiller Fehlschlag der Treiber-Installation
 
 Bis einschliesslich 3.4.4 schlug die Treiber-Installation auf Macs fehl, auf denen
@@ -1000,8 +1138,8 @@ Betraf 3.4.0 bis 3.4.4, also die gesamte Linie. Gemeldet als GitHub Issue #1,
 behoben in `8251570`, ausgeliefert mit 3.4.5. Die Prüfung `cp -Rf … || exit 1` war
 bereits in `7f951d4` committet, aber nie in einem Release enthalten.
 
-Relevant, weil v4 macOS 14.4+ und Apple Silicon verlangt: auf macOS 11 bis 14.3 und
-auf Intel ist v3 die einzige Option, und dort war der Erststart still kaputt.
+Relevant, weil v4 macOS 14.4+ verlangt: auf macOS 11 bis 14.3 ist v3 die einzige
+Option, und dort war der Erststart still kaputt.
 
 ### sounddevice-Puffertiefe (entfernt in v2.0)
 
@@ -5378,6 +5516,13 @@ Drei mögliche Definitionen, bewusst eine wählen (nach Drucker):
 
 > ⚠️ **Python 3.13 Downgrade vor Launch:** Das Bundle nutzt aktuell Python 3.14 (Beta). Vor dem offiziellen Release → `.venv` mit Python 3.13 neu erstellen → `build.sh` → neues DMG. Details: Kapitel 43.4.
 
+> ✅ **Nachtrag vom 25.09.2026:** Diese Forderung stand hier und in Kapitel 43.4,
+> wurde aber vor dem Launch am 14.06.2026 nicht ausgeführt. Umgesetzt erst in
+> v3.4.6, nachdem ein Nutzer meldete, dass die App auf macOS 12 gar nicht
+> startet. Der Interpreter ist seitdem in `build.sh` fest verdrahtet und ein Tor
+> misst das fertige Bündel gegen die zugesagte Mindestversion. Vollständige
+> Einordnung in Kapitel 43.4 und in Kapitel 11, „Behoben in 3.4.6".
+
 | Aufgabe | Bereich |
 |---------|---------|
 | Apple Developer ID beantragen | Distribution |
@@ -5552,7 +5697,7 @@ Diese Punkte wurden aus dem AUDIT_REPORT.md und PLAN.md übernommen:
 | `find_device_by_uid()` in hotplug Phase A lockfrei | P3 | Offen |
 | Phase 6.1 Stress-Tests (4h Musik, Sleep/Wake, CPU-Last) | P2 | Offen |
 | macOS 11/12/13/14/15 Kompatibilitäts-Matrix schließen | P2 | Offen |
-| Intel-Mac-Support: bestätigen oder explizit schließen | P2 | Offen |
+| Intel-Mac-Support: bestätigen oder explizit schließen | P2 | ✅ Geschlossen am 25.09.2026, siehe 43.3 |
 
 ---
 
@@ -5585,14 +5730,43 @@ Alle verwendeten CoreAudio HAL-, AppKit- und Foundation-APIs sind ab macOS 11.0 
 
 **Intel Macs:** Treiber und Helper laufen nativ (Universal Binary). Der PyInstaller-Bundle ist arm64-only und läuft via Rosetta 2. Kein System Extension oder KEXT erforderlich (reine AudioServerPlugin-Architektur). Offizielle Aussage: Intel Macs werden mit dem Prebuilt-DMG nicht nativ unterstützt, Bauen aus dem Source-Code bleibt möglich.
 
+> **Korrektur vom 25.09.2026.** Die beiden Aussagen oben bleiben unverändert
+> stehen, so wie sie am 04.06.2026 geschrieben wurden. Richtig sind sie nicht.
+>
+> Die Tabellenzeile "App-Bundle (PyInstaller) | ⚠️ Rosetta 2" und der Satz "Der
+> PyInstaller-Bundle ist arm64-only und läuft via Rosetta 2" haben die
+> Übersetzungsrichtung vertauscht. Rosetta 2 übersetzt x86_64 nach arm64, nicht
+> umgekehrt. Ein reines arm64-Bundle läuft auf einem Intel-Mac deshalb gar
+> nicht, weder mit Rosetta noch ohne. Es startet nicht.
+>
+> Gemessen am ausgelieferten 3.4.5-Bundle: von 73 Mach-O-Dateien sind 68
+> arm64-only. Die fünf universalen sind ausnahmslos Sparkle-Binaries
+> (`Sparkle`, `Autoupdate`, `Updater.app`, `Downloader.xpc`, `Installer.xpc`),
+> und sie überleben nur, weil `build.sh` das Framework **nach** dem
+> PyInstaller-Lauf per `cp -R` einbettet und PyInstaller es damit nie in die
+> Hand bekommt. Alles was durch PyInstaller läuft, verliert seine Intel-Hälfte.
+> Das trifft auch Treiber und Helper, die in der Tabelle oben noch als Universal
+> Binary stehen: gebaut werden sie universal, im fertigen Bundle sind beide
+> arm64-only. Ursache ist eine einzige Einstellung, `target_arch=None` in
+> `AudioRouterNow.spec`.
+
 ### 43.3 Empfohlener Requirements-Text (für GitHub / Download-Seite)
 
 ```
 Requirements:
-• macOS 11.0 (Big Sur) or later
-• Apple Silicon Mac (M1 or later), prebuilt binary is arm64
-  Intel Macs: build from source
+• macOS 11 (Big Sur) or later
+• Apple Silicon (arm64). Intel Macs are not supported.
 ```
+
+> **Korrigiert am 25.09.2026.** Der Block lautete ursprünglich "Apple Silicon Mac
+> (M1 or later), prebuilt binary is arm64" mit der Folgezeile "Intel Macs: build
+> from source". Anders als 43.2 ist das kein Chronikeintrag, sondern ein
+> Textvorschlag für die Gegenwart, und er versprach einen Weg, den nie jemand
+> gegangen ist: es gibt keinen Intel-Mac zum Prüfen, der HAL-Treiber lief dort
+> nie, und wegen `target_arch=None` (siehe Korrektur zu 43.2) entsteht auch beim
+> Selberbauen ein arm64-Bundle. Der Text steht jetzt deckungsgleich zu
+> `README.md`, Abschnitt Requirements: Intel wird nicht unterstützt, weder
+> vorgebaut noch selbst gebaut.
 
 ### 43.4 Offener Punkt: Python 3.13 Downgrade (⚠️ vor Launch)
 
@@ -5601,6 +5775,29 @@ Das aktuelle Bundle enthält **Python 3.14** (Beta/RC-Zyklus, Stand Juni 2026). 
 **Risiko:** Python 3.14 ist noch nicht final, ABI-Änderungen könnten `.so`-Dateien inkompatibel machen.
 
 **Aktion:** Vor GitHub Release v3.1.0 → `.venv` mit Python 3.13 neu erstellen → `build.sh` neu ausführen → neues DMG erstellen. Dieser Punkt ist in der Roadmap als P0-Präventivmaßnahme eingetragen (siehe Kapitel 42).
+
+> **Nachtrag vom 25.09.2026.** Diese Maßnahme wurde vor dem Launch nicht
+> ausgeführt. Der GitHub-Launch am 14.06.2026 fand mit Python 3.14 statt, und
+> 3.4.1 bis 3.4.5 wurden genauso gebaut. Umgesetzt wurde sie erst am 25.09.2026
+> in 3.4.6, und zwar aus einem anderen Grund als dem hier genannten: nicht wegen
+> der ABI-Stabilität eines noch nicht finalen Python, sondern weil der aus der
+> Umgebung geholte Interpreter ein Deployment-Target von `minos 26.0` ins Bundle
+> trug und die App dadurch unterhalb von macOS 26 überhaupt nicht startete.
+> Siehe Kapitel 11, Abschnitt "Behoben in 3.4.6", und `feedback/CASE-005`,
+> Abschnitt 10.
+>
+> Die Handlung ist in beiden Fällen dieselbe: Bundle gegen Python 3.13 bauen.
+> Wäre sie im Juni ausgeführt worden, hätte sie den Defekt verhindert, ohne dass
+> ihn jemand hätte benennen müssen.
+>
+> Die sachliche Schlussfolgerung daraus ist nicht, dass hier etwas übersehen
+> wurde. Der Punkt war erkannt, als P0 eingestuft und an zwei Stellen
+> festgehalten, hier und in Kapitel 42.4. Es fehlte nicht an Erkenntnis. Es
+> fehlte etwas, das den Build anhält, wenn eine als notwendig erkannte Maßnahme
+> nicht ausgeführt wurde. **Eine Notiz in einem Dokument ist kein Tor.** Deshalb
+> hat der Build seit 3.4.6 eines: `check_minos_gate()` in `build.sh` misst jede
+> Mach-O-Datei im fertigen Bundle gegen `MACOS_MIN_VERSION` aus
+> `engine/version.py`, bevor signiert wird, und bricht ab, statt zu warnen.
 
 ---
 
@@ -6152,6 +6349,20 @@ Sprint gemeinsam angegangen.
 | **H-11** | Keine Apple-Notarisierung | Pflicht für App Store / breite Verteilung |
 
 **Reihenfolge wenn angegangen**: H-9 (Developer Account + Signing) → H-10 (Entitlements) → H-11 (Notarisierung) → C-2 (Universal Binary).
+
+> ⚠️ **Korrektur vom 25.09.2026 zu C-2:** Die Auswirkungsspalte oben ist falsch
+> und bleibt als Beleg stehen. Rosetta 2 übersetzt x86_64 nach arm64, nicht
+> umgekehrt. Ein reines arm64-Bündel startet auf einem Intel-Mac überhaupt
+> nicht, in keiner Übersetzung. Dieselbe Falschaussage stand in Kapitel 43.2 und
+> ist dort ausführlich richtiggestellt.
+>
+> Zum Status: H-9, H-10 und H-11 sind seit v3.4.0 erledigt, die App ist
+> signiert, mit Hardened Runtime versehen und notarisiert. C-2 wurde am
+> 25.09.2026 nicht umgesetzt, sondern **entschieden**: Intel wird nicht
+> unterstützt, weder vorgebaut noch selbst gebaut, und README und Landing Page
+> sagen das seitdem so. Die technische Machbarkeit ist in `BACKLOG.md`
+> festgehalten, ausdrücklich als ungeprüfte Möglichkeit und nicht als Zusage.
+> Siehe auch Kapitel 42.9.
 
 ---
 

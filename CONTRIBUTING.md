@@ -23,7 +23,7 @@ Open a [GitHub Issue](../../issues/new?template=feature_request.md) and describe
 ### Code style
 
 - **C code**, C11, no external dependencies, clang-tidy clean
-- **Python**, compatible with Python 3.10+, no new third-party dependencies without prior discussion
+- **Python**, compatible with Python 3.13, the version the release build pins, no new third-party dependencies without prior discussion
 - **Commit messages**, conventional commits preferred (`fix:`, `feat:`, `chore:`)
 
 ### Architecture notes

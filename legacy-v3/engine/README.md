@@ -9,7 +9,10 @@ ueber POSIX Shared Memory und CoreAudio direkt.
 ## Voraussetzungen
 
 - macOS 11 (Big Sur) oder neuer
-- Python 3.10 oder neuer
+- Python 3.13, Framework-Build von python.org
+  (`/Library/Frameworks/Python.framework/Versions/3.13`). Seit 3.4.6 nagelt
+  `installer/build.sh` genau diesen Interpreter fest und bricht ab, wenn er
+  fehlt. Begruendung: `../installer/README.md`
 - HAL-Treiber installiert (siehe `../driver/README.md`)
 - Helper-Binary vorhanden (siehe `../helper/`)
 

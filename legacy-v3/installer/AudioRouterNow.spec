@@ -13,11 +13,16 @@ ENGINE_DIR   = PROJECT_ROOT / "engine"
 DRIVER_BUILD = PROJECT_ROOT / "driver" / "build" / "AudioRouterNow.driver"
 
 # Single Source of Truth fuer die Versionsnummer: engine/version.py
-# Kein Hardcoding mehr — CFBundleVersion / CFBundleShortVersionString werden
+# Kein Hardcoding mehr: CFBundleVersion / CFBundleShortVersionString werden
 # direkt aus APP_VERSION abgeleitet, um Versions-Divergenz dauerhaft zu eliminieren.
+#
+# Dasselbe gilt seit 3.4.6 fuer LSMinimumSystemVersion. Fehlt eine der beiden
+# Konstanten, wirft der Zugriff KeyError und PyInstaller bricht ab, bevor
+# irgendein Artefakt entsteht. Eine zusaetzliche Pruefung waere also folgenlos.
 _version_ns = {}
 exec((ENGINE_DIR / "version.py").read_text(encoding="utf-8"), _version_ns)
-APP_VERSION = _version_ns["APP_VERSION"]
+APP_VERSION       = _version_ns["APP_VERSION"]
+MACOS_MIN_VERSION = _version_ns["MACOS_MIN_VERSION"]
 
 # launchd plist (wird vom first_launch ggf. nach ~/Library/LaunchAgents/ kopiert)
 HELPER_PLIST = PROJECT_ROOT / "helper" / "com.audiorouter.now.helper.plist"
@@ -109,7 +114,7 @@ app = BUNDLE(
         "NSHighResolutionCapable":    True,
         "LSUIElement":                True,
         "NSHumanReadableCopyright":   "AudioRouterNow",
-        "LSMinimumSystemVersion":     "11.0",
+        "LSMinimumSystemVersion":     MACOS_MIN_VERSION,
         # Sparkle 2.9.3 Auto-Updates
         "SUFeedURL":               "https://mauriciomorkun.github.io/AudioRouterNow/appcast.xml",
         "SUPublicEDKey":           "uvHAgZWxrdMVo0ASrFMrWsRhOciUEUU301MZ1gQH/Jk=",

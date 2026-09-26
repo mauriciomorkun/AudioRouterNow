@@ -40,12 +40,32 @@ STAGING_DIR="/tmp/${APP_NAME}_dmg_staging"
 SIGN_IDENTITY="Developer ID Application: MAURICIO MORAIS DA CUNHA (5D52U34B3W)"
 NOTARIZE_PROFILE="AudioRouterNow-Notarization"
 
-# Die aelteste macOS-Version, die dieses Build unterstuetzen soll. Das ist die
-# Zahl, die README, Landing Page und Appcast dem Nutzer versprechen. Sie steht
-# hier genau einmal; jede Pruefung weiter unten liest diese Variable und
-# schreibt die Version nirgends erneut hin. Wer den Wert aendert, aendert damit
-# auch das minos-Gate, und nicht nur die Beschriftung.
-MACOS_MIN_VERSION="11.0"
+# Die aelteste macOS-Version, die dieses Build unterstuetzen soll. Der Wert wird
+# nicht hier festgelegt, sondern aus engine/version.py abgeleitet. Dieselbe Zahl
+# steuert die beiden Makefiles, die sie tatsaechlich ins Binary kompilieren, und
+# die .spec, die sie in die Info.plist schreibt. Ein Gate, das seinen eigenen
+# Schwellwert definiert, wuerde nur sich selbst bestaetigen.
+#
+# Gelesen wird direkt mit awk, nicht ueber $PYTHON: ENGINE_DIR steht hier schon
+# fest, $PYTHON wird erst deutlich weiter unten gesetzt. Das Gate braucht den
+# Wert erst danach, die Reihenfolge geht also auf.
+MACOS_MIN_VERSION="$(awk -F'"' '
+    /^[[:space:]]*MACOS_MIN_VERSION[[:space:]]*=/ { print $2; exit }
+' "$ENGINE_DIR/version.py" 2>/dev/null || true)"
+
+[[ -n "$MACOS_MIN_VERSION" ]] || fail "MACOS_MIN_VERSION nicht aus $ENGINE_DIR/version.py lesbar.
+   Entweder fehlt die Datei oder die Zeile. Ohne diesen Wert hat das
+   minos-Gate weiter unten keinen Schwellwert."
+
+# Formatpruefung, und die ist nicht optional. vgt() im Gate rechnet mit '+ 0';
+# ein nicht numerischer Wert wird dort stellenweise zu lauter Nullen, keine
+# Version waere je groesser, und das Gate wuerde stillschweigend jedes Bundle
+# durchwinken. Genau diese Fehlerklasse soll es aufdecken, also darf es nicht
+# selbst daran scheitern.
+[[ "$MACOS_MIN_VERSION" =~ ^[0-9]+(\.[0-9]+)*$ ]] \
+    || fail "MACOS_MIN_VERSION hat kein Versionsformat: '$MACOS_MIN_VERSION'
+   Erwartet wird etwas wie 11.0. Ein anderer Wert macht das minos-Gate
+   wirkungslos, statt es fehlschlagen zu lassen."
 
 # --- Notarisierung als Funktion ----------------------------------------------
 # Wird zweimal gebraucht: einmal fuer die .app (vor dem DMG-Bau, damit das

@@ -44,7 +44,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          # Matches the interpreter the release build pins, see
+          # legacy-v3/installer/build.sh and MACOS_MIN_VERSION in
+          # legacy-v3/engine/version.py
+          python-version: '3.13'
 
       - name: Check Python syntax
         run: |

@@ -25,7 +25,7 @@ labels: bug
 ## System info
 
 - **macOS version:** (e.g. macOS 15.5 Sequoia)
-- **Chip:** Apple Silicon (M1/M2/M3/M4) / Intel
+- **Chip:** Apple Silicon (M1/M2/M3/M4) / Intel (not a supported platform, but tell us anyway if that is what you are on)
 - **AudioRouterNow version:** (check Help menu)
 - **Audio interfaces involved:** (e.g. Focusrite Scarlett 2i2, AirPods Pro)
 

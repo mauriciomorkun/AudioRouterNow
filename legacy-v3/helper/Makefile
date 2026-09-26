@@ -16,20 +16,33 @@ BUILD_DIR   := build
 
 OUT         := $(BUILD_DIR)/$(BINARY)
 
+# --- Werte aus engine/version.py ---------------------------------------------
+# Einzige Quelle fuer die Versionsnummer und fuer das Deployment-Target.
+#
+# Dieser Block steht bewusst VOR den Compiler-Flags. Beide Variablen werden mit
+# ':=' sofort ausgewertet; stuende er darunter, waere $(ARN_MACOS_MIN) beim
+# Expandieren der CFLAGS noch leer. clang bricht dann zwar ab, aber mit
+# "missing version number" statt mit der Meldung hier.
+#
+# Dieses Makefile wird nur beim Einzelbau des Helpers benutzt. Im Release baut
+# das Driver-Makefile den Helper mit; beide muessen denselben Wert setzen,
+# sonst haengt das Deployment-Target davon ab, welcher Weg gewaehlt wurde.
+ARN_VERSION := $(shell python3 -c "import re,sys; m=re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"',open('../engine/version.py').read()); print(m.group(1)) if m else sys.exit(1)" 2>/dev/null)
+$(if $(ARN_VERSION),,$(error ARN_VERSION konnte nicht aus ../engine/version.py gelesen werden))
+
+ARN_MACOS_MIN := $(shell python3 -c "import re,sys; m=re.search(r'MACOS_MIN_VERSION\s*=\s*\"([^\"]+)\"',open('../engine/version.py').read()); print(m.group(1)) if m else sys.exit(1)" 2>/dev/null)
+$(if $(ARN_MACOS_MIN),,$(error ARN_MACOS_MIN konnte nicht aus ../engine/version.py gelesen werden))
+
 # --- Compiler-Flags ----------------------------------------------------------
 ARCHS       := -arch arm64 -arch x86_64
 
 CFLAGS      := $(ARCHS) \
-               -mmacosx-version-min=11.0 \
+               -mmacosx-version-min=$(ARN_MACOS_MIN) \
                -O2 \
                -Wall -Wextra \
                -std=c11 \
-               -I.
-
-# Versionsnummer dynamisch aus engine/version.py lesen (einzige Quelle)
-ARN_VERSION := $(shell python3 -c "import re,sys; m=re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"',open('../engine/version.py').read()); print(m.group(1)) if m else sys.exit(1)" 2>/dev/null)
-$(if $(ARN_VERSION),,$(error ARN_VERSION konnte nicht aus ../engine/version.py gelesen werden))
-CFLAGS      += -DARN_HELPER_VERSION=\"$(ARN_VERSION)\"
+               -I. \
+               -DARN_HELPER_VERSION=\"$(ARN_VERSION)\"
 
 LDFLAGS     := $(ARCHS) \
                -framework CoreAudio \

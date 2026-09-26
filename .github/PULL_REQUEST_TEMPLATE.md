@@ -14,14 +14,13 @@
 
 <!-- How did you test this change? -->
 
-- [ ] Tested on Apple Silicon
-- [ ] Tested on Intel Mac (if applicable)
+- [ ] Tested on Apple Silicon (the only supported platform, see Requirements in the README)
 - [ ] Audio routing verified after change
 - [ ] No regressions in existing behaviour
 
 ## Checklist
 
-- [ ] Code follows the existing style (C11 for C code, Python 3.10+ compatible)
+- [ ] Code follows the existing style (C11 for C code, Python 3.13 compatible)
 - [ ] Changes to shared-memory ring buffer or IPC protocol were discussed in an issue first
 - [ ] I agree that my contribution will be licensed under GPL-3.0
 

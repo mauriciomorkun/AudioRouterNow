@@ -3,9 +3,9 @@
 Dieses Verzeichnis baut aus dem Python-Code und dem C-Treiber ein fertiges,
 signiertes, notarisiertes und gestapeltes DMG.
 
-> **v3 ist Legacy, aber nicht tot.** v4 verlangt macOS 14.4+ und Apple Silicon.
-> Auf macOS 11 bis 14.3 und auf Intel ist v3 die einzige Option. Fehler hier
-> treffen echte Nutzer.
+> **v3 ist Legacy, aber nicht tot.** v4 verlangt macOS 14.4+. Auf macOS 11 bis
+> 14.3 ist v3 die einzige Option. Apple Silicon ist für beide Versionen
+> Voraussetzung. Fehler hier treffen echte Nutzer.
 
 ---
 
@@ -16,9 +16,16 @@ signiertes, notarisiertes und gestapeltes DMG.
 | | Prüfen mit |
 |---|---|
 | macOS 11+ | `sw_vers` |
-| Python 3.10+ | `python3 --version` |
+| Python 3.13, Framework-Build von python.org | `/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 --version` |
 | Xcode Command Line Tools | `xcode-select -p` |
 | Kompilierter HAL-Treiber | `ls ../driver/build/AudioRouterNow.driver` |
+
+Der Interpreter ist seit 3.4.6 fest verdrahtet, `build.sh` sucht `python3` nicht
+mehr in der Umgebung. Homebrew-Python übersetzt gegen das macOS des bauenden
+Rechners; PyInstaller kopiert diesen Interpreter unverändert ins Bundle, und auf
+älteren Systemen startet die App dann wortlos nicht. Fehlt der python.org-Build,
+bricht das Skript mit der Download-Adresse ab. Herunterladen:
+<https://www.python.org/downloads/macos/>
 
 Treiber bauen, falls nicht vorhanden (`build.sh` macht das ohnehin selbst):
 
@@ -59,25 +66,27 @@ bei Apple, je 2 bis 5 Minuten, auf die das Skript wartet.
 
 ### Was das Skript tut
 
-1. Voraussetzungen prüfen (Python, clang)
+1. Voraussetzungen prüfen (fest verdrahteter Interpreter, clang)
 2. HAL-Treiber und Helper bauen (Universal Binary, arm64 + x86_64)
-3. Python-venv einrichten, **inklusive Funktionsprüfung** (siehe unten)
+3. Python-venv einrichten, **inklusive Funktions- und Herkunftsprüfung** (siehe unten)
 4. Dependencies und PyInstaller installieren
 5. `AudioRouterNow.app` bauen
-6. Alles mit Developer ID signieren, Hardened Runtime, Timestamp
-7. **Signing-Gate:** `codesign --verify --deep --strict` über App und Sparkle-Framework
-8. **App notarisieren und stapeln** (per `ditto` archiviert, siehe unten)
-9. DMG bauen, Hintergrund und Icons setzen
-10. DMG signieren
-11. **DMG notarisieren und stapeln**
-12. **Abschluss-Gate:** DMG mounten und prüfen, ob die App *darin* ein gestapeltes Ticket hat und Gatekeeper sie akzeptiert
+6. **minos-Gate:** jede Mach-O-Datei im Bundle gegen die zugesagte Mindestversion messen
+7. Alles mit Developer ID signieren, Hardened Runtime, Timestamp
+8. **Signing-Gate:** `codesign --verify --deep --strict` über App und Sparkle-Framework
+9. **App notarisieren und stapeln** (per `ditto` archiviert, siehe unten)
+10. DMG bauen, Hintergrund und Icons setzen
+11. DMG signieren
+12. **DMG notarisieren und stapeln**
+13. **Abschluss-Gate:** DMG mounten und prüfen, ob die App *darin* ein gestapeltes Ticket hat und Gatekeeper sie akzeptiert
 
 Ergebnis: `~/Desktop/AudioRouterNow.dmg`
 
-### Die drei Gates
+### Die vier Gates
 
 Das Skript bricht ab, statt ein kaputtes Artefakt weiterzureichen:
 
+- **minos-Gate** nach PyInstaller, vor dem Signieren: misst mit `vtool` das Deployment-Target jeder einzelnen Mach-O-Datei im Bundle. Liegt eine über der zugesagten Mindestversion, bricht der Build ab. Bis 3.4.5 fehlte diese Prüfung, und jedes Release enthielt eine Python-Laufzeit, die unterhalb macOS 26 nicht lädt. Der Schwellwert kommt aus `engine/version.py`, also aus derselben Quelle, aus der die Makefiles ihr `-mmacosx-version-min` beziehen.
 - **Signing-Gate** vor der Notarisierung: unvollständige Signaturen fallen hier auf, nicht erst bei Apple.
 - **Unklarer Notarisierungsstatus** ist ein Abbruchgrund. Früher wurde nur gewarnt und weitergebaut, was den Fehler nur verschob: ohne akzeptierte Notarisierung scheitert das Stapling ohnehin, nur später und mit unklarerer Meldung.
 - **Abschluss-Gate** nach dem Stapling: mountet das fertige DMG und prüft die App darin. Genau diese Prüfung fehlte jahrelang, siehe unten.
@@ -102,6 +111,14 @@ meldete „venv bereits vorhanden". Jedes Release wäre daran gescheitert.
 `pip` wird getrennt geprüft, weil es eine eigene Shebang-Zeile hat, die
 unabhängig vom Interpreter kaputtgehen kann. Ist etwas faul, wird das venv
 gelöscht, neu gebaut und erneut geprüft.
+
+Seit 3.4.6 prüft `venv_matches_interpreter()` zusätzlich die **Herkunft**: Ein
+venv merkt sich in `pyvenv.cfg` unter `home` das bin-Verzeichnis, aus dem es
+erzeugt wurde, und benutzt dessen Standardbibliothek weiter. Ein venv, das
+einmal aus Homebrew-Python entstanden ist, bleibt ein Homebrew-venv, egal
+welcher Interpreter im Skript steht. Ohne diese Prüfung wäre das Festnageln des
+Interpreters wirkungslos. Stimmt die Herkunft nicht, wird verworfen und neu
+gebaut.
 
 **Manuell beheben**, falls doch nötig:
 
@@ -143,7 +160,7 @@ Reihenfolge einhalten. Schritt 7 gehört **zum** Release, nicht danach.
 
 | # | Schritt | Befehl / Ort |
 |---|---|---|
-| 1 | Version bumpen | `engine/version.py` **und** `driver/resources/Info.plist`. Die App-`Info.plist` leitet sich per `.spec` automatisch ab. |
+| 1 | Version bumpen | `engine/version.py` **und** `driver/resources/Info.plist`. Die App-`Info.plist` leitet sich per `.spec` automatisch ab. Gleiches Muster bei der Mindest-Systemversion: `engine/version.py` steuert Makefiles, `.spec` und minos-Gate, nur `driver/resources/Info.plist` wird von Hand nachgezogen. |
 | 2 | CHANGELOG datieren | `CHANGELOG.md`, Eintrag von `unreleased` auf das Datum |
 | 3 | Release Notes schreiben | `RELEASE_NOTES.md`, Abschnitte „For Everyone" und „For Power Users" |
 | 4 | Bauen | `./build.sh` |

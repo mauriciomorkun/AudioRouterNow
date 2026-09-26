@@ -19,8 +19,9 @@
 
   The build now uses the python.org framework build of Python 3.13 at a fixed
   absolute path, whose deployment target is macOS 11.0. The README has promised
-  macOS 11 or later since launch, and this is the first release in which that is
-  actually true.
+  macOS 11 or later since launch, and this is the first release in which that
+  has been measured to hold. Measured, not yet observed running: see the note
+  below on what this release proves and what it does not.
 
 ### Added
 - **Deployment target gate in the build script.** After the PyInstaller step and
