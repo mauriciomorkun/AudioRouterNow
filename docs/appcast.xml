@@ -17,6 +17,27 @@
          6. docs/appcast.xml committen + pushen (GitHub Pages publiziert automatisch)
     -->
     <item>
+      <title>Version 3.4.6</title>
+      <description><![CDATA[
+        <p><strong>The app now starts on macOS 11 through 25, and automatic updates work for the first time.</strong></p>
+        <ul>
+          <li><strong>The app did not start at all below macOS 26.</strong> Every release since launch carried a Python runtime compiled for macOS 26, so the system refused to load it before any application code ran. No icon, no window, no error. If you are reading this in the app, you were never affected, but many people were.</li>
+          <li><strong>Automatic updates had never run.</strong> This updater has been built in since 3.4.0 and failed silently on every launch. That is fixed, which is why you are seeing this notice at all.</li>
+        </ul>
+        <p>Both defects are now checked by the build itself, so neither can come back unnoticed.</p>
+        <p>Requires Apple Silicon. Intel is not supported.</p>
+      ]]></description>
+      <pubDate>Sat, 26 Sep 2026 13:13:47 +0000</pubDate>
+      <sparkle:version>3.4.6</sparkle:version>
+      <sparkle:shortVersionString>3.4.6</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/mauriciomorkun/AudioRouterNow/releases/tag/v3.4.6</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.6/AudioRouterNow.dmg"
+                 sparkle:edSignature="QGDdJRT5cEow6LF6v3B+GmUJFRxk8eOYWR6jsf76jHf0r3tTP1UJKgr8RULk3s4BPa5lWZQD7b2uLCkNDCo1Dw=="
+                 length="12045463"
+                 type="application/octet-stream"/>
+    </item>
+    <item>
       <title>Version 3.4.5</title>
       <description><![CDATA[
         <p><strong>Fixes driver installation failing on first launch, while the app reported success.</strong></p>
