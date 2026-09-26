@@ -472,6 +472,60 @@ check_minos_gate() {
 
 check_minos_gate "$APP_PATH"
 
+# --- Sparkle-Gate (CASE-006) -------------------------------------------------
+# Zwei Pruefungen, beide statisch, beide vor dem Signieren.
+#
+# Hintergrund: Die automatische Aktualisierung war von v3.4.0 bis v3.4.5 tot,
+# ohne dass es jemandem auffiel. Der Aufruf startUpdater_ erwartete ein Paar,
+# PyObjC lieferte ein blankes bool, die Ausnahme wurde abgefangen und
+# protokolliert. Eine Notiz in einem Dokument haette das nicht verhindert,
+# ein Tor im Build schon. Siehe feedback/CASE-006.
+check_sparkle_gate() {
+    local app="$1"
+    local plist="$app/Contents/Info.plist"
+
+    # (1) Oeffentlicher Schluessel der App gegen den privaten im Schluesselbund.
+    # Stimmen sie nicht ueberein, lehnt JEDER installierte Client jedes Update
+    # ab, und zwar stillschweigend.
+    local app_key kc_key
+    app_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$plist" 2>/dev/null || true)"
+    [[ -n "$app_key" ]] || fail "Sparkle-Gate: SUPublicEDKey fehlt in $plist"
+
+    local genkeys="$PROJECT_ROOT/vendor/Sparkle/bin/generate_keys"
+    if [[ -x "$genkeys" ]] \
+       && kc_key="$("$genkeys" -p 2>/dev/null | tr -d '[:space:]')" \
+       && [[ -n "$kc_key" ]]; then
+        if [[ "$app_key" != "$kc_key" ]]; then
+            echo -e "${RED}  App:         $app_key${NC}" >&2
+            echo -e "${RED}  Schluessel:  $kc_key${NC}" >&2
+            fail "Sparkle-Gate: SUPublicEDKey passt nicht zum Signierschluessel. Jedes Update wuerde abgelehnt."
+        fi
+        ok "Sparkle-Gate: SUPublicEDKey stimmt mit dem Signierschluessel ueberein"
+    else
+        # Fehlender Schluesselbundzugriff ist KEIN Beweis fuer eine Abweichung.
+        warn "Sparkle-Gate: Signierschluessel nicht lesbar, Abgleich uebersprungen."
+        warn "    Das Release kann erst signiert werden, wenn der Schluessel verfuegbar ist."
+    fi
+
+    # (2) Form des Selektors. Genau hier sass CASE-006.
+    if "$VENV_PY" - "$SPARKLE_SRC" <<'PYEOF'
+import sys, objc
+objc.loadBundle("Sparkle", globals(), bundle_path=sys.argv[1])
+objc.registerMetaDataForSelector(
+    b"SPUUpdater", b"startUpdater:",
+    {"arguments": {2: {"type": b"^@", "type_modifier": objc._C_OUT}}})
+t = objc.lookUpClass("SPUUpdater").startUpdater_.__metadata__()["arguments"][2]["type"]
+sys.exit(0 if t.startswith(b"o") else 1)
+PYEOF
+    then
+        ok "Sparkle-Gate: startUpdater_ liefert den Fehler als Ausgabeparameter"
+    else
+        fail "Sparkle-Gate: startUpdater_ ist kein Ausgabeparameter. Der Updater wuerde beim Start scheitern (CASE-006)."
+    fi
+}
+
+check_sparkle_gate "$APP_PATH"
+
 # --- Code-Signierung (Developer ID + Hardened Runtime) -----------------------
 # PyInstaller bündelt Homebrew-Python (andere Team-ID als unsere App).
 # macOS Sequoia+ verweigert das Laden bei Team-ID-Konflikt.

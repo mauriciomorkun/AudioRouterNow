@@ -106,7 +106,7 @@ No Terminal. No restart. No security approval.
 ```sh
 shasum -a 256 ~/Downloads/AudioRouterNow.dmg
 # Expected (v3.4.6):
-# 239e71d3969963ce4962063bdce2739262d5d1162174157d99df259c9ec18f9d
+# c97b1bfb6b9ec6238f642821922f20bb549b99b05f588168e810a836d883a3c4
 ```
 
 **Option B, Homebrew Cask (optional)**

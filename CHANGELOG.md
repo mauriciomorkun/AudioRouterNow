@@ -23,6 +23,22 @@
   has been measured to hold. Measured, not yet observed running: see the note
   below on what this release proves and what it does not.
 
+- **Automatic updates never ran.** Sparkle has been embedded since 3.4.0 and has
+  never started once. `SPUUpdater.startUpdater:` returns a `BOOL` and takes an
+  `NSError **`, but PyObjC only recognises that pointer as an output parameter
+  for selectors ending in `error:`, and ships no metadata for third-party
+  frameworks. The call therefore returned a plain boolean while the code
+  unpacked a pair, raising on every launch. The exception was caught and logged,
+  so the app fell back to a browser hint and said nothing.
+
+  The metadata is now registered explicitly, and the call site accepts either
+  shape. Everything else in the chain was verified to be intact: the feed is
+  reachable, the public key in `Info.plist` matches the signing key, and
+  signature verification distinguishes a real signature from a forged one.
+
+  Found while testing this release, not reported. It was invisible from the
+  outside, since a user cannot tell a silent updater from one that finds nothing.
+
 ### Added
 - **Deployment target gate in the build script.** After the PyInstaller step and
   before signing, every Mach-O file in the bundle is checked with `vtool -show-build`
@@ -35,6 +51,13 @@
   venv records its origin in `pyvenv.cfg` and keeps using that interpreter's standard
   library, so a leftover venv would have silently defeated the fix above. Mismatches
   are now discarded and rebuilt.
+- **Sparkle gate in the build script.** Two static checks before signing. The
+  public key in the built `Info.plist` is compared against the signing key, since
+  a mismatch would make every installed client reject every update without
+  saying why. And the `startUpdater:` selector is asserted to expose its error as
+  an output parameter, which is the exact defect above. An unreadable keychain is
+  a warning rather than a failure: not being able to look is not evidence of a
+  mismatch.
 
 > **What this release proves and what it does not.** The gate establishes that no
 > file in the bundle demands a system newer than macOS 11.0, which is a necessary

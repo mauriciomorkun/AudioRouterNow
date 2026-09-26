@@ -57,6 +57,32 @@ try:
                 )
 
     if _loaded:
+        # CASE-006: PyObjC bringt fuer Sparkle keine Metadaten mit, es ist kein
+        # Apple-Framework. Die automatische Erkennung eines NSError**-Ausgabe-
+        # parameters greift nur bei Selektoren, die auf "error:" enden.
+        # "startUpdater:" tut das nicht, also meldet die Laufzeit
+        #     b'B@:^@'
+        # und PyObjC gibt ein blankes bool zurueck statt des Paares
+        # (BOOL, NSError). Der Aufruf in start() ist daran seit v3.4.0 bei JEDEM
+        # Start gescheitert, die automatische Aktualisierung war nie aktiv.
+        #
+        # Hier wird das Argument nachtraeglich als Ausgabeparameter deklariert.
+        # Nachgemessen: die Signatur wechselt danach auf o^@, das vorangestellte
+        # o markiert den Ausgabeparameter. Muss vor dem ersten Binden einer
+        # SPUUpdater-Methode geschehen, deshalb steht es vor lookUpClass.
+        try:
+            objc.registerMetaDataForSelector(
+                b"SPUUpdater",
+                b"startUpdater:",
+                {"arguments": {2: {"type": b"^@", "type_modifier": objc._C_OUT}}},
+            )
+        except Exception as meta_exc:  # noqa: BLE001
+            # Kein Abbruch: die Aufrufstelle in start() kommt mit beiden Formen
+            # zurecht, nur der Fehlertext ginge verloren.
+            logger.warning(
+                "Sparkle-Metadaten konnten nicht registriert werden: %s", meta_exc
+            )
+
         # Symbole nach erfolgreichem Laden aufloesen.
         _SPUStandardUpdaterController = objc.lookUpClass(
             "SPUStandardUpdaterController"
@@ -117,9 +143,20 @@ class SparkleUpdater:
             return True
         try:
             updater = self._controller.updater()
-            # Sparkle 2.x API: startUpdater:(NSError**)error, gibt (BOOL, NSError) zurück.
-            # PyObjC-Mangling: startUpdater_ mit None als Error-Pointer.
-            ok, err = updater.startUpdater_(None)
+            # Sparkle 2.x: - (BOOL)startUpdater:(NSError **)error
+            #
+            # Die Rueckgabeform haengt davon ab, ob PyObjC den NSError** als
+            # Ausgabeparameter kennt. Mit den oben registrierten Metadaten kommt
+            # das Paar (BOOL, NSError), ohne sie ein blankes bool. Beide Formen
+            # werden hier angenommen, damit diese Zeile nie wieder die alleinige
+            # Ursache dafuer sein kann, dass die Aktualisierung lautlos ausfaellt
+            # (CASE-006). Ohne Metadaten geht nur der Fehlertext verloren.
+            res = updater.startUpdater_(None)
+            if isinstance(res, tuple):
+                ok = bool(res[0])
+                err = res[1] if len(res) > 1 else None
+            else:
+                ok, err = bool(res), None
             if not ok:
                 logger.error(
                     "Sparkle startUpdater fehlgeschlagen: %s",
