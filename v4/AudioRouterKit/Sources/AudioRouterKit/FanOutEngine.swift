@@ -502,6 +502,17 @@ public final class FanOutEngine {
         // Reihenfolge von resolvableOutputs). Für das UI-Peak-Mapping.
         slotDeviceKeys = resolvableOutputs.map { "\($0.uid):\($0.channelOffset)" }
 
+        // CASE-004: pro Slot entscheiden, ob vol in Software anzuwenden ist.
+        // Regel: Default-Output mit Hardware-Volume bekommt Faktor 1.0, seine
+        //        Hardware skaliert vol bereits selbst. Alle anderen Slots
+        //        bekommen vol, sonst spielen reglerlose Ziele auf Anschlag.
+        let defaultHasHW = volumeTracker?.defaultDeviceHasHardwareVolume ?? true
+        let slotAppliesVol = Self.computeSlotAppliesVol(
+            outputs: resolvableOutputs,
+            defaultOutputUID: defaultOutputUID,
+            defaultHasHardwareVolume: defaultHasHW
+        )
+
         reseedSlotGains()   // F16: Slot-Reihenfolge steht jetzt fest, Gains einsäen
 
         // W3: SlotGains/PeakMeters tragen max. maxSlots Einträge, Slots darüber
@@ -520,19 +531,38 @@ public final class FanOutEngine {
         // Das Aggregate MUSS exakt so viele Output-Buffer bereitstellen, wie die
         // Summe der Sub-Device-Buffer erwartet, sonst zeigt unser Slot-Mapping
         // in falsche/fremde Buffer.
+        // CASE-004: zusätzlich die Index-Kopplung prüfen. `slotAppliesVol` ist
+        // nach der Position in `resolvableOutputs` indiziert, `slots` nach der
+        // Position in `layouts`. `computeSlotLayouts` hat ein `continue`, das
+        // einen Eintrag überspringen und damit jeden späteren Index verschieben
+        // würde. Heute unerreichbar (beide Listen laufen über dieselben
+        // Outputs), aber die Folge wäre, dass ein Fan-out-Slot fälschlich
+        // `false` erbt und auf Anschlag spielt: die laute Fehlerrichtung.
         let aggregateBufferCount = Self.outputStreamBufferCount(for: newAggregateID)
-        diagLogger.debug("SlotDiag F5: aggregateBufferCount=\(aggregateBufferCount, privacy: .public) expected=\(expectedBufferCount, privacy: .public) match=\(aggregateBufferCount == expectedBufferCount, privacy: .public)")
-        guard aggregateBufferCount == expectedBufferCount else {
+        diagLogger.debug("SlotDiag F5: aggregateBufferCount=\(aggregateBufferCount, privacy: .public) expected=\(expectedBufferCount, privacy: .public) match=\(aggregateBufferCount == expectedBufferCount, privacy: .public) slots=\(slots.count, privacy: .public) slotAppliesVol=\(slotAppliesVol.count, privacy: .public) appliesVolMatch=\(slots.count == slotAppliesVol.count, privacy: .public)")
+        guard aggregateBufferCount == expectedBufferCount,
+              slots.count == slotAppliesVol.count else {
             throw RouterError.aggregateLayoutMismatch(
                 expected: expectedBufferCount, actual: aggregateBufferCount)
         }
 
         // ── Schritt 5: Ein Direct-IOProc auf dem Aggregate ──────────────
         // ⚠️ Block via nonisolated static Factory, niemals inline (s. o.).
-        // Der Block captured nur `metrics` (Sendable) und `slots` (Wert-Kopie).
+        // Der Block captured sieben Dinge, kein `self`, jedes davon entweder
+        // Wert-Kopie oder Sendable-Referenz:
+        //   1. `metrics`        TapIOMetrics,    @unchecked Sendable (Zähler-Box)
+        //   2. `slots`          [DirectOutputSlot], Wert-Kopie
+        //   3. `volumeTracker`  VolumeTracker?,  @unchecked Sendable (os_unfair_lock)
+        //   4. `peaks`          PeakMeters,      @unchecked Sendable
+        //   5. `waveform`       WaveformBridge,  @unchecked Sendable
+        //   6. `slotGains`      SlotGains,       @unchecked Sendable
+        //   7. `slotAppliesVol` [Bool],          Wert-Kopie (CASE-004)
+        // Dazu die in der Factory selbst abgeleiteten Locals `anySlotHasDelay`,
+        // `maxFrames` und `lastSV` (Heap-Box per Referenz, dort kommentiert).
         let directBlock = Self.makeDirectIOBlock(
             metrics: metrics, slots: slots, volumeTracker: volumeTracker,
-            peaks: peaks, waveform: waveform, slotGains: slotGains
+            peaks: peaks, waveform: waveform, slotGains: slotGains,
+            slotAppliesVol: slotAppliesVol
         )
         var newProcID: AudioDeviceIOProcID?
         // nil = CoreAudio-eigener IOThread (eigene Queue → assert-Crash-Regel).
@@ -763,13 +793,22 @@ public final class FanOutEngine {
     /// - Parameters:
     ///   - metrics: Sendable-Zähler-Box (kein `self`-Capture!).
     ///   - slots: Buffer-Ziel-Slots (Wert-Kopie; Reihenfolge = Config-Reihenfolge).
+    ///   - volumeTracker: System-Lautstärke, RT-safe via `os_unfair_lock`
+    ///     (`@unchecked Sendable`, kein `self`-Capture).
+    ///   - peaks: Sendable-Box für die UI-Pegelanzeige.
+    ///   - waveform: Sendable-Box für das Oszilloskop.
+    ///   - slotGains: Sendable-Box mit dem Per-Slot-Gain.
+    ///   - slotAppliesVol: CASE-004, pro Slot `true` = `vol` zusätzlich in
+    ///     Software anwenden, `false` = Faktor 1.0. Wert-Kopie, 1:1 mit `slots`
+    ///     indiziert (in `buildAndStartAggregate` gegen `slots.count` geprüft).
     private nonisolated static func makeDirectIOBlock(
         metrics: TapIOMetrics,
         slots: [DirectOutputSlot],
         volumeTracker: VolumeTracker?,
         peaks: PeakMeters,
         waveform: WaveformBridge,
-        slotGains: SlotGains
+        slotGains: SlotGains,
+        slotAppliesVol: [Bool]
     ) -> AudioDeviceIOBlock {
         // F2: Bei aktiven DelayLines darf Silence NICHT früh raus, sonst wird
         // der Audio-Tail abgeschnitten (Geister-Burst beim nächsten Callback).
@@ -943,7 +982,12 @@ public final class FanOutEngine {
                 // F16: effektiver Sample-Faktor = globalVol × Per-Slot-Gain.
                 // W1: linearer Ramp gegen Zipper-Noise (kein harter sv-Sprung).
                 let g = slotGains.gain(slotIndex: slotIdx)
-                let targetSV = vol * g
+                // CASE-004: der Default-Output mit Hardwareregler skaliert vol
+                // selbst, eine zweite Anwendung ergäbe vol². Wert-Kopie,
+                // kein Lock, keine Allokation.
+                let appliesVol = slotIdx < slotAppliesVol.count ? slotAppliesVol[slotIdx] : true
+                let effectiveVol = Self.effectiveVolume(vol: vol, appliesVol: appliesVol)
+                let targetSV = effectiveVol * g
                 var currentSV = lastSV[slotIdx]
                 if currentSV < 0 { currentSV = targetSV }    // erster Callback: snap
                 let svStep = (targetSV - currentSV) / Float32(n)
@@ -1198,6 +1242,67 @@ public final class FanOutEngine {
             return fallback
         }
         return best.uid
+    }
+
+    // MARK: Volume-Zuordnung pro Slot (CASE-004)
+
+    /// Entscheidet pro Slot, ob der System-Lautstärke-Skalar `vol` zusätzlich
+    /// in Software angewendet werden muss.
+    ///
+    /// `false` (Faktor 1.0) bekommt ausschließlich der Slot, der das
+    /// Default-Output-Gerät selbst IST und dessen Hardware `vol` bereits
+    /// anwendet. Jede zweite Anwendung ergäbe `vol²`, gemessen 10,5 dB
+    /// Verlust bei 30 % Systemlautstärke (CASE-004).
+    ///
+    /// Zugeordnet wird über `uid == defaultOutputUID && channelOffset == 0`,
+    /// NICHT über den Slot-Index: gewinnt ein anderes Gerät die Master-Rolle,
+    /// stehen dessen Slots zuerst. `channelOffset == 0` ist nötig, weil
+    /// `kAudioDevicePropertyVolumeScalar` nur das primäre Stereo-Paar steuert,
+    /// Kanal 3/4 desselben Geräts braucht `vol` weiterhin als Proxy.
+    ///
+    /// Im Software-Volume-Modus (`defaultHasHardwareVolume == false`) trägt die
+    /// Hardware nichts bei, dann bekommt auch der Default-Slot `vol`, sonst
+    /// wirkte der Systemregler gar nicht mehr.
+    ///
+    /// - Returns: Array in der Reihenfolge von `outputs`. `true` = `vol`
+    ///   anwenden (bisheriges Verhalten), `false` = Faktor 1.0.
+    nonisolated static func computeSlotAppliesVol(
+        outputs: [OutputConfig],
+        defaultOutputUID: String,
+        defaultHasHardwareVolume: Bool
+    ) -> [Bool] {
+        outputs.map { config in
+            let isDefaultMain = config.uid == defaultOutputUID && config.channelOffset == 0
+            if isDefaultMain && defaultHasHardwareVolume { return false }
+            return true
+        }
+    }
+
+    /// CASE-004: entscheidet den Software-Lautstärkefaktor für EINEN Slot.
+    ///
+    /// Bewusst eine reine Funktion und nicht nur ein Ausdruck im IOProc. Die
+    /// Stummschaltungs-Lücke aus dem ersten Durchlauf fiel genau deshalb durch
+    /// alle Tests: prüfbar war nur die Zuordnung der Slots, nicht die
+    /// Entscheidung über den Faktor. Was nicht als Funktion vorliegt, wird
+    /// nicht geprüft.
+    ///
+    /// `vol <= 0` ist die Stummschaltung. `VolumeTracker` codiert sie als
+    /// Lautstärke Null und führt keinen eigenen Mute-Zustand. Ohne diesen Zweig
+    /// bekäme das Standardgerät bei gedrückter Stummtaste den Faktor 1.0, und die
+    /// Stille müsste allein aus dem Hardware-Mute kommen. Ob der durchgreift,
+    /// wenn das Gerät als Sub-Device eines Aggregates bespielt wird, ist nicht
+    /// belegt, und die Fehlerrichtung wäre die laute.
+    ///
+    /// Ein eigenes `isMuted`-Flag wurde verworfen: bei einem Gerät OHNE
+    /// Mute-Property setzt macOS die Stummschaltung durch Schreiben von Skalar 0
+    /// um. Dort wäre das Flag `false` und hätte den Fall verfehlt. Der Vergleich
+    /// gegen Null erfasst beide Wege.
+    ///
+    /// `vol` ist durch alle Schreiber auf `[0, 1]` geklemmt, also bedeutet
+    /// `vol <= 0` genau `vol == 0`.
+    @inline(__always)
+    nonisolated static func effectiveVolume(vol: Float32, appliesVol: Bool) -> Float32 {
+        (appliesVol || vol <= 0) ? vol : 1.0
     }
 
     // MARK: Device-Property-Helpers (nonisolated static)

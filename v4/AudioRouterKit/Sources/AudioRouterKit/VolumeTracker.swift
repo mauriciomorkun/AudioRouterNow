@@ -31,6 +31,12 @@ final class VolumeTracker: @unchecked Sendable {
         return _volumeScale
     }
 
+    /// Build-Zeit-Abfrage (nur aus MainActor-Kontext, nicht aus IOProc).
+    /// Liest, ob das aktuelle Default-Geraet Hardware-Lautstaerke hat.
+    var defaultDeviceHasHardwareVolume: Bool {
+        queue.sync { hasHardwareVolume }
+    }
+
     // MARK: Interne State
 
     private let queue = DispatchQueue(
