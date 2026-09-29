@@ -17,7 +17,8 @@ turned out to be wrong, and which claims are still unproven.
 | [02-decisions.md](02-decisions.md) | Every decision that shaped the fix, with its reasoning and its accepted cost |
 | [03-discarded-approaches.md](03-discarded-approaches.md) | Three approaches that were written or considered and rejected, and the reason each one failed. Read this before reintroducing any of them |
 | [04-verification.md](04-verification.md) | How the fix was checked, and the list of things that remain unchecked |
-| [05-volume-plan.md](05-volume-plan.md) | The second defect, added later: the system volume was applied twice on the default device. Includes an objection to the plan that turned out to be wrong, and the limit of what a unit test can establish |
+| [05-volume-plan.md](05-volume-plan.md) | The second defect, added later: the system volume was applied twice on the default device. Written before the code changed, including an objection to the plan that turned out to be wrong |
+| [06-volume-report.md](06-volume-report.md) | The closing report on that defect. What the fix exposed, what two reviews got wrong, and the one finding that could not be fixed because no unit test can reach it |
 
 ## Release at a glance
 
@@ -28,7 +29,7 @@ turned out to be wrong, and which claims are still unproven.
 | Work completed | 23 September 2026 for the crash, 27 September 2026 for the volume defect |
 | Platform | Mac App Store, macOS 14.4 or later, Apple Silicon |
 | Trigger | Five crash reports aggregated in App Store Connect, received 22 September 2026. Separately, a volume report in the MacRumors thread on 24 September |
-| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1` |
+| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1`, `c9e097d` |
 | Internal case IDs | CASE-003 (the crash), CASE-004 (the volume) |
 
 The commit range is worth reading in full, the messages carry most of the
