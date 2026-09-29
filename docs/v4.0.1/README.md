@@ -19,6 +19,7 @@ turned out to be wrong, and which claims are still unproven.
 | [04-verification.md](04-verification.md) | How the fix was checked, and the list of things that remain unchecked |
 | [05-volume-plan.md](05-volume-plan.md) | The second defect, added later: the system volume was applied twice on the default device. Written before the code changed, including an objection to the plan that turned out to be wrong |
 | [06-volume-report.md](06-volume-report.md) | The closing report on that defect. What the fix exposed, what two reviews got wrong, and the one finding that could not be fixed because no unit test can reach it |
+| [07-submission-plan.md](07-submission-plan.md) | The step by step plan for submitting to App Review, in German because it is a working checklist rather than a report. Includes the guideline 2.4.5(iii) risk from an earlier rejection |
 
 ## Release at a glance
 
