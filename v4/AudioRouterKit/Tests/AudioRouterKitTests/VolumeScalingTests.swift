@@ -164,6 +164,85 @@ final class VolumeScalingTests: XCTestCase {
         XCTAssertEqual(FanOutEngine.effectiveVolume(vol: 1.0, appliesVol: false), 1.0)
     }
 
+    // MARK: Die Verdrahtung, nicht nur die Bestandteile
+
+    /// Diese Tests existieren wegen eines Befunds des zweiten Audits: die
+    /// Zuordnung und der Faktor waren einzeln geprüft, die Multiplikation
+    /// dazwischen nicht. Der ursprüngliche Fehler von CASE-004 liess sich
+    /// dadurch wieder einbauen, `vol * g` statt `effectiveVol * g` im IOProc,
+    /// ohne dass ein einziger Test umfiel.
+    ///
+    /// Der Default-Slot mit Hardwareregler bei 30 % Systemlautstärke und
+    /// Gain 1.0: der Faktor muss 1.0 sein, nicht 0.3 und erst recht nicht 0.09.
+    func testSlotTargetSVDoesNotApplyVolumeTwiceOnDefaultSlot() {
+        let flags = [false, true]   // Slot 0 ist das Default-Gerät
+        let targetSV = FanOutEngine.slotTargetSV(
+            vol: 0.3, slotIndex: 0, slotAppliesVol: flags, gain: 1.0)
+
+        XCTAssertEqual(targetSV, 1.0,
+                       "Der Default-Slot darf vol nicht in Software anwenden")
+        XCTAssertNotEqual(targetSV, 0.3,
+                          "0.3 hiesse, die Zuordnung wird ignoriert")
+        XCTAssertNotEqual(targetSV, 0.09,
+                          "0.09 ist der Originalfehler vol im Quadrat")
+    }
+
+    /// Derselbe Aufruf für einen Fan-out-Slot: dort MUSS `vol` wirken, sonst
+    /// spielt ein Ziel ohne eigenen Regler auf Anschlag.
+    func testSlotTargetSVAppliesVolumeOnFanOutSlot() {
+        let flags = [false, true]
+        let targetSV = FanOutEngine.slotTargetSV(
+            vol: 0.3, slotIndex: 1, slotAppliesVol: flags, gain: 1.0)
+        XCTAssertEqual(targetSV, 0.3, accuracy: 1e-6)
+    }
+
+    /// Der Per-Slot-Gain muss in beiden Zweigen multiplikativ bleiben.
+    func testSlotTargetSVKeepsPerSlotGain() {
+        let flags = [false, true]
+        // Default-Slot: 1.0 * 0.5
+        XCTAssertEqual(
+            FanOutEngine.slotTargetSV(vol: 0.3, slotIndex: 0, slotAppliesVol: flags, gain: 0.5),
+            0.5, accuracy: 1e-6)
+        // Fan-out-Slot: 0.3 * 0.5
+        XCTAssertEqual(
+            FanOutEngine.slotTargetSV(vol: 0.3, slotIndex: 1, slotAppliesVol: flags, gain: 0.5),
+            0.15, accuracy: 1e-6)
+    }
+
+    /// Stummschaltung schlägt die Slot-Zuordnung, auch durch die Verdrahtung
+    /// hindurch und unabhängig vom Gain.
+    func testSlotTargetSVMuteBeatsAssignment() {
+        let flags = [false, true]
+        XCTAssertEqual(
+            FanOutEngine.slotTargetSV(vol: 0.0, slotIndex: 0, slotAppliesVol: flags, gain: 1.0),
+            0.0, "Stummschaltung muss auch den Default-Slot erreichen")
+        XCTAssertEqual(
+            FanOutEngine.slotTargetSV(vol: 0.0, slotIndex: 1, slotAppliesVol: flags, gain: 0.7),
+            0.0)
+    }
+
+    /// Index ausserhalb der Liste: Rückfall auf `vol` anwenden, die leise
+    /// Richtung. Ein Rückfall auf `false` liesse den Slot auf Anschlag spielen.
+    func testSlotTargetSVOutOfRangeIndexFallsBackToQuietDirection() {
+        let flags = [false]   // nur ein Eintrag
+        let targetSV = FanOutEngine.slotTargetSV(
+            vol: 0.3, slotIndex: 5, slotAppliesVol: flags, gain: 1.0)
+
+        XCTAssertEqual(targetSV, 0.3, accuracy: 1e-6,
+                       "Ohne Eintrag muss vol angewendet werden, nicht 1.0")
+        XCTAssertNotEqual(targetSV, 1.0,
+                          "1.0 waere die laute Fehlerrichtung")
+    }
+
+    /// Leere Liste: jeder Index fällt zurück, niemand spielt auf Anschlag.
+    func testSlotTargetSVEmptyFlagsNeverPlaysAtFullScale() {
+        for slotIndex in 0..<4 {
+            let targetSV = FanOutEngine.slotTargetSV(
+                vol: 0.25, slotIndex: slotIndex, slotAppliesVol: [], gain: 1.0)
+            XCTAssertEqual(targetSV, 0.25, accuracy: 1e-6)
+        }
+    }
+
     /// Bei 30 % war der gemessene Verlust 10,5 dB, die Rechnung sagt
     /// `-20·log10(0.3) = 10,46 dB`. Der Fix muss diesen Abstand auf Null
     /// bringen, also `1.0` liefern statt `0.3`.

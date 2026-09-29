@@ -540,10 +540,18 @@ public final class FanOutEngine {
         // `false` erbt und auf Anschlag spielt: die laute Fehlerrichtung.
         let aggregateBufferCount = Self.outputStreamBufferCount(for: newAggregateID)
         diagLogger.debug("SlotDiag F5: aggregateBufferCount=\(aggregateBufferCount, privacy: .public) expected=\(expectedBufferCount, privacy: .public) match=\(aggregateBufferCount == expectedBufferCount, privacy: .public) slots=\(slots.count, privacy: .public) slotAppliesVol=\(slotAppliesVol.count, privacy: .public) appliesVolMatch=\(slots.count == slotAppliesVol.count, privacy: .public)")
-        guard aggregateBufferCount == expectedBufferCount,
-              slots.count == slotAppliesVol.count else {
+        guard aggregateBufferCount == expectedBufferCount else {
             throw RouterError.aggregateLayoutMismatch(
                 expected: expectedBufferCount, actual: aggregateBufferCount)
+        }
+        // Getrennt geworfen, nicht mit der Puffer-Prüfung zusammengelegt: sonst
+        // meldete der Fehler „expected 4, got 4" und riete zum Neuverbinden des
+        // Geräts. Diese Abweichung ist kein Geräteproblem, sondern ein
+        // Programmierfehler in `computeSlotLayouts`, und die Zahlen der
+        // Puffer-Prüfung wären hier beide gleich.
+        guard slots.count == slotAppliesVol.count else {
+            throw RouterError.aggregateLayoutMismatch(
+                expected: slotAppliesVol.count, actual: slots.count)
         }
 
         // ── Schritt 5: Ein Direct-IOProc auf dem Aggregate ──────────────
@@ -983,11 +991,12 @@ public final class FanOutEngine {
                 // W1: linearer Ramp gegen Zipper-Noise (kein harter sv-Sprung).
                 let g = slotGains.gain(slotIndex: slotIdx)
                 // CASE-004: der Default-Output mit Hardwareregler skaliert vol
-                // selbst, eine zweite Anwendung ergäbe vol². Wert-Kopie,
-                // kein Lock, keine Allokation.
-                let appliesVol = slotIdx < slotAppliesVol.count ? slotAppliesVol[slotIdx] : true
-                let effectiveVol = Self.effectiveVolume(vol: vol, appliesVol: appliesVol)
-                let targetSV = effectiveVol * g
+                // selbst, eine zweite Anwendung ergäbe vol². Die Entscheidung
+                // liegt vollständig in `slotTargetSV`, damit sie prüfbar ist.
+                // Wert-Kopie, kein Lock, keine Allokation.
+                let targetSV = Self.slotTargetSV(
+                    vol: vol, slotIndex: slotIdx,
+                    slotAppliesVol: slotAppliesVol, gain: g)
                 var currentSV = lastSV[slotIdx]
                 if currentSV < 0 { currentSV = targetSV }    // erster Callback: snap
                 let svStep = (targetSV - currentSV) / Float32(n)
@@ -1303,6 +1312,31 @@ public final class FanOutEngine {
     @inline(__always)
     nonisolated static func effectiveVolume(vol: Float32, appliesVol: Bool) -> Float32 {
         (appliesVol || vol <= 0) ? vol : 1.0
+    }
+
+    /// CASE-004: der vollständige Ziel-Faktor für EINEN Slot, aus Systemlautstärke,
+    /// Slot-Zuordnung und Per-Slot-Gain.
+    ///
+    /// Diese Funktion existiert, weil die Prüfung sonst eine Ebene zu kurz greift.
+    /// `effectiveVolume` und `computeSlotAppliesVol` waren einzeln geprüft, die
+    /// **Verdrahtung** dazwischen nicht. Ein zweites Audit hat das belegt: der
+    /// ursprüngliche Fehler von CASE-004 liess sich wieder einbauen, indem im
+    /// IOProc `vol * g` statt `effectiveVol * g` stand, und kein einziger Test
+    /// fiel um. Was nicht als Funktion vorliegt, wird nicht geprüft, und das gilt
+    /// auch für eine Multiplikation.
+    ///
+    /// Der Rückfall bei einem Index ausserhalb von `slotAppliesVol` ist bewusst
+    /// `true`, also `vol` anwenden. Das ist die leise Richtung. Ein Rückfall auf
+    /// `false` liesse einen Slot ohne Eintrag auf Anschlag spielen.
+    @inline(__always)
+    nonisolated static func slotTargetSV(
+        vol: Float32,
+        slotIndex: Int,
+        slotAppliesVol: [Bool],
+        gain: Float32
+    ) -> Float32 {
+        let applies = slotIndex < slotAppliesVol.count ? slotAppliesVol[slotIndex] : true
+        return effectiveVolume(vol: vol, appliesVol: applies) * gain
     }
 
     // MARK: Device-Property-Helpers (nonisolated static)

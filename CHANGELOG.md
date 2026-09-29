@@ -67,6 +67,25 @@
 
 ---
 
+## [4.0.1 (9)], 2026-09-27 · _prepared, not yet submitted to App Review_
+
+### Fixed
+
+- **The system volume was applied twice on the default output device.** Routing
+  made that one device quieter than it should be, and the gap widened as the
+  volume went down: about 10,5 dB at 30 percent, nothing at all at 100 percent.
+  Other outputs were never affected. The decision is now made per output, so the
+  device whose own hardware already scales the signal no longer gets the factor
+  a second time. Reported with measurements by a user in the MacRumors thread,
+  which is how the cause could be pinned down rather than guessed. See
+  [`docs/v4.0.1/05-volume-plan.md`](docs/v4.0.1/05-volume-plan.md).
+- Muting is now enforced in software on the default output as well, instead of
+  relying on the device's own mute control reaching through the aggregate. That
+  was never established, and the failure direction would have been sound
+  continuing while the mute key is lit.
+
+---
+
 ## [4.0.1 (8)], 2026-09-23 · _prepared, not yet submitted to App Review_
 
 > **Full record:** [`docs/v4.0.1/`](docs/v4.0.1/) documents the decisions behind

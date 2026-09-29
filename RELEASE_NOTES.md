@@ -153,7 +153,7 @@ commit, so the claim and its evidence sit together in the history.
 
 ---
 
-## AudioRouterNow 4.0.1 (Build 8), September 23, 2026
+## AudioRouterNow 4.0.1 (Build 9), September 27, 2026
 _Mac App Store, macOS 14.4 or later, Apple Silicon_
 
 > **Status: prepared, not yet submitted.** The code is on `main`, nothing is
@@ -162,7 +162,25 @@ _Mac App Store, macOS 14.4 or later, Apple Silicon_
 
 ### For Everyone
 
-**This is a stability update. It fixes a crash and adds a way to report bugs from inside the app.**
+**This fixes a crash, corrects the volume of the device you are listening on, and adds a way to report bugs from inside the app.**
+
+#### Routing made your main output too quiet
+
+If you routed audio while your Mac's volume was set low, the device you normally
+listen on played quieter than it should have. Other outputs were fine. The lower
+the volume, the bigger the gap: at 30 percent it was around 10,5 dB, which is a
+lot, and at full volume there was no gap at all, which is why it was easy to miss.
+
+The cause was that the app applied your volume setting a second time, on top of
+the one the device applies itself. It now leaves that to the device.
+
+This was found because a user in the MacRumors thread measured it instead of just
+describing it, and set exact volume levels while doing so. That is what made the
+cause provable rather than a guess.
+
+**Muting is also more robust now.** Previously silence on your main output
+depended on the device's own mute reaching through the routing setup, which was
+never actually established. The app now enforces it itself.
 
 - **Fixed a crash.** Some users saw the app quit unexpectedly. The cause was in the animated waveform at the top of the menu, not in the audio routing itself: the animation kept running at full speed even when the menu was closed, and under rare conditions an invalid audio measurement could reach the drawing code. Both are fixed.
 - **Better battery behaviour.** The waveform animation now runs only while audio is actually being routed, and stops completely as soon as you stop routing. Previously it ran continuously for as long as the app was open, whether or not anything was playing and whether or not anyone was looking at it.

@@ -17,18 +17,19 @@ turned out to be wrong, and which claims are still unproven.
 | [02-decisions.md](02-decisions.md) | Every decision that shaped the fix, with its reasoning and its accepted cost |
 | [03-discarded-approaches.md](03-discarded-approaches.md) | Three approaches that were written or considered and rejected, and the reason each one failed. Read this before reintroducing any of them |
 | [04-verification.md](04-verification.md) | How the fix was checked, and the list of things that remain unchecked |
+| [05-volume-plan.md](05-volume-plan.md) | The second defect, added later: the system volume was applied twice on the default device. Includes an objection to the plan that turned out to be wrong, and the limit of what a unit test can establish |
 
 ## Release at a glance
 
 | Field | Value |
 |-------|-------|
-| Version | 4.0.1, build 8 (`MARKETING_VERSION` 4.0.1, `CURRENT_PROJECT_VERSION` 8) |
+| Version | 4.0.1, build 9 (`MARKETING_VERSION` 4.0.1, `CURRENT_PROJECT_VERSION` 9) |
 | Status | **Prepared, not submitted.** Code is on `main`, nothing is tagged and nothing has been sent to App Review |
-| Work completed | 23 September 2026 |
+| Work completed | 23 September 2026 for the crash, 27 September 2026 for the volume defect |
 | Platform | Mac App Store, macOS 14.4 or later, Apple Silicon |
-| Trigger | Five crash reports aggregated in App Store Connect, received 22 September 2026 |
-| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b` |
-| Internal case ID | CASE-003 |
+| Trigger | Five crash reports aggregated in App Store Connect, received 22 September 2026. Separately, a volume report in the MacRumors thread on 24 September |
+| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1` |
+| Internal case IDs | CASE-003 (the crash), CASE-004 (the volume) |
 
 The commit range is worth reading in full, the messages carry most of the
 reasoning that later became these documents:
@@ -64,7 +65,7 @@ proven and what is not.
 | [`v4/AudioRouterKit/Sources/AudioRouterKit/WaveformGeometry.swift`](../../v4/AudioRouterKit/Sources/AudioRouterKit/WaveformGeometry.swift) | New. Non-finite hardening, testable without a UI |
 | [`v4/AudioRouterNow4/EngineController.swift`](../../v4/AudioRouterNow4/EngineController.swift) | Owns the clock, drives the poll, adds `openBugReport()` |
 | [`v4/AudioRouterNow4/MenuBarView.swift`](../../v4/AudioRouterNow4/MenuBarView.swift) | Device poll left ungated on purpose, see decision D8 |
-| [`v4/AudioRouterKit/Sources/AudioRouterKit/FanOutEngine.swift`](../../v4/AudioRouterKit/Sources/AudioRouterKit/FanOutEngine.swift) | `waveformSnapshot(count:)` became `waveformFrame(count:)`. The IOProc itself is unchanged |
+| [`v4/AudioRouterKit/Sources/AudioRouterKit/FanOutEngine.swift`](../../v4/AudioRouterKit/Sources/AudioRouterKit/FanOutEngine.swift) | `waveformSnapshot(count:)` became `waveformFrame(count:)`. The IOProc was unchanged by the crash fix, but **is** changed by the volume fix, see 05 |
 
 ## Related documents
 
