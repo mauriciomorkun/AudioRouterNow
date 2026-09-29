@@ -111,9 +111,28 @@ Der Controller befüllt daraus `deviceLatencies[uid]` bei Start und Warm-Restart
 
 Beobachtet das Default-Output-Gerät und dessen Lautstärke-/Mute-Property
 (`@unchecked Sendable`, os_unfair_lock-geschützter Volume-Scale). Der IOProc liest
-`volumeScale` RT-sicher (< 100 ns) und multipliziert das Tap-Signal, damit der
-Systemlautstärke-Regler weiter greift, obwohl das Signal über einen Tap läuft.
-`setSystemVolume(_:)` schreibt zurück auf das Gerät.
+`volumeScale` RT-sicher (< 100 ns), damit der Systemlautstärke-Regler weiter
+greift, obwohl das Signal über einen Tap läuft. `setSystemVolume(_:)` schreibt
+zurück auf das Gerät.
+
+**Seit 4.0.1 (Build 9) nicht mehr auf jedem Slot** (CASE-004). Wird `volumeScale`
+auf den Slot gelegt, der das Default-Gerät SELBST ist, wendet dessen Hardware
+denselben Faktor danach erneut an, Ergebnis `vol²`. Die Entscheidung fällt jetzt
+pro Slot in `FanOutEngine.computeSlotAppliesVol`, die Anwendung in
+`slotTargetSV(vol:slotIndex:slotAppliesVol:gain:)`.
+
+Zwei Punkte, die beim Ändern dieser Stelle zu kennen sind:
+
+- Die Zuordnung läuft über `uid` plus `channelOffset`, **nicht** über den
+  Slot-Index. Gewinnt ein fremdes Gerät die Master-Rolle im Aggregate, stehen
+  dessen Slots vorn.
+- **Stummschaltung ist hier als `volumeScale == 0` codiert**, es gibt keinen
+  eigenen Mute-Zustand. Deshalb enthält `effectiveVolume` einen ausdrücklichen
+  Zweig dafür. Ohne ihn hinge die Stille auf dem Default-Gerät allein am
+  Hardware-Mute, von dem nicht belegt ist, dass er durch ein Aggregate
+  durchgreift.
+
+Vollständig in [`docs/v4.0.1/06-volume-report.md`](../docs/v4.0.1/06-volume-report.md).
 
 ### DeviceLifecycleManager
 

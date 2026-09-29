@@ -12,8 +12,11 @@
 > for critical fixes.
 
 > **How 4.0.1 came about:** [`docs/v4.0.1/`](docs/v4.0.1/) is the full record of the
-> first update after launch. Crash analysis, every decision with its reasoning, the
-> three approaches that were discarded and why, and what is still unverified.
+> first update after launch. Two defects: a crash, and the system volume being
+> applied twice on the device you actually listen on. Every decision with its
+> reasoning, the approaches that were discarded and why, two reviews that turned
+> out to be wrong, and the one finding that could not be fixed because no unit test
+> can reach it.
 
 > **How 3.4.6 came about:** [`docs/v3.4.6/`](docs/v3.4.6/) is the same record for v3.
 > Two defects that had been in every release since launch and were both invisible from
