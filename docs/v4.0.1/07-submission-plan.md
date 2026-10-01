@@ -54,7 +54,37 @@ Phase 7.
 ## Phase 1: Archiv erstellen
 
 **1.1 👤 Xcode öffnen.**
-`v4/AudioRouterNow4.xcodeproj`. Nicht die Paketdatei, sondern das Projekt.
+
+⚠️ **Es gibt zwei Projekte mit identischem Namen.** Das ist am 01.10.2026
+tatsächlich schiefgegangen: der erste Archivlauf kam aus dem falschen Baum und
+erzeugte ein Archiv mit **4.0.0 (7)** statt 4.0.1 (9).
+
+| Pfad | Was es ist |
+|---|---|
+| `v4/AudioRouterNow4.xcodeproj` | **das richtige**, 4.0.1 (9) |
+| `v4-appstore/AudioRouterNow4/AudioRouterNow4.xcodeproj` | toter Altbestand, 4.0.0 (7), seit `b42d692` untracked |
+
+In Xcode heißen beide nur „AudioRouterNow4". Über die Liste zuletzt geöffneter
+Projekte ist das falsche schneller erreichbar als das richtige. Deshalb über den
+Befehl öffnen, nicht über die Liste:
+
+```sh
+open ~/AudioRouterNow/v4/AudioRouterNow4.xcodeproj
+```
+
+**Woran du den falschen Baum sofort erkennst:** Im Reiter
+**Signing & Capabilities** ist dort **kein Team** eingetragen, und der General-Tab
+zeigt Version 4.0.0, Build 7. Der Altbaum hat gar keine `MARKETING_VERSION`.
+
+**Nachweis im Zweifelsfall**, nach dem Archivieren:
+
+```sh
+ARCH=$(ls -dt ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)
+strings "$ARCH/dSYMs/"*.dSYM/Contents/Resources/DWARF/* \
+  | grep -oE "/AudioRouterNow/(v4|v4-appstore)/" | sort | uniq -c
+```
+
+Es dürfen **nur** Treffer auf `/v4/` erscheinen.
 
 **1.2 👤 Ziel einstellen.**
 Oben in der Leiste: Schema **AudioRouterNow4**, Ziel **My Mac**. Steht dort ein
