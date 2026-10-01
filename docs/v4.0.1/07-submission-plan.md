@@ -45,6 +45,22 @@ Muss ohne Fehler durchlaufen, bevor Xcode überhaupt geöffnet wird.
 `ARN-build9-NACHHER.app` vom Schreibtisch und die App Store Version 4.0.0 dürfen
 beim Archivieren nicht laufen. Sie greifen auf dieselben Audiogeräte zu.
 
+**0.6 🤖 Vorflug-Prüfung ausführen.**
+
+```sh
+./v4/scripts/preflight.sh
+```
+
+Prüft in einem Durchlauf: doppelter Projektbaum, Version aus einer einzigen
+Quelle, ob die Version schon getaggt und damit ausgeliefert ist, Arbeitsbaum,
+Berechtigungen, und nach dem Archivieren, ob das Archiv aus dem **richtigen**
+Baum stammt.
+
+Das Skript existiert, weil am 01.10.2026 ein Archiv aus dem falschen Baum kam.
+Aus v3.4.6 stammt die Lehre, dass eine Notiz in einem Dokument kein Tor ist.
+**Nach Phase 1 noch einmal ausführen**, dann prüft Abschnitt 6 das frische
+Archiv.
+
 **Noch keinen Tag setzen.** Ein Tag sagt „das ist die Version". Solange die
 Validierung nicht durch ist, kann sich der Stand noch ändern. Der Tag kommt in
 Phase 7.
@@ -235,6 +251,26 @@ Er wechselt auf „Waiting for Review".
 
 **7.1 🤖 Tag setzen und pushen.**
 Erst jetzt, weil der eingereichte Stand nun feststeht.
+
+⚠️ **Dabei fällt eine Altlast an.** Für v4 existiert **kein einziger Tag**,
+getaggt sind nur v3-Versionen. Der Stand, der im App Store liegt, ist nirgends
+markiert. Deshalb war `v4-appstore/` faktisch das einzige greifbare Abbild der
+ausgelieferten Version, und genau dieser Ordner hat am 01.10. das falsche Archiv
+erzeugt.
+
+In dieser Reihenfolge nachholen:
+
+1. `v4.0.0` nachtaggen auf **`6e32199`**, dem letzten Commit vor dem Archivlauf
+   vom 13.08.2026. Geprüft: dort steht `MARKETING_VERSION = 4.0.0`,
+   `CURRENT_PROJECT_VERSION = 7`.
+2. `v4.0.1` auf den eingereichten Stand.
+3. **Erst dann** `v4-appstore/` entfernen, 594 MB. Umbenennen ist die umkehrbare
+   Variante.
+
+Der Ordner wird erst entbehrlich, wenn der Tag seine Aufgabe übernommen hat.
+
+Vollständig in
+`~/.claude/projects/-Users-mauriciomorkun/memory/project_audiorouternow_v4_tags_pending.md`.
 
 **7.2 🤖 Dokumentation nachziehen.**
 In `CHANGELOG.md`, `RELEASE_NOTES.md` und `docs/v4.0.1/README.md` steht derzeit
