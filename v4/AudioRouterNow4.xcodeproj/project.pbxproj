@@ -38,7 +38,7 @@
 		2888E63CBAE6EB83B79D12D6 /* AudioRouterNow4.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AudioRouterNow4.xcconfig; sourceTree = "<group>"; };
 		3135543B5EFB799118FADD04 /* AudioRouterNow4-Debug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "AudioRouterNow4-Debug.entitlements"; sourceTree = "<group>"; };
 		351B993715D113FB2C7CEA9F /* AudioRouterNow4.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AudioRouterNow4.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		35BC3881509937A6F008735A /* AudioRouterNow.storekit */ = {isa = PBXFileReference; path = AudioRouterNow.storekit; sourceTree = "<group>"; };
+		35BC3881509937A6F008735A /* AudioRouterNow.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = AudioRouterNow.storekit; sourceTree = "<group>"; };
 		5F9070C5CFF77A6BF32DE051 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		631476EA35031D21D3106EBD /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		68F846B0D609C9CD99B0D6F8 /* RoutingControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutingControls.swift; sourceTree = "<group>"; };
@@ -52,8 +52,8 @@
 		B98FDB53F61010BF230A941C /* AudioRouterKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRouterKitTests.swift; sourceTree = "<group>"; };
 		C49B89F76CABE326345D32E6 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		CEB266406160BB3741B5FE42 /* AudioRouterNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRouterNowApp.swift; sourceTree = "<group>"; };
-		D53535CC9DE7CBE38BAABD0E /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		DB30957D7B44C998B9912850 /* AudioRouterKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AudioRouterKit; path = AudioRouterKit; sourceTree = SOURCE_ROOT; };
+		D53535CC9DE7CBE38BAABD0E /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		DB30957D7B44C998B9912850 /* AudioRouterKit */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AudioRouterKit; sourceTree = SOURCE_ROOT; };
 		E3F7387550039CA30B39AC96 /* AudioRouterKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AudioRouterKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E8A444C4945C7A89E74FA695 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		FCFA42955CC57D9D2C8DEBAB /* WaveClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveClock.swift; sourceTree = "<group>"; };
@@ -225,8 +225,6 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = 3967B40416301CA60770C624 /* Build configuration list for PBXProject "AudioRouterNow4" */;
 			developmentRegion = en;
@@ -424,7 +422,10 @@
 			baseConfigurationReference = 2888E63CBAE6EB83B79D12D6 /* AudioRouterNow4.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 5D52U34B3W;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -432,6 +433,7 @@
 					"@loader_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.mauriciomorkun.audiorouternow.tests;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 			};
 			name = Release;
@@ -441,7 +443,10 @@
 			baseConfigurationReference = 2888E63CBAE6EB83B79D12D6 /* AudioRouterNow4.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 5D52U34B3W;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -449,6 +454,7 @@
 					"@loader_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.mauriciomorkun.audiorouternow.tests;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -459,7 +465,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "AudioRouterNow4/AudioRouterNow4-Debug.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 5D52U34B3W;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -468,6 +477,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -478,7 +488,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = AudioRouterNow4/AudioRouterNow4.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 5D52U34B3W;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -487,6 +500,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 			};
 			name = Release;
