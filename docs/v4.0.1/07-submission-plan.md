@@ -61,10 +61,24 @@ Oben in der Leiste: Schema **AudioRouterNow4**, Ziel **My Mac**. Steht dort ein
 Simulator oder ein Testschema, ist „Archive" ausgegraut.
 
 **1.3 👤 Signierung prüfen.**
-Projekt anwählen, Reiter **Signing & Capabilities**, Konfiguration **Release**.
-Dort muss dein Team stehen und der Haken bei automatischer Verwaltung sitzen.
-⚠️ Das steht **nicht** in den Projektdateien, es kommt aus deinem Xcode. Deshalb
-ist es hier ein eigener Schritt und keine Nebensache.
+Projekt anwählen, Reiter **Signing & Capabilities**, oben von **All** auf
+**Release** umschalten. Dort muss dein Team stehen und der Haken bei automatischer
+Verwaltung sitzen.
+
+⚠️ **Das steht nicht in den Projektdateien.** Geprüft am 01.10.2026:
+`project.pbxproj` enthält weder `DEVELOPMENT_TEAM` noch `CODE_SIGN_STYLE` noch
+`CODE_SIGN_IDENTITY`. Xcode löst beides zur Bauzeit aus dem angemeldeten
+Entwicklerkonto auf. Das funktioniert, solange genau ein Team hinterlegt ist, und
+hat bei 4.0.0 so funktioniert.
+
+⚠️ **Deshalb vor dem Archivieren kein `xcodegen` laufen lassen.** Das Projekt wird
+aus `v4/project.yml` erzeugt (`scripts/xcodegen.sh`), und eine Neugenerierung setzt
+alles zurück, was in der Oberfläche eingestellt wurde.
+
+Steht bei **Signing Certificate** „Development", ist das **kein Fehler**. Bei
+automatischer Verwaltung wählt Xcode erst beim Archivieren das
+Distributions-Zertifikat. Die Anzeige in dieser Ansicht ist nicht das, was im
+Archiv landet.
 
 **1.4 👤 Clean Build Folder.**
 Menü **Product**, bei gedrückter Wahltaste wird „Clean Build Folder" sichtbar.
