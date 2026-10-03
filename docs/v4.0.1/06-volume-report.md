@@ -12,7 +12,7 @@ the signal is no longer attenuated by a factor its own hardware applies anyway.
 
 | | |
 |---|---|
-| Version | 4.0.1, build 9. **Not tagged, not submitted** |
+| Version | 4.0.1, build 9. **Tagged: no. Uploaded: yes, 1 October 2026. Submitted to App Review: no** |
 | Commits | `4a0f6c1`, `c9e097d` |
 | Source changes | `FanOutEngine.swift`, `VolumeTracker.swift` |
 | Tests | 23 in the XCTest suite, 15 of them for this defect, plus 59 in the swift-testing suite |

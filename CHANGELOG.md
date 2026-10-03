@@ -67,7 +67,14 @@
 
 ---
 
-## [4.0.1 (9)], 2026-09-27 · _prepared, not yet submitted to App Review_
+## [4.0.1 (9)], 2026-09-27 · _uploaded to App Store Connect 2026-10-01, not yet submitted to App Review_
+
+> **Status in exact terms.** The build was uploaded on 1 October 2026 at 17:26 and
+> passed Apple's validation beforehand. It is **not** submitted: the version
+> metadata is not filled in and App Review has never seen it. Nothing is tagged,
+> for v4 no tag exists at all. The date in the heading is when the work was
+> finished, not when it shipped. Full account in
+> [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
 
 ### Fixed
 
@@ -86,7 +93,14 @@
 
 ---
 
-## [4.0.1 (8)], 2026-09-23 · _prepared, not yet submitted to App Review_
+## [4.0.1 (8)], 2026-09-23 · _superseded by build 9, never submitted_
+
+> **Status.** Build 8 was never uploaded and will never be submitted. It was
+> replaced by build 9 while both were still on the development machine, after the
+> volume defect below was found. It keeps its own section because the crash fix
+> documented here is the work of build 8, and the history should say so rather than
+> silently fold it into build 9. The shipping artefact for everything in this
+> section and the one above is **build 9**.
 
 > **Full record:** [`docs/v4.0.1/`](docs/v4.0.1/) documents the decisions behind
 > this release, including the three approaches that were written or considered

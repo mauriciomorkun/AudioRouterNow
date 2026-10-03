@@ -156,9 +156,18 @@ commit, so the claim and its evidence sit together in the history.
 ## AudioRouterNow 4.0.1 (Build 9), September 27, 2026
 _Mac App Store, macOS 14.4 or later, Apple Silicon_
 
-> **Status: prepared, not yet submitted.** The code is on `main`, nothing is
-> tagged and nothing has gone to App Review. The date above is when the work was
-> finished, not when it shipped.
+> **Status: uploaded, not submitted.** The build was uploaded to App Store Connect
+> on 1 October 2026 at 17:26, after passing Apple's validation step. It has **not**
+> been submitted to App Review: the version metadata is still to be filled in, and
+> the submission itself is a separate, deliberate action that has not been taken.
+> Nothing is tagged either, for v4 no tag exists at all. The date in the heading
+> above is when the work was finished, not when it shipped.
+>
+> Uploading and submitting are easy to conflate and are kept apart on purpose
+> here. Uploading puts the build on Apple's servers. Submitting hands it to
+> reviewers. Only the second one starts anything. What happened during the upload,
+> including an archive built from the wrong project tree, is recorded in
+> [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
 
 ### For Everyone
 
@@ -394,7 +403,7 @@ No action required. Update normally.
 |-----|-----------|------------|------------|
 | **Non-ASCII UID** | `engine/helper_client.py` (`_send_no_lock`) | `json.dumps(payload)` serialised non-ASCII UIDs as `\uXXXX` escapes (`ensure_ascii=True` default). The C helper's `parse_outputs` mini-parser copied these literally, so `find_device_by_uid()` could not `strcmp`-match against the device's real UTF-8 UID. | `json.dumps(payload, ensure_ascii=False)`, sends raw UTF-8 bytes. The helper response path already emits/consumes UTF-8, so both directions are now symmetric. |
 
-**Reported by:** bogdanw (MacRumors, CASE-001 Post #18). **Audit:** dual independent Opus audit, both PASS in round 1. **Commit:** `eb021d7`
+**Reported by:** a user in the MacRumors thread (CASE-001, post #18). **Audit:** dual independent Opus audit, both PASS in round 1. **Commit:** `eb021d7`
 
 ---
 
@@ -454,7 +463,7 @@ No action required. Update normally.
 
 | Fix | ID | Component | Root Cause | Resolution |
 |-----|----|-----------|------------|------------|
-| **W2-1** | H7 | `engine/audio_device_control.py`, `engine/menu_bar_app.py` | When "Audio Router" becomes the system default, `set_default_output_volume()` drives only the virtual device's `volume_q16`. Physical fan-out targets retain their frozen HW volume (often near zero), silence despite a working IOProc. bogdanw confirmed: pre-selecting the internal speaker (already loud) → audible; U3277WB/Pebble V3 (frozen low) → silent. | `get_device_volume_scalar()` / `set_device_volume_scalar()` read/write per-device HW volume via `kAudioHardwareServiceDeviceProperty_VirtualMainVolume` (falling back to `kAudioDevicePropertyVolumeScalar` per channel). `equalize_volume_after_switch(prev_level, target_uids)` called at all three switch sites: reads previous default's level before switch, sets virtual device to that level after switch, raises any physical target below `LOW_VOLUME_THRESHOLD` (15%) to `raise_to` (or `COMFORTABLE_FALLBACK_VOLUME` = 50% if prev level itself was sub-15%). Devices without software volume control are skipped silently (`get_device_volume_scalar` returns -1.0). Devices ≥15% are left untouched (user intent preserved). All CoreAudio calls on main thread; CFStrings released. |
+| **W2-1** | H7 | `engine/audio_device_control.py`, `engine/menu_bar_app.py` | When "Audio Router" becomes the system default, `set_default_output_volume()` drives only the virtual device's `volume_q16`. Physical fan-out targets retain their frozen HW volume (often near zero), silence despite a working IOProc. The reporter confirmed: pre-selecting the internal speaker (already loud) → audible; U3277WB/Pebble V3 (frozen low) → silent. | `get_device_volume_scalar()` / `set_device_volume_scalar()` read/write per-device HW volume via `kAudioHardwareServiceDeviceProperty_VirtualMainVolume` (falling back to `kAudioDevicePropertyVolumeScalar` per channel). `equalize_volume_after_switch(prev_level, target_uids)` called at all three switch sites: reads previous default's level before switch, sets virtual device to that level after switch, raises any physical target below `LOW_VOLUME_THRESHOLD` (15%) to `raise_to` (or `COMFORTABLE_FALLBACK_VOLUME` = 50% if prev level itself was sub-15%). Devices without software volume control are skipped silently (`get_device_volume_scalar` returns -1.0). Devices ≥15% are left untouched (user intent preserved). All CoreAudio calls on main thread; CFStrings released. |
 | **W2-2** | H8 | `engine/healer.py`, `engine/menu_bar_app.py` | Adding `BuiltInSpeakerDevice` as a 3rd output to the AVAudioSession forces coreaudiod to restart the IOWorkLoop (`HALC_ProxyIOContext:1593 "ending the transport"`), transiently stalling already-running outputs. The healer's 1600 ms stall window (`1000 ms` soft-stall + `3×200 ms` persist polls) detected this as a real failure and called `reconnect_output`, producing a visible ~10 s "Output removed/re-added" churn cycle. | `notify_output_added()` in `Healer` records `time.monotonic()` of each genuine output add (detected by set-diff in `_apply_active_outputs`). Grace-period check in `_process_output` suppresses `reconnect_output` for `GRACE_PERIOD_S = 2.0 s` after any add, provided `ioproc_age_ms ≤ HARD_STALL_MS` (5000 ms). Hard stalls (device truly gone) still heal immediately even during the window. State is thread-safe under the existing `self._lock`. |
 
 **Audit:** Both audio fixes passed two independent line-by-line audits (SuperClaude `root-cause-analyst` + Claude `validator`, both Opus) in a single iteration with zero critical and zero major issues.

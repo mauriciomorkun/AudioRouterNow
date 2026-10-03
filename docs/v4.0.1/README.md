@@ -19,25 +19,37 @@ turned out to be wrong, and which claims are still unproven.
 | [04-verification.md](04-verification.md) | How the fix was checked, and the list of things that remain unchecked |
 | [05-volume-plan.md](05-volume-plan.md) | The second defect, added later: the system volume was applied twice on the default device. Written before the code changed, including an objection to the plan that turned out to be wrong |
 | [06-volume-report.md](06-volume-report.md) | The closing report on that defect. What the fix exposed, what two reviews got wrong, and the one finding that could not be fixed because no unit test can reach it |
-| [07-submission-plan.md](07-submission-plan.md) | The step by step plan for submitting to App Review, in German because it is a working checklist rather than a report. Includes the guideline 2.4.5(iii) risk from an earlier rejection |
+| [07-submission-plan.md](07-submission-plan.md) | The step by step plan for submitting to App Review, in German because it is a working checklist rather than a report. Includes the guideline 2.4.5(iii) risk from an earlier rejection. Carries the progress markers for each phase |
+| [08-submission-log.md](08-submission-log.md) | What actually happened while submitting. The archive built from the wrong project tree, the dSYM forensics that proved it, why validation and upload would both have passed it, and the preflight script written in response. Also the one finding from checking the store text against the code |
 
 ## Release at a glance
 
 | Field | Value |
 |-------|-------|
 | Version | 4.0.1, build 9 (`MARKETING_VERSION` 4.0.1, `CURRENT_PROJECT_VERSION` 9) |
-| Status | **Prepared, not submitted.** Code is on `main`, nothing is tagged and nothing has been sent to App Review |
+| Status | **Uploaded to App Store Connect on 1 October 2026 at 17:26. Not submitted to App Review.** Validation passed, the build is at Apple and selectable. The metadata (phase 4) and the submission itself (phase 6) are still open, and nothing is tagged |
 | Work completed | 23 September 2026 for the crash, 27 September 2026 for the volume defect |
 | Platform | Mac App Store, macOS 14.4 or later, Apple Silicon |
 | Trigger | Five crash reports aggregated in App Store Connect, received 22 September 2026. Separately, a volume report in the MacRumors thread on 24 September |
-| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1`, `c9e097d` |
+| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1`, `c9e097d`, `a76a1e2`, `0bbad31`, `1a8257a`, `41246bc` |
 | Internal case IDs | CASE-003 (the crash), CASE-004 (the volume) |
+
+**Uploaded is not submitted.** The distinction is kept exact throughout this
+folder. The build sits on Apple's servers; App Review has not seen it. The
+irreversible step is phase 6 of
+[07-submission-plan.md](07-submission-plan.md), and it has not been taken.
+
+The last four commits in the list came out of the submission run itself rather
+than the defects: `a76a1e2` and `0bbad31` record what went wrong,
+`1a8257a` moves the signing settings into the project file, and `41246bc` adds
+`v4/scripts/preflight.sh`, the gate that exists so the same mistake cannot repeat
+quietly. See [08-submission-log.md](08-submission-log.md).
 
 The commit range is worth reading in full, the messages carry most of the
 reasoning that later became these documents:
 
 ```sh
-git log f6d0bb9^..c34fd7b
+git log f6d0bb9^..41246bc
 ```
 
 Note that `dc59f98` implements an approach that `db1ecb4` deletes again. That is
@@ -71,6 +83,13 @@ proven and what is not.
 
 ## Related documents
 
-- [`CHANGELOG.md`](../../CHANGELOG.md), section `## [4.0.1 (8)]`
-- [`RELEASE_NOTES.md`](../../RELEASE_NOTES.md), section "AudioRouterNow 4.0.1 (Build 8)"
+- [`CHANGELOG.md`](../../CHANGELOG.md), section `## [4.0.1 (9)]` for the volume
+  defect, and `## [4.0.1 (8)]` for the crash fix. Build 8 was never submitted; it
+  was superseded by build 9 before anything left the machine, so both sections
+  describe the same shipping version
+- [`RELEASE_NOTES.md`](../../RELEASE_NOTES.md), section "AudioRouterNow 4.0.1 (Build 9)"
+- [`BACKLOG.md`](../../BACKLOG.md), for the three items deliberately kept out of
+  4.0.1: the sample rate listener, the universal binary versus the "Apple Silicon
+  only" documentation, and the v4 tagging work
+- [`v4/scripts/preflight.sh`](../../v4/scripts/preflight.sh), the submission gate
 - [`v4/ARCHITECTURE.md`](../../v4/ARCHITECTURE.md), the surrounding v4 architecture

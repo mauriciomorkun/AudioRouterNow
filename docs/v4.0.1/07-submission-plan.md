@@ -4,6 +4,30 @@
 > übrigen Dokumente sind Berichte für Leser, dieses ist eine Arbeitsliste zum
 > gemeinsamen Abhaken.
 
+## Stand
+
+| Phase | Stand |
+|---|---|
+| 0: Ausgangslage sichern | ✅ 01.10.2026 |
+| 1: Archiv erstellen | ✅ 01.10.2026, **beim zweiten Anlauf**, siehe unten |
+| 2: Validieren | ✅ 01.10.2026, „Validation successful" |
+| 3: Hochladen | ✅ 01.10.2026, 17:26. Build 9 liegt bei Apple |
+| 4: Angaben in App Store Connect | ⬜ offen, liegt beim User |
+| 5.1: Prüfung gegen den Code | ✅ 01./02.10.2026, ein Befund, behoben |
+| 5.2: Prüfung in App Store Connect | ⬜ offen, liegt beim User |
+| 6: Absenden | ⬜ offen |
+| 7: Danach | ⬜ offen |
+
+**Der Unterschied, der hier zählt: Build 9 ist hochgeladen, aber nichts ist
+eingereicht.** Hochladen legt den Build bei Apple ab, er taucht in App Store
+Connect als auswählbar auf. Eingereicht wird erst in Phase 6, und erst das ist der
+Schritt, der sich nicht zurücknehmen lässt. Solange Phase 4 bis 6 offen sind, hat
+App Review die Version nie gesehen.
+
+Was beim Durchlaufen der Phasen 0 bis 3 tatsächlich geschah, steht in
+[08-submission-log.md](08-submission-log.md). Dieses Dokument sagt, was geschehen
+soll, das andere sagt, was geschah.
+
 ## Warum die Prüfung vor dem Absenden liegt
 
 Beim Code gilt: planen, umsetzen, prüfen, bei Befunden wiederholen. Das
@@ -21,31 +45,42 @@ Phase 5, **vor** dem Absenden in Phase 6.
 | 🤖 | Kann Claude erledigen |
 | 👤 | Musst du machen, Xcode-Oberfläche oder App Store Connect |
 | ⚠️ | Hier ist schon einmal etwas schiefgegangen |
+| ✅ | Erledigt, mit Datum und dem, was dabei herauskam |
+| ⬜ | Offen |
+
+Kursive Zeilen unter einem Schritt halten fest, was bei der Ausführung
+tatsächlich geschah. Der Schritt selbst bleibt unverändert, damit der Plan beim
+nächsten Release wieder benutzbar ist.
 
 ---
 
-## Phase 0: Ausgangslage sichern
+## Phase 0: Ausgangslage sichern ✅ 01.10.2026
 
-**0.1 🤖 Arbeitsbaum sauber und alles gepusht.**
+**0.1 ✅ 🤖 Arbeitsbaum sauber und alles gepusht.**
 Nichts darf uncommitted sein. Was nicht im Repository steht, lässt sich später
 nicht dem eingereichten Build zuordnen.
+*Erledigt 01.10.2026, Arbeitsbaum war sauber.*
 
-**0.2 🤖 Version und Build bestätigen.**
+**0.2 ✅ 🤖 Version und Build bestätigen.**
 `v4/Configs/AudioRouterNow4.xcconfig` muss `MARKETING_VERSION = 4.0.1` und
 `CURRENT_PROJECT_VERSION = 9` enthalten. Das ist die einzige Quelle, `project.yml`
 verweist nur darauf.
+*Erledigt 01.10.2026, beide Werte bestätigt (Zeile 6 und 7 der xcconfig).*
 
-**0.3 🤖 Tests laufen lassen.**
+**0.3 ✅ 🤖 Tests laufen lassen.**
 `./v4/scripts/test.sh`, erwartet werden 59 swift-testing und 23 XCTest, alle grün.
+*Erledigt 01.10.2026, alle grün.*
 
-**0.4 🤖 Release-Build lokal.**
+**0.4 ✅ 🤖 Release-Build lokal.**
 Muss ohne Fehler durchlaufen, bevor Xcode überhaupt geöffnet wird.
+*Erledigt 01.10.2026, fehlerfrei.*
 
-**0.5 👤 Andere Instanzen beenden.**
+**0.5 ✅ 👤 Andere Instanzen beenden.**
 `ARN-build9-NACHHER.app` vom Schreibtisch und die App Store Version 4.0.0 dürfen
 beim Archivieren nicht laufen. Sie greifen auf dieselben Audiogeräte zu.
+*Erledigt 01.10.2026.*
 
-**0.6 🤖 Vorflug-Prüfung ausführen.**
+**0.6 ✅ 🤖 Vorflug-Prüfung ausführen.**
 
 ```sh
 ./v4/scripts/preflight.sh
@@ -61,19 +96,35 @@ Aus v3.4.6 stammt die Lehre, dass eine Notiz in einem Dokument kein Tor ist.
 **Nach Phase 1 noch einmal ausführen**, dann prüft Abschnitt 6 das frische
 Archiv.
 
+*Zur Entstehung, damit die Reihenfolge nicht falsch gelesen wird: dieser Schritt
+stand am 01.10. noch nicht im Plan. Das Skript wurde erst **nach** dem falschen
+Archivlauf geschrieben (`41246bc`) und konnte den Fehler, aus dem es entstand,
+nicht verhindern. Nach dem zweiten, korrekten Archivlauf ist es gelaufen und hat
+bestanden. Für jedes künftige Release greift es ab Phase 0.*
+
 **Noch keinen Tag setzen.** Ein Tag sagt „das ist die Version". Solange die
 Validierung nicht durch ist, kann sich der Stand noch ändern. Der Tag kommt in
 Phase 7.
 
 ---
 
-## Phase 1: Archiv erstellen
+## Phase 1: Archiv erstellen ✅ 01.10.2026, beim zweiten Anlauf
 
-**1.1 👤 Xcode öffnen.**
+**1.1 ✅ 👤 Xcode öffnen.**
 
 ⚠️ **Es gibt zwei Projekte mit identischem Namen.** Das ist am 01.10.2026
 tatsächlich schiefgegangen: der erste Archivlauf kam aus dem falschen Baum und
 erzeugte ein Archiv mit **4.0.0 (7)** statt 4.0.1 (9).
+
+> **Diese Warnung hat sich bewährt, und zwar als einzige Instanz.** Sie war der
+> Grund, überhaupt in den Organizer zu schauen, statt direkt auf „Distribute" zu
+> gehen. Der falsche Build hätte Validierung **und** Upload bestanden, beide
+> prüfen Signierung und Bundle-Aufbau, keiner prüft, aus welchem Verzeichnis
+> gebaut wurde. Aufgeschlagen wäre er erst bei Apple, mit der Meldung, dass Build
+> 7 schon existiert, und zu dem Zeitpunkt wäre die Ursache nicht mehr naheliegend
+> gewesen. Gefangen hat ihn Schritt 1.6, die Sichtprüfung. Der Rest des Plans
+> hätte ihn durchgelassen. Das ist der Grund, warum aus der Warnung danach ein
+> Skript wurde, siehe Schritt 0.6.
 
 | Pfad | Was es ist |
 |---|---|
@@ -102,20 +153,35 @@ strings "$ARCH/dSYMs/"*.dSYM/Contents/Resources/DWARF/* \
 
 Es dürfen **nur** Treffer auf `/v4/` erscheinen.
 
-**1.2 👤 Ziel einstellen.**
+*Am 01.10. zweimal angewendet. Erster Lauf: 114 Treffer auf `/v4-appstore/`, keiner
+auf `/v4/`, also das falsche Archiv. Zweiter Lauf: 110 Treffer auf `/v4/`, keiner
+auf `/v4-appstore/`. Der zweite Wert ist am verbliebenen Archiv nachprüfbar, das
+falsche Archiv wurde verworfen.*
+
+**1.2 ✅ 👤 Ziel einstellen.**
 Oben in der Leiste: Schema **AudioRouterNow4**, Ziel **My Mac**. Steht dort ein
 Simulator oder ein Testschema, ist „Archive" ausgegraut.
 
-**1.3 👤 Signierung prüfen.**
+**1.3 ✅ 👤 Signierung prüfen.**
 Projekt anwählen, Reiter **Signing & Capabilities**, oben von **All** auf
 **Release** umschalten. Dort muss dein Team stehen und der Haken bei automatischer
 Verwaltung sitzen.
 
-⚠️ **Das steht nicht in den Projektdateien.** Geprüft am 01.10.2026:
-`project.pbxproj` enthält weder `DEVELOPMENT_TEAM` noch `CODE_SIGN_STYLE` noch
-`CODE_SIGN_IDENTITY`. Xcode löst beides zur Bauzeit aus dem angemeldeten
-Entwicklerkonto auf. Das funktioniert, solange genau ein Team hinterlegt ist, und
-hat bei 4.0.0 so funktioniert.
+⚠️ **Das stand nicht in den Projektdateien, inzwischen schon.** Geprüft am
+01.10.2026: `project.pbxproj` enthielt weder `DEVELOPMENT_TEAM` noch
+`CODE_SIGN_STYLE` noch `CODE_SIGN_IDENTITY`. Xcode löste beides zur Bauzeit aus
+dem angemeldeten Entwicklerkonto auf. Das funktioniert, solange genau ein Team
+hinterlegt ist, und hat bei 4.0.0 so funktioniert, war aber aus dem Repository
+nicht prüfbar.
+
+Mit `1a8257a` schrieb Xcode die Werte in `project.pbxproj`, als das **richtige**
+Projekt geöffnet wurde. Seitdem trägt das Projekt seine Signierung selbst.
+
+⚠️ **Der Haken bleibt bestehen:** die Werte stehen in `project.pbxproj`, **nicht**
+in `v4/project.yml`. Das Projekt wird aus `project.yml` erzeugt, ein
+`xcodegen`-Lauf würde sie also wieder entfernen. Die dauerhafte Lösung gehört in
+`project.yml` und liegt als Rückstandspunkt in `BACKLOG.md`, bewusst nicht mitten
+in einer laufenden Einreichung.
 
 ⚠️ **Deshalb vor dem Archivieren kein `xcodegen` laufen lassen.** Das Projekt wird
 aus `v4/project.yml` erzeugt (`scripts/xcodegen.sh`), und eine Neugenerierung setzt
@@ -126,37 +192,54 @@ automatischer Verwaltung wählt Xcode erst beim Archivieren das
 Distributions-Zertifikat. Die Anzeige in dieser Ansicht ist nicht das, was im
 Archiv landet.
 
-**1.4 👤 Clean Build Folder.**
+**1.4 ✅ 👤 Clean Build Folder.**
 Menü **Product**, bei gedrückter Wahltaste wird „Clean Build Folder" sichtbar.
 
-**1.5 👤 Product, dann Archive.**
+**1.5 ✅ 👤 Product, dann Archive.**
 Dauert einige Minuten. Danach öffnet sich der Organizer.
+*Zweimal gelaufen. Der erste Lauf kam aus dem falschen Baum, der zweite war
+korrekt.*
 
-**1.6 👤 Im Organizer prüfen: steht dort 4.0.1 (9)?**
+**1.6 ✅ 👤 Im Organizer prüfen: steht dort 4.0.1 (9)?**
 ⚠️ Wenn dort Build 8 steht, hat Xcode aus einem alten Zwischenstand gebaut.
 Dann Schritt 1.4 und 1.5 wiederholen.
+*Dieser Schritt hat den Fehler gefangen. Im Organizer stand nach dem ersten Lauf
+4.0.0 (7), nicht 4.0.1 (9), und auch nicht Build 8, mit dem hier gerechnet wurde.
+Nach dem zweiten Lauf stand dort 4.0.1 (9).*
 
 ---
 
-## Phase 2: Validieren
+## Phase 2: Validieren ✅ 01.10.2026
 
-**2.1 👤 Im Organizer: Validate App.**
+**2.1 ✅ 👤 Im Organizer: Validate App.**
 Das ist eine Prüfung durch Apple, **ohne** einzureichen. Sie findet Fehler in
 Signierung, Berechtigungen und Bundle-Aufbau, bevor irgendetwas verbindlich wird.
 
-**2.2 👤 Durchklicken bis „Validation successful".**
+**2.2 ✅ 👤 Durchklicken bis „Validation successful".**
 Bei Fehlern: Meldung vollständig kopieren und mir geben, statt zu raten.
+*Erledigt 01.10.2026, „Validation successful", keine Warnungen.*
+
+> Festzuhalten, weil es die Grenze dieser Prüfung zeigt: die Validierung hätte
+> auch das **falsche** Archiv bestanden. Sie prüft, ob das Bundle korrekt gebaut
+> und signiert ist, nicht ob es die Version enthält, die man einreichen wollte.
 
 ---
 
-## Phase 3: Hochladen
+## Phase 3: Hochladen ✅ 01.10.2026, 17:26
 
-**3.1 👤 Im Organizer: Distribute App, dann App Store Connect, dann Upload.**
+**3.1 ✅ 👤 Im Organizer: Distribute App, dann App Store Connect, dann Upload.**
+*Erledigt 01.10.2026, Upload erfolgreich um 17:26.*
 
-**3.2 👤 Warten.**
+**3.2 ✅ 👤 Warten.**
 Der Build durchläuft bei Apple eine Verarbeitung, üblicherweise wenige Minuten bis
 etwa eine Stunde. Du bekommst eine Mail. Vorher lässt sich der Build in App Store
 Connect nicht auswählen.
+*Keine Mail mit Beanstandungen eingegangen. Build 9 liegt bei Apple.*
+
+> **Ab hier ist der Build hochgeladen, aber nicht eingereicht.** Das ist kein
+> Zwischenstand auf dem Weg zur Review, sondern ein eigener Zustand: Apple hat den
+> Build, App Review hat ihn nicht. Es läuft keine Uhr, es wartet niemand auf eine
+> Antwort, und nichts davon ist nach außen sichtbar.
 
 ⚠️ Kommt eine Mail mit einem Hinweis auf fehlende Berechtigungen oder ein
 ungültiges Bundle, ist der Build **nicht** verwendbar, auch wenn der Upload
@@ -164,36 +247,44 @@ erfolgreich aussah.
 
 ---
 
-## Phase 4: Angaben in App Store Connect
+## Phase 4: Angaben in App Store Connect ⬜ offen
 
-**4.1 👤 Neue Version anlegen.**
+> Diese Phase ist noch nicht angefasst. Build 9 liegt bei Apple und ist unter
+> **Build** auswählbar, aber es ist keine Version 4.0.1 angelegt.
+
+**4.1 ⬜ 👤 Neue Version anlegen.**
 App Store Connect, App auswählen, links **App Store**, dann
 **macOS App, Version hinzufügen**. Als Versionsnummer **4.0.1** eintragen.
 
-**4.2 👤 „Was ist neu in dieser Version" einfügen.**
+**4.2 ⬜ 👤 „Was ist neu in dieser Version" einfügen.**
 Der fertige Text liegt in `docs/marketing/appstore-whatsnew-4.0.1.md`, im
-Codeblock. 1635 Zeichen von 4000 erlaubten. Nur Englisch, die App hat keine
+Codeblock. **1747 Zeichen** von 4000 erlaubten. Nur Englisch, die App hat keine
 weiteren Sprachen.
 
-**4.3 👤 Build auswählen.**
+*Zuvor stand hier 1635. Der Text wurde in Phase 5.1 ergänzt: der Datenschutzsatz
+nannte drei übermittelte Angaben, die App sendet fünf. Begründung siehe
+[08-submission-log.md](08-submission-log.md).*
+
+**4.3 ⬜ 👤 Build auswählen.**
 Unter **Build** das Pluszeichen, dann **4.0.1 (9)**.
 ⚠️ Steht dort noch nichts, ist die Verarbeitung aus Phase 3 nicht fertig.
+*Phase 3 ist seit dem 01.10. fertig, Build 9 ist auswählbar.*
 
-**4.4 👤 Screenshots: nichts tun.**
+**4.4 ⬜ 👤 Screenshots: nichts tun.**
 Die Oberfläche hat sich gegenüber 4.0.0 nicht geändert. Die vorhandenen
 Screenshots bleiben gültig und werden automatisch übernommen.
 
-**4.5 👤 Export Compliance.**
+**4.5 ⬜ 👤 Export Compliance.**
 Sollte **nicht** gefragt werden, weil `ITSAppUsesNonExemptEncryption` in der
 `Info.plist` bereits auf `false` steht. Falls doch gefragt wird: die App verwendet
 keine eigene Verschlüsselung.
 
-**4.6 👤 Review-Notiz schreiben.**
+**4.6 ⬜ 👤 Review-Notiz schreiben.**
 Text siehe unten, Abschnitt „Vorlage für die Review-Notiz". Der wichtigste Teil
 ist der Hinweis auf die Berechtigung zur Audioaufnahme. Ohne sie sieht der Prüfer
 eine App, die nichts tut.
 
-**4.7 👤 Veröffentlichung wählen.**
+**4.7 ⬜ 👤 Veröffentlichung wählen.**
 Empfehlung: **manuell freigeben**. Dann liegt zwischen Freigabe durch Apple und
 Sichtbarkeit im Store ein Moment, in dem du die Kommunikation vorbereiten kannst.
 Bei 4.0.0 war das hilfreich.
@@ -205,11 +296,17 @@ Bei 4.0.0 war das hilfreich.
 Diese Phase ist der Grund für die ganze Reihenfolge. **Erst wenn alles hier
 stimmt, wird Phase 6 angefasst.**
 
-**5.1 🤖 Ich prüfe gegen den Code**, was sich automatisch prüfen lässt:
+**5.1 ✅ 🤖 Ich prüfe gegen den Code**, was sich automatisch prüfen lässt:
 Versionsnummern, dass der Arbeitsbaum dem entspricht, was gebaut wurde, und dass
 im Store-Text nichts steht, was die App nicht tut.
 
-**5.2 👤 Du prüfst in App Store Connect**, und zwar jede Zeile einzeln:
+*Erledigt 01./02.10.2026. Jede nachprüfbare Aussage des Store-Textes wurde gegen
+den Quellcode gehalten, sechs Aussagen bestätigt, **ein Befund**: der
+Datenschutzsatz nannte drei übermittelte Angaben, `openBugReport()` sendet fünf.
+Korrigiert durch Ergänzen, nicht Kürzen. Belegtabelle und Begründung in
+[08-submission-log.md](08-submission-log.md).*
+
+**5.2 ⬜ 👤 Du prüfst in App Store Connect**, und zwar jede Zeile einzeln:
 
 - [ ] Version steht auf 4.0.1
 - [ ] Build steht auf 9, nicht 8
@@ -236,27 +333,30 @@ das als Fehler auslegen.
 
 ---
 
-## Phase 6: Absenden
+## Phase 6: Absenden ⬜ offen
 
-**6.1 👤 „Add for Review", dann „Submit to App Review".**
+**6.1 ⬜ 👤 „Add for Review", dann „Submit to App Review".**
 
 Ab hier ist nichts mehr änderbar, ohne die Einreichung zurückzuziehen.
 
-**6.2 👤 Status notieren.**
+**Dieser Schritt ist nicht erfolgt.** Der Upload vom 01.10. ist nicht dieser
+Schritt und ersetzt ihn nicht.
+
+**6.2 ⬜ 👤 Status notieren.**
 Er wechselt auf „Waiting for Review".
 
 ---
 
-## Phase 7: Danach
+## Phase 7: Danach ⬜ offen
 
-**7.1 🤖 Tag setzen und pushen.**
+**7.1 ⬜ 🤖 Tag setzen und pushen.**
 Erst jetzt, weil der eingereichte Stand nun feststeht.
 
-⚠️ **Dabei fällt eine Altlast an.** Für v4 existiert **kein einziger Tag**,
-getaggt sind nur v3-Versionen. Der Stand, der im App Store liegt, ist nirgends
-markiert. Deshalb war `v4-appstore/` faktisch das einzige greifbare Abbild der
-ausgelieferten Version, und genau dieser Ordner hat am 01.10. das falsche Archiv
-erzeugt.
+⚠️ **Dabei fällt eine Altlast an.** Für v4 existiert **kein einziger Tag**, Stand
+03.10.2026 unverändert. Getaggt sind nur `v3.4.0` bis `v3.4.6`. Der Stand, der im
+App Store liegt, ist nirgends markiert. Deshalb war `v4-appstore/` faktisch das
+einzige greifbare Abbild der ausgelieferten Version, und genau dieser Ordner hat
+am 01.10. das falsche Archiv erzeugt.
 
 In dieser Reihenfolge nachholen:
 
@@ -272,23 +372,24 @@ Der Ordner wird erst entbehrlich, wenn der Tag seine Aufgabe übernommen hat.
 Vollständig in
 `~/.claude/projects/-Users-mauriciomorkun/memory/project_audiorouternow_v4_tags_pending.md`.
 
-**7.2 🤖 Dokumentation nachziehen.**
+**7.2 ⬜ 🤖 Dokumentation nachziehen.**
 In `CHANGELOG.md`, `RELEASE_NOTES.md` und `docs/v4.0.1/README.md` steht derzeit
-überall „prepared, not yet submitted". Das wird auf „in Review" geändert, mit
-Datum.
+überall „uploaded, not submitted", mit dem Datum des Uploads. Das wird auf
+„in Review" geändert, mit Datum.
 
-**7.3 👤 Warten.**
+**7.3 ⬜ 👤 Warten.**
 Erfahrungswert aus 4.0.0: ein bis drei Tage.
 
-**7.4 Bei Freigabe:**
+**7.4 ⬜ Bei Freigabe:**
 - 🤖 Dokumentation auf „veröffentlicht" setzen
 - 👤 Freigabe in App Store Connect auslösen (bei manueller Veröffentlichung)
-- 🤖 Antwort an `bogdanw` auf MacRumors, der Text liegt bereit und sagt bisher
-  „not submitted yet"
-- 🤖 Antwort an `luisrocklu` auf X, falls noch nicht gepostet
+- 🤖 Antwort an den Melder von CASE-004 auf MacRumors, der Text liegt bereit und
+  sagt bisher „not submitted yet"
+- 🤖 Antwort an den Melder des Sample-Rate-Nebenbefunds auf X, falls noch nicht
+  gepostet
 - 🤖 `feedback/CASE-003` und `CASE-004` auf ausgeliefert setzen
 
-**7.5 Bei Ablehnung:**
+**7.5 ⬜ Bei Ablehnung:**
 Meldung vollständig kopieren, nichts raten. Bei 2.4.5(iii) war der genannte Grund
 nicht die tatsächliche Ursache, das hat damals einen Anlauf gekostet.
 
