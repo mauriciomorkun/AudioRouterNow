@@ -206,6 +206,18 @@ struct FooterRow: View {
                     ? "Output locked: macOS can't switch the output device while routing (e.g. on Bluetooth connect)"
                     : "Output unlocked: macOS may switch the output device automatically")
                 Spacer()
+                // CASE-008: Exclusive Routing Toggle (betrifft wie der Lock das
+                // Default-Geraet, deshalb direkt daneben).
+                Button {
+                    controller.exclusiveRouting.toggle()
+                } label: {
+                    Image(systemName: controller.exclusiveRouting ? "speaker.slash.circle.fill" : "speaker.slash.circle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(controller.exclusiveRouting ? ARNColor.accent : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Exclusive routing: only selected devices play. Default output stays silent.")
+                Spacer()
                 // v4.0.1: Bug-Report. Bewusst ein Icon und kein Textbutton,
                 // die Footer-Zeile hat bei 320pt Panel-Breite keinen Platz mehr.
                 Button {

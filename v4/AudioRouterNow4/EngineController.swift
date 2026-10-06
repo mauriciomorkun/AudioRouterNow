@@ -186,6 +186,22 @@ final class EngineController: ObservableObject {
         UserDefaults.standard.object(forKey: lockOutputDeviceKey) as? Bool ?? true
     }
 
+    /// CASE-008 (Exclusive Routing): Bei `true` spielen nur die vom User
+    /// ausgewaehlten Geraete, der System-Default bleibt stumm, solange er
+    /// nicht selbst in der Auswahl steht. Default: `false`, damit bestehende
+    /// Setups ihr bisheriges Verhalten behalten (Default-Output spielt mit).
+    /// Eine Aenderung wendet sich bei laufendem Routing per Warm-Restart an,
+    /// genau wie das Hinzufuegen/Entfernen eines Ausgangs.
+    @Published var exclusiveRouting: Bool = UserDefaults.standard.bool(forKey: exclusiveRoutingKey) {
+        didSet {
+            guard oldValue != exclusiveRouting else { return }
+            UserDefaults.standard.set(exclusiveRouting, forKey: Self.exclusiveRoutingKey)
+            applyOutputsIfRouting()
+        }
+    }
+
+    private static let exclusiveRoutingKey = "arn.v4.exclusiveRouting"
+
     /// W5: true, während refreshLaunchAtLoginStatus() den Wert nur SPIEGELT, 
     /// didSet darf dann NICHT registrieren/deregistrieren.
     private var isRefreshingLoginStatus = false
@@ -320,7 +336,7 @@ final class EngineController: ObservableObject {
         defer { isStarting = false }
         do {
             engine.setOutputGains(deviceGains.mapValues(Float32.init))
-            try engine.start(outputs: outputConfigs)
+            try engine.start(outputs: outputConfigs, exclusive: exclusiveRouting)
             status = engine.status
             if status == .routing {
                 bufferFrames = engine.ioBufferFrames          // neu
@@ -397,7 +413,7 @@ final class EngineController: ObservableObject {
         engine.stop()
         do {
             engine.setOutputGains(deviceGains.mapValues(Float32.init))
-            try engine.start(outputs: outputConfigs)
+            try engine.start(outputs: outputConfigs, exclusive: exclusiveRouting)
             status = engine.status
             bufferFrames = engine.ioBufferFrames
             captureDeviceLatencies()
@@ -517,7 +533,7 @@ final class EngineController: ObservableObject {
             guard self.status == .routing else { return }
             do {
                 self.engine.setOutputGains(self.deviceGains.mapValues(Float32.init))
-                try await self.engine.updateOutputs(self.outputConfigs)
+                try await self.engine.updateOutputs(self.outputConfigs, exclusive: self.exclusiveRouting)
                 // stopRouting() kann während des 200-ms-Settle-Awaits gelaufen
                 // sein (K1-Abbruch in der Engine, kein Throw) → Lifecycle NICHT
                 // neu aufsetzen, sonst läuft ein Output-Lock-Manager im Idle.
@@ -778,7 +794,7 @@ final class EngineController: ObservableObject {
             guard self.status == .routing else { return }
             do {
                 self.engine.setOutputGains(self.deviceGains.mapValues(Float32.init))
-                try await self.engine.updateOutputs(self.outputConfigs)
+                try await self.engine.updateOutputs(self.outputConfigs, exclusive: self.exclusiveRouting)
                 // stopRouting() während des 200-ms-Settle-Awaits (K1-Abbruch)
                 // → gecleartes @Published-State nicht wieder befüllen.
                 guard self.status == .routing else { return }

@@ -12,9 +12,18 @@
 //
 //  WICHTIG (Phase-5-Fix): Mit `.mutedWhenTapped` mutet CoreAudio die Quelle am
 //  Tap, der Default-Output bekommt auf dem nativen Weg KEIN Signal mehr. Der
-//  Direct-IOProc ist die EINZIGE Signalquelle und bespielt deshalb ALLE Slots
-//  inkl. Default-Output (= allOutputs[0], bufferOffset 0). Es gibt keinen
-//  „skip"-Slot mehr.
+//  Direct-IOProc ist die EINZIGE Signalquelle und bespielt die konfigurierten
+//  Slots.
+//
+//  CASE-008 (Exclusive Routing): Der Default-Output-Slot wird nicht mehr
+//  bedingungslos angehaengt. Er wird NUR dann hinzugefuegt, wenn
+//  ``shouldAppendDefaultSlot(hasResolvableUserOutputs:exclusiveRouting:)`` das
+//  erlaubt. Ohne auflosbare User-Outputs (leere oder komplett nicht
+//  auflosbare Auswahl) bleibt der Default-Slot als Passthrough-Garantie
+//  erhalten (kein Audio-Ausfall). Im Standard-Modus (exclusiveRouting = false)
+//  wird er wie bisher mitgespielt. Nur im Exklusiv-Modus mit nicht-leerer,
+//  auflosbarer Auswahl faellt der Default-Slot weg, der Default-Output bleibt
+//  dann durch `.mutedWhenTapped` stumm.
 //
 //  Kein Ring-Buffer, kein Inter-Thread-Delay. CoreAudio's Aggregate Device
 //  synchronisiert die Clocks aller Sub-Devices automatisch (kAudioSubTapDriftCompensationKey).
@@ -253,6 +262,11 @@ public final class FanOutEngine {
     /// `outputs` kann leer sein → dann ist der Default-Output der einzige Slot
     /// (Passthrough mit reiner Tap-Latenz, keine Delay-Kompensation).
     ///
+    /// CASE-008: `exclusive` (Default `false`) aktiviert den Exklusiv-Modus.
+    /// Bei `true` und nicht-leerer, auflosbarer Auswahl wird der Default-Output
+    /// NICHT als Slot angehaengt (bleibt durch `.mutedWhenTapped` stumm). Bei
+    /// `false` gilt das bisherige Verhalten (Default-Output spielt immer mit).
+    ///
     /// - Throws: ``RouterError/tapFailed(status:)`` bei OSStatus-Fehlern,
     ///   ``RouterError/deviceNotFound(uid:)`` wenn eine Output-UID nicht
     ///   auflösbar ist. Bei jedem Fehler werden bereits erstellte Ressourcen
@@ -260,7 +274,7 @@ public final class FanOutEngine {
     ///
     /// - Note: TCC-Denied führt meist zu `noErr` + Silence, NICHT zu einem
     ///   Throw. Den Denied-Fall über ``isSuspectedTCCDenied`` abfragen.
-    public func start(outputs: [OutputConfig] = []) throws {
+    public func start(outputs: [OutputConfig] = [], exclusive: Bool = false) throws {
         // Nur wenn nicht bereits routing, doppeltes start() ist ein No-Op.
         guard status != .routing else { return }
 
@@ -282,7 +296,7 @@ public final class FanOutEngine {
         do {
             // createTap() hat tapUUID gesetzt, defensiv statt Force-Unwrap.
             guard let uuid = tapUUID else { throw RouterError.tapFailed(status: -1) }
-            try buildAndStartAggregate(outputs: outputs, tapUUID: uuid)
+            try buildAndStartAggregate(outputs: outputs, tapUUID: uuid, exclusive: exclusive)
         } catch {
             teardownPartial()
             throw error
@@ -292,7 +306,7 @@ public final class FanOutEngine {
     /// Tauscht Output-Geräte bei laufendem Routing ohne den Tap zu zerstören.
     /// Musikunterbrechung: Aggregate-Teardown + 200 ms Settle + Rebuild (~0.5–1 s).
     /// Tap und TCC-Session bleiben erhalten, kein neuer TCC-Prompt.
-    public func updateOutputs(_ outputs: [OutputConfig]) async throws {
+    public func updateOutputs(_ outputs: [OutputConfig], exclusive: Bool = false) async throws {
         // K1: Serialisierung, nur EIN Rebuild gleichzeitig. Die Tap-UUID wird
         // VOR der Suspension festgehalten, um Identität nachher zu prüfen.
         guard status == .routing, !isRebuilding, let expectedUUID = tapUUID else { return }
@@ -314,7 +328,7 @@ public final class FanOutEngine {
         }
 
         do {
-            try buildAndStartAggregate(outputs: outputs, tapUUID: uuid)
+            try buildAndStartAggregate(outputs: outputs, tapUUID: uuid, exclusive: exclusive)
         } catch {
             // Fallback: vollständiger Stop damit Status konsistent bleibt
             teardownPartial()
@@ -371,17 +385,71 @@ public final class FanOutEngine {
         tapUUID = tapDescription.uuid
     }
 
+    // MARK: Default-Slot-Entscheidung (CASE-008, reine Funktion)
+
+    /// Entscheidet, ob der Default-Output als zusaetzlicher Schreib-Slot
+    /// angehaengt wird (CASE-008, Exclusive Routing).
+    ///
+    /// Reine Funktion, CoreAudio-frei und damit unit-testbar. Die Entscheidung
+    /// liegt bewusst in einer eigenen Funktion und nicht nur als Ausdruck in
+    /// ``buildAndStartAggregate``: was nicht als Funktion vorliegt, wird nicht
+    /// geprueft (dieselbe Lehre wie bei CASE-004).
+    ///
+    /// Regeln (in dieser Reihenfolge):
+    /// - `!hasResolvableUserOutputs` → `true`. Passthrough-Garantie: ist die
+    ///   Auswahl leer oder keines der gewaehlten Geraete auflosbar, bleibt der
+    ///   Default-Output der einzige Slot, sonst waere ALLES stumm.
+    /// - `!exclusiveRouting` → `true`. Standard-Modus, bisheriges Verhalten:
+    ///   der Default-Output spielt immer mit.
+    /// - `hasResolvableUserOutputs && exclusiveRouting` → `false`. Exklusiv-
+    ///   Modus mit echter Auswahl: der Default-Slot faellt weg, der
+    ///   Default-Output bleibt durch `.mutedWhenTapped` stumm.
+    nonisolated static func shouldAppendDefaultSlot(
+        hasResolvableUserOutputs: Bool,
+        exclusiveRouting: Bool
+    ) -> Bool {
+        if !hasResolvableUserOutputs { return true }
+        if !exclusiveRouting { return true }
+        return false
+    }
+
     // MARK: Aggregate-Aufbau (Warm-Restart-fähig)
 
     /// Baut das Aggregate + IOProc und startet die Wiedergabe. Setzt `status`
     /// bei Erfolg auf `.routing`. Erwartet einen bereits erstellten Tap
     /// (`tapUUID` gesetzt). Wirft ohne selbst aufzuräumen, der Aufruf-Kontext
     /// (start/updateOutputs) übernimmt Teardown im catch.
-    private func buildAndStartAggregate(outputs: [OutputConfig], tapUUID: UUID) throws {
+    ///
+    /// CASE-008: `exclusive` steuert ueber ``shouldAppendDefaultSlot`` ob der
+    /// Default-Output als Slot angehaengt wird.
+    private func buildAndStartAggregate(outputs: [OutputConfig], tapUUID: UUID, exclusive: Bool = false) throws {
         let diagLogger = Logger(subsystem: "com.mauriciomorkun.audiorouternow", category: "SlotDiag")
 
         // ── Schritt 2b: Default-Output-Device-UID lesen ─────────────────
         let defaultOutputUID = try Self.readDefaultOutputDeviceUID()
+
+        // ── Schritt 2b-exklusiv (CASE-008): Default-Slot-Entscheidung ───
+        //
+        // hasResolvableUserOutputs = es gibt mindestens EIN vom User gewaehltes
+        // Geraet, das gerade auflosbar ist (ungleich dem Default-Output). Nur
+        // dann darf der Exklusiv-Modus den Default-Slot weglassen, sonst waere
+        // bei leerer oder komplett nicht auflosbarer Auswahl alles stumm.
+        let hasResolvableUserOutputs = outputs.contains { config in
+            config.uid != defaultOutputUID && Self.deviceIDForUID(config.uid) != nil
+        }
+        let appendDefaultSlot = Self.shouldAppendDefaultSlot(
+            hasResolvableUserOutputs: hasResolvableUserOutputs,
+            exclusiveRouting: exclusive
+        )
+        // Erste auflosbare User-UID (ungleich Default) als Master-Fallback im
+        // Exklusiv-Modus: wird der Default-Slot weggelassen, darf die Elektion
+        // nicht auf defaultOutputUID zurueckfallen (der waere dann gar kein Slot).
+        let firstResolvableUserUID = outputs.first { config in
+            config.uid != defaultOutputUID && Self.deviceIDForUID(config.uid) != nil
+        }?.uid
+        let electionFallback = appendDefaultSlot
+            ? defaultOutputUID
+            : (firstResolvableUserUID ?? defaultOutputUID)
 
         // ── Schritt 2c: Master-Device bestimmen (L1, transport-basiert, deterministisch) ─
         //
@@ -394,8 +462,13 @@ public final class FanOutEngine {
         //
         // Kandidaten = alle konfigurierten UIDs + Default-Output (vor Stale-Filter,
         // damit der Default-Output immer wählbar bleibt).
-        var electionUIDs: [String] = [defaultOutputUID]
-        var electionSeen = Set<String>([defaultOutputUID])
+        //
+        // CASE-008: Faellt der Default-Slot im Exklusiv-Modus weg, ist der
+        // Default-Output KEIN Schreib-Slot und darf deshalb auch nicht als
+        // Master-Kandidat auftreten (er wuerde sonst Clock-Master ohne eigenen
+        // Slot, der Elektions-Fallback faengt das zusaetzlich ab).
+        var electionUIDs: [String] = appendDefaultSlot ? [defaultOutputUID] : []
+        var electionSeen = Set<String>(appendDefaultSlot ? [defaultOutputUID] : [])
         for c in outputs where electionSeen.insert(c.uid).inserted {
             electionUIDs.append(c.uid)
         }
@@ -403,7 +476,7 @@ public final class FanOutEngine {
             guard let deviceID = Self.deviceIDForUID(uid) else { return nil }
             return (uid: uid, rank: Self.deviceTransportRank(deviceID))
         }
-        let masterUID = Self.electMasterUID(candidates: masterCandidates, fallback: defaultOutputUID)
+        let masterUID = Self.electMasterUID(candidates: masterCandidates, fallback: electionFallback)
         let masterRankStr = masterCandidates.first(where: { $0.uid == masterUID })?.rank ?? -1
         let masterPrefix = String(masterUID.prefix(20))
         diagLogger.debug("L1: Master=\(masterPrefix, privacy: .public) rank=\(masterRankStr, privacy: .public)")
@@ -425,22 +498,36 @@ public final class FanOutEngine {
             if addedConfigKeys.insert(key).inserted { allOutputs.append(c) }
         }
 
+        // CASE-008: Der Default-Slot wird nur angehaengt, wenn
+        // `appendDefaultSlot` (siehe shouldAppendDefaultSlot) es erlaubt. Im
+        // Exklusiv-Modus mit echter Auswahl faellt er weg; der Default-Output
+        // bleibt dann durch `.mutedWhenTapped` stumm.
         if masterUID == defaultOutputUID {
-            // 1a. Master == Default → ch0-Slot (Default wird immer bespielt).
-            appendConfig(OutputConfig(uid: defaultOutputUID, channelOffset: 0))
+            // 1a. Master == Default → ch0-Slot (nur wenn Default mitspielt).
+            //     Im Exklusiv-Modus ohne Default-Slot ist dieser Zweig nicht
+            //     erreichbar, weil defaultOutputUID dann kein Kandidat/Fallback
+            //     mehr ist (electionFallback zeigt auf ein User-Device).
+            if appendDefaultSlot {
+                appendConfig(OutputConfig(uid: defaultOutputUID, channelOffset: 0))
+            }
         } else {
             // 1b. Master ist ein User-Device → NUR die vom User konfigurierten
             //     Slots dieses Devices (kein ungewollter Ch1-2-Slot, W4).
             for config in outputs where config.uid == masterUID { appendConfig(config) }
-            // 2. Default-Output als Slave (wird immer bespielt).
-            appendConfig(OutputConfig(uid: defaultOutputUID, channelOffset: 0))
+            // 2. Default-Output als Slave, nur wenn er mitspielen soll (CASE-008).
+            if appendDefaultSlot {
+                appendConfig(OutputConfig(uid: defaultOutputUID, channelOffset: 0))
+            }
         }
         // 3. Alle übrigen User-Configs in Reihenfolge (dedupliziert).
         for config in outputs { appendConfig(config) }
 
         // ── Schritt 2d-filter: Unavailable UIDs filtern (L1), graceful degradation ─
         // Statt Throw: konfigurierte Geräte die gerade nicht verbunden sind überspringen.
-        // Default-Output ist immer auflösbar → resolvableOutputs ist nie leer.
+        // resolvableOutputs ist nie leer: entweder ist der Default-Slot dabei
+        // (Standard-Modus, immer auflösbar) oder der Exklusiv-Modus liess ihn
+        // nur weg, WEIL hasResolvableUserOutputs galt (mindestens ein auflösbares
+        // User-Gerät ist Slot).
         // TOCTOU (bewusst akzeptiert): Verschwindet das Master-Device zwischen
         // Elektion (2c) und diesem Re-Resolve, enthält die SubDeviceList den Master,
         // resolvableOutputs aber nicht → Offset-Mismatch, den der F5-Guard
