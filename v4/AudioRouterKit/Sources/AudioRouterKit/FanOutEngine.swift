@@ -447,6 +447,14 @@ public final class FanOutEngine {
         let firstResolvableUserUID = outputs.first { config in
             config.uid != defaultOutputUID && Self.deviceIDForUID(config.uid) != nil
         }?.uid
+        // Bekannte Einschraenkung (CASE-008): Im Exklusiv-Modus mit ausschliesslich
+        // BT-/AirPlay-Outputs (alle Rang 4) faellt die Elektion auf
+        // firstResolvableUserUID zurueck. Dann wird ein BT-Geraet Clock-Master,
+        // entgegen der L1-Regel (BT/AirPlay niemals Master). Unvermeidbar, weil der
+        // Default in dieser Konfiguration kein Sub-Device mehr ist, es also keinen
+        // Rang-0-bis-3-Kandidaten gibt. Die Clock-Stabilitaet des Aggregates ist
+        // dann schlechter. Die Diagnose-Warnung nach der Elektion macht den Fall
+        // sichtbar, ohne das Verhalten zu aendern.
         let electionFallback = appendDefaultSlot
             ? defaultOutputUID
             : (firstResolvableUserUID ?? defaultOutputUID)
@@ -480,6 +488,11 @@ public final class FanOutEngine {
         let masterRankStr = masterCandidates.first(where: { $0.uid == masterUID })?.rank ?? -1
         let masterPrefix = String(masterUID.prefix(20))
         diagLogger.debug("L1: Master=\(masterPrefix, privacy: .public) rank=\(masterRankStr, privacy: .public)")
+        // CASE-008: Diagnose-Warnung, wenn ein Rang-4-Geraet (BT/AirPlay) via
+        // Fallback Clock-Master wurde. Reiner Log, kein Verhaltenswechsel.
+        if masterCandidates.first(where: { $0.uid == masterUID })?.rank == 4 {
+            diagLogger.warning("L1: rank-4 device elected master via fallback, clock stability degraded")
+        }
 
         // ── Schritt 2d: allOutputs in subDevice-Reihenfolge aufbauen ─────
         //
@@ -490,37 +503,15 @@ public final class FanOutEngine {
         // W4: Der Master ist nur Clock-Referenz (SubDeviceList/MainSubDevice), 
         // er bekommt KEINEN synthetischen ch0-Schreib-Slot mehr. Schreib-Slots
         // gibt es nur für (a) den Default-Output und (b) explizit konfigurierte OutputConfigs.
-        var allOutputs: [OutputConfig] = []
-        var addedConfigKeys = Set<String>()
-
-        func appendConfig(_ c: OutputConfig) {
-            let key = "\(c.uid):\(c.channelOffset)"
-            if addedConfigKeys.insert(key).inserted { allOutputs.append(c) }
-        }
-
-        // CASE-008: Der Default-Slot wird nur angehaengt, wenn
-        // `appendDefaultSlot` (siehe shouldAppendDefaultSlot) es erlaubt. Im
-        // Exklusiv-Modus mit echter Auswahl faellt er weg; der Default-Output
-        // bleibt dann durch `.mutedWhenTapped` stumm.
-        if masterUID == defaultOutputUID {
-            // 1a. Master == Default → ch0-Slot (nur wenn Default mitspielt).
-            //     Im Exklusiv-Modus ohne Default-Slot ist dieser Zweig nicht
-            //     erreichbar, weil defaultOutputUID dann kein Kandidat/Fallback
-            //     mehr ist (electionFallback zeigt auf ein User-Device).
-            if appendDefaultSlot {
-                appendConfig(OutputConfig(uid: defaultOutputUID, channelOffset: 0))
-            }
-        } else {
-            // 1b. Master ist ein User-Device → NUR die vom User konfigurierten
-            //     Slots dieses Devices (kein ungewollter Ch1-2-Slot, W4).
-            for config in outputs where config.uid == masterUID { appendConfig(config) }
-            // 2. Default-Output als Slave, nur wenn er mitspielen soll (CASE-008).
-            if appendDefaultSlot {
-                appendConfig(OutputConfig(uid: defaultOutputUID, channelOffset: 0))
-            }
-        }
-        // 3. Alle übrigen User-Configs in Reihenfolge (dedupliziert).
-        for config in outputs { appendConfig(config) }
+        // CASE-008: Slot-Reihenfolge in einer reinen Funktion erzeugen (CoreAudio-frei,
+        // unit-testbar). Die Master-first-Invariante haengt hier und muss exakt der
+        // SubDeviceList-Reihenfolge (Schritt 3) entsprechen, sonst Buffer-Offset-Mismatch.
+        var allOutputs = Self.orderedSlotConfigs(
+            outputs: outputs,
+            defaultOutputUID: defaultOutputUID,
+            masterUID: masterUID,
+            appendDefaultSlot: appendDefaultSlot
+        )
 
         // ── Schritt 2d-filter: Unavailable UIDs filtern (L1), graceful degradation ─
         // Statt Throw: konfigurierte Geräte die gerade nicht verbunden sind überspringen.
@@ -1328,6 +1319,68 @@ public final class FanOutEngine {
     /// Wählt den Clock-Master deterministisch nach Transport-Typ und UID.
     /// BT/AirPlay werden niemals Master (Rang 4).
     /// Tie-Break: lexikografisch kleinste UID (Reihenfolge-unabhängig).
+    // MARK: Slot-Reihenfolge (CASE-008, Master-first-Invariante)
+
+    /// CASE-008: erzeugt die Slot-Reihenfolge (`allOutputs`) fuer das Aggregate.
+    /// Reine Funktion, CoreAudio-frei und damit unit-testbar.
+    ///
+    /// KRITISCH: die zurueckgegebene Reihenfolge legt die Buffer-Offsets fuer
+    /// `buildDirectOutputSlots` fest und MUSS exakt der SubDeviceList-Reihenfolge
+    /// entsprechen. Die SubDeviceList beginnt mit dem Master, deshalb muss auch
+    /// hier der Master-Schreib-Slot (so vorhanden) zuerst stehen.
+    ///
+    /// - Parameters:
+    ///   - outputs: die vom User konfigurierten OutputConfigs, in User-Reihenfolge.
+    ///   - defaultOutputUID: UID des aktuellen System-Default-Output.
+    ///   - masterUID: der gewaehlte Clock-Master (siehe `electMasterUID`).
+    ///   - appendDefaultSlot: ob der Default-Output einen Schreib-Slot bekommt
+    ///     (siehe `shouldAppendDefaultSlot`, CASE-008).
+    /// - Returns: die deduplizierte Slot-Reihenfolge, Master-Slot zuerst.
+    nonisolated static func orderedSlotConfigs(
+        outputs: [OutputConfig],
+        defaultOutputUID: String,
+        masterUID: String,
+        appendDefaultSlot: Bool
+    ) -> [OutputConfig] {
+        var allOutputs: [OutputConfig] = []
+        var addedConfigKeys = Set<String>()
+
+        func appendConfig(_ c: OutputConfig) {
+            let key = "\(c.uid):\(c.channelOffset)"
+            if addedConfigKeys.insert(key).inserted { allOutputs.append(c) }
+        }
+
+        // CASE-008: Der Default-Slot wird nur angehaengt, wenn
+        // `appendDefaultSlot` (siehe shouldAppendDefaultSlot) es erlaubt. Im
+        // Exklusiv-Modus mit echter Auswahl faellt er weg; der Default-Output
+        // bleibt dann durch `.mutedWhenTapped` stumm.
+        if masterUID == defaultOutputUID {
+            // 1a. Master == Default.
+            if appendDefaultSlot {
+                // Default spielt mit, synthetischer ch0-Slot.
+                appendConfig(OutputConfig(uid: defaultOutputUID, channelOffset: 0))
+            } else {
+                // Im Exklusiv-Modus ohne Default-Slot ist dieser Zweig erreichbar,
+                // wenn der User den Default selbst ausgewaehlt hat (electionUIDs
+                // enthaelt alle outputs-UIDs). Dann muessen die User-Configs des
+                // Default-Geraets ZUERST stehen, sonst bricht die Master-first-
+                // Invariante der SubDeviceList (Buffer-Offset-Mismatch, Faktor-1.0-Leck).
+                for config in outputs where config.uid == masterUID { appendConfig(config) }
+            }
+        } else {
+            // 1b. Master ist ein User-Device → NUR die vom User konfigurierten
+            //     Slots dieses Devices (kein ungewollter Ch1-2-Slot, W4).
+            for config in outputs where config.uid == masterUID { appendConfig(config) }
+            // 2. Default-Output als Slave, nur wenn er mitspielen soll (CASE-008).
+            if appendDefaultSlot {
+                appendConfig(OutputConfig(uid: defaultOutputUID, channelOffset: 0))
+            }
+        }
+        // 3. Alle übrigen User-Configs in Reihenfolge (dedupliziert).
+        for config in outputs { appendConfig(config) }
+        return allOutputs
+    }
+
     nonisolated static func electMasterUID(
         candidates: [(uid: String, rank: Int)],
         fallback: String

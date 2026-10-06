@@ -72,4 +72,87 @@ final class ExclusiveRoutingTests: XCTestCase {
             hasResolvableUserOutputs: false, exclusiveRouting: true),
             "Exklusiv-Modus ohne auflosbare Auswahl darf den Default nicht weglassen")
     }
+
+    // MARK: CASE-008 Slot-Reihenfolge (orderedSlotConfigs), Master-first-Invariante
+
+    /// Repro BT-Speaker + Built-in(Default), Exclusive ON: der User hat den
+    /// Default selbst gewaehlt, Built-in gewinnt die Elektion (Rang 1 gegen BT
+    /// Rang 4), appendDefaultSlot ist false. Branch 1a muss die User-Configs des
+    /// Default-Geraets ZUERST anhaengen, sonst beginnt allOutputs mit dem BT-Slot,
+    /// die SubDeviceList aber mit dem Master → Buffer-Offset-Mismatch, Faktor-1.0-Leck.
+    func testExclusiveDefaultInSelectionMasterEqualsDefaultOrdersDefaultFirst() {
+        let bt = OutputConfig(uid: "bt-speaker")
+        let builtin = OutputConfig(uid: "builtin")
+        let ordered = FanOutEngine.orderedSlotConfigs(
+            outputs: [bt, builtin],
+            defaultOutputUID: "builtin",
+            masterUID: "builtin",
+            appendDefaultSlot: false
+        )
+        XCTAssertEqual(ordered.first?.uid, "builtin",
+            "Master-first-Invariante: der Default-Master muss zuerst stehen")
+        XCTAssertEqual(ordered.map { $0.uid }, ["builtin", "bt-speaker"])
+    }
+
+    /// Standard-Modus (appendDefaultSlot=true, Master==Default): der erste Eintrag
+    /// ist der synthetische Default-ch0-Slot, der Rest folgt in outputs-Reihenfolge.
+    /// Regressionsschutz fuer das bisherige Verhalten.
+    func testStandardModeMasterEqualsDefaultPrependsDefaultCh0Slot() {
+        let extern = OutputConfig(uid: "usb-dac")
+        let builtin = OutputConfig(uid: "builtin")
+        let ordered = FanOutEngine.orderedSlotConfigs(
+            outputs: [extern, builtin],
+            defaultOutputUID: "builtin",
+            masterUID: "builtin",
+            appendDefaultSlot: true
+        )
+        XCTAssertEqual(ordered.first?.uid, "builtin")
+        XCTAssertEqual(ordered.first?.channelOffset, 0)
+        XCTAssertEqual(ordered.map { $0.uid }, ["builtin", "usb-dac"])
+    }
+
+    /// Master ist ein User-Device (Branch 1b): dessen Configs zuerst, dann der
+    /// Default-Slot, dann der Rest.
+    func testMasterIsUserDeviceOrdersMasterThenDefaultThenRest() {
+        let usb = OutputConfig(uid: "usb-dac")
+        let hdmi = OutputConfig(uid: "hdmi")
+        let ordered = FanOutEngine.orderedSlotConfigs(
+            outputs: [hdmi, usb],
+            defaultOutputUID: "builtin",
+            masterUID: "usb-dac",
+            appendDefaultSlot: true
+        )
+        XCTAssertEqual(ordered.map { $0.uid }, ["usb-dac", "builtin", "hdmi"])
+    }
+
+    /// Dedup: steht der Default mit channelOffset 0 bereits in outputs, darf kein
+    /// Doppel-Slot entstehen.
+    func testDefaultWithChannelOffsetZeroInOutputsNoDuplicateSlot() {
+        let builtin = OutputConfig(uid: "builtin", channelOffset: 0)
+        let usb = OutputConfig(uid: "usb-dac")
+        let ordered = FanOutEngine.orderedSlotConfigs(
+            outputs: [usb, builtin],
+            defaultOutputUID: "builtin",
+            masterUID: "usb-dac",
+            appendDefaultSlot: true
+        )
+        let builtinCh0Count = ordered.filter { $0.uid == "builtin" && $0.channelOffset == 0 }.count
+        XCTAssertEqual(builtinCh0Count, 1, "Default-ch0 darf nur einen Slot erzeugen")
+        XCTAssertEqual(ordered.map { $0.uid }, ["usb-dac", "builtin"])
+    }
+
+    // MARK: CASE-008 electMasterUID Fallback
+
+    /// Alle Kandidaten Rang 4 (nur BT/AirPlay): electMasterUID liefert den
+    /// Fallback, da kein Kandidat Rang < 4 hat. Sichert die bekannte
+    /// Einschraenkung (rank-4-Fallback-Master) ab.
+    func testElectMasterAllRankFourReturnsFallback() {
+        let candidates: [(uid: String, rank: Int)] = [
+            (uid: "bt-a", rank: 4),
+            (uid: "bt-b", rank: 4),
+        ]
+        let elected = FanOutEngine.electMasterUID(candidates: candidates, fallback: "bt-a")
+        XCTAssertEqual(elected, "bt-a",
+            "Alle Rang 4: kein Kandidat qualifiziert, Fallback greift")
+    }
 }

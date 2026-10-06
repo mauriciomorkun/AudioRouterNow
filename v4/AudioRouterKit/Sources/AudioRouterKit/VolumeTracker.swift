@@ -79,14 +79,8 @@ final class VolumeTracker: @unchecked Sendable {
     private var freezeForDeviceID: AudioObjectID = AudioObjectID(kAudioObjectUnknown)
 
     /// CASE-007: Zeitpunkt (`CFAbsoluteTimeGetCurrent`) des Einfrierens.
-    /// Grundlage fuer die Deadline aus `settleFreezeDuration`. Nur auf `queue`.
+    /// Grundlage fuer die Deadline aus `settleFreezeDurationConst`. Nur auf `queue`.
     private var freezeSince: Double = 0.0
-
-    /// CASE-007: Sicherheitsnetz. Bleibt der erwartete Engine-Rebuild aus (der
-    /// den Tracker neu erstellt und damit `freezeActive` ueber `start()` loescht),
-    /// darf der Freeze nicht ewig haengen. 4s = 2x `btSettleDelay`. Nach Ablauf
-    /// wird der neue Wert uebernommen. Nur auf `queue`.
-    private let settleFreezeDuration: Double = 4.0
 
     private let logger = Logger(
         subsystem: "com.mauriciomorkun.audiorouternow",
@@ -166,6 +160,26 @@ final class VolumeTracker: @unchecked Sendable {
         readEffectiveVolume(for: deviceID)
     }
 
+    /// CASE-007 (Audit Runde 1): zeitgesteuertes Nachziehen des Freeze-Endes.
+    /// Das Settle-Freeze-Sicherheitsnetz in `shouldAdoptVolume` greift sonst nur,
+    /// wenn nach Ablauf der Deadline noch ein HAL-Volume-/Mute-Event eintrifft.
+    /// Bleibt sowohl der Engine-Rebuild (der den Tracker via `start()` neu baut)
+    /// als auch jedes weitere Event aus, bliebe der eingefrorene alte Skalar ewig
+    /// stehen. Dieser Timer zieht den effektiven Wert nach Ablauf aktiv nach.
+    ///
+    /// `generation` ist der zum Freeze-Zeitpunkt gemerkte `freezeSince`-Wert und
+    /// dient als Token gegen veraltete Timer: feuert ein alter Timer, nachdem ein
+    /// neuer Freeze begonnen hat, stimmt `freezeSince` nicht mehr ueberein und der
+    /// Timer verfaellt wirkungslos. Alles auf `queue`, kein neuer Lock, kein
+    /// Audio-Pfad.
+    private func scheduleFreezeSettleDeadline(generation: Double) {
+        queue.asyncAfter(deadline: .now() + Self.settleFreezeDurationConst + 0.1) { [weak self] in
+            guard let self else { return }
+            guard !self.isStopped, self.freezeActive, self.freezeSince == generation else { return }
+            self.readEffectiveVolume(for: self.currentDeviceID)
+        }
+    }
+
     // MARK: Device-Update (läuft auf `queue`)
 
     private func updateDevice() {
@@ -199,6 +213,7 @@ final class VolumeTracker: @unchecked Sendable {
                 freezeActive = true
                 freezeForDeviceID = currentDeviceID
                 freezeSince = CFAbsoluteTimeGetCurrent()
+                scheduleFreezeSettleDeadline(generation: freezeSince)
             }
         }
 
@@ -384,9 +399,14 @@ final class VolumeTracker: @unchecked Sendable {
         return false
     }
 
-    /// Spiegel von `settleFreezeDuration` fuer die `nonisolated` reine Funktion.
-    /// Eine Instanz-Property ist aus einer statischen Funktion nicht erreichbar,
-    /// der Wert muss aber identisch bleiben.
+    /// CASE-007: Sicherheitsnetz-Dauer des Settle-Freeze. Bleibt der erwartete
+    /// Engine-Rebuild aus (der den Tracker neu erstellt und damit `freezeActive`
+    /// ueber `start()` loescht), darf der Freeze nicht ewig haengen. 4s = 2x
+    /// `btSettleDelay`. Nach Ablauf wird der neue Wert uebernommen.
+    ///
+    /// `nonisolated static`, damit die reine Funktion `shouldAdoptVolume` den Wert
+    /// erreicht. Einzige Quelle der Dauer, keine zweite Instanz-Property mehr
+    /// (die alte `settleFreezeDuration` war toter Code, Audit Runde 1).
     nonisolated static let settleFreezeDurationConst: Double = 4.0
 
     // MARK: RT-sicherer Schreiber
