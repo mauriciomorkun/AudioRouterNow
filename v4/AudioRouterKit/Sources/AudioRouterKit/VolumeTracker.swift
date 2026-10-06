@@ -63,6 +63,31 @@ final class VolumeTracker: @unchecked Sendable {
     /// Nur auf `queue` berühren.
     private var softwareVolume: Float32 = 1.0
 
+    // MARK: CASE-007, Settle-Freeze
+
+    /// CASE-007: true, solange ein Default-Device-Wechsel aussteht und der
+    /// Engine-Rebuild (slotAppliesVol-Neuberechnung) noch nicht gelaufen ist.
+    /// Verhindert, dass der (oft hoehere) gespeicherte Lautstaerke-Pegel des
+    /// neuen Geraets im ~2s-Settle-Fenster auf das ALTE Slot-Layout trifft und
+    /// einen hoerbaren Lautstaerke-Sprung nach oben erzeugt. Nur auf `queue`.
+    private var freezeActive = false
+
+    /// CASE-007: das Default-Geraet VOR dem Wechsel. Flippt der System-Default
+    /// zurueck auf dieses Geraet (Stable-Output-Lock-Rueck-Flip,
+    /// `DeviceLifecycleManager`), ist kein echter Wechsel passiert und der
+    /// Freeze wird aufgehoben. Nur auf `queue`.
+    private var freezeForDeviceID: AudioObjectID = AudioObjectID(kAudioObjectUnknown)
+
+    /// CASE-007: Zeitpunkt (`CFAbsoluteTimeGetCurrent`) des Einfrierens.
+    /// Grundlage fuer die Deadline aus `settleFreezeDuration`. Nur auf `queue`.
+    private var freezeSince: Double = 0.0
+
+    /// CASE-007: Sicherheitsnetz. Bleibt der erwartete Engine-Rebuild aus (der
+    /// den Tracker neu erstellt und damit `freezeActive` ueber `start()` loescht),
+    /// darf der Freeze nicht ewig haengen. 4s = 2x `btSettleDelay`. Nach Ablauf
+    /// wird der neue Wert uebernommen. Nur auf `queue`.
+    private let settleFreezeDuration: Double = 4.0
+
     private let logger = Logger(
         subsystem: "com.mauriciomorkun.audiorouternow",
         category: "VolumeTracker"
@@ -85,7 +110,15 @@ final class VolumeTracker: @unchecked Sendable {
             AudioObjectID(kAudioObjectSystemObject), &addr, queue, block
         )
         // Initialwert synchron lesen (auf queue, damit spätere Callbacks serialisiert sind).
-        queue.sync { [weak self] in self?.isStopped = false; self?.updateDevice() }
+        // CASE-007: Freeze-Zustand zuruecksetzen. Beim Engine-Rebuild wird der
+        // Tracker neu erstellt, start() loescht damit einen haengenden Freeze.
+        queue.sync { [weak self] in
+            guard let self else { return }
+            self.isStopped = false
+            self.freezeActive = false
+            self.freezeForDeviceID = AudioObjectID(kAudioObjectUnknown)
+            self.updateDevice()
+        }
     }
 
     /// Stoppt den Tracker und entfernt alle Property-Listener.
@@ -103,7 +136,14 @@ final class VolumeTracker: @unchecked Sendable {
             defaultDeviceListenerBlock = nil
         }
         // Volume- + Mute-Listener vom aktuellen Device entfernen (sync, damit in-flight Callbacks enden)
-        queue.sync { [weak self] in self?.isStopped = true; self?.removeDeviceListeners() }
+        // CASE-007: Freeze-Zustand mit zuruecksetzen.
+        queue.sync { [weak self] in
+            guard let self else { return }
+            self.isStopped = true
+            self.freezeActive = false
+            self.freezeForDeviceID = AudioObjectID(kAudioObjectUnknown)
+            self.removeDeviceListeners()
+        }
         // Zurück auf Unity (kein Gain) nach Stopp
         setVolumeInternal(1.0)
     }
@@ -143,6 +183,23 @@ final class VolumeTracker: @unchecked Sendable {
         guard newID != currentDeviceID else {
             readEffectiveVolume(for: newID)
             return
+        }
+
+        // CASE-007: Default-Geraet wechselt. Den volumeScale auf dem ALTEN Wert
+        // einfrieren, bis der Engine-Rebuild slotAppliesVol neu berechnet. Sonst
+        // trifft der (oft hoehere) gespeicherte Pegel des neuen Geraets im
+        // ~2s-Settle-Fenster auf das alte Slot-Layout: hoerbarer Sprung nach oben.
+        if currentDeviceID != AudioObjectID(kAudioObjectUnknown) {
+            if newID == freezeForDeviceID {
+                // Rueck-Flip auf das alte Geraet (Stable-Output-Lock): kein echter
+                // Wechsel, Freeze aufheben und den echten Wert wieder uebernehmen.
+                freezeActive = false
+                freezeForDeviceID = AudioObjectID(kAudioObjectUnknown)
+            } else {
+                freezeActive = true
+                freezeForDeviceID = currentDeviceID
+                freezeSince = CFAbsoluteTimeGetCurrent()
+            }
         }
 
         removeDeviceListeners()
@@ -256,7 +313,8 @@ final class VolumeTracker: @unchecked Sendable {
             _ = AudioObjectGetPropertyData(deviceID, &muteAddr, 0, nil, &muteSize, &muted)
         }
         if muted != 0 {
-            setVolumeInternal(0.0)
+            // CASE-007: Mute passiert den Freeze immer (isMute).
+            adoptVolume(0.0, isMute: true)
             logger.debug("VolumeTracker: Muted → 0.0")
             return
         }
@@ -264,7 +322,7 @@ final class VolumeTracker: @unchecked Sendable {
         // Software-Volume-Modus: Gerät hat kein Volume-Property (Fixed-Volume-BT,
         // HDMI) → interner Gain statt Unity-Fallback.
         guard hasHardwareVolume else {
-            setVolumeInternal(softwareVolume)
+            adoptVolume(softwareVolume, isMute: softwareVolume <= 0)
             return
         }
 
@@ -277,19 +335,87 @@ final class VolumeTracker: @unchecked Sendable {
         var vol: Float32 = 1.0
         var volSize = UInt32(MemoryLayout<Float32>.size)
         if AudioObjectGetPropertyData(deviceID, &volAddr, 0, nil, &volSize, &vol) == noErr {
-            setVolumeInternal(max(0, min(1, vol)))
+            let clamped = max(0, min(1, vol))
+            adoptVolume(clamped, isMute: clamped <= 0)
             logger.debug("VolumeTracker: volume=\(vol, privacy: .public) (element=\(self.volumeElement, privacy: .public))")
         } else {
-            setVolumeInternal(1.0)
+            adoptVolume(1.0, isMute: false)
         }
     }
 
+    // MARK: CASE-007, Freeze-Entscheidung (reine Funktion, unit-testbar)
+
+    /// CASE-007: entscheidet, ob ein frisch gelesener Lautstaerke-Wert in den
+    /// RT-Skalar uebernommen werden darf, oder ob er im Settle-Fenster eines
+    /// Default-Device-Wechsels verworfen wird.
+    ///
+    /// Bewusst eine reine Funktion und nicht nur ein Ausdruck am Schreibpfad.
+    /// Dieselbe Lehre wie bei CASE-004: was nicht als Funktion vorliegt, wird
+    /// nicht geprueft. Die Reihenfolge der Regeln ist bindend, die ersten beiden
+    /// Zweige schlagen den Freeze.
+    ///
+    /// - Parameters:
+    ///   - newValue: der frisch gelesene Lautstaerke-Skalar [0…1].
+    ///   - isFrozen: `freezeActive`, es steht ein Default-Wechsel aus.
+    ///   - frozenElapsed: Sekunden seit `freezeSince`.
+    ///   - isUserIntent: der User hat den Slider bewegt (`setSystemVolume`),
+    ///     der Freeze wird dadurch verworfen.
+    ///   - isMute: `newValue == 0.0`, die Stummschaltung.
+    /// - Returns: `true` = Wert uebernehmen, `false` = im Freeze verwerfen.
+    nonisolated static func shouldAdoptVolume(
+        newValue: Float32,
+        isFrozen: Bool,
+        frozenElapsed: Double,
+        isUserIntent: Bool,
+        isMute: Bool
+    ) -> Bool {
+        // 1. Mute darf NIE blockiert werden. Ein verworfenes Mute hiesse Ton
+        //    trotz Stummtaste, die laute Fehlerrichtung (vgl. CASE-004, 5a).
+        if isMute { return true }
+        // 2. User-Intent hebt den Freeze auf: der Slider ist eine bewusste
+        //    Handlung, kein transientes Geraetewechsel-Artefakt.
+        if isUserIntent { return true }
+        // 3. Normalbetrieb ohne Freeze.
+        if !isFrozen { return true }
+        // 4. Deadline abgelaufen: der erwartete Rebuild blieb aus, Wert
+        //    uebernehmen statt ewig einfrieren (Sicherheitsnetz).
+        if frozenElapsed >= settleFreezeDurationConst { return true }
+        // 5. Freeze aktiv, positiver Wert: verwerfen. Das ist der Kern des Fixes.
+        return false
+    }
+
+    /// Spiegel von `settleFreezeDuration` fuer die `nonisolated` reine Funktion.
+    /// Eine Instanz-Property ist aus einer statischen Funktion nicht erreichbar,
+    /// der Wert muss aber identisch bleiben.
+    nonisolated static let settleFreezeDurationConst: Double = 4.0
+
     // MARK: RT-sicherer Schreiber
 
+    /// Schreibt `v` ungeprueft in den RT-Skalar. Interner Pfad, die
+    /// Freeze-Entscheidung faellt in `adoptVolume(_:isMute:)` davor.
     private func setVolumeInternal(_ v: Float32) {
         os_unfair_lock_lock(&_lock)
         _volumeScale = v
         os_unfair_lock_unlock(&_lock)
+    }
+
+    /// CASE-007: Schreibpfad mit Freeze-Gate. Fragt `shouldAdoptVolume` und
+    /// schreibt nur bei `true`. Laeuft auf `queue`, liest den Freeze-Zustand
+    /// konsistent. Mute (`v == 0.0`) passiert immer.
+    private func adoptVolume(_ v: Float32, isMute: Bool) {
+        let elapsed = freezeActive ? (CFAbsoluteTimeGetCurrent() - freezeSince) : 0.0
+        let adopt = Self.shouldAdoptVolume(
+            newValue: v,
+            isFrozen: freezeActive,
+            frozenElapsed: elapsed,
+            isUserIntent: false,
+            isMute: isMute
+        )
+        guard adopt else {
+            logger.debug("VolumeTracker: Wert \(v, privacy: .public) im Settle-Freeze verworfen (CASE-007)")
+            return
+        }
+        setVolumeInternal(v)
     }
 
     // MARK: Volume setzen (für UI-Slider → System)
@@ -301,7 +427,13 @@ final class VolumeTracker: @unchecked Sendable {
     func setSystemVolume(_ vol: Float32) {
         let v = max(0, min(1, vol))
         let (id, isSoftware, element) = queue.sync {
-            (currentDeviceID, !hasHardwareVolume, volumeElement)
+            // CASE-007: User-Intent. Der Slider ist eine bewusste Handlung, kein
+            // transientes Geraetewechsel-Artefakt. Freeze sofort aufheben, der
+            // neue Wert wird unmittelbar uebernommen (sowohl im Software- als
+            // auch im Hardware-Pfad, letzterer via Listener-Callback).
+            freezeActive = false
+            freezeForDeviceID = AudioObjectID(kAudioObjectUnknown)
+            return (currentDeviceID, !hasHardwareVolume, volumeElement)
         }
         guard id != AudioObjectID(kAudioObjectUnknown) else { return }
 
