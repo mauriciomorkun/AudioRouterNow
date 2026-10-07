@@ -153,21 +153,108 @@ commit, so the claim and its evidence sit together in the history.
 
 ---
 
+## AudioRouterNow 4.0.1 (Build 10), October 6, 2026
+_Mac App Store, macOS 14.4 or later, Apple Silicon_
+
+> **Status: ready to archive.** Build 10 supersedes build 9. Two additional defects
+> were found after build 9 was uploaded to App Store Connect, and are fixed here.
+> Build 9 was never submitted to App Review. Build 10 has not yet been archived.
+> Full account in [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
+
+### For Everyone
+
+**Build 10 adds two fixes on top of the crash fix and volume fix from build 9.**
+
+#### A volume jump when plugging in headphones
+
+While AudioRouterNow was actively routing audio, plugging in headphones caused a
+brief but noticeable volume spike. The new device's stored volume level was read
+immediately, but the routing engine did not finish reconfiguring for another two
+seconds. During that window the higher headphone volume was applied to speakers that
+were not expecting it.
+
+The fix makes AudioRouterNow wait until the reconfiguration is complete before
+adopting the new device's volume. While waiting, muting still works as normal, and
+moving the volume slider still takes effect.
+
+#### New: a way to route only to selected devices
+
+Previously AudioRouterNow always kept the built-in speakers in the audio path, even
+if you had not selected them. If you chose an external interface as your only
+output, the speakers played alongside it.
+
+A new toggle in the footer of the menu (the speaker icon with a slash) switches to
+exclusive mode. When on, only the devices you selected receive audio. The built-in
+speakers stay silent unless you add them to your selection. The toggle is off by
+default, so your existing setup is unaffected.
+
+### For Power Users
+
+#### CASE-007: settle-freeze in `VolumeTracker`
+
+Root cause: `VolumeTracker.onDefaultDeviceChanged()` updates `volumeScale` in under
+1 ms. `DeviceLifecycleManager.scheduleRestart()` triggers an engine rebuild after a
+2-second debounce. During that window the IOProc applies the new, higher volume
+against a slot layout that still reflects the old device. This is the transient
+counterpart to CASE-004: the same `slotAppliesVol` coupling that caused the
+stationary volume defect also causes a transient burst on device transition.
+
+Fix: a `freezeActive` flag in `VolumeTracker`. When `onDefaultDeviceChanged` fires,
+the flag is set and `volumeScale` is frozen at its current value.
+`buildAndStartAggregate` creates a fresh `VolumeTracker` and calls `start()`, which
+clears the freeze. A 4-second deadline (`DispatchWorkItem`) clears it
+unconditionally if the rebuild does not arrive in time. Mute passes through (`vol
+== 0` skips the gate), and `setSystemVolume` lifts it for deliberate user input.
+
+The pure function `shouldAdoptVolume(isFreezeActive:vol:isMuted:isUserIntent:)` is
+the decision core, tested by `VolumeFreezeTests.swift` (9 cases). Two mutation
+probes confirm test effectiveness: removing the gate fails 2 tests, removing the
+mute bypass fails 3 tests.
+
+Changed: `VolumeTracker.swift` only. `FanOutEngine`, `DeviceLifecycleManager`,
+`EngineController` and the IOProc path are unchanged.
+
+#### CASE-008: exclusive routing via conditional default-slot attachment
+
+Root cause: `FanOutEngine.buildAndStartAggregate` always appended `defaultOutputUID`
+as a write slot regardless of user selection. With `.mutedWhenTapped` suppressing the
+native signal path, ARN is the only writer, so the default output always received
+audio. No code path set a gain of zero or called `kAudioDevicePropertyMute` on the
+default slot.
+
+Fix: new pure function `shouldAppendDefaultSlot(hasResolvableUserOutputs:
+exclusiveRouting:)`. When `exclusiveRouting` is true and at least one user-selected
+device resolves, the default slot is not appended. The default output is then
+silenced by the existing tap mute. When the selection is empty or all devices fail
+to resolve, the default slot is appended as before (passthrough guarantee
+preserved).
+
+`EngineController` gains `@Published var exclusiveRouting: Bool` (persisted under
+key `arn.v4.exclusiveRouting`, default `false`), with a warm restart in `didSet`.
+`start(outputs:exclusive:)` and `updateOutputs(_:exclusive:)` take the new
+parameter (default `false` preserves all existing call sites).
+
+Known constraint: in exclusive mode with only Bluetooth or AirPlay outputs (all
+transport rank 4), `electMasterUID` falls back to the first resolvable user UID as
+clock master. Rank-4 clock masters have degraded stability (adaptive buffer, no
+stable own clock). The condition is logged (`L1: rank-4 device elected master via
+fallback, clock stability degraded`) and pinned by
+`testElectMasterAllRankFourReturnsFallback`.
+
+Changed: `FanOutEngine.swift` (slot logic, slot ordering extracted to pure function),
+`EngineController.swift` (`exclusiveRouting` property, footer toggle wiring),
+`MenuBarView.swift` (footer toggle). IOProc, `DelayLine`, `SlotGains` and
+`PeakMeters` unchanged.
+
+---
+
 ## AudioRouterNow 4.0.1 (Build 9), September 27, 2026
 _Mac App Store, macOS 14.4 or later, Apple Silicon_
 
-> **Status: uploaded, not submitted.** The build was uploaded to App Store Connect
-> on 1 October 2026 at 17:26, after passing Apple's validation step. It has **not**
-> been submitted to App Review: the version metadata is still to be filled in, and
-> the submission itself is a separate, deliberate action that has not been taken.
-> Nothing is tagged either, for v4 no tag exists at all. The date in the heading
-> above is when the work was finished, not when it shipped.
->
-> Uploading and submitting are easy to conflate and are kept apart on purpose
-> here. Uploading puts the build on Apple's servers. Submitting hands it to
-> reviewers. Only the second one starts anything. What happened during the upload,
-> including an archive built from the wrong project tree, is recorded in
-> [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
+> **Status: superseded by build 10.** Build 9 was uploaded to App Store Connect on
+> 1 October 2026. Two additional defects (CASE-007, CASE-008) were found and fixed
+> on 6 October, raising the build number to 10. Build 9 was never submitted to App
+> Review. See the build 10 entry above.
 
 ### For Everyone
 

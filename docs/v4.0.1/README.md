@@ -21,18 +21,19 @@ turned out to be wrong, and which claims are still unproven.
 | [06-volume-report.md](06-volume-report.md) | The closing report on that defect. What the fix exposed, what two reviews got wrong, and the one finding that could not be fixed because no unit test can reach it |
 | [07-submission-plan.md](07-submission-plan.md) | The step by step plan for submitting to App Review, in German because it is a working checklist rather than a report. Includes the guideline 2.4.5(iii) risk from an earlier rejection. Carries the progress markers for each phase |
 | [08-submission-log.md](08-submission-log.md) | What actually happened while submitting. The archive built from the wrong project tree, the dSYM forensics that proved it, why validation and upload would both have passed it, and the preflight script written in response. Also the one finding from checking the store text against the code |
+| [09-investigation-case007-008.md](09-investigation-case007-008.md) | The two-model parallel investigation of CASE-007 (volume jump on headphone connect) and CASE-008 (speakers always play). Root causes, hypothesis rankings, comparison of model results |
 
 ## Release at a glance
 
 | Field | Value |
 |-------|-------|
-| Version | 4.0.1, build 9 (`MARKETING_VERSION` 4.0.1, `CURRENT_PROJECT_VERSION` 9) |
-| Status | **Uploaded to App Store Connect on 1 October 2026 at 17:26. Not submitted to App Review.** Validation passed, the build is at Apple and selectable. The metadata (phase 4) and the submission itself (phase 6) are still open, and nothing is tagged |
-| Work completed | 23 September 2026 for the crash, 27 September 2026 for the volume defect |
+| Version | 4.0.1, build 10 (`MARKETING_VERSION` 4.0.1, `CURRENT_PROJECT_VERSION` 10) |
+| Status | **Ready to archive.** Build 10 supersedes build 9. Build 9 was uploaded to App Store Connect on 1 October 2026 at 17:26 and passed validation, but was superseded before submission. Build 10 has not yet been archived. Nothing is tagged. |
+| Work completed | 23 September 2026 for the crash (CASE-003), 27 September 2026 for the volume defect (CASE-004), 6 October 2026 for CASE-007 and CASE-008 |
 | Platform | Mac App Store, macOS 14.4 or later, Apple Silicon |
-| Trigger | Five crash reports aggregated in App Store Connect, received 22 September 2026. Separately, a volume report in the MacRumors thread on 24 September |
-| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1`, `c9e097d`, `a76a1e2`, `0bbad31`, `1a8257a`, `41246bc` |
-| Internal case IDs | CASE-003 (the crash), CASE-004 (the volume) |
+| Trigger | Five crash reports in App Store Connect (22 September 2026), a volume report in the MacRumors thread (24 September 2026), and two self-found defects (5 October 2026) |
+| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1`, `c9e097d`, `a76a1e2`, `0bbad31`, `1a8257a`, `41246bc`, `b1dcf8e`, `9bbd131`, `e3ac13b`, `3dc3cfa` |
+| Internal case IDs | CASE-003 (crash), CASE-004 (volume), CASE-007 (volume jump on hotplug), CASE-008 (speakers play despite exclusive selection) |
 
 **Uploaded is not submitted.** The distinction is kept exact throughout this
 folder. The build sits on Apple's servers; App Review has not seen it. The
@@ -69,6 +70,8 @@ justified on its own merits regardless of the crash report. Whether they fix
 can answer it. [04-verification.md](04-verification.md) lists exactly what is
 proven and what is not.
 
+CASE-007 and CASE-008, added in build 10, do not depend on the crash report. Both were self-found in the running app and are independently verifiable.
+
 ## Source files this release touched
 
 | File | Role |
@@ -80,14 +83,17 @@ proven and what is not.
 | [`v4/AudioRouterNow4/EngineController.swift`](../../v4/AudioRouterNow4/EngineController.swift) | Owns the clock, drives the poll, adds `openBugReport()` |
 | [`v4/AudioRouterNow4/MenuBarView.swift`](../../v4/AudioRouterNow4/MenuBarView.swift) | Device poll left ungated on purpose, see decision D8 |
 | [`v4/AudioRouterKit/Sources/AudioRouterKit/FanOutEngine.swift`](../../v4/AudioRouterKit/Sources/AudioRouterKit/FanOutEngine.swift) | `waveformSnapshot(count:)` became `waveformFrame(count:)`. The IOProc was unchanged by the crash fix, but **is** changed by the volume fix, see 05 |
+| [`v4/AudioRouterKit/Sources/AudioRouterKit/VolumeTracker.swift`](../../v4/AudioRouterKit/Sources/AudioRouterKit/VolumeTracker.swift) | Settle-freeze added for CASE-007: `freezeActive` flag, `shouldAdoptVolume` pure function, 4-second deadline |
+| [`v4/AudioRouterNow4/MenuBarView.swift`](../../v4/AudioRouterNow4/MenuBarView.swift) | Exclusive routing toggle added to footer for CASE-008 |
 
 ## Related documents
 
-- [`CHANGELOG.md`](../../CHANGELOG.md), section `## [4.0.1 (9)]` for the volume
-  defect, and `## [4.0.1 (8)]` for the crash fix. Build 8 was never submitted; it
-  was superseded by build 9 before anything left the machine, so both sections
-  describe the same shipping version
-- [`RELEASE_NOTES.md`](../../RELEASE_NOTES.md), section "AudioRouterNow 4.0.1 (Build 9)"
+- [`CHANGELOG.md`](../../CHANGELOG.md), section `## [4.0.1 (10)]` for CASE-007 and
+  CASE-008, `## [4.0.1 (9)]` for the volume defect, and `## [4.0.1 (8)]` for the
+  crash fix. Builds 8 and 9 were never submitted; build 10 carries all of their
+  fixes plus the two added on 6 October
+- [`RELEASE_NOTES.md`](../../RELEASE_NOTES.md), section "AudioRouterNow 4.0.1 (Build 10)"
+  for the current build, and "AudioRouterNow 4.0.1 (Build 9)" for the superseded one
 - [`BACKLOG.md`](../../BACKLOG.md), for the three items deliberately kept out of
   4.0.1: the sample rate listener, the universal binary versus the "Apple Silicon
   only" documentation, and the v4 tagging work

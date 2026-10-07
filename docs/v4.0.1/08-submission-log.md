@@ -205,16 +205,58 @@ The corrected text lives in `docs/marketing/appstore-whatsnew-4.0.1.md`, which i
 untracked by design. It is **1747 characters** of the 4000 allowed, previously
 stated as 1635 in step 4.2 of the plan. That step has been corrected.
 
+## Build 9 superseded by build 10
+
+### What happened
+
+Build 9 was uploaded to App Store Connect on 1 October 2026. The upload succeeded
+and the build passed validation. No version metadata was filled in, and the
+submission itself did not happen.
+
+On 5 October 2026 two additional defects were found in the running app:
+CASE-007 (volume jump on headphone connect) and CASE-008 (built-in speakers play
+regardless of routing selection). Both were investigated on 5 October with two
+independent model analyses in parallel (Fable and Claude Opus). The root causes
+were confirmed and design plans written.
+
+On 6 October 2026 both defects were fixed and an audit round was completed:
+
+| Commit | What |
+|---|---|
+| `9bbd131` | CASE-007: settle-freeze in `VolumeTracker.swift` |
+| `e3ac13b` | CASE-008: exclusive routing mode, conditional default-slot attachment |
+| `3dc3cfa` | Audit round 1: one finding addressed (rank-4 fallback master diagnostic) |
+
+These commits landed after the upload. The build Apple holds is build 9 and does
+not contain any of these fixes. `v4/Configs/AudioRouterNow4.xcconfig` now reads
+`CURRENT_PROJECT_VERSION = 10`. Preflight confirms: the existing archive is 4.0.1
+(9), and build 10 has not yet been archived.
+
+### Consequence for the submission plan
+
+Phases 0 to 3 of the plan must run again for build 10. The metadata work in phase
+4 can begin in parallel (the fields that do not depend on the build number), but
+the build selection in step 4.3 will show build 10 once the upload completes.
+
+The What's New text in `docs/marketing/appstore-whatsnew-4.0.1.md` is already
+updated for build 10 (CASE-007 and CASE-008 are included). The review note in the
+plan is updated to list all four defects.
+
+The two commits from the submission run that came after the build 9 upload
+(`b1dcf8e` on 3 October) and the new fix commits (`9bbd131`, `e3ac13b`, `3dc3cfa`
+on 6 October) are the reason build 10 contains more than build 9 did.
+
 ## What is still open
 
 | Item | State |
 |---|---|
-| Phase 4, the App Store Connect metadata | **Open.** No 4.0.1 version record created, "What's New" not entered, build 9 not selected, no review note, release mode not chosen |
+| Phase 4, the App Store Connect metadata | **Open.** No 4.0.1 version record created, "What's New" not entered, build 10 not selected (build 9 upload is superseded), no review note, release mode not chosen |
 | Phase 5.2, the user's own checklist | **Open.** Depends on phase 4 |
 | Phase 6, Submit for Review | **Open.** Not done. This is the step that has not happened |
 | Phase 7, everything after | **Open** |
 | Tags for v4 | **None exist.** Only `v3.4.0` through `v3.4.6` are tagged. 4.0.0 is not tagged and neither is 4.0.1 |
 | `v4-appstore/`, 594 MB | Still present, deliberately. It must not be removed before `v4.0.0` is tagged on `6e32199`, because until then it is the only concrete image of the shipped version |
+| Phases 0-3, build 10 archive | **Open.** Build 9 archive is outdated. Build 10 must be archived, validated and uploaded |
 
 The ordering in the last two rows is the substance of it, not a formality. The
 folder caused this incident, and the reflex is to delete it. Deleting it before

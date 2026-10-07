@@ -8,21 +8,20 @@
 
 | Phase | Stand |
 |---|---|
-| 0: Ausgangslage sichern | ✅ 01.10.2026 |
-| 1: Archiv erstellen | ✅ 01.10.2026, **beim zweiten Anlauf**, siehe unten |
-| 2: Validieren | ✅ 01.10.2026, „Validation successful" |
-| 3: Hochladen | ✅ 01.10.2026, 17:26. Build 9 liegt bei Apple |
+| 0: Ausgangslage sichern | ⬜ offen, fuer Build 10 noch nicht gelaufen |
+| 1: Archiv erstellen | ⬜ offen, Build-9-Archiv veraltet |
+| 2: Validieren | ⬜ offen |
+| 3: Hochladen | ⬜ offen |
 | 4: Angaben in App Store Connect | ⬜ offen, liegt beim User |
-| 5.1: Prüfung gegen den Code | ✅ 01./02.10.2026, ein Befund, behoben |
-| 5.2: Prüfung in App Store Connect | ⬜ offen, liegt beim User |
+| 5.1: Pruefung gegen den Code | ⬜ offen, muss fuer Build 10 wiederholt werden |
+| 5.2: Pruefung in App Store Connect | ⬜ offen, liegt beim User |
 | 6: Absenden | ⬜ offen |
 | 7: Danach | ⬜ offen |
 
-**Der Unterschied, der hier zählt: Build 9 ist hochgeladen, aber nichts ist
-eingereicht.** Hochladen legt den Build bei Apple ab, er taucht in App Store
-Connect als auswählbar auf. Eingereicht wird erst in Phase 6, und erst das ist der
-Schritt, der sich nicht zurücknehmen lässt. Solange Phase 4 bis 6 offen sind, hat
-App Review die Version nie gesehen.
+**Build 9 wurde am 01.10.2026 hochgeladen, aber nie eingereicht. CASE-007 und CASE-008
+wurden am 06.10.2026 committed und erhoehen die Build-Nummer auf 10. Die Phasen 0 bis 3
+muessen fuer Build 10 neu durchlaufen werden.** Was beim ersten Durchlauf geschah, steht
+in [08-submission-log.md](08-submission-log.md).
 
 Was beim Durchlaufen der Phasen 0 bis 3 tatsächlich geschah, steht in
 [08-submission-log.md](08-submission-log.md). Dieses Dokument sagt, was geschehen
@@ -54,33 +53,37 @@ nächsten Release wieder benutzbar ist.
 
 ---
 
-## Phase 0: Ausgangslage sichern ✅ 01.10.2026
+## Phase 0: Ausgangslage sichern ⬜ offen, fuer Build 10 wiederholen
 
-**0.1 ✅ 🤖 Arbeitsbaum sauber und alles gepusht.**
+> **Historisches Protokoll: Build 9.** Die kursiven Notizen in dieser Phase
+> beschreiben den Durchlauf vom 01.10.2026, der Build 9 produzierte. Fuer
+> Build 10 laeuft diese Phase neu.
+
+**0.1 ⬜ 🤖 Arbeitsbaum sauber und alles gepusht.**
 Nichts darf uncommitted sein. Was nicht im Repository steht, lässt sich später
 nicht dem eingereichten Build zuordnen.
 *Erledigt 01.10.2026, Arbeitsbaum war sauber.*
 
-**0.2 ✅ 🤖 Version und Build bestätigen.**
+**0.2 ⬜ 🤖 Version und Build bestätigen.**
 `v4/Configs/AudioRouterNow4.xcconfig` muss `MARKETING_VERSION = 4.0.1` und
-`CURRENT_PROJECT_VERSION = 9` enthalten. Das ist die einzige Quelle, `project.yml`
+`CURRENT_PROJECT_VERSION = 10` enthalten. Das ist die einzige Quelle, `project.yml`
 verweist nur darauf.
-*Erledigt 01.10.2026, beide Werte bestätigt (Zeile 6 und 7 der xcconfig).*
+*Bestätigt 07.10.2026: MARKETING_VERSION = 4.0.1, CURRENT_PROJECT_VERSION = 10.*
 
-**0.3 ✅ 🤖 Tests laufen lassen.**
-`./v4/scripts/test.sh`, erwartet werden 59 swift-testing und 23 XCTest, alle grün.
-*Erledigt 01.10.2026, alle grün.*
+**0.3 ⬜ 🤖 Tests laufen lassen.**
+`./v4/scripts/test.sh`, erwartet werden 59 swift-testing in AudioRouterKit, alle grün.
+*Erledigt 07.10.2026, alle 59 swift-testing Tests gruen.*
 
-**0.4 ✅ 🤖 Release-Build lokal.**
+**0.4 ⬜ 🤖 Release-Build lokal.**
 Muss ohne Fehler durchlaufen, bevor Xcode überhaupt geöffnet wird.
 *Erledigt 01.10.2026, fehlerfrei.*
 
-**0.5 ✅ 👤 Andere Instanzen beenden.**
+**0.5 ⬜ 👤 Andere Instanzen beenden.**
 `ARN-build9-NACHHER.app` vom Schreibtisch und die App Store Version 4.0.0 dürfen
 beim Archivieren nicht laufen. Sie greifen auf dieselben Audiogeräte zu.
 *Erledigt 01.10.2026.*
 
-**0.6 ✅ 🤖 Vorflug-Prüfung ausführen.**
+**0.6 ⬜ 🤖 Vorflug-Prüfung ausführen.**
 
 ```sh
 ./v4/scripts/preflight.sh
@@ -108,9 +111,13 @@ Phase 7.
 
 ---
 
-## Phase 1: Archiv erstellen ✅ 01.10.2026, beim zweiten Anlauf
+## Phase 1: Archiv erstellen ⬜ offen, Build 9 veraltet
 
-**1.1 ✅ 👤 Xcode öffnen.**
+> **Historisches Protokoll: Build 9.** Die kursiven Notizen in dieser Phase
+> beschreiben den Archivlauf vom 01.10.2026, der Build 9 produzierte. Fuer
+> Build 10 laeuft diese Phase neu, beginnend mit einem frischen Clean Build Folder.
+
+**1.1 ⬜ 👤 Xcode öffnen.**
 
 ⚠️ **Es gibt zwei Projekte mit identischem Namen.** Das ist am 01.10.2026
 tatsächlich schiefgegangen: der erste Archivlauf kam aus dem falschen Baum und
@@ -128,7 +135,7 @@ erzeugte ein Archiv mit **4.0.0 (7)** statt 4.0.1 (9).
 
 | Pfad | Was es ist |
 |---|---|
-| `v4/AudioRouterNow4.xcodeproj` | **das richtige**, 4.0.1 (9) |
+| `v4/AudioRouterNow4.xcodeproj` | **das richtige**, 4.0.1 (10) |
 | `v4-appstore/AudioRouterNow4/AudioRouterNow4.xcodeproj` | toter Altbestand, 4.0.0 (7), seit `b42d692` untracked |
 
 In Xcode heißen beide nur „AudioRouterNow4". Über die Liste zuletzt geöffneter
@@ -158,11 +165,11 @@ auf `/v4/`, also das falsche Archiv. Zweiter Lauf: 110 Treffer auf `/v4/`, keine
 auf `/v4-appstore/`. Der zweite Wert ist am verbliebenen Archiv nachprüfbar, das
 falsche Archiv wurde verworfen.*
 
-**1.2 ✅ 👤 Ziel einstellen.**
+**1.2 ⬜ 👤 Ziel einstellen.**
 Oben in der Leiste: Schema **AudioRouterNow4**, Ziel **My Mac**. Steht dort ein
 Simulator oder ein Testschema, ist „Archive" ausgegraut.
 
-**1.3 ✅ 👤 Signierung prüfen.**
+**1.3 ⬜ 👤 Signierung prüfen.**
 Projekt anwählen, Reiter **Signing & Capabilities**, oben von **All** auf
 **Release** umschalten. Dort muss dein Team stehen und der Haken bei automatischer
 Verwaltung sitzen.
@@ -192,32 +199,35 @@ automatischer Verwaltung wählt Xcode erst beim Archivieren das
 Distributions-Zertifikat. Die Anzeige in dieser Ansicht ist nicht das, was im
 Archiv landet.
 
-**1.4 ✅ 👤 Clean Build Folder.**
+**1.4 ⬜ 👤 Clean Build Folder.**
 Menü **Product**, bei gedrückter Wahltaste wird „Clean Build Folder" sichtbar.
 
-**1.5 ✅ 👤 Product, dann Archive.**
+**1.5 ⬜ 👤 Product, dann Archive.**
 Dauert einige Minuten. Danach öffnet sich der Organizer.
-*Zweimal gelaufen. Der erste Lauf kam aus dem falschen Baum, der zweite war
+*Am 01.10. zweimal gelaufen. Der erste Lauf kam aus dem falschen Baum, der zweite war
 korrekt.*
 
-**1.6 ✅ 👤 Im Organizer prüfen: steht dort 4.0.1 (9)?**
-⚠️ Wenn dort Build 8 steht, hat Xcode aus einem alten Zwischenstand gebaut.
+**1.6 ⬜ 👤 Im Organizer prüfen: steht dort 4.0.1 (10)?**
+⚠️ Wenn dort Build 9 steht, hat Xcode aus einem alten Zwischenstand gebaut.
 Dann Schritt 1.4 und 1.5 wiederholen.
-*Dieser Schritt hat den Fehler gefangen. Im Organizer stand nach dem ersten Lauf
-4.0.0 (7), nicht 4.0.1 (9), und auch nicht Build 8, mit dem hier gerechnet wurde.
-Nach dem zweiten Lauf stand dort 4.0.1 (9).*
+*Am 01.10. hat dieser Schritt den Fehler gefangen. Im Organizer stand nach dem ersten
+Lauf 4.0.0 (7), nicht 4.0.1 (9). Nach dem zweiten Lauf stand dort 4.0.1 (9). Fuer
+Build 10 muss hier 4.0.1 (10) stehen.*
 
 ---
 
-## Phase 2: Validieren ✅ 01.10.2026
+## Phase 2: Validieren ⬜ offen
 
-**2.1 ✅ 👤 Im Organizer: Validate App.**
+> **Historisches Protokoll: Build 9.** Die kursive Notiz unten beschreibt die
+> Validierung vom 01.10.2026 am Build-9-Archiv. Fuer Build 10 laeuft diese Phase neu.
+
+**2.1 ⬜ 👤 Im Organizer: Validate App.**
 Das ist eine Prüfung durch Apple, **ohne** einzureichen. Sie findet Fehler in
 Signierung, Berechtigungen und Bundle-Aufbau, bevor irgendetwas verbindlich wird.
 
-**2.2 ✅ 👤 Durchklicken bis „Validation successful".**
+**2.2 ⬜ 👤 Durchklicken bis „Validation successful".**
 Bei Fehlern: Meldung vollständig kopieren und mir geben, statt zu raten.
-*Erledigt 01.10.2026, „Validation successful", keine Warnungen.*
+*Erledigt 01.10.2026 am Build-9-Archiv, „Validation successful", keine Warnungen.*
 
 > Festzuhalten, weil es die Grenze dieser Prüfung zeigt: die Validierung hätte
 > auch das **falsche** Archiv bestanden. Sie prüft, ob das Bundle korrekt gebaut
@@ -225,16 +235,21 @@ Bei Fehlern: Meldung vollständig kopieren und mir geben, statt zu raten.
 
 ---
 
-## Phase 3: Hochladen ✅ 01.10.2026, 17:26
+## Phase 3: Hochladen ⬜ offen
 
-**3.1 ✅ 👤 Im Organizer: Distribute App, dann App Store Connect, dann Upload.**
-*Erledigt 01.10.2026, Upload erfolgreich um 17:26.*
+> **Historisches Protokoll: Build 9.** Die kursiven Notizen unten beschreiben den
+> Upload vom 01.10.2026, der Build 9 zu Apple brachte. Build 9 wurde nie eingereicht
+> und ist durch Build 10 ueberholt. Fuer Build 10 laeuft diese Phase neu.
 
-**3.2 ✅ 👤 Warten.**
+**3.1 ⬜ 👤 Im Organizer: Distribute App, dann App Store Connect, dann Upload.**
+*Erledigt 01.10.2026, Upload von Build 9 erfolgreich um 17:26.*
+
+**3.2 ⬜ 👤 Warten.**
 Der Build durchläuft bei Apple eine Verarbeitung, üblicherweise wenige Minuten bis
 etwa eine Stunde. Du bekommst eine Mail. Vorher lässt sich der Build in App Store
 Connect nicht auswählen.
-*Keine Mail mit Beanstandungen eingegangen. Build 9 liegt bei Apple.*
+*Keine Mail mit Beanstandungen eingegangen. Build 9 liegt bei Apple, wird aber nicht
+eingereicht.*
 
 > **Ab hier ist der Build hochgeladen, aber nicht eingereicht.** Das ist kein
 > Zwischenstand auf dem Weg zur Review, sondern ein eigener Zustand: Apple hat den
@@ -249,8 +264,9 @@ erfolgreich aussah.
 
 ## Phase 4: Angaben in App Store Connect ⬜ offen
 
-> Diese Phase ist noch nicht angefasst. Build 9 liegt bei Apple und ist unter
-> **Build** auswählbar, aber es ist keine Version 4.0.1 angelegt.
+> Diese Phase ist noch nicht angefasst. Es ist keine Version 4.0.1 angelegt. Der
+> am 01.10. hochgeladene Build 9 ist zwar auswählbar, wird aber nicht eingereicht:
+> Build 10 muss erst archiviert und hochgeladen werden.
 
 **4.1 ⬜ 👤 Neue Version anlegen.**
 App Store Connect, App auswählen, links **App Store**, dann
@@ -258,17 +274,19 @@ App Store Connect, App auswählen, links **App Store**, dann
 
 **4.2 ⬜ 👤 „Was ist neu in dieser Version" einfügen.**
 Der fertige Text liegt in `docs/marketing/appstore-whatsnew-4.0.1.md`, im
-Codeblock. **1747 Zeichen** von 4000 erlaubten. Nur Englisch, die App hat keine
+Codeblock. **ca. 2184 Zeichen** von 4000 erlaubten. Nur Englisch, die App hat keine
 weiteren Sprachen.
 
-*Zuvor stand hier 1635. Der Text wurde in Phase 5.1 ergänzt: der Datenschutzsatz
-nannte drei übermittelte Angaben, die App sendet fünf. Begründung siehe
-[08-submission-log.md](08-submission-log.md).*
+*Zuvor stand hier 1747. Der Text wurde fuer Build 10 ergänzt: CASE-007 und CASE-008
+sind nun enthalten. Zuvor war er in Phase 5.1 von 1635 auf 1747 gewachsen, weil der
+Datenschutzsatz drei übermittelte Angaben nannte, die App aber fünf sendet. Begründung
+siehe [08-submission-log.md](08-submission-log.md).*
 
 **4.3 ⬜ 👤 Build auswählen.**
-Unter **Build** das Pluszeichen, dann **4.0.1 (9)**.
+Unter **Build** das Pluszeichen, dann **4.0.1 (10)**.
 ⚠️ Steht dort noch nichts, ist die Verarbeitung aus Phase 3 nicht fertig.
-*Phase 3 ist seit dem 01.10. fertig, Build 9 ist auswählbar.*
+*Phase 3 laeuft fuer Build 10 noch. Der am 01.10. hochgeladene Build 9 ist zwar
+auswählbar, wird aber nicht eingereicht.*
 
 **4.4 ⬜ 👤 Screenshots: nichts tun.**
 Die Oberfläche hat sich gegenüber 4.0.0 nicht geändert. Die vorhandenen
@@ -296,20 +314,22 @@ Bei 4.0.0 war das hilfreich.
 Diese Phase ist der Grund für die ganze Reihenfolge. **Erst wenn alles hier
 stimmt, wird Phase 6 angefasst.**
 
-**5.1 ✅ 🤖 Ich prüfe gegen den Code**, was sich automatisch prüfen lässt:
+**5.1 ⬜ 🤖 Ich prüfe gegen den Code**, was sich automatisch prüfen lässt:
 Versionsnummern, dass der Arbeitsbaum dem entspricht, was gebaut wurde, und dass
-im Store-Text nichts steht, was die App nicht tut.
+im Store-Text nichts steht, was die App nicht tut. **Fuer Build 10 neu, weil der
+Store-Text jetzt CASE-007 und CASE-008 beschreibt.**
 
-*Erledigt 01./02.10.2026. Jede nachprüfbare Aussage des Store-Textes wurde gegen
-den Quellcode gehalten, sechs Aussagen bestätigt, **ein Befund**: der
+*Am 01./02.10.2026 fuer Build 9 gelaufen. Jede nachprüfbare Aussage des Store-Textes
+wurde gegen den Quellcode gehalten, sechs Aussagen bestätigt, **ein Befund**: der
 Datenschutzsatz nannte drei übermittelte Angaben, `openBugReport()` sendet fünf.
 Korrigiert durch Ergänzen, nicht Kürzen. Belegtabelle und Begründung in
-[08-submission-log.md](08-submission-log.md).*
+[08-submission-log.md](08-submission-log.md). Fuer Build 10 sind zusaetzlich die
+neuen Aussagen zu CASE-007 (Settle-Freeze) und CASE-008 (Exklusiv-Modus) zu pruefen.*
 
 **5.2 ⬜ 👤 Du prüfst in App Store Connect**, und zwar jede Zeile einzeln:
 
 - [ ] Version steht auf 4.0.1
-- [ ] Build steht auf 9, nicht 8
+- [ ] Build steht auf 10, nicht 9
 - [ ] „Was ist neu" ist vollständig eingefügt, auch der Abschnitt zu „Launch at Login"
 - [ ] Review-Notiz ist eingetragen
 - [ ] Support-URL zeigt auf `audiorouternow.mauriciomorkun.com/support/`
@@ -323,7 +343,7 @@ Registrierungen hängen an der Bundle-ID, nicht am Programm, und überdauern
 Updates.
 
 Der eingebaute Schutz: die Zustimmung hängt an
-`launchAtLoginConsentBuildKey`, also an der **Build-Nummer**. Bei Build 9 ist jede
+`launchAtLoginConsentBuildKey`, also an der **Build-Nummer**. Bei Build 10 ist jede
 frühere Zustimmung ungültig, und `ensureLoginItemCompliance()` läuft als Erstes
 beim Start und entfernt Reste.
 
@@ -398,11 +418,17 @@ nicht die tatsächliche Ursache, das hat damals einen Anlauf gekostet.
 ## Vorlage für die Review-Notiz
 
 ```
-This update fixes two defects and adds a bug report button.
+This update fixes four defects and adds two features.
 
 1. A crash in the animated waveform of the menu bar panel.
 2. The system volume was applied twice on the default output device, making
-   routed audio quieter than it should be on that one device.
+   routed audio quieter than expected on that one device.
+3. A brief volume jump when plugging in headphones or switching the main output.
+   The app now waits for the device transition to settle before adopting the
+   new device's volume level.
+4. The built-in speakers played audio even when only an external device was
+   selected. A new exclusive routing mode (footer toggle) lets you route to
+   selected devices only.
 
 To test routing you need to allow audio recording when macOS asks. The app uses
 the Process Tap API to read system audio. Nothing is recorded or stored, the
@@ -432,6 +458,5 @@ Festgehalten, damit es nicht versehentlich mitgeht:
 - **Kein Fix am Sample-Rate-Listener.** Der Befund vom 29.09. steht im Rückstand,
   ausdrücklich nicht in diesem Release. Begründung dort: die Fehlerrichtung würde
   sich ins Gefährlichere umkehren.
-- **Keine neuen Funktionen.** AirPlay-Überarbeitung und Solo-Schalter bleiben auf
-  4.1.
+- **AirPlay-Überarbeitung und Solo-Schalter** bleiben auf 4.1.
 - **Keine Screenshots.** Die Oberfläche ist unverändert.

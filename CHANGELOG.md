@@ -67,14 +67,60 @@
 
 ---
 
-## [4.0.1 (9)], 2026-09-27 · _uploaded to App Store Connect 2026-10-01, not yet submitted to App Review_
+## [4.0.1 (10)], 2026-10-06 · _ready to archive, supersedes build 9_
 
-> **Status in exact terms.** The build was uploaded on 1 October 2026 at 17:26 and
-> passed Apple's validation beforehand. It is **not** submitted: the version
-> metadata is not filled in and App Review has never seen it. Nothing is tagged,
-> for v4 no tag exists at all. The date in the heading is when the work was
-> finished, not when it shipped. Full account in
-> [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
+> **Status: ready to archive.** Build 10 is the version that will be submitted to App Review. It contains all fixes from builds 8 and 9, plus the two additional defects fixed on 6 October 2026. Build 9 was uploaded to App Store Connect on 1 October but was never submitted; it is superseded by this build. The archive for build 10 has not yet been created. Full account in [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
+
+### Fixed
+
+- **A brief volume jump when plugging in headphones or switching the main output
+  device.** While routing was active, the moment macOS switched the default output
+  to the newly connected device, the `VolumeTracker` immediately adopted the new
+  device's stored volume level. The slot layout (`slotAppliesVol`) still reflected
+  the previous device and was not updated until the engine rebuild about 2 seconds
+  later. During that window the IOProc applied the new, often higher, volume to
+  slots configured for the old device, producing a brief but audible level burst.
+  The fix introduces a settle-freeze in `VolumeTracker`: when a default-device
+  change is detected, the volume scalar is frozen at its current value until the
+  engine rebuild completes and clears the freeze. Muting always passes through the
+  freeze, and a direct slider move by the user overrides it. A 4-second deadline
+  clears the freeze unconditionally if the rebuild does not arrive. The fix is in
+  `VolumeTracker.swift` only; `FanOutEngine`, `DeviceLifecycleManager` and
+  `EngineController` are unchanged. Full record in
+  [`feedback/CASE-007_selbstfund_lautstaerke-sprung-kopfhoerer.md`](feedback/CASE-007_selbstfund_lautstaerke-sprung-kopfhoerer.md).
+
+- **The built-in speakers played audio even when only an external device was
+  selected.** AudioRouterNow always attached the system default output as a write
+  slot in the aggregate, regardless of the user's selection. With the
+  `.mutedWhenTapped` tap model, ARN is the only audio writer; the default output
+  was therefore always written to. This was intentional for the normal case (user
+  wants all selected devices plus the default), but had no provision for the case
+  where the user wants only the selected devices and explicitly not the default.
+  The fix adds an opt-in exclusive routing mode. A new toggle in the menu footer
+  (SF symbol `speaker.slash.circle.fill`) sets `exclusiveRouting` on
+  `EngineController`. When on, `buildAndStartAggregate` omits the default output
+  slot if the user has selected at least one resolvable device that is not the
+  default. The default output is then silenced by the existing `.mutedWhenTapped`
+  tap. The passthrough guarantee is preserved: an empty or fully unresolvable
+  selection still routes through the default. The mode is off by default, so no
+  existing user sees a behaviour change. Full record in
+  [`feedback/CASE-008_selbstfund_lautsprecher-spielen-trotz-routing.md`](feedback/CASE-008_selbstfund_lautsprecher-spielen-trotz-routing.md).
+
+### Audit findings (round 1, 2026-10-06, commit `3dc3cfa`)
+
+One finding was addressed: in exclusive mode with only Bluetooth or AirPlay outputs
+(all transport rank 4), `electMasterUID` falls back to `firstResolvableUserUID`,
+electing a rank-4 device as clock master. This is unavoidable when the default
+output is not a sub-device candidate, but the degraded clock stability is now
+signalled with a diagnostic warning
+(`L1: rank-4 device elected master via fallback, clock stability degraded`), and a
+unit test (`testElectMasterAllRankFourReturnsFallback`) pins the fallback path.
+
+---
+
+## [4.0.1 (9)], 2026-09-27 · _superseded by build 10, never submitted to App Review_
+
+> **Status: superseded.** Build 9 was uploaded to App Store Connect on 1 October 2026. Two additional defects were found and fixed on 6 October 2026 (CASE-007, CASE-008), raising the build number to 10. Build 9 was never submitted to App Review and will not be. See the build 10 entry above and [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
 
 ### Fixed
 

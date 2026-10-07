@@ -169,9 +169,12 @@ auf ein Mass, das direkt als Grundlage fuer das Fix-Design dienen kann.
 |---|---|---|
 | Case-Dateien anlegen (CASE-007, CASE-008) | Claude | ✅ 2026-10-06 |
 | Investigation in `docs/v4.0.1/09-investigation-case007-008.md` | Claude | ✅ 2026-10-06 |
-| Fix-Design fuer beide Cases | Fable | In Arbeit (2026-10-06) |
-| Plan-Praesentation vor Implementierung | Opus | Ausstehend |
-| Produktentscheidung CASE-008 (Option A/B/C) | User | Ausstehend |
-| Implementierung | nach User-Bewilligung | Ausstehend |
+| Fix-Design fuer beide Cases | Fable | ✅ 2026-10-06, Settle-Freeze (A) und Exklusiv-Slot (A) |
+| Produktentscheidung CASE-008 (Option A/B/C) | User | ✅ 2026-10-06, Option A gewaehlt |
+| Implementierung CASE-007 (Settle-Freeze) | Claude | ✅ 2026-10-06, commit `9bbd131` |
+| Implementierung CASE-008 (Exklusiv-Modus) | Claude | ✅ 2026-10-06, commit `e3ac13b` |
+| Audit Runde 1 | Claude | ✅ 2026-10-06, commit `3dc3cfa`, ein Befund behoben |
+| Build 10 archivieren und hochladen | User (Xcode) | ⬜ Ausstehend |
+| Submission-Durchlauf (Phasen 0-6) | User + Claude | ⬜ Ausstehend |
 
-_Stand: 2026-10-06_
+_Stand: 2026-10-07_
