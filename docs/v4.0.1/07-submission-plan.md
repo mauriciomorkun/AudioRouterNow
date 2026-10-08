@@ -8,19 +8,20 @@
 
 | Phase | Stand |
 |---|---|
-| 0: Ausgangslage sichern | ⬜ offen, fuer Build 10 noch nicht gelaufen |
-| 1: Archiv erstellen | ⬜ offen, Build-9-Archiv veraltet |
-| 2: Validieren | ⬜ offen |
-| 3: Hochladen | ⬜ offen |
+| 0: Ausgangslage sichern | ✅ erledigt, 08.10.2026 (Build 10) |
+| 1: Archiv erstellen | ✅ erledigt, 08.10.2026 (Build 10) |
+| 2: Validieren | ✅ erledigt, 08.10.2026 (Build 10) |
+| 3: Hochladen | ✅ erledigt, 08.10.2026 (Build 10) |
 | 4: Angaben in App Store Connect | ⬜ offen, liegt beim User |
-| 5.1: Pruefung gegen den Code | ⬜ offen, muss fuer Build 10 wiederholt werden |
+| 5.1: Pruefung gegen den Code | ✅ erledigt, 08.10.2026 (Build 10) -- 1 Befund korrigiert (Zeile 70, "speaker icon" -> "from the footer") |
 | 5.2: Pruefung in App Store Connect | ⬜ offen, liegt beim User |
 | 6: Absenden | ⬜ offen |
 | 7: Danach | ⬜ offen |
 
-**Build 9 wurde am 01.10.2026 hochgeladen, aber nie eingereicht. CASE-007 und CASE-008
-wurden am 06.10.2026 committed und erhoehen die Build-Nummer auf 10. Die Phasen 0 bis 3
-muessen fuer Build 10 neu durchlaufen werden.** Was beim ersten Durchlauf geschah, steht
+**Build 10 wurde am 08.10.2026 archiviert, validiert und hochgeladen. Phasen 0 bis 3 sind
+abgeschlossen. Phase 5.1 ist abgeschlossen (10 von 11 Aussagen bestaetigt, 1 Befund
+geringfuegig korrigiert). Phase 4 liegt beim User (App Store Connect). Nach Phase 4 und 5.2
+kann Phase 6 ausgefuehrt werden.** Was beim ersten Durchlauf (Build 9) geschah, steht
 in [08-submission-log.md](08-submission-log.md).
 
 Was beim Durchlaufen der Phasen 0 bis 3 tatsächlich geschah, steht in
