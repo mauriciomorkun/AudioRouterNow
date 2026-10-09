@@ -67,9 +67,9 @@
 
 ---
 
-## [4.0.1 (10)], 2026-10-06 · _ready to archive, supersedes build 9_
+## [4.0.1 (10)], 2026-10-09 · _submitted to App Review_
 
-> **Status: ready to archive.** Build 10 is the version that will be submitted to App Review. It contains all fixes from builds 8 and 9, plus the two additional defects fixed on 6 October 2026. Build 9 was uploaded to App Store Connect on 1 October but was never submitted; it is superseded by this build. The archive for build 10 has not yet been created. Full account in [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
+> **Status: in Review.** Submitted to App Review on 09.10.2026. Build 10 contains all fixes from builds 8 and 9, plus two additional defects fixed on 6 October 2026 (CASE-007, CASE-008). Build 9 was uploaded to App Store Connect on 1 October but was never submitted and is superseded. Full account in [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
 
 ### Fixed
 

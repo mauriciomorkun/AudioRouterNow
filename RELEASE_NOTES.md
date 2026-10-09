@@ -153,13 +153,10 @@ commit, so the claim and its evidence sit together in the history.
 
 ---
 
-## AudioRouterNow 4.0.1 (Build 10), October 6, 2026
+## AudioRouterNow 4.0.1 (Build 10), October 9, 2026
 _Mac App Store, macOS 14.4 or later, Apple Silicon_
 
-> **Status: ready to archive.** Build 10 supersedes build 9. Two additional defects
-> were found after build 9 was uploaded to App Store Connect, and are fixed here.
-> Build 9 was never submitted to App Review. Build 10 has not yet been archived.
-> Full account in [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
+> **Status: in Review.** Submitted to App Review on 09.10.2026. Build 10 supersedes build 9. Two additional defects were found after build 9 was uploaded to App Store Connect, and are fixed here. Build 9 was never submitted to App Review. Full account in [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
 
 ### For Everyone
 

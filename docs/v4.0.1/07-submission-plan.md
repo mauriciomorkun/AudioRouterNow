@@ -12,11 +12,11 @@
 | 1: Archiv erstellen | ✅ erledigt, 08.10.2026 (Build 10) |
 | 2: Validieren | ✅ erledigt, 08.10.2026 (Build 10) |
 | 3: Hochladen | ✅ erledigt, 08.10.2026 (Build 10) |
-| 4: Angaben in App Store Connect | ⬜ offen, liegt beim User |
+| 4: Angaben in App Store Connect | ✅ erledigt, 09.10.2026 |
 | 5.1: Pruefung gegen den Code | ✅ erledigt, 08.10.2026 (Build 10) -- 1 Befund korrigiert (Zeile 70, "speaker icon" -> "from the footer") |
-| 5.2: Pruefung in App Store Connect | ⬜ offen, liegt beim User |
-| 6: Absenden | ⬜ offen |
-| 7: Danach | ⬜ offen |
+| 5.2: Pruefung in App Store Connect | ✅ erledigt, 09.10.2026 |
+| 6: Absenden | ✅ erledigt, 09.10.2026 -- "Waiting for Review" |
+| 7: Danach | ⬜ teilweise offen (Tags gesetzt, Doku aktualisiert; v4-appstore/ Entfernung nach Freigabe) |
 
 **Build 10 wurde am 08.10.2026 archiviert, validiert und hochgeladen. Phasen 0 bis 3 sind
 abgeschlossen. Phase 5.1 ist abgeschlossen (10 von 11 Aussagen bestaetigt, 1 Befund
