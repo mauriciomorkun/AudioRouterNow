@@ -28,17 +28,21 @@ turned out to be wrong, and which claims are still unproven.
 | Field | Value |
 |-------|-------|
 | Version | 4.0.1, build 10 (`MARKETING_VERSION` 4.0.1, `CURRENT_PROJECT_VERSION` 10) |
-| Status | **Ready to archive.** Build 10 supersedes build 9. Build 9 was uploaded to App Store Connect on 1 October 2026 at 17:26 and passed validation, but was superseded before submission. Build 10 has not yet been archived. Nothing is tagged. |
+| Status | **Submitted to App Review on 09.10.2026. Waiting for Review.** Build 10 was archived on 08.10.2026, validated and uploaded. Build 9 was uploaded on 1 October 2026 but never submitted and is superseded. Tags `v4.0.0` (on `6e32199`) and `v4.0.1` are set and pushed. |
 | Work completed | 23 September 2026 for the crash (CASE-003), 27 September 2026 for the volume defect (CASE-004), 6 October 2026 for CASE-007 and CASE-008 |
 | Platform | Mac App Store, macOS 14.4 or later, Apple Silicon |
 | Trigger | Five crash reports in App Store Connect (22 September 2026), a volume report in the MacRumors thread (24 September 2026), and two self-found defects (5 October 2026) |
-| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1`, `c9e097d`, `a76a1e2`, `0bbad31`, `1a8257a`, `41246bc`, `b1dcf8e`, `9bbd131`, `e3ac13b`, `3dc3cfa` |
+| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1`, `c9e097d`, `a76a1e2`, `0bbad31`, `1a8257a`, `41246bc`, `b1dcf8e`, `9bbd131`, `e3ac13b`, `3dc3cfa`, `70d9ab7` (docs: submission plan), `b5652be` (docs: submission status in changelog and release notes) |
 | Internal case IDs | CASE-003 (crash), CASE-004 (volume), CASE-007 (volume jump on hotplug), CASE-008 (speakers play despite exclusive selection) |
 
 **Uploaded is not submitted.** The distinction is kept exact throughout this
-folder. The build sits on Apple's servers; App Review has not seen it. The
-irreversible step is phase 6 of
-[07-submission-plan.md](07-submission-plan.md), and it has not been taken.
+folder, and for most of the folder's life it marked the open question: the build
+sat on Apple's servers and App Review had not seen it. That is now history. The
+irreversible step, phase 6 of [07-submission-plan.md](07-submission-plan.md), was
+taken on 09.10.2026. Build 10 is with App Review, waiting. The documents below
+that were written before submission still describe the uploaded-but-not-submitted
+state on purpose: they are the record of how the decision was reached, not a
+current status.
 
 The last four commits in the list came out of the submission run itself rather
 than the defects: `a76a1e2` and `0bbad31` record what went wrong,

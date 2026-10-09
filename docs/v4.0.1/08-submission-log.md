@@ -273,3 +273,63 @@ anything in this document: whether the crash fix fixes *the reported crash* is
 open. The raw `.ips` was never available and the crash was never reproduced. Only
 the crash statistics of the coming weeks can answer it, and those require the
 version to actually ship.
+
+## Build 10: the run that was submitted (08 to 09 October 2026)
+
+Everything above describes the build 9 run, which was uploaded and then
+superseded. This section records the run that went all the way through. Where the
+build 9 run stopped at phase 3 with phases 4 to 7 left open, the build 10 run
+completed all of them and ended with the version in App Review.
+
+### Phases 0 to 3, rerun for build 10
+
+Phases 0 to 3 were run again from a clean tree. The only difference from the plan
+as written was the build number: CASE-007 and CASE-008 had moved
+`CURRENT_PROJECT_VERSION` from 9 to 10 in
+`v4/Configs/AudioRouterNow4.xcconfig`, so every archive, validation and upload in
+this run carried 4.0.1 (10) rather than 4.0.1 (9). The archive was built on
+08.10.2026, validated and uploaded. `preflight.sh` ran against the fresh archive
+and passed, including the dSYM provenance check that would have caught another
+archive from the dead `v4-appstore/` tree. The duplicate-project hazard from the
+build 9 run did not recur.
+
+### Phase 5.1, rerun: one finding, corrected
+
+The store-text-against-code check was run again by an Opus agent against the build
+10 What's New text. Of 11 claims, 10 were confirmed in source. One finding: the
+text described the bug report as opened from a "speaker icon". The control is the
+ladybug in the footer, not a speaker icon (`RoutingControls.swift`, the
+`controller.openBugReport()` button). Corrected to "from the footer" to match the
+code. The correction was to the claim, not to the software.
+
+### Phase 4, in App Store Connect
+
+The metadata that had been open for the build 9 run was completed: Promotional
+Text, the What's New text, build 10 selected under **Build**, the review note
+listing all four defects (CASE-003, CASE-004, CASE-007, CASE-008), and the release
+mode set to manual release.
+
+### Phase 6, the irreversible step
+
+"Add for Review" followed by "Submit to App Review" on 09.10.2026. This is the
+step that had never been taken for build 9. The version is now with App Review,
+status **Waiting for Review**. Experience puts the wait at 1 to 3 days.
+
+### Phase 7, tags and documentation
+
+`v4.0.0` was tagged on `6e32199` and `v4.0.1` was tagged, both pushed. This clears
+the "no v4 tags" condition that the open-items table below was written under. The
+changelog, release notes, root `README.md`, this folder's `README.md` and
+`LAUNCH_EXECUTION.md` were updated to the submitted state.
+
+### What is still open after build 10
+
+| Item | State |
+|---|---|
+| App Review decision | **Open.** Waiting for Review, 1 to 3 days expected |
+| `v4-appstore/`, 594 MB | Kept until approval, then remove. Its job as the only concrete image of the shipped version ends once 4.0.0 is tagged, which it now is, but it stays until the new version is live as a safety margin |
+| Notify the reporter | **Open.** Tell the MacRumors reporter once 4.0.1 is approved and live |
+
+Note that the open-items table in the build 9 section above is now historical. The
+tags exist, the metadata is filled, and phase 6 is done. That table records the
+state at the time the build 9 run stopped, not the current state.
