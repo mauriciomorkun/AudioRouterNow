@@ -322,13 +322,27 @@ the "no v4 tags" condition that the open-items table below was written under. Th
 changelog, release notes, root `README.md`, this folder's `README.md` and
 `LAUNCH_EXECUTION.md` were updated to the submitted state.
 
+### Release, 13 October 2026
+
+App Store Connect showed **4.0.1 Ready for Distribution** at 06:14 local time, which is
+Apple's current name for what used to be "Ready for Sale": approved and available. The
+public lookup API reported 4.0 until about 06:20 and then 4.0.1, with a release time of
+04:13:34 UTC. The gap is a cache in the lookup service, not a second release step.
+
+The landing page switched itself at 04:20 UTC (06:20 local) through a cron job that
+polls the store and only deploys once it reports version 4.0.1 or higher. It keeps a
+backup, verifies the live URL afterwards and rolls back if the new page is not served.
+The job did not act at 04:00 and 04:10 UTC, when the store still reported 4.0.
+
+The date of Apple's approval is not recorded here because it was not observed.
+
 ### What is still open after build 10
 
 | Item | State |
 |---|---|
-| App Review decision | **Open.** Waiting for Review, 1 to 3 days expected |
-| `v4-appstore/`, 594 MB | Kept until approval, then remove. Its job as the only concrete image of the shipped version ends once 4.0.0 is tagged, which it now is, but it stays until the new version is live as a safety margin |
-| Notify the reporter | **Open.** Tell the MacRumors reporter once 4.0.1 is approved and live |
+| App Review decision | **Closed.** Approved and released, see above |
+| `v4-appstore/`, 594 MB | **Open.** Safe to remove now that 4.0.1 is live and both tags exist. Renaming is the reversible variant |
+| Notify the reporter | **Open.** Tell the MacRumors reporter that 4.0.1 is live |
 
 Note that the open-items table in the build 9 section above is now historical. The
 tags exist, the metadata is filled, and phase 6 is done. That table records the

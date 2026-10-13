@@ -16,7 +16,7 @@
 | 5.1: Pruefung gegen den Code | ✅ erledigt, 08.10.2026 (Build 10) -- 1 Befund korrigiert (Zeile 70, "speaker icon" -> "from the footer") |
 | 5.2: Pruefung in App Store Connect | ✅ erledigt, 09.10.2026 |
 | 6: Absenden | ✅ erledigt, 09.10.2026 -- "Waiting for Review" |
-| 7: Danach | ⬜ teilweise offen (Tags gesetzt, Doku aktualisiert; v4-appstore/ Entfernung nach Freigabe) |
+| 7: Danach | ⬜ teilweise offen: 4.0.1 seit 13.10.2026 live, Tags gesetzt, Doku auf "veroeffentlicht". Offen: Melder auf MacRumors benachrichtigen, `v4-appstore/` entfernen |
 
 **Build 10 wurde am 08.10.2026 archiviert, validiert und hochgeladen. Phasen 0 bis 3 sind
 abgeschlossen. Phase 5.1 ist abgeschlossen (10 von 11 Aussagen bestaetigt, 1 Befund

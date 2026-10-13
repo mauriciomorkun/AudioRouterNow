@@ -18,8 +18,8 @@
 > out to be wrong, and the one finding that could not be fixed because no unit test
 > can reach it.
 >
-> 4.0.1 was **submitted to App Review on 09.10.2026** and is waiting for approval.
-> The version currently on the Mac App Store is still 4.0.0 until Apple approves.
+> 4.0.1 is **live on the Mac App Store since 13.10.2026** (build 10, submitted to
+> App Review on 09.10.2026). Existing installs update through the App Store.
 
 > **How 3.4.6 came about:** [`docs/v3.4.6/`](docs/v3.4.6/) is the same record for v3.
 > Two defects that had been in every release since launch and were both invisible from

@@ -67,9 +67,9 @@
 
 ---
 
-## [4.0.1 (10)], 2026-10-09 · _submitted to App Review_
+## [4.0.1 (10)], 2026-10-13 · _released on the Mac App Store_
 
-> **Status: in Review.** Submitted to App Review on 09.10.2026. Build 10 contains all fixes from builds 8 and 9, plus two additional defects fixed on 6 October 2026 (CASE-007, CASE-008). Build 9 was uploaded to App Store Connect on 1 October but was never submitted and is superseded. Full account in [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
+> **Status: released.** Live on the Mac App Store since 13.10.2026 (submitted to App Review on 09.10.2026). Build 10 contains all fixes from builds 8 and 9, plus two additional defects fixed on 6 October 2026 (CASE-007, CASE-008). Build 9 was uploaded to App Store Connect on 1 October but was never submitted and is superseded. Full account in [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
 
 ### Fixed
 

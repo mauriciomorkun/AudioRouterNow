@@ -28,7 +28,7 @@ turned out to be wrong, and which claims are still unproven.
 | Field | Value |
 |-------|-------|
 | Version | 4.0.1, build 10 (`MARKETING_VERSION` 4.0.1, `CURRENT_PROJECT_VERSION` 10) |
-| Status | **Submitted to App Review on 09.10.2026. Waiting for Review.** Build 10 was archived on 08.10.2026, validated and uploaded. Build 9 was uploaded on 1 October 2026 but never submitted and is superseded. Tags `v4.0.0` (on `6e32199`) and `v4.0.1` are set and pushed. |
+| Status | **Released. Live on the Mac App Store since 13.10.2026** (the store reports a release time of 04:13 UTC). Submitted to App Review on 09.10.2026. Build 10 was archived on 08.10.2026, validated and uploaded. Build 9 was uploaded on 1 October 2026 but never submitted and is superseded. Tags `v4.0.0` (on `6e32199`) and `v4.0.1` are set and pushed. |
 | Work completed | 23 September 2026 for the crash (CASE-003), 27 September 2026 for the volume defect (CASE-004), 6 October 2026 for CASE-007 and CASE-008 |
 | Platform | Mac App Store, macOS 14.4 or later, Apple Silicon |
 | Trigger | Five crash reports in App Store Connect (22 September 2026), a volume report in the MacRumors thread (24 September 2026), and two self-found defects (5 October 2026) |
