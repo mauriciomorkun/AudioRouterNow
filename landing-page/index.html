@@ -176,6 +176,8 @@
       transition: border-color .2s;
     }
     .feature:hover { border-color: #2a2a2a; }
+    /* Fifth card (4.0.1): spans the full row so it does not sit alone in a half-empty row */
+    .feature-wide { grid-column: 1 / -1; }
 
     .feature-icon {
       font-size: 1.4rem;
@@ -476,7 +478,7 @@
          (Apache 2.0, see badge-meta above). This gate is only about macOS
          version fallback / preferring the GPL-3.0 direct download. -->
     <details class="legacy-gate">
-      <summary>Running macOS 11–14.1? Or looking for the source code? ›</summary>
+      <summary>Running macOS 11 to 14.3? Or looking for the source code? ›</summary>
       <div class="legacy-gate-body">
         <p>AudioRouterNow v3.4.6 runs on macOS 11 Big Sur and later. It uses a HAL audio driver instead of the sandboxed Process Tap API. A one-time admin password is required to install the driver.</p>
         <div class="legacy-cta-row">
@@ -528,12 +530,20 @@
       <h3>Not a mixer. No restart.</h3>
       <p>No mixer, no routing diagram, no per-app rules. Pick your outputs, click once, done. No restart, no setup wizard.</p>
     </div>
+    <!-- Added for 4.0.1 (13.10.2026). Wording mirrors the store text, which was
+         verified against the code in submission phase 5.1: only selected devices
+         play, system default output stays silent unless selected, off by default. -->
+    <div class="feature feature-wide">
+      <span class="feature-icon">🎯</span>
+      <h3>Only the outputs you pick.</h3>
+      <p>Optional Exclusive Routing: only the devices you select play audio. The system default output stays silent unless you add it. Off by default, one toggle in the footer.</p>
+    </div>
   </section>
 
   <!-- APP STORE SCREENSHOTS -->
   <!-- Images (ss_*.jpg) live on server only, gitignored binary assets -->
   <div class="screenshots-section">
-    <p class="screenshots-label">AudioRouterNow 4 &#8212; in action</p>
+    <p class="screenshots-label">AudioRouterNow 4, in action</p>
     <div class="screenshots-scroll">
       <figure class="ss-item">
         <div class="ss-label">
@@ -547,7 +557,7 @@
           <strong class="ss-title">Pick the exact channels.</strong>
           <span class="ss-subtitle">Select exact channel pairs per interface</span>
         </div>
-        <img src="ss_tipjar.jpg" alt="AudioRouterNow &#8212; free with optional tip jar" width="892" height="1342" loading="lazy" decoding="async">
+        <img src="ss_tipjar.jpg" alt="AudioRouterNow, free with optional tip jar" width="892" height="1342" loading="lazy" decoding="async">
       </figure>
       <figure class="ss-item">
         <div class="ss-label">
@@ -559,7 +569,7 @@
       <figure class="ss-item">
         <div class="ss-label">
           <strong class="ss-title">Free forever.</strong>
-          <span class="ss-subtitle">Optional tip jar &#8212; no subscription, ever.</span>
+          <span class="ss-subtitle">Optional tip jar. No subscription, ever.</span>
         </div>
         <img src="ss_channels.jpg" alt="Select exact channel pairs per device" width="892" height="1188" loading="lazy" decoding="async">
       </figure>
@@ -608,7 +618,7 @@
       </div>
       <div class="req-item">
         <span class="req-label">Version</span>
-        <span class="req-value">4.0 · App Store</span>
+        <span class="req-value">4.0.1 · App Store</span>
       </div>
       <div class="req-item">
         <span class="req-label">License</span>
