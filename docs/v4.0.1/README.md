@@ -32,19 +32,19 @@ turned out to be wrong, and which claims are still unproven.
 | Work completed | 23 September 2026 for the crash (CASE-003), 27 September 2026 for the volume defect (CASE-004), 6 October 2026 for CASE-007 and CASE-008 |
 | Platform | Mac App Store, macOS 14.4 or later, Apple Silicon |
 | Trigger | Five crash reports in App Store Connect (22 September 2026), a volume report in the MacRumors thread (24 September 2026), and two self-found defects (5 October 2026) |
-| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1`, `c9e097d`, `a76a1e2`, `0bbad31`, `1a8257a`, `41246bc`, `b1dcf8e`, `9bbd131`, `e3ac13b`, `3dc3cfa`, `70d9ab7` (docs: submission plan), `b5652be` (docs: submission status in changelog and release notes) |
+| Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1`, `c9e097d`, `a76a1e2`, `0bbad31`, `1a8257a`, `41246bc`, `b1dcf8e`, `9bbd131`, `e3ac13b`, `3dc3cfa`, `70d9ab7` (docs: submission plan), `b5652be` (docs: submission status in changelog and release notes), `ff85d4f` (docs: in review), `fb78c96` (landing page, deployed on release day), `6917cfe` (docs: released) and `ca75c3c` (support page) |
 | Internal case IDs | CASE-003 (crash), CASE-004 (volume), CASE-007 (volume jump on hotplug), CASE-008 (speakers play despite exclusive selection) |
 
 **Uploaded is not submitted.** The distinction is kept exact throughout this
 folder, and for most of the folder's life it marked the open question: the build
 sat on Apple's servers and App Review had not seen it. That is now history. The
 irreversible step, phase 6 of [07-submission-plan.md](07-submission-plan.md), was
-taken on 09.10.2026. Build 10 is with App Review, waiting. The documents below
+taken on 09.10.2026. Build 10 was approved and has been live since 13.10.2026. The documents below
 that were written before submission still describe the uploaded-but-not-submitted
 state on purpose: they are the record of how the decision was reached, not a
 current status.
 
-The last four commits in the list came out of the submission run itself rather
+Four commits in the middle of the list (`a76a1e2` to `41246bc`) came out of the submission run itself rather
 than the defects: `a76a1e2` and `0bbad31` record what went wrong,
 `1a8257a` moves the signing settings into the project file, and `41246bc` adds
 `v4/scripts/preflight.sh`, the gate that exists so the same mistake cannot repeat
@@ -54,7 +54,7 @@ The commit range is worth reading in full, the messages carry most of the
 reasoning that later became these documents:
 
 ```sh
-git log f6d0bb9^..41246bc
+git log f6d0bb9^..v4.0.1
 ```
 
 Note that `dc59f98` implements an approach that `db1ecb4` deletes again. That is
@@ -98,8 +98,10 @@ CASE-007 and CASE-008, added in build 10, do not depend on the crash report. Bot
   fixes plus the two added on 6 October
 - [`RELEASE_NOTES.md`](../../RELEASE_NOTES.md), section "AudioRouterNow 4.0.1 (Build 10)"
   for the current build, and "AudioRouterNow 4.0.1 (Build 9)" for the superseded one
-- [`BACKLOG.md`](../../BACKLOG.md), for the three items deliberately kept out of
-  4.0.1: the sample rate listener, the universal binary versus the "Apple Silicon
-  only" documentation, and the v4 tagging work
+- [`BACKLOG.md`](../../BACKLOG.md), for the items deliberately kept out of 4.0.1:
+  the sample rate listener, the universal binary versus the "Apple Silicon only"
+  documentation, and two items added after the release (debouncing device removal,
+  suggested on X, and the wording of the store description). The v4 tagging work
+  that was listed there was finished on release day
 - [`v4/scripts/preflight.sh`](../../v4/scripts/preflight.sh), the submission gate
 - [`v4/ARCHITECTURE.md`](../../v4/ARCHITECTURE.md), the surrounding v4 architecture

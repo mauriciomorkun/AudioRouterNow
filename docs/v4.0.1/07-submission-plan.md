@@ -18,11 +18,11 @@
 | 6: Absenden | ✅ erledigt, 09.10.2026 -- "Waiting for Review" |
 | 7: Danach | ⬜ teilweise offen: 4.0.1 seit 13.10.2026 live, Tags gesetzt, Doku auf "veroeffentlicht". Offen: Melder auf MacRumors benachrichtigen, `v4-appstore/` entfernen |
 
-**Build 10 wurde am 08.10.2026 archiviert, validiert und hochgeladen. Phasen 0 bis 3 sind
-abgeschlossen. Phase 5.1 ist abgeschlossen (10 von 11 Aussagen bestaetigt, 1 Befund
-geringfuegig korrigiert). Phase 4 liegt beim User (App Store Connect). Nach Phase 4 und 5.2
-kann Phase 6 ausgefuehrt werden.** Was beim ersten Durchlauf (Build 9) geschah, steht
-in [08-submission-log.md](08-submission-log.md).
+**Build 10 wurde am 08.10.2026 archiviert, validiert und hochgeladen, am 09.10.2026 bei
+App Review eingereicht und ist seit dem 13.10.2026 im Mac App Store.** Phase 5.1 ergab 10
+bestätigte Aussagen und einen Befund, der vor dem Absenden korrigiert wurde. Offen ist nur
+der Rest von Phase 7. Was beim ersten Durchlauf (Build 9) geschah, steht in
+[08-submission-log.md](08-submission-log.md).
 
 Was beim Durchlaufen der Phasen 0 bis 3 tatsächlich geschah, steht in
 [08-submission-log.md](08-submission-log.md). Dieses Dokument sagt, was geschehen
@@ -52,9 +52,14 @@ Kursive Zeilen unter einem Schritt halten fest, was bei der Ausführung
 tatsächlich geschah. Der Schritt selbst bleibt unverändert, damit der Plan beim
 nächsten Release wieder benutzbar ist.
 
+Die Schrittmarker ⬜ innerhalb der Phasen 0 bis 6 stammen aus der Vorlage und wurden für
+Build 10 nicht einzeln nachgezogen. Maßgeblich sind die Stand-Tabelle oben und die
+Phasen-Überschriften. Aussagen in den Phasen, die einen Zustand **vor** dem 09.10.2026
+beschreiben, sind als „Historisch" oder durch eine Datumsangabe gekennzeichnet.
+
 ---
 
-## Phase 0: Ausgangslage sichern ⬜ offen, fuer Build 10 wiederholen
+## Phase 0: Ausgangslage sichern ✅ erledigt für Build 10 (08.10.2026)
 
 > **Historisches Protokoll: Build 9.** Die kursiven Notizen in dieser Phase
 > beschreiben den Durchlauf vom 01.10.2026, der Build 9 produzierte. Fuer
@@ -112,7 +117,7 @@ Phase 7.
 
 ---
 
-## Phase 1: Archiv erstellen ⬜ offen, Build 9 veraltet
+## Phase 1: Archiv erstellen ✅ erledigt für Build 10 (08.10.2026)
 
 > **Historisches Protokoll: Build 9.** Die kursiven Notizen in dieser Phase
 > beschreiben den Archivlauf vom 01.10.2026, der Build 9 produzierte. Fuer
@@ -217,7 +222,7 @@ Build 10 muss hier 4.0.1 (10) stehen.*
 
 ---
 
-## Phase 2: Validieren ⬜ offen
+## Phase 2: Validieren ✅ erledigt für Build 10 (08.10.2026)
 
 > **Historisches Protokoll: Build 9.** Die kursive Notiz unten beschreibt die
 > Validierung vom 01.10.2026 am Build-9-Archiv. Fuer Build 10 laeuft diese Phase neu.
@@ -236,7 +241,7 @@ Bei Fehlern: Meldung vollständig kopieren und mir geben, statt zu raten.
 
 ---
 
-## Phase 3: Hochladen ⬜ offen
+## Phase 3: Hochladen ✅ erledigt für Build 10 (08.10.2026)
 
 > **Historisches Protokoll: Build 9.** Die kursiven Notizen unten beschreiben den
 > Upload vom 01.10.2026, der Build 9 zu Apple brachte. Build 9 wurde nie eingereicht
@@ -252,7 +257,7 @@ Connect nicht auswählen.
 *Keine Mail mit Beanstandungen eingegangen. Build 9 liegt bei Apple, wird aber nicht
 eingereicht.*
 
-> **Ab hier ist der Build hochgeladen, aber nicht eingereicht.** Das ist kein
+> **Ab hier und bis Phase 6 ist der Build hochgeladen, aber nicht eingereicht.** Das ist kein
 > Zwischenstand auf dem Weg zur Review, sondern ein eigener Zustand: Apple hat den
 > Build, App Review hat ihn nicht. Es läuft keine Uhr, es wartet niemand auf eine
 > Antwort, und nichts davon ist nach außen sichtbar.
@@ -263,11 +268,12 @@ erfolgreich aussah.
 
 ---
 
-## Phase 4: Angaben in App Store Connect ⬜ offen
+## Phase 4: Angaben in App Store Connect ✅ erledigt (09.10.2026)
 
-> Diese Phase ist noch nicht angefasst. Es ist keine Version 4.0.1 angelegt. Der
-> am 01.10. hochgeladene Build 9 ist zwar auswählbar, wird aber nicht eingereicht:
-> Build 10 muss erst archiviert und hochgeladen werden.
+> **Historisch, Stand 07.10.2026:** Diese Phase war noch nicht angefasst, es war keine
+> Version 4.0.1 angelegt, und der am 01.10. hochgeladene Build 9 war zwar auswählbar,
+> sollte aber nicht eingereicht werden. Sie lief am 09.10.2026 für Build 10 und ist
+> abgeschlossen.
 
 **4.1 ⬜ 👤 Neue Version anlegen.**
 App Store Connect, App auswählen, links **App Store**, dann
@@ -286,8 +292,8 @@ siehe [08-submission-log.md](08-submission-log.md).*
 **4.3 ⬜ 👤 Build auswählen.**
 Unter **Build** das Pluszeichen, dann **4.0.1 (10)**.
 ⚠️ Steht dort noch nichts, ist die Verarbeitung aus Phase 3 nicht fertig.
-*Phase 3 laeuft fuer Build 10 noch. Der am 01.10. hochgeladene Build 9 ist zwar
-auswählbar, wird aber nicht eingereicht.*
+*Phase 3 lief für Build 10 am 08.10.2026, danach war 4.0.1 (10) auswählbar und wurde
+eingereicht. Der am 01.10. hochgeladene Build 9 wurde nicht eingereicht.*
 
 **4.4 ⬜ 👤 Screenshots: nichts tun.**
 Die Oberfläche hat sich gegenüber 4.0.0 nicht geändert. Die vorhandenen
@@ -354,23 +360,23 @@ das als Fehler auslegen.
 
 ---
 
-## Phase 6: Absenden ⬜ offen
+## Phase 6: Absenden ✅ erledigt (09.10.2026)
 
 **6.1 ⬜ 👤 „Add for Review", dann „Submit to App Review".**
 
 Ab hier ist nichts mehr änderbar, ohne die Einreichung zurückzuziehen.
 
-**Dieser Schritt ist nicht erfolgt.** Der Upload vom 01.10. ist nicht dieser
-Schritt und ersetzt ihn nicht.
+*Erledigt 09.10.2026: „Add for Review" und „Submit to App Review" für Build 10, Status
+„Waiting for Review". Der Upload vom 01.10. war nicht dieser Schritt und ersetzte ihn nicht.*
 
 **6.2 ⬜ 👤 Status notieren.**
 Er wechselt auf „Waiting for Review".
 
 ---
 
-## Phase 7: Danach ⬜ offen
+## Phase 7: Danach 🟡 teilweise erledigt
 
-**7.1 ⬜ 🤖 Tag setzen und pushen.**
+**7.1 ✅ 🤖 Tag setzen und pushen.**
 Erst jetzt, weil der eingereichte Stand nun feststeht.
 
 ⚠️ **Dabei fällt eine Altlast an.** Für v4 existiert **kein einziger Tag**, Stand
@@ -393,15 +399,27 @@ Der Ordner wird erst entbehrlich, wenn der Tag seine Aufgabe übernommen hat.
 Vollständig in
 `~/.claude/projects/-Users-mauriciomorkun/memory/project_audiorouternow_v4_tags_pending.md`.
 
-**7.2 ⬜ 🤖 Dokumentation nachziehen.**
+*Erledigt 09.10.2026: `v4.0.0` auf `6e32199` und `v4.0.1` gesetzt und gepusht. Schritt 3,
+`v4-appstore/`, ist weiterhin offen. Seit 13.10.2026, dem Tag der Veröffentlichung, ist er
+gefahrlos möglich, beide Tags tragen den Stand.*
+
+**7.2 ✅ 🤖 Dokumentation nachziehen.**
 In `CHANGELOG.md`, `RELEASE_NOTES.md` und `docs/v4.0.1/README.md` steht derzeit
 überall „uploaded, not submitted", mit dem Datum des Uploads. Das wird auf
 „in Review" geändert, mit Datum.
 
-**7.3 ⬜ 👤 Warten.**
+*Erledigt. Am 09.10.2026 auf „in Review" (`b5652be`, `ff85d4f`), am 13.10.2026 auf „released"
+(`fb78c96`, `6917cfe`). Am 15.10.2026 folgte der Rest der lokalen Unterlagen, die nicht im
+Repository liegen: Fall-Register, die vier Cases, BACKLOG und das Launch-Log.*
+
+**7.3 ✅ 👤 Warten.**
 Erfahrungswert aus 4.0.0: ein bis drei Tage.
 
-**7.4 ⬜ Bei Freigabe:**
+*Apple hat freigegeben, die Version ist seit dem 13.10.2026 im Store (Veröffentlichungszeit laut
+Store 04:13 UTC). Der Zeitpunkt der Freigabe durch Apple wurde nicht beobachtet und wird hier
+nicht geraten.*
+
+**7.4 🟡 Bei Freigabe:**
 - 🤖 Dokumentation auf „veröffentlicht" setzen
 - 👤 Freigabe in App Store Connect auslösen (bei manueller Veröffentlichung)
 - 🤖 Antwort an den Melder von CASE-004 auf MacRumors, der Text liegt bereit und
@@ -410,9 +428,18 @@ Erfahrungswert aus 4.0.0: ein bis drei Tage.
   gepostet
 - 🤖 `feedback/CASE-003` und `CASE-004` auf ausgeliefert setzen
 
+*Stand 15.10.2026: Dokumentation auf „veröffentlicht" erledigt (13.10.). Die Veröffentlichung
+selbst lief am 13.10. (Store-Zeit 04:13 UTC). `feedback/CASE-003`, `004`, `007` und `008`
+stehen seit 15.10. auf „ausgeliefert", mit dem Vorbehalt, dass das nicht „verifiziert"
+heißt. Die Antwort an den Melder von CASE-004 liegt als Entwurf vor, ohne den Satz „not
+submitted yet", der Versand ist offen. Zum Sample-Rate-Nebenbefund lief der Austausch auf X
+weiter, die dabei gemachte Zusage steht seit 15.10. im Backlog.*
+
 **7.5 ⬜ Bei Ablehnung:**
 Meldung vollständig kopieren, nichts raten. Bei 2.4.5(iii) war der genannte Grund
 nicht die tatsächliche Ursache, das hat damals einen Anlauf gekostet.
+
+*Entfallen, die Version wurde freigegeben.*
 
 ---
 

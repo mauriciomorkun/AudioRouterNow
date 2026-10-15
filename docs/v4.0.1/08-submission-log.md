@@ -11,6 +11,13 @@ this was written. See [What is still open](#what-is-still-open).
 
 ## The state in one line
 
+> **Update, 13 October 2026:** this section describes the state at the end of the
+> build 9 run, on 1 and 2 October. It is kept as written because it is the record of
+> that moment. Build 9 was superseded by build 10, which was submitted on 9 October
+> and has been live on the Mac App Store since 13 October. See the last two sections
+> of this document, "Build 10: the run that was submitted" and "Release, 13 October
+> 2026".
+
 **Build 9 is uploaded to App Store Connect. Nothing has been submitted to App
 Review.**
 
