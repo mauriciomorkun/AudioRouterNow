@@ -57,6 +57,8 @@ macOS only routes system audio to one output at a time. AudioRouterNow breaks th
 - Auto-detects all connected audio interfaces and their channel counts
 - Hot-plug: plug in a new interface → it appears in the menu instantly
 - Works with USB, Thunderbolt, HDMI, and internal audio
+- **Your volume keys keep working**, unlike a Multi-Output Device in Audio MIDI Setup, which disables them
+- **Outputs stay in sync automatically**, drift compensation and hardware-latency alignment keep every output time-aligned without any manual setup
 
 ---
 
@@ -91,6 +93,8 @@ macOS System Audio
 - **Hot-plug detection**, devices appear and disappear in real time
 - **Remembers your setup**, selected outputs and channel pairs are restored on next launch
 - **One-click system audio switch**, switches macOS system output to Audio Router natively (CoreAudio, no AppleScript)
+- **Volume keys stay working**, unlike a Multi-Output Device in Audio MIDI Setup, which strips the keyboard volume keys. You never lose them with AudioRouterNow
+- **Automatic output sync**, drift compensation and hardware-latency alignment run automatically, no checkbox to tick. Audio MIDI Setup requires you to set the drift-correction checkbox yourself
 - **No external tools**, no Homebrew, no SwitchAudioSource, no Terminal
 
 ---
@@ -104,7 +108,26 @@ macOS System Audio
 
 ## Installation
 
-**Option A, Direct download**
+### v4 (current, macOS 14.4+, Apple Silicon)
+
+**Option A, Mac App Store**
+
+[Download AudioRouterNow on the Mac App Store](https://apps.apple.com/app/audiorouternow/id6787215635)
+
+No driver installation, no admin password, fully sandboxed.
+
+**Option B, CLI via `mas`**
+
+```sh
+brew install mas
+mas install 6787215635
+```
+
+### v3 (legacy, macOS 11–14.3, Apple Silicon)
+
+> The Homebrew tap and direct download point to v3.4.6 (legacy). v4 is App Store only and cannot be distributed as a Homebrew Cask.
+
+**Option C, Direct download**
 
 1. Download [`AudioRouterNow.dmg` (v3.4.6)](https://github.com/mauriciomorkun/AudioRouterNow/releases/download/v3.4.6/AudioRouterNow.dmg) from [Releases](https://github.com/mauriciomorkun/AudioRouterNow/releases/latest)
 2. Open the DMG and drag the app to Applications
@@ -121,7 +144,7 @@ shasum -a 256 ~/Downloads/AudioRouterNow.dmg
 # c97b1bfb6b9ec6238f642821922f20bb549b99b05f588168e810a836d883a3c4
 ```
 
-**Option B, Homebrew Cask (optional)**
+**Option D, Homebrew Cask (v3 only)**
 
 ```sh
 brew install --cask mauriciomorkun/tap/audiorouternow
@@ -180,10 +203,18 @@ AudioRouterNow uses a ~170 ms ring buffer for stability. It is not suitable for 
   (~43ms) gap. This is expected behaviour due to macOS audio device enumeration.
   Fixed in v3.2.0+ with tombstone slot architecture.
 - **Bluetooth output sync**: When routing to both Bluetooth (e.g. AirPods) and wired outputs
-  simultaneously, the two streams may not be perfectly time-aligned due to Bluetooth codec
-  latency (~150–200 ms). For music-only listening this is generally not noticeable. For
-  video playback, lip sync may be slightly off. Per-device latency compensation using
-  CoreAudio's `kAudioDevicePropertyLatency` API is planned for v3.5.
+  simultaneously, the two streams may not be perfectly time-aligned due to inherent Bluetooth
+  latency (~100–300 ms). The behaviour differs between versions:
+  - **v3** (Python/HAL): no drift compensation. The Bluetooth and wired streams can slowly
+    diverge, and this remains a known limitation. For music-only listening it is generally
+    not noticeable; for video playback lip sync may be slightly off.
+  - **v4** (Swift/Process Tap): automatic drift compensation is implemented
+    (`DelayLine.swift`, `DeviceLatency.swift`, `kAudioSubDeviceDriftCompensationKey`).
+    Each device's hardware latency is measured and the faster outputs are delayed to match
+    the slowest, so all outputs are held in sync. Bluetooth is never the clock master
+    (USB/Thunderbolt rank 0, Bluetooth rank 4). The result for Bluetooth is close but not
+    lab-tight: the ~100–300 ms of latency inherent to Bluetooth is drift-compensated but
+    not sample-tight, and no software can eliminate it entirely.
 - **macOS 14.4+ only for v4**: AudioRouterNow v4 (App Store) requires macOS 14.4+
   due to the Process Taps API (`CATapDescription`). v3 continues to support macOS 11+.
 
@@ -211,6 +242,8 @@ AudioRouterNow was built as a free, open-source alternative:
 | Multiple interfaces | No | **Yes** |
 | N-channel routing | No | **Yes** |
 | Hot-plug | No | **Yes** |
+| Volume keys | Lost with Multi-Output Device | **Always kept** |
+| Output sync / drift | Manual (checkbox) | **Automatic** |
 
 No kernel extension. No restart. No runtime dependencies on Homebrew, SwitchAudioSource, or any external tool. Just drag, drop, and route.
 
