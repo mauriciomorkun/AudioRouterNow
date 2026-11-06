@@ -78,6 +78,9 @@ buffer_promote.log
 # Marketing-Dokumentation (Pitches, Outreach, Assets — NIEMALS ins Repo)
 docs/marketing/
 
+# Support-Kommunikation (Mails, X, Reddit, GitHub — User-Content, nie ins Repo)
+docs/support/
+
 # Claude-Konfiguration (interne Anweisungen)
 .claude/
 
