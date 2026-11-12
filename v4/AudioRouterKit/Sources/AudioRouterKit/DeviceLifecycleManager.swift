@@ -85,6 +85,12 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
     private var srListenersActive = false
     /// Debounce-Handle für den SR-getriggerten Warm-Restart.
     private var pendingSRRestart: DispatchWorkItem?
+    /// P3: Baseline-Sample-Rates pro deviceID zum Zeitpunkt der SR-Listener-
+    /// Registrierung. Nur auf `queue` lesen/schreiben. Key = AudioObjectID.
+    private var srBaselines: [AudioObjectID: Double] = [:]
+    /// P3: Zaehler fuer SR-Listener-Feuerungen ohne tatsaechliche Ratenaenderung.
+    /// Akkumuliert Session-uebergreifend (wird in stop() NICHT zurueckgesetzt).
+    private var srNoopCount: Int = 0
 
     // Listener-Blocks aufbewahren (identische Referenz für Remove nötig).
     private var defaultOutputListener: AudioObjectPropertyListenerBlock?
@@ -208,6 +214,7 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
                 AudioObjectRemovePropertyListenerBlock(entry.deviceID, &addr, queue, entry.block)
             }
             srListenerBlocks = []
+            srBaselines = [:]   // P3: Baselines zuruecksetzen (srNoopCount bleibt).
             lastKnownMissingUIDs = []
             lockEnabled = false
             lockedDefaultUID = nil
@@ -296,8 +303,12 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
     // ── M4: Sample-Rate-Listener (laufen auf `queue`) ──
 
     /// Registriert je einen `kAudioDevicePropertyNominalSampleRate`-Listener pro
-    /// gerouteter UID. Ein SR-Wechsel triggert (debounced) ``scheduleSRRestart``.
+    /// gerouteter UID. Ein SR-Wechsel triggert (debounced) ``scheduleSRRestart``,
+    /// aber NUR, wenn die Rate sich tatsaechlich geaendert hat (P3). macOS feuert
+    /// die Notification auch bei unveraenderter Rate; ein Restart darauf ist
+    /// unnoetig und loest eine hoerbare Luecke aus.
     private func registerSRListeners(for uids: Set<String>) {
+        srBaselines = [:]   // P3: Baselines vor jeder Registrierung zuruecksetzen.
         for uid in uids {
             guard let deviceID = Self.deviceIDForUID(uid) else { continue }
             var addr = AudioObjectPropertyAddress(
@@ -305,13 +316,55 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
                 mScope: kAudioObjectPropertyScopeGlobal,
                 mElement: kAudioObjectPropertyElementMain)
             guard AudioObjectHasProperty(deviceID, &addr) else { continue }
+            // P3: Baseline-Rate zum Registrierungszeitpunkt lesen und im Closure
+            // fangen. 0.0, falls nicht lesbar (dann triggert jeder echte Wert).
+            let baseline = Self.readNominalSampleRate(for: deviceID) ?? 0.0
+            srBaselines[deviceID] = baseline
             let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
                 guard let self, self.srListenersActive else { return }
-                self.scheduleSRRestart()
+                let current = Self.readNominalSampleRate(for: deviceID)
+                if Self.srChangedSignificantly(newRate: current, baselineRate: baseline) {
+                    // Baseline auf den neuen Wert heben, damit Folge-Pings nicht
+                    // erneut triggern (der Warm-Restart ist bereits unterwegs).
+                    self.srBaselines[deviceID] = current ?? baseline
+                    self.scheduleSRRestart()
+                } else {
+                    self.srNoopCount += 1
+                    self.logger.log("M4-Noop: SR trigger without change device=\(deviceID, privacy: .public) rate=\(current ?? -1, privacy: .public) total_noops=\(self.srNoopCount, privacy: .public)")
+                }
             }
             AudioObjectAddPropertyListenerBlock(deviceID, &addr, queue, block)
             srListenerBlocks.append((deviceID: deviceID, block: block))
         }
+    }
+
+    /// P3: Liest die aktuelle NominalSampleRate eines Geraets. `nil` = nicht lesbar.
+    nonisolated static func readNominalSampleRate(
+        for deviceID: AudioObjectID
+    ) -> Double? {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var rate: Float64 = 0
+        var size = UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, &rate) == noErr
+        else { return nil }
+        return Double(rate)
+    }
+
+    /// P3: Reine Entscheidungsfunktion: soll ein SR-Restart ausgeloest werden?
+    /// - Parameters:
+    ///   - newRate: aktuell gelesene Rate (nil = nicht lesbar → konservativ Restart).
+    ///   - baselineRate: Rate zum Zeitpunkt der Listener-Registrierung.
+    /// - Returns: true = Restart ausloesen. Bei Lesefehler konservativ true,
+    ///   damit ein echter Wechsel nie unterdrueckt wird (R4).
+    nonisolated static func srChangedSignificantly(
+        newRate: Double?,
+        baselineRate: Double
+    ) -> Bool {
+        guard let new = newRate else { return true }  // Lesefehler: konservativ
+        return abs(new - baselineRate) > 0.5          // 0.5 Hz Toleranz
     }
 
     /// Debounce (500 ms) für den SR-getriggerten Warm-Restart, vermeidet ein
