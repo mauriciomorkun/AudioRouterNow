@@ -153,6 +153,54 @@ commit, so the claim and its evidence sit together in the history.
 
 ---
 
+## AudioRouterNow 4.1 (Build 11), not yet submitted
+_Mac App Store, macOS 14.4 or later, Apple Silicon_
+
+> **Status: not yet submitted.** The submission date is set when the build is
+> submitted to App Review. The work record is in [`docs/v4.1/`](docs/v4.1/).
+
+### For Everyone
+
+#### A scrollable device list and a start/stop toggle at the top
+
+With many outputs configured (for example BlackHole 64ch together with a
+multi-channel interface, which can add up to 45 rows or more), the panel used to
+grow past the screen and the start/stop button in the footer could end up out of
+reach. The device list now scrolls, capped at a fixed height, while the footer
+stays visible below it. A small start/stop button has also been added to the
+status bar at the top, so routing can be started or stopped from either end of
+the panel.
+
+#### Solo per output
+
+While routing is active, each output now has a solo button. Tapping it plays only
+that output and silences the others; tapping it again releases solo. Soloing
+several outputs plays all of them and silences the rest. Solo is session-only and
+resets when you stop routing. It does not touch the volume you have set for each
+device: when you release solo, the silenced outputs come back at exactly their
+previous levels.
+
+#### Fewer unnecessary audio interruptions
+
+Two causes of short audio gaps are addressed:
+
+- The sample rate listener now checks whether the rate actually changed before it
+  restarts the engine. macOS sometimes announces a sample rate change that is not
+  one; those no longer cause a restart.
+- A device that briefly disconnects and reconnects within the settle window no
+  longer forces a restart. If it comes back quickly, routing keeps running without
+  interruption.
+
+Both improvements depend on how the hardware behaves and are best confirmed on a
+real device.
+
+#### Wording
+
+The App Store description was updated to remove an unverifiable superlative. This
+is a metadata change in App Store Connect only.
+
+---
+
 ## AudioRouterNow 4.0.1 (Build 10), October 13, 2026
 _Mac App Store, macOS 14.4 or later, Apple Silicon_
 

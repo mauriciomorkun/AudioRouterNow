@@ -67,6 +67,52 @@
 
 ---
 
+## [4.1 (11)], YYYY-MM-DD · _Mac App Store (macOS 14.4+)_
+
+> **Status: not yet submitted.** Date is the submission date, set when the build
+> is submitted to App Review. Work record in [`docs/v4.1/`](docs/v4.1/).
+
+### Added
+
+- **The device list is now scrollable when many devices are configured.** With a
+  large number of outputs (for example BlackHole 64ch plus a multi-channel
+  interface, 45 or more rows) the panel previously grew past the screen and the
+  footer with the start/stop button could end up out of reach. The device list is
+  now wrapped in a scroll view capped at 400 pt; the footer stays outside the
+  scroll view and is always visible. An additional start/stop toggle has been
+  added to the status bar at the top, so routing can be started or stopped without
+  reaching the footer.
+
+- **Solo button per output.** Each output card carries a solo button while routing
+  is active. Tapping it plays only that output and silences all others; tapping it
+  again, or soloing another output, updates the set. Solo is session-only and
+  resets when routing stops. It does not change or persist the per-device gain
+  settings: the stored levels of the silenced outputs are restored unchanged when
+  solo is released.
+
+### Fixed
+
+- **The sample rate listener no longer restarts the engine when the rate did not
+  actually change.** macOS can fire the nominal-sample-rate notification without a
+  real change. The listener previously restarted the engine on every such
+  notification, causing an unnecessary audio gap. It now reads the current rate and
+  compares it against a baseline taken at registration, and restarts only on a real
+  change (0.5 Hz tolerance). A read failure is treated conservatively as a change,
+  so a genuine rate switch is never suppressed.
+
+- **A device reconnecting within the settle window no longer restarts the engine.**
+  A brief disconnect/reconnect (a blip) previously still produced an engine
+  restart. If the device returns while the settle restart is still pending, that
+  restart is now discarded and the engine keeps running uninterrupted. Devices that
+  stay away longer than the settle window follow the existing reconnect path.
+
+### Changed
+
+- **App description updated: removed an unverifiable superlative.** Wording change
+  in App Store Connect metadata only; no code or repository content was affected.
+
+---
+
 ## [4.0.1 (10)], 2026-10-13 · _released on the Mac App Store_
 
 > **Status: released.** Live on the Mac App Store since 13.10.2026 (submitted to App Review on 09.10.2026). Build 10 contains all fixes from builds 8 and 9, plus two additional defects fixed on 6 October 2026 (CASE-007, CASE-008). Build 9 was uploaded to App Store Connect on 1 October but was never submitted and is superseded. Full account in [`docs/v4.0.1/08-submission-log.md`](docs/v4.0.1/08-submission-log.md).
