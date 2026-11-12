@@ -100,6 +100,13 @@ final class EngineController: ObservableObject {
     @Published private(set) var deviceGains: [String: Double] = [:]
     private static let deviceGainsKey = "arn.v4.deviceGains"
 
+    /// P2 Solo-Zustand (Session-only, NICHT persistiert).
+    /// Key = Composite-Key "<uid>:<channelOffset>", true = dieser Slot ist solo'ed.
+    /// Ist mindestens ein Key enthalten, spielen nur die solo'eden Slots; alle
+    /// anderen bekommen einen effektiven Gain von 0 (ueber `engine.setOutputGain`,
+    /// NIE ueber `setDeviceGain` → `deviceGains`/UserDefaults bleiben unberuehrt).
+    @Published private(set) var soloedKeys: Set<String> = []
+
     /// Guideline 2.4.5(iii): Explizites User-Opt-In für das Login-Item.
     /// - `true`  → User hat das Login-Item AKTIV gewünscht (Onboarding ODER Menü).
     /// - `false` → User hat es AKTIV abgelehnt.
@@ -343,6 +350,9 @@ final class EngineController: ObservableObject {
                 captureDeviceLatencies()                       // neu
                 startPolling()      // F10
                 startLifecycle()    // F4
+                // P2: Solo-Zustand auf das frische Slot-Layout anwenden
+                // (slotDeviceKeys sind erst NACH start() aktuell).
+                if !soloedKeys.isEmpty { applySoloGains() }
                 UserDefaults.standard.set(true, forKey: Self.wasRoutingKey)
             }
         } catch let e as RouterError {
@@ -386,6 +396,7 @@ final class EngineController: ObservableObject {
         peakLevels = [:]
         bufferFrames = 512
         isStarting = false
+        soloedKeys = []   // P2: Solo ist Session-only, Stop setzt es zurueck.
         // S4: Benutzer hat bewusst gestoppt → beim nächsten Launch nicht auto-starten.
         UserDefaults.standard.set(false, forKey: Self.wasRoutingKey)
     }
@@ -417,6 +428,8 @@ final class EngineController: ObservableObject {
             status = engine.status
             bufferFrames = engine.ioBufferFrames
             captureDeviceLatencies()
+            // P2: Solo nach dem Neustart auf das neue Slot-Layout anwenden.
+            if !soloedKeys.isEmpty { applySoloGains() }
         } catch let e as RouterError {
             logger.error("restartRouting: RouterError: \(e.localizedDescription, privacy: .public)")
             status = .error(e)
@@ -453,12 +466,60 @@ final class EngineController: ObservableObject {
     }
 
     /// F16: Setzt den Per-Device-Gain live (kein Warm-Restart) und persistiert ihn.
+    ///
+    /// P2: Solo-aware. Der gespeicherte `deviceGains`-Wert ist IMMER der vom User
+    /// gewaehlte (persistiert, unabhaengig von Solo). Der an die Engine gegebene
+    /// effektive Gain ist 0, falls Solo aktiv ist und dieser Slot NICHT solo'ed
+    /// ist, sonst der gespeicherte Wert. So ueberschreibt ein Slider-Zug waehrend
+    /// aktivem Solo nicht die Stille eines stumm-durch-Solo geschalteten Slots.
     func setDeviceGain(_ value: Double, for config: OutputConfig) {
         let key = "\(config.uid):\(config.channelOffset)"
         let clamped = max(0.0, min(1.0, value))
         deviceGains[key] = clamped
-        Self.saveDeviceGains(deviceGains)
-        engine.setOutputGain(Float32(clamped), forKey: key)   // live, KEIN Restart
+        Self.saveDeviceGains(deviceGains)   // persistiert IMMER den User-Wert
+        let effective = Self.effectiveSoloGain(
+            key: key, soloedKeys: soloedKeys, deviceGains: deviceGains)
+        engine.setOutputGain(effective, forKey: key)   // live, KEIN Restart
+    }
+
+    /// P2: Schaltet den Solo-Zustand eines Outputs um und wendet die neuen
+    /// effektiven Gains auf die Engine an. Session-only, nicht persistiert.
+    func toggleSolo(for config: OutputConfig) {
+        let key = "\(config.uid):\(config.channelOffset)"
+        if soloedKeys.contains(key) {
+            soloedKeys.remove(key)
+        } else {
+            soloedKeys.insert(key)
+        }
+        applySoloGains()
+    }
+
+    /// P2: Reine Entscheidungslogik fuer den effektiven Gain eines Slots unter
+    /// Solo (nonisolated static, unit-testbar ohne CoreAudio).
+    /// - Kein Solo aktiv (`soloedKeys` leer): der gespeicherte Gain (Default 1.0).
+    /// - Solo aktiv und dieser Key solo'ed: der gespeicherte Gain.
+    /// - Solo aktiv und dieser Key NICHT solo'ed: 0.0 (stumm durch fremdes Solo).
+    nonisolated static func effectiveSoloGain(
+        key: String,
+        soloedKeys: Set<String>,
+        deviceGains: [String: Double]
+    ) -> Float32 {
+        let base = Float32(deviceGains[key] ?? 1.0)
+        if soloedKeys.isEmpty { return base }
+        return soloedKeys.contains(key) ? base : 0.0
+    }
+
+    /// P2: Rechnet die effektiven Gains aller aktiven Slots neu und schreibt sie
+    /// live in die Engine. Liest `deviceGains` NUR, schreibt es NICHT, ruft NIE
+    /// `setDeviceGain`/`saveDeviceGains` (CASE-004/R3: Solo darf UserDefaults
+    /// niemals verschmutzen). Iteriert `engine.slotDeviceKeys`, damit abgesteckte
+    /// Geraete korrekt behandelt werden (deren Key faellt aus der Liste).
+    private func applySoloGains() {
+        for key in engine.slotDeviceKeys {
+            let effective = Self.effectiveSoloGain(
+                key: key, soloedKeys: soloedKeys, deviceGains: deviceGains)
+            engine.setOutputGain(effective, forKey: key)
+        }
     }
 
     /// Liest die aktuell verfügbaren Output-Geräte neu ein (Geräteauswahl-UI).
@@ -545,6 +606,8 @@ final class EngineController: ObservableObject {
                 self.startLifecycle()
                 self.bufferFrames = self.engine.ioBufferFrames
                 self.captureDeviceLatencies()
+                // P2: Solo nach dem Warm-Restart auf das neue Slot-Layout anwenden.
+                if !self.soloedKeys.isEmpty { self.applySoloGains() }
             } catch let e as RouterError {
                 self.logger.error("applyOutputsIfRouting: RouterError: \(e.localizedDescription, privacy: .public)")
                 self.status = .error(e)
@@ -801,6 +864,8 @@ final class EngineController: ObservableObject {
                 self.status = self.engine.status
                 self.bufferFrames = self.engine.ioBufferFrames
                 self.captureDeviceLatencies()
+                // P2: Solo nach dem SR-Warm-Restart auf das neue Slot-Layout anwenden.
+                if !self.soloedKeys.isEmpty { self.applySoloGains() }
             } catch {
                 self.logger.error("M4: Warm restart failed → full restart")
                 self.restartRouting()
