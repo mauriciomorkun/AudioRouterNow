@@ -52,7 +52,9 @@ struct DeviceCardView: View {
         .background(cardBackground)
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(strokeColor, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .opacity(state.isStarting ? 0.55 : 1.0)
+        // P2: durch fremdes Solo stummgeschaltete Cards auf 0.4 abblenden (E4),
+        // gleiches Muster wie der Starting-Dimm (0.55).
+        .opacity(isMutedBySolo ? 0.4 : (state.isStarting ? 0.55 : 1.0))
         .contentShape(Rectangle())
         .onTapGesture {
             guard state.isActive else { return }
@@ -79,9 +81,35 @@ struct DeviceCardView: View {
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(expanded ? 90 : 0))
+                soloButton   // P2: nur im Active-Zustand
             }
             removeButton
         }
+    }
+
+    /// P2: Solo-Button fuer diese Card. Klick schaltet Solo um (nur dieser
+    /// Output spielt, alle anderen stumm). Nur im Active-Zustand sichtbar.
+    @ViewBuilder private var soloButton: some View {
+        let key = "\(config.uid):\(config.channelOffset)"
+        let isSoloed = controller.soloedKeys.contains(key)
+        Button {
+            controller.toggleSolo(for: config)
+        } label: {
+            Image(systemName: "s.circle\(isSoloed ? ".fill" : "")")
+                .font(.system(size: 12))
+                .foregroundStyle(isSoloed ? ARNColor.accent : Color.secondary.opacity(0.6))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isSoloed ? "Solo active, tap to unsolo" : "Solo")
+        .help(isSoloed ? "Solo: only this output plays. Tap to unsolo."
+                       : "Solo: mute all other outputs")
+    }
+
+    /// P2: true, wenn dieser Slot durch das Solo eines ANDEREN Slots stumm ist.
+    private var isMutedBySolo: Bool {
+        guard state.isActive else { return false }
+        let key = "\(config.uid):\(config.channelOffset)"
+        return !controller.soloedKeys.isEmpty && !controller.soloedKeys.contains(key)
     }
 
     @ViewBuilder private var leadingIndicator: some View {
