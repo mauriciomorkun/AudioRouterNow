@@ -268,9 +268,21 @@ public final class DeviceLifecycleManager: @unchecked Sendable {
         let nowAvailable = lastKnownMissingUIDs.intersection(present)
         lastKnownMissingUIDs = missing
         if !nowAvailable.isEmpty {
-            let uidList = nowAvailable.map { String($0.prefix(10)) }.joined(separator: ",")
-            logger.debug("L1: Re-Appear: \(uidList, privacy: .public) → restart")
-            scheduleRestart(after: Self.btSettleDelay) // Karenz bis Gerät stabil
+            if pendingRestart != nil {
+                // P3/E6: Das Geraet kam INNERHALB der laufenden Settle-Frist
+                // zurueck (ein Blip). Der durch das Verschwinden geplante Restart
+                // ist noch nicht gelaufen. Statt ihn durch einen neuen 2-s-Restart
+                // zu ersetzen, verwerfen wir ihn: die Engine laeuft ohne
+                // Unterbrechung weiter.
+                pendingRestart?.cancel()
+                pendingRestart = nil
+                logger.log("L1: Blip erkannt (\(nowAvailable.count, privacy: .public) UIDs zurueck, Settle-Restart verworfen)")
+            } else {
+                // Geraet war laenger weg als die Settle-Frist: regulaerer Re-Appear.
+                let uidList = nowAvailable.map { String($0.prefix(10)) }.joined(separator: ",")
+                logger.debug("L1: Re-Appear: \(uidList, privacy: .public) → restart")
+                scheduleRestart(after: Self.btSettleDelay) // Karenz bis Gerät stabil
+            }
             return
         }
 
