@@ -61,7 +61,16 @@ struct MenuBarView: View {
             }
 
             // ── Geräteliste (IDLE: Auswahl-Checkboxen · ACTIVE: Accordion) ─
-            deviceListSection(ui)
+            // P1: In einen ScrollView gekapselt, damit lange Listen (BlackHole
+            // 64ch + Interface = 45+ Zeilen) das Panel nicht ueber den Bildschirm
+            // hinaus wachsen lassen. `maxHeight: 400` deckelt die Hoehe, wodurch
+            // das `.fixedSize(vertical: true)` am Root-VStack wieder eine endliche
+            // ideale Hoehe berechnen kann (Header + Status-Bar + min(Inhalt, 400)
+            // + Divider + Footer). Footer bleibt BEWUSST ausserhalb des ScrollViews.
+            ScrollView(.vertical) {
+                deviceListSection(ui)
+            }
+            .frame(maxHeight: 400)
 
             Divider()
 
@@ -158,9 +167,47 @@ struct MenuBarView: View {
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.tertiary)
             }
+            // P1: Header-Start/Stop-Toggle. Liegt in der Status-Bar und damit
+            // ausserhalb des ScrollViews → auch bei langer Geraeteliste immer
+            // sichtbar. Gleiche Aktionslogik wie der RoutingButton im Footer,
+            // kein neuer Controller-Pfad.
+            Button(action: headerToggleAction(ui)) {
+                Image(systemName: headerToggleIcon(ui))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(ui == .starting
+                        ? Color.secondary
+                        : ARNColor.accent)
+            }
+            .buttonStyle(.plain)
+            // Deckungsgleich mit RoutingButton.disabled: im starting-Zustand und
+            // immer dann, wenn nichts konfiguriert ist und nicht gerade aktiv.
+            .disabled(ui == .starting || (controller.outputConfigs.isEmpty && !ui.isActive))
+            .accessibilityLabel(ui == .active ? "Stop Routing" : "Start Routing")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+
+    /// P1: SF-Symbol fuer den Header-Toggle je UI-Phase.
+    private func headerToggleIcon(_ ui: ARNUIState) -> String {
+        switch ui {
+        case .idle, .error: return "play.fill"
+        case .starting:     return "ellipsis"
+        case .active:       return "stop.fill"
+        }
+    }
+
+    /// P1: Aktion des Header-Toggles. Identisch zum RoutingButton: startet aus
+    /// idle/error, stoppt aus active, im starting-Zustand ein No-Op (Button ist
+    /// dort ohnehin deaktiviert).
+    private func headerToggleAction(_ ui: ARNUIState) -> () -> Void {
+        return {
+            switch ui {
+            case .active:        controller.stopRouting()
+            case .idle, .error:  controller.startRouting()
+            case .starting:      break
+            }
+        }
     }
 
     /// Farbe des Status-Punkts je Phase (aktiv: mint bei Audio, sonst gelb).
