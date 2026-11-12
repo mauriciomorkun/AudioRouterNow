@@ -477,7 +477,7 @@ final class EngineController: ObservableObject {
         let clamped = max(0.0, min(1.0, value))
         deviceGains[key] = clamped
         Self.saveDeviceGains(deviceGains)   // persistiert IMMER den User-Wert
-        let effective = Self.effectiveSoloGain(
+        let effective = SoloGain.effective(
             key: key, soloedKeys: soloedKeys, deviceGains: deviceGains)
         engine.setOutputGain(effective, forKey: key)   // live, KEIN Restart
     }
@@ -494,29 +494,15 @@ final class EngineController: ObservableObject {
         applySoloGains()
     }
 
-    /// P2: Reine Entscheidungslogik fuer den effektiven Gain eines Slots unter
-    /// Solo (nonisolated static, unit-testbar ohne CoreAudio).
-    /// - Kein Solo aktiv (`soloedKeys` leer): der gespeicherte Gain (Default 1.0).
-    /// - Solo aktiv und dieser Key solo'ed: der gespeicherte Gain.
-    /// - Solo aktiv und dieser Key NICHT solo'ed: 0.0 (stumm durch fremdes Solo).
-    nonisolated static func effectiveSoloGain(
-        key: String,
-        soloedKeys: Set<String>,
-        deviceGains: [String: Double]
-    ) -> Float32 {
-        let base = Float32(deviceGains[key] ?? 1.0)
-        if soloedKeys.isEmpty { return base }
-        return soloedKeys.contains(key) ? base : 0.0
-    }
-
     /// P2: Rechnet die effektiven Gains aller aktiven Slots neu und schreibt sie
     /// live in die Engine. Liest `deviceGains` NUR, schreibt es NICHT, ruft NIE
     /// `setDeviceGain`/`saveDeviceGains` (CASE-004/R3: Solo darf UserDefaults
     /// niemals verschmutzen). Iteriert `engine.slotDeviceKeys`, damit abgesteckte
     /// Geraete korrekt behandelt werden (deren Key faellt aus der Liste).
+    /// Die reine Entscheidung liegt in `SoloGain.effective` (Kit, testbar).
     private func applySoloGains() {
         for key in engine.slotDeviceKeys {
-            let effective = Self.effectiveSoloGain(
+            let effective = SoloGain.effective(
                 key: key, soloedKeys: soloedKeys, deviceGains: deviceGains)
             engine.setOutputGain(effective, forKey: key)
         }
