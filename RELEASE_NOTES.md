@@ -196,6 +196,17 @@ Two causes of short audio gaps are addressed:
 Both improvements depend on how the hardware behaves and are best confirmed on a
 real device.
 
+#### Launch at Login is reset after the update
+
+If you had "Launch at Login" turned on in AudioRouterNow 4.0.1, the update
+will turn it off. This is intentional. The app links its consent to run at
+login to the exact build number it was granted for, so that an update can
+never keep launching without fresh confirmation.
+
+To turn it back on: open AudioRouterNow from the menu bar icon and check
+"Launch at Login" in the footer. A short confirmation prompt will appear.
+Nothing else changes; your routing settings and volume levels are kept.
+
 #### Wording
 
 The App Store description was updated to remove an unverifiable superlative. This

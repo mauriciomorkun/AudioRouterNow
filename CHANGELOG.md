@@ -111,6 +111,14 @@
 - **App description updated: removed an unverifiable superlative.** Wording change
   in App Store Connect metadata only; no code or repository content was affected.
 
+- **"Launch at Login" is reset after the update.** The consent for the launch
+  item is tied to the exact build number it was granted for. Updating from
+  build 10 to build 11 invalidates the stored consent: the app will not
+  launch at login after the update, even if it did before. To re-enable it,
+  open the app, expand the footer, and check "Launch at Login".
+  This is intended behaviour under Guideline 2.4.5(iii) and was established
+  in 4.0.1. See docs/v4.1/05-decisions.md, D1.
+
 ---
 
 ## [4.0.1 (10)], 2026-10-13 · _released on the Mac App Store_
