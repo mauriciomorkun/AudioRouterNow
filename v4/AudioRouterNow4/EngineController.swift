@@ -749,7 +749,7 @@ final class EngineController: ObservableObject {
             // IOProc, der RT-Record bleibt gain-frei (eine Quelle, alle Slots).
             let raw = engine.peakLevel(slotIndex: i)
             // Effektiven Gain verwenden: unter aktivem Solo erhalten stumme Slots 0.0.
-            // Entscheidung D1 (Planer, 2026-11-13): SoloGain.effective auch fuer `sum`,
+            // Plan-v2-Entscheidung D1 (docs/v4.1/05-plan-v2.md): SoloGain.effective auch fuer `sum`,
             // damit Wellenform und Meter konsistent die tatsaechlich ausgegebene Energie zeigen.
             let gain = SoloGain.effective(key: key, soloedKeys: soloedKeys, deviceGains: deviceGains)
             let p = (l: raw.l * gain, r: raw.r * gain)
