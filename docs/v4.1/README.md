@@ -18,7 +18,10 @@ erwiesen, und welche Behauptungen noch unbewiesen sind.
 | [06-appstore-texts.md](06-appstore-texts.md) | App Store Connect Textvorlagen: What's New (oeffentlich), Review-Notiz (nicht oeffentlich), Store-Description-Ersetzungsanleitung Schritt fuer Schritt. Status: erstellt. |
 | [07-impl-v2.md](07-impl-v2.md) | Umsetzungsprotokoll v2 (Umsetzer: Opus, Durchlauf 2). Pro Schritt N0-N7 Status, Commit-Hash, Test- und Build-Ergebnis, Abweichungen. Preflight-Ergebnis, offene Messpunkte, Restrisiken. Status: fertig. |
 | [08-audit-v2.md](08-audit-v2.md) | Audit Durchlauf 2 (Auditor: Fable 5). Tests 59 swift-testing + 56 XCTest gruen, Build SUCCEEDED, Preflight "4.1 (11)" erkannt. B1-B5 behoben. 1 neuer Befund niedrig (C1: Naming-Kollision D1 in Doku). Kein neuer Durchlauf noetig. Status: fertig. |
-| [09-final-report.md](09-final-report.md) | Abschlussbericht (Phase 4): Umfang, Ergebnis je Punkt, Ablauf der zwei Durchläufe, Befunde B1 bis B5 und C1, Entscheidungen, Restrisiken, die offenen Messungen M1 bis M9 und die Nutzeraufgaben bis zur Einreichung. Status: fertig. |
+| [09-final-report.md](09-final-report.md) | Abschlussbericht (Phase 4): Umfang, Ergebnis je Punkt, Ablauf der zwei Durchlaeuf, Befunde B1 bis B5 und C1, Entscheidungen, Restrisiken, die offenen Messungen M1 bis M9 und die Nutzeraufgaben bis zur Einreichung. Wird in Durchlauf 3 erweitert. Status: fertig (Durchlauf 3 erweiternd). |
+| [10-plan-v3.md](10-plan-v3.md) | Nachbesserungsplan v3 (Planer: Fable 5). Scope: F1 (CHANGELOG Blip-Formulierung), F2 (Kommentar-D1-Praezision), F3 (Known-Limitation maxSlots in CHANGELOG und RELEASE_NOTES), F4 (vier Korrekturen im Abschlussbericht). 5 Schritte P3-S0 bis P3-S4 plus README-Update P3-S5, 3 Entscheidungen P3-D1 bis P3-D3. Status: bereit zur Ausfuehrung durch Opus-Agent. |
+| [11-impl-v3.md](11-impl-v3.md) | Umsetzungsprotokoll v3 (Umsetzer: Opus, Durchlauf 3). Wird nach Ausfuehrung ausgefuellt. Status: ausstehend. |
+| [12-audit-v3.md](12-audit-v3.md) | Audit Durchlauf 3 (Auditor: Fable 5). Status: ausstehend. |
 
 ## Hinweis zur Quellenlage
 
