@@ -748,7 +748,10 @@ final class EngineController: ObservableObject {
             // Multiplikation bewusst HIER im MainActor-Poll (20 fps), nicht im
             // IOProc, der RT-Record bleibt gain-frei (eine Quelle, alle Slots).
             let raw = engine.peakLevel(slotIndex: i)
-            let gain = Float32(deviceGains[key] ?? 1.0)
+            // Effektiven Gain verwenden: unter aktivem Solo erhalten stumme Slots 0.0.
+            // Entscheidung D1 (Planer, 2026-11-13): SoloGain.effective auch fuer `sum`,
+            // damit Wellenform und Meter konsistent die tatsaechlich ausgegebene Energie zeigen.
+            let gain = SoloGain.effective(key: key, soloedKeys: soloedKeys, deviceGains: deviceGains)
             let p = (l: raw.l * gain, r: raw.r * gain)
             let prev = peakLevels[key] ?? (l: 0, r: 0)
             // Peak-Hold: schneller Attack, Release ×0.80/Tick bei 20fps
