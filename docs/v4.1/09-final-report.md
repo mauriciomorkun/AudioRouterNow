@@ -1,7 +1,7 @@
 # AudioRouterNow 4.1: Abschlussbericht
 
 Phase 4 des Kreislaufs (Planung durch Fable, Umsetzung durch Opus, Audit durch
-Fable, 2 Durchläufe). Geschrieben nach der Arbeit, ausschließlich aus den
+Fable, 3 Durchläufe). Geschrieben nach der Arbeit, ausschließlich aus den
 Dokumenten in `docs/v4.1/`, dem Commit-Verlauf `e7db9fe^..HEAD` auf `release/4.1`
 und den Angaben im Auftrag. Wo etwas in diesen Quellen nicht steht, steht hier
 "ungeprüft". Dieser Bericht enthält keinen neuen Code und keine neue Messung.
@@ -14,12 +14,15 @@ und den Angaben im Auftrag. Wo etwas in diesen Quellen nicht steht, steht hier
    kurzer Geräteaussetzer (Blips) beim Entfernen von Geräten, dazu die
    Release-Dokumentation und die Textvorlagen für App Store Connect.
 2. Teststand zuletzt: 59 swift-testing in 10 Suiten und 56 XCTest, alle grün,
-   App-Build (Debug, `CODE_SIGNING_ALLOWED=NO`) erfolgreich; beides hat der Audit 2
-   selbst ausgeführt.
+   App-Build (Debug, `CODE_SIGNING_ALLOWED=NO`) erfolgreich; beides haben die
+   Audits 2 und 3 selbst ausgeführt.
 3. Audit 1 fand 0 hohe, 1 mittleren und 2 niedrige Befunde, Audit 2 fand 0 hohe,
    0 mittlere und 1 niedrigen Befund (C1, Namenskollision einer Entscheidungs-ID in
-   der Dokumentation); alle fünf Befunde B1 bis B5 sind behoben oder dokumentiert.
-   Audit 3 ist noch ausstehend (`12-audit-v3.md`).
+   der Dokumentation), Audit 3 fand 0 hohe, 0 mittlere und einen niedrigen Befund
+   (E1, falsche Schrittanzahl in diesem Bericht) sowie eine Beobachtung (E2,
+   Platzhalter im Protokoll `11-impl-v3.md`); beides ist nach dem Audit direkt
+   korrigiert worden. Alle Befunde B1 bis B5, C1 und F1 bis F4 sind behoben oder
+   dokumentiert (`12-audit-v3.md`, Commit `5bf8d4f`).
 4. Es fehlen alle Messungen am Gerät (M1 bis M9, keine ist erledigt) und die
    Einreichung (neues Archiv, App Store Connect, Tag, Merge, Push).
 5. Kein Agent hat gepusht, getaggt oder eingereicht; `preflight.sh` meldet bis zum
@@ -130,14 +133,17 @@ Nachprüfung am Code.
 | Durchlauf | Plan | Umsetzung | Audit | Befunde | Behebung |
 |-----------|------|-----------|-------|---------|----------|
 | 1 | `02-plan-v1.md`, Commit `e7db9fe` (Fable, 12 Schritte S0 bis S12, 8 Entscheidungen E1 bis E8, 14 Audit-Punkte A1 bis A14, 8 Messpunkte M1 bis M8) | `04a0589` bis `8f0496e` (Version, Scroll-View, Solo, SR-Listener, Blip, Changelog), Protokoll `03-impl-v1.md` im Commit `c33f63b` (Opus) | `04-audit-v1.md`, Commit `338855e` (Fable): Build und 59 + 56 Tests grün | B1 mittel, B2 niedrig, B3 niedrig | In Durchlauf 2 |
-| 2 | `05-plan-v2.md`, Commit `41d4673` (Fable, 7 Schritte N0 bis N7, Entscheidungen D1 und D2, Messpunkt M9) | `cba4489`, `fd502c7`, `f2f7deb`, `c079c27`, `68c8d71`, `8eae52b`, README `70fcfe0`, Protokoll `07-impl-v2.md` (Opus) | `08-audit-v2.md`, Commit `080f0c8` (Fable): Build, 59 + 56 Tests und Preflight selbst ausgeführt | B1 bis B5 behoben oder dokumentiert, neu: C1 niedrig | C1 offen |
-| 3 | `10-plan-v3.md` (Fable, 4 Schritte P3-S0 bis P3-S3 plus Bericht-Update P3-S4, 3 Entscheidungen P3-D1 bis P3-D3) | Commits P3-S1 bis P3-S4 (Opus) | `12-audit-v3.md` (Fable): folgt | F1, F2, F3, F4 | In diesem Durchlauf |
+| 2 | `05-plan-v2.md`, Commit `41d4673` (Fable, 7 Schritte N0 bis N7, Entscheidungen D1 und D2, Messpunkt M9) | `cba4489`, `fd502c7`, `f2f7deb`, `c079c27`, `68c8d71`, `8eae52b`, README `70fcfe0`, Protokoll `07-impl-v2.md` (Opus) | `08-audit-v2.md`, Commit `080f0c8` (Fable): Build, 59 + 56 Tests und Preflight selbst ausgeführt | B1 bis B5 behoben oder dokumentiert, neu: C1 niedrig | C1 in Durchlauf 3 |
+| 3 | `10-plan-v3.md`, Commit `545f05e` (Fable, 6 Schritte P3-S0 bis P3-S5, 3 Entscheidungen P3-D1 bis P3-D3) | `4192a76`, `87fe856`, `36d50b1`, `6d681fc`, `70df541`, Protokoll `11-impl-v3.md` (Opus) | `12-audit-v3.md`, Commit `5bf8d4f` (Fable): Build, 59 + 56 Tests und Preflight selbst ausgeführt | F1 bis F4 behoben, neu: E1 niedrig, E2 Beobachtung | E1 und E2 direkt nach dem Audit korrigiert |
 
 Der Audit 1 hielt einen neuen Durchlauf für nicht notwendig und empfahl, B1 als
-Einzelfix zu behandeln; die Entscheidung liege beim Nutzer. Durchgeführt wurde
-trotzdem ein zweiter Durchlauf, der alle Befunde bündelte. Wer das entschieden
-hat, steht in den Dokumenten nicht ausdrücklich ("ungeprüft"). Das Limit von 3
-Durchläufen wurde nicht ausgeschöpft.
+Einzelfix zu behandeln. Der Hauptagent ordnete trotzdem einen zweiten Durchlauf
+an, weil seine Abbruchregel bei Befunden der Stufe mittel oder höher einen neuen
+Durchlauf verlangt, und weil er selbst den Befund B4 ergänzt hatte, der im Audit 1
+fehlte. Nach dem Audit 2 prüfte der Hauptagent nach, fand in CHANGELOG, bei
+`maxSlots` und bei Messpunkt M5 weitere Lücken und ordnete den dritten, letzten
+Durchlauf an. Das Limit von 3 Durchläufen ist damit ausgeschöpft. Ein vierter
+Durchlauf ist nicht vorgesehen.
 
 ### 4.2 Befunde und Status
 
@@ -153,6 +159,8 @@ Durchläufen wurde nicht ausgeschöpft.
 | F2 | niedrig | Kommentar-ID "D1" in EngineController.swift ohne Dokument-Verweis | Behoben in P3-S2-Commit |
 | F3 | niedrig | maxSlots-Einschränkung nirgends in Nutzerdoku | Behoben in P3-S3-Commit |
 | F4 | niedrig | Vier Unstimmigkeiten im Abschlussbericht | Behoben in P3-S4-Commit |
+| E1 | niedrig | Dieser Bericht nannte die Schrittanzahl von Plan v3 mit 4 statt 6, führte die Zeile zu Durchlauf 3 veraltet ("Audit folgt") und nannte C1 noch offen | Behoben nach dem Audit 3 (Zeile 4.1 und Zusammenfassung angepasst) |
+| E2 | Beobachtung | `11-impl-v3.md` enthielt den Platzhalter "PLATZHALTER-S5" statt des Commit-Hashes | Behoben nach dem Audit 3 (Hash `70df541`) |
 
 ### 4.3 Ehrliche Vermerke zum Ablauf
 
