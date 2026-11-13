@@ -1,0 +1,46 @@
+# AudioRouterNow 4.1: Decisions
+
+Created: 2026-11-13 (cycle 2 of the Fable/Opus/Fable loop)
+
+This file records the decisions made for the 4.1 cycle that need a written
+rationale. The implementation decisions E1, E3, E4 and E6 are documented in
+`02-plan-v1.md`; the display-consistency decision D1 for the wave energy and
+the solo testing decision D2 are documented in `05-plan-v2.md`. The decision
+below is the one with an effect on existing users after the update.
+
+---
+
+## D1: Accept that build 10 to 11 resets "Launch at Login"
+
+**Decision.** `CURRENT_PROJECT_VERSION` moves from 10 to 11, which invalidates
+every stored Launch at Login consent. Existing users who had "Launch at Login"
+enabled will find it turned off after the update. They can turn it back on
+from the footer of the menu (the "Launch at Login" checkbox).
+
+**Why this is not a regression.** `hasValidLaunchAtLoginConsent()` validates the
+stored consent against the current build number:
+
+    return optedIn == true && consentBuild == currentBuildNumber
+
+That binding is the mechanism, not an accident of the bump. It prevents a Login
+Item registration from surviving an app update without fresh consent, which is
+what Guideline 2.4.5(iii) requires. This was established for 4.0.1 as D11,
+reviewed by Apple at that submission, and accepted.
+
+**Effect on the user.** After updating from 4.0.1 to 4.1, the app will not
+launch automatically at login, even if that setting was on before. The app
+continues to work normally when opened by hand. To re-enable it: open
+AudioRouterNow from the menu bar icon, expand the footer, and check
+"Launch at Login". A confirmation prompt will appear on the first enable.
+
+**Why no code fix.** The mechanism is intentional, documented in D11 for 4.0.1,
+and was accepted by App Review in that submission. Circumventing it would
+require either (a) persisting consent across builds, which breaks the guideline
+requirement, or (b) carrying consent forward by special-casing build 10,
+which would create a one-off exception that cannot be maintained across future
+builds and would still need to be justified to the reviewer. Neither is
+acceptable.
+
+**Fallback.** If a future App Review rejects this behaviour: revert to persisting
+the Launch at Login state across build numbers. This would require a legal
+review of Guideline 2.4.5(iii) compliance at that time.
