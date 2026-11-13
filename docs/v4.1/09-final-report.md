@@ -18,12 +18,15 @@ und den Angaben im Auftrag. Wo etwas in diesen Quellen nicht steht, steht hier
    selbst ausgeführt.
 3. Audit 1 fand 0 hohe, 1 mittleren und 2 niedrige Befunde, Audit 2 fand 0 hohe,
    0 mittlere und 1 niedrigen Befund (C1, Namenskollision einer Entscheidungs-ID in
-   der Dokumentation); alle fünf Befunde B1 bis B5 sind behoben oder dokumentiert,
-   C1 ist offen.
+   der Dokumentation); alle fünf Befunde B1 bis B5 sind behoben oder dokumentiert.
+   Audit 3 ist noch ausstehend (`12-audit-v3.md`).
 4. Es fehlen alle Messungen am Gerät (M1 bis M9, keine ist erledigt) und die
    Einreichung (neues Archiv, App Store Connect, Tag, Merge, Push).
 5. Kein Agent hat gepusht, getaggt oder eingereicht; `preflight.sh` meldet bis zum
    Bau eines neuen Archivs einen ABBRUCH wegen des alten Archivs 4.0.1 (10).
+6. Durchlauf 3 behebt F1 (CHANGELOG-Formulierung), F2 (Kommentar-Präzisierung),
+   F3 (Known-Limitation-Absatz) und F4 (Berichts-Korrekturen). Das Audit dazu
+   steht in `12-audit-v3.md`.
 
 ## 2. Umfang und Ausschlüsse
 
@@ -128,6 +131,7 @@ Nachprüfung am Code.
 |-----------|------|-----------|-------|---------|----------|
 | 1 | `02-plan-v1.md`, Commit `e7db9fe` (Fable, 12 Schritte S0 bis S12, 8 Entscheidungen E1 bis E8, 14 Audit-Punkte A1 bis A14, 8 Messpunkte M1 bis M8) | `04a0589` bis `8f0496e` (Version, Scroll-View, Solo, SR-Listener, Blip, Changelog), Protokoll `03-impl-v1.md` im Commit `c33f63b` (Opus) | `04-audit-v1.md`, Commit `338855e` (Fable): Build und 59 + 56 Tests grün | B1 mittel, B2 niedrig, B3 niedrig | In Durchlauf 2 |
 | 2 | `05-plan-v2.md`, Commit `41d4673` (Fable, 7 Schritte N0 bis N7, Entscheidungen D1 und D2, Messpunkt M9) | `cba4489`, `fd502c7`, `f2f7deb`, `c079c27`, `68c8d71`, `8eae52b`, README `70fcfe0`, Protokoll `07-impl-v2.md` (Opus) | `08-audit-v2.md`, Commit `080f0c8` (Fable): Build, 59 + 56 Tests und Preflight selbst ausgeführt | B1 bis B5 behoben oder dokumentiert, neu: C1 niedrig | C1 offen |
+| 3 | `10-plan-v3.md` (Fable, 4 Schritte P3-S0 bis P3-S3 plus Bericht-Update P3-S4, 3 Entscheidungen P3-D1 bis P3-D3) | Commits P3-S1 bis P3-S4 (Opus) | `12-audit-v3.md` (Fable): folgt | F1, F2, F3, F4 | In diesem Durchlauf |
 
 Der Audit 1 hielt einen neuen Durchlauf für nicht notwendig und empfahl, B1 als
 Einzelfix zu behandeln; die Entscheidung liege beim Nutzer. Durchgeführt wurde
@@ -144,7 +148,11 @@ Durchläufen wurde nicht ausgeschöpft.
 | B3 | niedrig | Der Test für den leeren Key prüfte nur den Fall ohne Solo | Behoben in `f2f7deb` (zwei Assertions ergänzt) |
 | B4 | dokumentiert | Der Reset von Launch at Login beim Sprung von Build 10 auf 11 war nirgends dokumentiert | Dokumentiert in `c079c27`, `68c8d71`, `8eae52b`. Kein Code-Fix, bewusste Entscheidung (siehe 6d). B4 stand nicht im Audit 1, siehe 4.3 |
 | B5 | Hinweis | `preflight.sh` meldet 1 ABBRUCH wegen des alten Archivs 4.0.1 (10) | Aufgenommen und im Audit 2 unabhängig bestätigt. Nicht behebbar ohne neues Archiv, offen als Nutzeraufgabe |
-| C1 | niedrig | Die Entscheidungs-ID "D1" bezeichnet zwei verschiedene Entscheidungen | **Offen**, siehe Abschnitt 5 |
+| C1 | niedrig | Die Entscheidungs-ID "D1" bezeichnet zwei verschiedene Entscheidungen | Behoben in P3-S2-Commit (Kommentar verweist jetzt auf `05-plan-v2.md`) |
+| F1 | niedrig | CHANGELOG Blip-Eintrag beschrieb Audio-Ergebnis als Tatsache, nicht als Code-Verhalten | Behoben in P3-S1-Commit |
+| F2 | niedrig | Kommentar-ID "D1" in EngineController.swift ohne Dokument-Verweis | Behoben in P3-S2-Commit |
+| F3 | niedrig | maxSlots-Einschränkung nirgends in Nutzerdoku | Behoben in P3-S3-Commit |
+| F4 | niedrig | Vier Unstimmigkeiten im Abschlussbericht | Behoben in P3-S4-Commit |
 
 ### 4.3 Ehrliche Vermerke zum Ablauf
 
@@ -154,10 +162,11 @@ Durchläufen wurde nicht ausgeschöpft.
   erfolgreichen Laufs.
 - Der Befund B4 stammt nicht aus dem Audit 1. Laut Auftrag hat ihn der Hauptagent
   ergänzt, weil der Audit 1 den Reset von Launch at Login nicht dokumentiert
-  fand. Der Plan v2 (Abschnitt 1.1) schreibt B4 und B5 stattdessen dem Planer zu
-  ("beim Lesen des Codes identifiziert"); der Anhang des Plans nennt die
-  Aufgabenbeschreibung als Quelle für B4. Die Zuschreibung ist in den Dokumenten
-  nicht einheitlich.
+  fand. `05-plan-v2.md` Abschnitt 1.1 schreibt B4 und B5 dem Planer zu und
+  nennt als Quelle die Aufgabenbeschreibung; das ist eine Vereinfachung für die
+  Planungs-Perspektive und ändert nichts am Sachverhalt. Die Zuschreibung ist
+  in den Dokumenten nicht einheitlich, aber der Bericht gibt den Sachstand
+  korrekt wieder: B4 und B5 tauchten nach Audit 1 auf, nicht im Audit selbst.
 - Der Audit 2 spricht im Kopf von zwei neuen Befunden (C1, C2). C2 (Divisor der
   Wellenenergie) wird im selben Dokument als bewusste Entwurfswahl und "kein
   Befund" eingestuft. Gezählt wird hier deshalb nur C1: 0 hoch, 0 mittel, 1 niedrig.
@@ -203,10 +212,9 @@ ist der Divisor die Gesamtzahl der konfigurierten Slots
 (`engine.slotDeviceKeys.count`, `min(1, sum / Float32(slots))`). Durch Solo
 stumme Slots tragen 0 zur Summe bei. Spielt unter Solo ein Gerät von N mit
 Vollpegel, zeigt die Welle etwa 1/N der Energie. Der Audit 2 nennt als Beispiel
-1 von 4 Slots mit `linear = 0.25` gegenüber 1,0 ohne Solo. Der Auftrag zu diesem
-Bericht vermerkt, dass der Hauptagent dies bei der Nachprüfung quantifiziert hat
-und der Audit es nicht beziffert habe; das Rechenbeispiel im Audit 2 steht dem
-entgegen. Wirkung: rein visuell, der Audiopfad ist unberührt. Es ist Entscheidung
+1 von 4 Slots mit `linear = 0.25` gegenüber 1,0 ohne Solo. Das Rechenbeispiel
+(1 von 4 Slots, linear = 0,25) stammt aus Audit 2, Abschnitt B1. Wirkung: rein
+visuell, der Audiopfad ist unberührt. Es ist Entscheidung
 D1 (Welle) in `05-plan-v2.md`. Rückfall: die Zeile `let gain = ...` in
 `updateWaveEnergy()` wiederherstellen. Beachtenswert: Der Plan beschreibt die
 Wahl mit "stumme Slots zählen nicht", erwähnt den Divisor aber nicht ausdrücklich.
@@ -224,8 +232,9 @@ am Gerät gemessen.
 
 **c) `SlotGains.maxSlots = 16`.** Slots ab Index 16 werden von Solo nicht stumm
 geschaltet, weil `engine.setOutputGain` Keys außerhalb von `maxSlots` ignoriert
-(laut Umsetzungsprotokoll `FanOutEngine.swift:196`; der Plan nennt als Fundstelle
-`FanOutEngine.swift:598-600`, was ich nicht geprüft habe). Das ist im Plan v1 (Solo,
+(FanOutEngine.swift Z. 196 bis 199: `setOutputGain` verwirft den Aufruf;
+FanOutEngine.swift Z. 598 bis 599: `buildDirectOutputSlots` loggt eine Warnung
+bei mehr als 16 Slots; beide Stellen existieren und ergänzen sich). Das ist im Plan v1 (Solo,
 Randfälle), im Umsetzungsprotokoll (S3) und als Messpunkt M5 dokumentiert, es gab
 keine Änderung an `maxSlots`. Es steht nicht in CHANGELOG, RELEASE_NOTES oder den
 App-Store-Texten; ein Nutzer erfährt davon nur durch Ausprobieren. Ungeprüft ist,
@@ -266,7 +275,7 @@ Unit-Test kann sie ersetzen. Die Spalte "Ergebnis" ist bewusst leer.
 | M2 | Header-Toggle | Mindestens ein Gerät konfiguriert. Im Zustand idle `play.fill` klicken, im Zustand active `stop.fill` klicken, im Zustand starting den Toggle ansehen | Routing startet und stoppt korrekt, im Zustand starting deaktiviert, kein doppelter Start | |
 | M3 | Solo ohne Knacksen | Mindestens zwei Ausgaben, Routing aktiv, Musik läuft. Solo eines Outputs setzen, einen anderen solo setzen, Solo aufheben. Während Solo den Regler einer stummen Ausgabe verschieben und nach dem Aufheben prüfen | Kein Knacksen, kein Lautstärkesprung. Nach dem Aufheben gilt die gespeicherte Lautstärke der vorher stummen Ausgaben, inklusive des verschobenen Reglerwerts | |
 | M4 | Solo bei abgestecktem Gerät | Zwei Ausgaben, eine solo setzen, dann das Solo-Gerät entfernen | Alle anderen Ausgaben bleiben stumm. Nach dem Aufheben von Solo hören alle verbliebenen Ausgaben wieder | |
-| M5 | Grenze `maxSlots` (16) | 16 konfigurierte Ausgaben (z.B. BlackHole 64ch, Paare 1 bis 16). Slot 1 (Index 0) solo setzen, Slot 16 (Index 15) solo setzen, prüfen, ob ein Slot ab Index 16 weiter spielt | Solo schaltet die Slots 0 bis 15 stumm. Ein Slot ab Index 16 spielt weiter (bekannte Einschränkung). Hinweis: Die Anleitung im Plan nennt "genau 16" Ausgaben und prüft zugleich einen Slot mit Index 16; dafür sind 17 Ausgaben nötig. Vorgehen bei der Messung ist daher zu klären | |
+| M5 | Grenze `maxSlots` (16) | 17 konfigurierte Ausgaben (z.B. BlackHole 64ch, Paare 1 bis 17). Slot 1 (Index 0) solo setzen, Slot 17 (Index 16) solo setzen; prüfen, ob Slot 17 (Index 16) weiter spielt und nicht stummgeschaltet wird | Solo schaltet die Slots 0 bis 15 stumm. Ein Slot ab Index 16 spielt weiter (bekannte Einschränkung) | |
 | M6 | Noop-Rate des SR-Listeners | App 15 Minuten oder länger mit aktivem Routing laufen lassen, ohne die Sample-Rate zu ändern. `log stream --predicate 'subsystem == "com.mauriciomorkun.audiorouternow"' \| grep "M4-Noop"` ausführen und den Zähler lesen | Zähler 0 oder sehr niedrig. Ein hoher Wert zeigt, dass der Listener ohne Grund feuert | |
 | M7 | Restart bei echtem Rate-Wechsel | Routing aktiv, Gerät mit umschaltbarer Rate (z.B. Komplete Audio 6 oder ein USB-Interface). Rate in Audio MIDI Setup von 48 kHz auf 44,1 kHz umschalten | Warm-Restart innerhalb von 1 bis 3 Sekunden, kein "M4-Noop" im Log | |
 | M8 | Blip-Absorption | Routing aktiv, USB-Gerät. Kabel kurz lösen (unter 2 Sekunden) und wieder einstecken | Kürzere oder keine Unterbrechung als bei 4.0.1. Reißt das Audio dauerhaft ab, ist `5798a63` umzukehren | |
