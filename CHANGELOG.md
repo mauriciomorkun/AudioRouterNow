@@ -103,7 +103,7 @@
 - **A device reconnecting within the settle window no longer restarts the engine.**
   A brief disconnect/reconnect (a blip) previously still produced an engine
   restart. If the device returns while the settle restart is still pending, that
-  restart is now discarded and the engine keeps running uninterrupted. Devices that
+  restart is now discarded and the engine keeps running on the same session. Devices that
   stay away longer than the settle window follow the existing reconnect path.
 
 ### Changed
