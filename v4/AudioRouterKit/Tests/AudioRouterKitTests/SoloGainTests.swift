@@ -45,7 +45,12 @@ final class SoloGainTests: XCTestCase {
     }
 
     func testEmptyKeyDoesNotCrashAndDefaultsToUnityWithoutSolo() {
+        // Kein Solo: leerer Key liefert Unity (Fallback-Default aus deviceGains[""]).
         XCTAssertEqual(SoloGain.effective(key: "", soloedKeys: [], deviceGains: [:]), 1.0, accuracy: 1e-6)
+        // Solo aktiv, leerer Key NICHT in soloedKeys: stumm (kein Absturz erwartet).
+        XCTAssertEqual(SoloGain.effective(key: "", soloedKeys: ["x:0"], deviceGains: [:]), 0.0, accuracy: 1e-6)
+        // Leerer Key solo'et: Unity-Default (nicht in deviceGains, daher 1.0).
+        XCTAssertEqual(SoloGain.effective(key: "", soloedKeys: [""], deviceGains: [:]), 1.0, accuracy: 1e-6)
     }
 
     func testStoredHalfGainSoloedReturnsHalfNotUnity() {
