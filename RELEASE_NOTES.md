@@ -188,8 +188,10 @@ Two causes of short audio gaps are addressed:
   restarts the engine. macOS sometimes announces a sample rate change that is not
   one; those no longer cause a restart.
 - A device that briefly disconnects and reconnects within the settle window no
-  longer forces a restart. If it comes back quickly, routing keeps running without
-  interruption.
+  longer forces a restart. If it comes back within the settle window, the
+  pending restart is discarded and the engine keeps running on the same session.
+  Whether audio stays audibly uninterrupted depends on the hardware and can only
+  be confirmed on a real device.
 
 Both improvements depend on how the hardware behaves and are best confirmed on a
 real device.
