@@ -119,6 +119,19 @@
   This is intended behaviour under Guideline 2.4.5(iii) and was established
   in 4.0.1. See docs/v4.1/05-decisions.md, D1.
 
+### Known limitation
+
+- **Outputs beyond the first 16 do not respond to per-device volume or Solo.**
+  The per-device volume controls and Solo both operate through a 16-slot gain
+  bridge (`SlotGains.maxSlots = 16`). Configured outputs beyond the 16th
+  (zero-based index 16 and above) are not covered by the bridge and play at
+  a fixed gain of 1.0, regardless of the volume slider or Solo state. The
+  engine logs a warning when more than 16 outputs are configured. The
+  per-device volume limit has been present since 4.0; Solo was added in 4.1
+  and inherits the same constraint. Configurations reaching this limit require
+  a device such as BlackHole 64ch together with a large multi-channel interface,
+  and are uncommon.
+
 ---
 
 ## [4.0.1 (10)], 2026-10-13 · _released on the Mac App Store_

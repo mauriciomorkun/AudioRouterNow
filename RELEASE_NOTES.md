@@ -212,6 +212,17 @@ Nothing else changes; your routing settings and volume levels are kept.
 The App Store description was updated to remove an unverifiable superlative. This
 is a metadata change in App Store Connect only.
 
+#### Known limitation: more than 16 outputs
+
+The per-device volume controls and the Solo button both work through a fixed
+16-slot gain bridge. If you have more than 16 outputs configured, the ones
+beyond the 16th (zero-based: index 16 and above) will not respond to the
+volume slider or Solo; they play at full gain regardless. This is relevant only
+in very large configurations, such as BlackHole 64ch combined with a
+multi-channel interface. The engine logs a warning to the system log when this
+limit is exceeded. The per-device volume constraint has been present since 4.0;
+Solo is new in 4.1 and inherits it.
+
 ---
 
 ## AudioRouterNow 4.0.1 (Build 10), October 13, 2026
