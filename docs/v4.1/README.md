@@ -17,6 +17,7 @@ erwiesen, und welche Behauptungen noch unbewiesen sind.
 | [05-decisions.md](05-decisions.md) | Entscheidungen Zyklus 2. D1: Launch-at-Login-Reset beim Build-Sprung 10 auf 11, begruendet, Rueckfall dokumentiert. Status: erstellt. |
 | [06-appstore-texts.md](06-appstore-texts.md) | App Store Connect Textvorlagen: What's New (oeffentlich), Review-Notiz (nicht oeffentlich), Store-Description-Ersetzungsanleitung Schritt fuer Schritt. Status: erstellt. |
 | [07-impl-v2.md](07-impl-v2.md) | Umsetzungsprotokoll v2 (Umsetzer: Opus, Durchlauf 2). Pro Schritt N0-N7 Status, Commit-Hash, Test- und Build-Ergebnis, Abweichungen. Preflight-Ergebnis, offene Messpunkte, Restrisiken. Status: fertig. |
+| [08-audit-v2.md](08-audit-v2.md) | Audit Durchlauf 2 (Auditor: Fable 5). Tests 59 swift-testing + 56 XCTest gruen, Build SUCCEEDED, Preflight "4.1 (11)" erkannt. B1-B5 behoben. 1 neuer Befund niedrig (C1: Naming-Kollision D1 in Doku). Kein neuer Durchlauf noetig. Status: fertig. |
 
 ## Hinweis zur Quellenlage
 
