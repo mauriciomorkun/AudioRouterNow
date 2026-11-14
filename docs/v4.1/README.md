@@ -22,6 +22,7 @@ erwiesen, und welche Behauptungen noch unbewiesen sind.
 | [10-plan-v3.md](10-plan-v3.md) | Nachbesserungsplan v3 (Planer: Fable 5). Scope: F1 (CHANGELOG Blip-Formulierung), F2 (Kommentar-D1-Praezision), F3 (Known-Limitation maxSlots in CHANGELOG und RELEASE_NOTES), F4 (vier Korrekturen im Abschlussbericht). 5 Schritte P3-S0 bis P3-S4 plus README-Update P3-S5, 3 Entscheidungen P3-D1 bis P3-D3. Status: bereit zur Ausfuehrung durch Opus-Agent. |
 | [11-impl-v3.md](11-impl-v3.md) | Umsetzungsprotokoll v3 (Umsetzer: Opus, Durchlauf 3). Pro Schritt P3-S0 bis P3-S5 Status, Commit-Hash, grep- bzw. Testergebnis, Abweichungen. Teststand nachher: 59 swift-testing plus 56 XCTest, App-Build SUCCEEDED. Status: fertig. |
 | [12-audit-v3.md](12-audit-v3.md) | Audit Durchlauf 3 (Auditor: Fable 5). Tests 59 swift-testing + 56 XCTest gruen, Build SUCCEEDED, Preflight unveraendert. F1 bis F4 behoben. 1 neuer Befund niedrig (E1: Schrittanzahl in Abschlussbericht), 1 Beobachtung (E2: fehlender Hash in Impl-Protokoll). Kreislauf abgeschlossen. Status: fertig. |
+| [13-doc-inventory.md](13-doc-inventory.md) | Doku-Inventur zur Pflege aller Projektdokumentation auf Stand 14.11.2026 (Doku-Agent: Sonnet). Geprüfte Fakten gegen Git, `gh release list` und `gh issue view 1`, Liste veralteter oder widersprüchlicher Aussagen vor der Änderung (Datei, Stelle, alt, neu, Beleg) und das Ergebnis der Pflege. Status: fertig. |
 
 ## Hinweis zur Quellenlage
 
