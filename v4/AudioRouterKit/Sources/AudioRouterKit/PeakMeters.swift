@@ -20,8 +20,8 @@ import os
 ///   `deinit` (nach `AudioDeviceStop`, RT-Pfad ruht) freigegeben.
 final class PeakMeters: @unchecked Sendable {
 
-    /// Harte Obergrenze der Output-Slots (= FanOutEngine-Fan-out-Limit).
-    static let maxSlots = 16
+    /// Kapazitaet, gleich `OutputLimits.maxSlots`.
+    static let maxSlots = OutputLimits.maxSlots
 
     private var _lock = os_unfair_lock_s()
     /// Interleaved [l0, r0, l1, r1, …] mit `maxSlots * 2` Float32.

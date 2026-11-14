@@ -14,7 +14,7 @@ import os
 /// Effektiver Sample-Faktor im IOProc: `globalVol × slotGain`.
 public final class SlotGains: @unchecked Sendable {
 
-    public static let maxSlots = 16
+    public static let maxSlots = OutputLimits.maxSlots
 
     private var _lock = os_unfair_lock_s()
     private let storage: UnsafeMutableBufferPointer<Float32>
@@ -30,7 +30,8 @@ public final class SlotGains: @unchecked Sendable {
 
     // MARK: - IOProc-Pfad (Reader)
 
-    /// Liest den Gain für einen Slot. RT-sicher. Out-of-range → 1.0 (Unity).
+    /// Liest den Gain fuer einen Slot. RT-sicher. Out-of-range: 1.0 (Unity).
+    /// (Reiner Schutz gegen falsche Indizes, in Produktion durch `OutputLimits` nicht erreichbar.)
     @inline(__always)
     public func gain(slotIndex: Int) -> Float32 {
         guard slotIndex >= 0 && slotIndex < Self.maxSlots else { return 1.0 }
