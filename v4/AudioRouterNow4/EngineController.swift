@@ -96,6 +96,9 @@ final class EngineController: ObservableObject {
     @Published private(set) var outputConfigs: [OutputConfig] = []
     @Published private(set) var availableDevices: [(uid: String, name: String, channelCount: Int)] = []
 
+    /// NT-D5: Meldung, wenn das Hinzufuegen einer Ausgabe wegen der Slot-Obergrenze abgelehnt wurde.
+    @Published private(set) var outputLimitNotice: String?
+
     /// Per-Device-Gain [0…1] pro Composite-Key "<uid>:<channelOffset>" (F16).
     @Published private(set) var deviceGains: [String: Double] = [:]
     private static let deviceGainsKey = "arn.v4.deviceGains"
@@ -534,18 +537,31 @@ final class EngineController: ObservableObject {
         deviceLatencies[config.uid]
     }
 
-    /// Fügt ein Output-Ziel hinzu, persistiert es und wendet die Änderung bei
-    /// laufendem Routing per Warm-Restart an (No-Op bei Duplikat).
+    /// Fuegt ein Output-Ziel hinzu, persistiert es und wendet die Aenderung bei
+    /// laufendem Routing per Warm-Restart an. Duplikate und Limit-Ueberschreitungen
+    /// werden abgelehnt (NT-D5).
     func addOutputConfig(_ config: OutputConfig) {
-        guard !outputConfigs.contains(config) else { return }
-        outputConfigs.append(config)
-        Self.saveOutputConfigs(outputConfigs)
-        applyOutputsIfRouting()
+        switch OutputLimits.addDecision(
+            currentCount: outputConfigs.count,
+            alreadyConfigured: outputConfigs.contains(config)
+        ) {
+        case .duplicate:
+            return
+        case .limitReached(let max):
+            outputLimitNotice = OutputLimits.limitMessage(max: max)
+            return
+        case .allowed:
+            outputLimitNotice = nil
+            outputConfigs.append(config)
+            Self.saveOutputConfigs(outputConfigs)
+            applyOutputsIfRouting()
+        }
     }
 
-    /// Entfernt ein Output-Ziel, persistiert und wendet die Änderung bei
+    /// Entfernt ein Output-Ziel, persistiert und wendet die Aenderung bei
     /// laufendem Routing per Warm-Restart an.
     func removeOutputConfig(_ config: OutputConfig) {
+        outputLimitNotice = nil
         outputConfigs.removeAll { $0 == config }
         Self.saveOutputConfigs(outputConfigs)
         applyOutputsIfRouting()
@@ -732,44 +748,44 @@ final class EngineController: ObservableObject {
     }
 
     /// Berechnet die Audio-Energie perceptual (dBFS-skaliert) aus den Slot-Peaks
-    /// und glättet per EMA: schneller Attack (α = 0.55), langsamer Release
-    /// (α = 0.10), VU-Meter-Charakter. Befüllt zusätzlich `peakLevels` bei
-    /// 20fps für flüssige Signal-Meter. Ohne Audio zerfällt der Wert natürlich.
+    /// und glaettet per EMA: schneller Attack (a = 0.55), langsamer Release
+    /// (a = 0.10), VU-Meter-Charakter. Befuellt zusaetzlich `peakLevels` bei
+    /// 20fps fuer flussige Signal-Meter. Ohne Audio zerfaellt der Wert natuerlich.
     private func updateWaveEnergy() {
         guard status == .routing else { decayWaveEnergy(); return }
         let slots = engine.slotDeviceKeys.count
         guard slots > 0 else { decayWaveEnergy(); return }
 
-        // 1. Peaks lesen + peakLevels aktualisieren (20fps für Signal-Meter, Fix 2)
+        // 1. Peaks lesen + peakLevels aktualisieren (20fps fuer Signal-Meter, Fix 2)
         var newPeaks: [String: (l: Float32, r: Float32)] = [:]
-        var sum: Float32 = 0
-        for (i, key) in engine.slotDeviceKeys.enumerated() where i < SlotGains.maxSlots {
-            // W2: Anzeige-Pegel = IOProc-Peak (post-globalVol) × Per-Device-Gain.
-            // Multiplikation bewusst HIER im MainActor-Poll (20 fps), nicht im
-            // IOProc, der RT-Record bleibt gain-frei (eine Quelle, alle Slots).
+        var slotPeaks: [(l: Float32, r: Float32)] = []
+        slotPeaks.reserveCapacity(slots)
+        for (i, key) in engine.slotDeviceKeys.enumerated() {
             let raw = engine.peakLevel(slotIndex: i)
-            // Effektiven Gain verwenden: unter aktivem Solo erhalten stumme Slots 0.0.
-            // Plan-v2-Entscheidung D1 (docs/v4.1/05-plan-v2.md): SoloGain.effective auch fuer `sum`,
-            // damit Wellenform und Meter konsistent die tatsaechlich ausgegebene Energie zeigen.
+            slotPeaks.append(raw)
+            // Meter: effektiver Gain, stumme Karten zeigen keinen Pegel (B1, cba4489).
             let gain = SoloGain.effective(key: key, soloedKeys: soloedKeys, deviceGains: deviceGains)
             let p = (l: raw.l * gain, r: raw.r * gain)
             let prev = peakLevels[key] ?? (l: 0, r: 0)
-            // Peak-Hold: schneller Attack, Release ×0.80/Tick bei 20fps
+            // Peak-Hold: schneller Attack, Release x0.80/Tick bei 20fps
             newPeaks[key] = (
                 l: max(p.l, prev.l * 0.80),
                 r: max(p.r, prev.r * 0.80)
             )
-            sum += (p.l + p.r) / 2
         }
         if !newPeaks.isEmpty { peakLevels = newPeaks }
 
-        // 2. Perceptual Energy: linear → dBFS → normalisiert [0,1].
+        // W2 (NT-D4, docs/v4.1/14-plan-nachtrag.md): Welle Solo-neutral, ersetzt D1 (Welle)
+        // aus docs/v4.1/05-plan-v2.md. Solo darf die Wellenhoehe nicht verringern.
+        let linear = WaveEnergyMath.soloNeutralLinear(
+            slotPeaks: slotPeaks, keys: engine.slotDeviceKeys, deviceGains: deviceGains)
+
+        // 2. Perceptual Energy: linear nach dBFS nach normalisiert [0,1].
         //    Warum nicht der lineare Peak direkt? Menschliches Lautheitsempfinden
-        //    ist logarithmisch: bei −16 dBFS wirkt Musik „gut hörbar", der lineare
-        //    Peak ist dort aber nur 0.16 → die Welle bliebe optisch fast flach.
-        //    Über dBFS wird daraus perceptual ≈ 0.73 → visuell stimmig.
-        //    a) linearer Mittel-Peak über alle Slots, gegen 1.0 geklemmt.
-        let linear = min(1, sum / Float32(slots))
+        //    ist logarithmisch: bei -16 dBFS wirkt Musik "gut hoerbar", der lineare
+        //    Peak ist dort aber nur 0.16, die Welle bliebe optisch fast flach.
+        //    Ueber dBFS wird daraus perceptual etwa 0.73, visuell stimmig.
+        //    a) linearer Mittel-Peak ueber alle Slots, gegen 1.0 geklemmt (von WaveEnergyMath).
         //    b) in dBFS umrechnen; Floor bei 0.001 verhindert log10(0) = −∞.
         //       Ergebnis liegt in (−60 … 0] (0.001 ≈ −60 dBFS, 1.0 = 0 dBFS).
         let dBFS = 20.0 * log10(Double(max(linear, 0.001)))   // −∞..0
