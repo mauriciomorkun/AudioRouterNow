@@ -52,6 +52,13 @@ struct MenuBarView: View {
                     .padding(.bottom, 8)
             }
 
+            // ── Ausgabenlimit-Meldung (NT-D5) ────────────────────────────
+            if let notice = controller.outputLimitNotice {
+                limitNoticeSection(notice)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
+
             // ── Volume-Slider (nur ACTIVE) ───────────────────────────────
             if ui == .active {
                 VolumeRow()
@@ -268,6 +275,21 @@ struct MenuBarView: View {
             Text(error.localizedDescription)
                 .font(.caption)
                 .foregroundStyle(.red)
+                .lineLimit(3)
+        }
+    }
+
+    // MARK: Ausgabenlimit-Meldung (NT-D5)
+
+    @ViewBuilder
+    private func limitNoticeSection(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.caption)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.orange)
                 .lineLimit(3)
         }
     }
