@@ -31,4 +31,24 @@ geprüft gegen Git (`git log`, `git tag`, Arbeitsbaum), `gh release list`,
 
 ## Ergebnis
 
-(wird am Ende der Pflege gefüllt)
+Pflege am 14.11.2026 durchgeführt. Geänderte Dateien:
+
+| Datei | getrackt/lokal | Was geändert |
+|-------|----------------|--------------|
+| `docs/v4.1/README.md` | getrackt | Eintrag `13-doc-inventory.md` im Verzeichnis ergänzt |
+| `docs/v4.1/13-doc-inventory.md` | getrackt | Diese Datei neu angelegt (Inventur und Ergebnis) |
+| `BACKLOG.md` | lokal (gitignored) | 4.1-Absatz Stand 14.11.2026 ergänzt; Einträge ScrollView, Start-Toggle, Solo, SR-Listener, Entprellen, Store-Description auf tatsächlichen Stand (umgesetzt auf `release/4.1`, nicht released, M1 bis M9 offen); vier neue Einträge (maxSlots-Hinweis, Wellen-Energie-Teiler, Launch-at-Login-Consent, Signierung in `project.yml`); Fußdatum |
+| `TODO.md` | lokal (gitignored) | Header-Datum; 4.0.1 live statt Build-9-offen; 4.1 als aktueller offener Punkt; v3.4.5-Datum |
+| `LAUNCH_EXECUTION.md` | lokal (gitignored) | Sechs Einträge für den 4.1-Zyklus (AirPlay 11.11., Plan/Umsetzung 12.11., Audit und Durchläufe 13. bis 14.11.) mit Commit-Hashes |
+| `.claude/CLAUDE.md` | lokal (gitignored) | Projektkontext (4.1 auf `release/4.1`); Update-Ablauf-Block mit 4.1-Lehren; 4.1-Status- und Nächste-Schritte-Block; Noch-offen-Liste; Sparkle und Homebrew als erledigt mit Beleg |
+| `feedback/README.md` | lokal (gitignored) | CASE-002 auf "ausgeliefert in v3.4.5", Issue #1 noch OPEN; Hinweis auf den UI-Überlauf-Fall in `docs/support/`; Stand-Datum |
+| `docs/support/INDEX.md`, `categories/ui-overflow.md`, `interactions/2026-11-05_*.md` | lokal (gitignored) | UI-Überlauf-Fall: Ursache bestätigt, Fix in 4.1 umgesetzt (nicht released), Rückmeldung an Nutzer nach Release |
+| `MEMORY.md` und 5 Projekt-Memories | lokal (Memory) | Zwei neue Memories (`v41_status`, `airplay_research`); `v345_pending`, `v401_workflow_pending`, `v4_tags_pending`, `support_thomas` auf Stand; Index aktualisiert |
+
+Konsistenzprüfung: kein eigener Doku-Satz mehr mit "v3.4.5 ausstehend" (die
+verbliebene Fundstelle in `MEMORY.md` ist ein wörtliches Zitat über Tims veralteten
+DB-Stand, mit UPDATE-Klausel eingeordnet). Keine Em- oder En-Dashes in neu
+geschriebenem Text. Keine Nutzer- oder Drittnamen in getrackten Dateien (getrackt
+geändert wurden nur `docs/v4.1/README.md` und diese Datei). Getrackter Arbeitsbaum
+nach den Commits sauber.
+
