@@ -189,14 +189,12 @@ public final class FanOutEngine {
         reseedSlotGains()
     }
 
-    /// Live-Update EINES Gains ohne Rebuild. Wirkt im nächsten IOProc-Callback.
+    /// Live-Update EINES Gains ohne Rebuild. Wirkt im naechsten IOProc-Callback.
+    /// Der Index liegt durch die Pruefung in start/buildAndStartAggregate immer
+    /// unter der Kapazitaet; SlotGains.set bleibt ein Schutz gegen falsche Indizes.
     public func setOutputGain(_ gain: Float32, forKey key: String) {
         outputGains[key] = gain
         if let idx = slotDeviceKeys.firstIndex(of: key) {
-            if idx >= SlotGains.maxSlots {
-                logger.warning("F16/W3: Gain für Slot \(idx, privacy: .public) (Key \(key, privacy: .public)) ignoriert — außerhalb SlotGains.maxSlots=\(SlotGains.maxSlots, privacy: .public)")
-                return   // W3.2-Fix: kein Log-Spam bei Slider-Drag; slotGains.set wäre No-Op
-            }
             slotGains.set(gain, slotIndex: idx)
         }
     }
@@ -277,6 +275,9 @@ public final class FanOutEngine {
     public func start(outputs: [OutputConfig] = [], exclusive: Bool = false) throws {
         // Nur wenn nicht bereits routing, doppeltes start() ist ein No-Op.
         guard status != .routing else { return }
+
+        // NT-D5: zu viele Ausgaben ehrlich ablehnen, bevor Tap (TCC) und Aggregate entstehen.
+        try OutputLimits.validateOutputCount(outputs.count)
 
         // ── Ebene 1: Process-Tap (TCC-Session) ──────────────────────────
         try createTap()
@@ -423,6 +424,10 @@ public final class FanOutEngine {
     /// CASE-008: `exclusive` steuert ueber ``shouldAppendDefaultSlot`` ob der
     /// Default-Output als Slot angehaengt wird.
     private func buildAndStartAggregate(outputs: [OutputConfig], tapUUID: UUID, exclusive: Bool = false) throws {
+        // NT-D5: Slotzahl pruefen (deckt updateOutputs ab). Die Sperre in
+        // addOutputConfig faengt den Fall in der Praxis vorher ab.
+        try OutputLimits.validateOutputCount(outputs.count)
+
         let diagLogger = Logger(subsystem: "com.mauriciomorkun.audiorouternow", category: "SlotDiag")
 
         // ── Schritt 2b: Default-Output-Device-UID lesen ─────────────────
@@ -591,13 +596,9 @@ public final class FanOutEngine {
             defaultHasHardwareVolume: defaultHasHW
         )
 
-        reseedSlotGains()   // F16: Slot-Reihenfolge steht jetzt fest, Gains einsäen
+        reseedSlotGains()   // F16: Slot-Reihenfolge steht jetzt fest, Gains einsaeen
 
-        // W3: SlotGains/PeakMeters tragen max. maxSlots Einträge, Slots darüber
-        // laufen still mit Unity-Gain. Sichtbar machen statt stumm degradieren.
-        if slotDeviceKeys.count > SlotGains.maxSlots {
-            logger.warning("F16/W3: \(self.slotDeviceKeys.count, privacy: .public) Output-Slots konfiguriert, SlotGains.maxSlots=\(SlotGains.maxSlots, privacy: .public) — Slots ≥ \(SlotGains.maxSlots, privacy: .public) spielen mit festem Unity-Gain (1.0)")
-        }
+        // Slotzahl durch OutputLimits.validateOutputCount begrenzt (NT-D5).
 
         // DIAG: Slot-Mapping nach buildDirectOutputSlots loggen
         diagLogger.debug("SlotDiag slots.count=\(slots.count, privacy: .public) expectedBufferCount=\(expectedBufferCount, privacy: .public)")

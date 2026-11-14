@@ -116,6 +116,19 @@ struct FanOutEngineTests {
         #expect(engine.status == .idle)
     }
 
+    @Test("start() lehnt mehr als die erlaubte Zahl Ausgaben ab, ohne CoreAudio")
+    @MainActor
+    func startRejectsTooManyOutputs() {
+        let engine = FanOutEngine()
+        let configs = (0..<(OutputLimits.maxConfiguredOutputs + 1))
+            .map { OutputConfig(uid: "test-uid", channelOffset: $0 * 2) }
+        #expect(throws: RouterError.tooManyOutputs(
+            count: configs.count, max: OutputLimits.maxConfiguredOutputs)) {
+            try engine.start(outputs: configs)
+        }
+        #expect(engine.status == .idle)
+    }
+
     @Test("TCC Deep-Link URL ist valide (statisch)")
     func tccDeepLinkIsValid() {
         let url = FanOutEngine.tccDeepLink
