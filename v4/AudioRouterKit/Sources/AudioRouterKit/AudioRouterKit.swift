@@ -50,6 +50,9 @@ public enum RouterError: Error, Equatable, Sendable {
     /// erwarteten Slot-Mapping-Größe überein, Treiber-Sonderfall oder
     /// veraltete Sub-Device-Konfiguration.
     case aggregateLayoutMismatch(expected: Int, actual: Int)
+
+    /// Mehr Ausgaben gewählt, als die Engine gleichzeitig ansteuern kann (NT-D5).
+    case tooManyOutputs(count: Int, max: Int)
 }
 
 extension RouterError: LocalizedError {
@@ -63,6 +66,8 @@ extension RouterError: LocalizedError {
             return "Could not start audio routing: \(OSStatusMapper.describe(status)). Try unplugging and reconnecting the device, then press Start again."
         case .aggregateLayoutMismatch(let expected, let actual):
             return "The audio device reported an unexpected channel layout (expected \(expected) buffers, got \(actual)). Remove the device from Output Targets and add it again."
+        case .tooManyOutputs(let count, let max):
+            return "Too many outputs are selected (\(count)). AudioRouterNow can route to \(max) at once. Remove some outputs and press Start again."
         }
     }
 }
