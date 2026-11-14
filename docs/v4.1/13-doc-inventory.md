@@ -27,7 +27,7 @@ geprüft gegen Git (`git log`, `git tag`, Arbeitsbaum), `gh release list`,
 | `TODO.md` | Z. 23, 35 bis 38 | "der eine wirklich offene Punkt": Build 9 nicht eingereicht | 4.0.1 (Build 10) ist seit 13.10. live; der offene Punkt ist jetzt 4.1 | `docs/v4.0.1/README.md`, `gh` |
 | `project_audiorouternow_v401_workflow_pending.md` | ganze Datei | "Submission steht aus", Stand 15.10. | 4.0.1 live; 4.1 umgesetzt auf `release/4.1` | `git`, `docs/v4.1/` |
 | `project_audiorouternow_v4_tags_pending.md` | ganze Datei | Stand 12.10., `v4-appstore/` offen | `v4-appstore/` weiter offen, Signierung in `project.yml` weiter offen; 4.1 neu | `docs/v4.1/09-final-report.md` Abschnitt 6e |
-| `project_audiorouternow_support_thomas.md` | "BACKLOG-Items ausgelöst" | ScrollView/Start-Toggle nur als Backlog-Idee | In 4.1 umgesetzt, nicht released | `docs/v4.1/09-final-report.md` 3.1 |
+| Memory-Datei zum UI-Überlauf-Supportfall (Dateiname bewusst nicht genannt, enthält einen Nutzernamen) | "BACKLOG-Items ausgelöst" | ScrollView/Start-Toggle nur als Backlog-Idee | In 4.1 umgesetzt, nicht released | `docs/v4.1/09-final-report.md` 3.1 |
 
 ## Ergebnis
 
@@ -43,7 +43,7 @@ Pflege am 14.11.2026 durchgeführt. Geänderte Dateien:
 | `.claude/CLAUDE.md` | lokal (gitignored) | Projektkontext (4.1 auf `release/4.1`); Update-Ablauf-Block mit 4.1-Lehren; 4.1-Status- und Nächste-Schritte-Block; Noch-offen-Liste; Sparkle und Homebrew als erledigt mit Beleg |
 | `feedback/README.md` | lokal (gitignored) | CASE-002 auf "ausgeliefert in v3.4.5", Issue #1 noch OPEN; Hinweis auf den UI-Überlauf-Fall in `docs/support/`; Stand-Datum |
 | `docs/support/INDEX.md`, `categories/ui-overflow.md`, `interactions/2026-11-05_*.md` | lokal (gitignored) | UI-Überlauf-Fall: Ursache bestätigt, Fix in 4.1 umgesetzt (nicht released), Rückmeldung an Nutzer nach Release |
-| `MEMORY.md` und 5 Projekt-Memories | lokal (Memory) | Zwei neue Memories (`v41_status`, `airplay_research`); `v345_pending`, `v401_workflow_pending`, `v4_tags_pending`, `support_thomas` auf Stand; Index aktualisiert |
+| `MEMORY.md` und 5 Projekt-Memories | lokal (Memory) | Zwei neue Memories (`v41_status`, `airplay_research`); `v345_pending`, `v401_workflow_pending`, `v4_tags_pending` und die Memory-Datei zum UI-Überlauf-Supportfall auf Stand; Index aktualisiert |
 
 Konsistenzprüfung: kein eigener Doku-Satz mehr mit "v3.4.5 ausstehend" (die
 verbliebene Fundstelle in `MEMORY.md` ist ein wörtliches Zitat über Tims veralteten
