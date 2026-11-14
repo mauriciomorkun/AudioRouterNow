@@ -24,6 +24,8 @@ erwiesen, und welche Behauptungen noch unbewiesen sind.
 | [12-audit-v3.md](12-audit-v3.md) | Audit Durchlauf 3 (Auditor: Fable 5). Tests 59 swift-testing + 56 XCTest gruen, Build SUCCEEDED, Preflight unveraendert. F1 bis F4 behoben. 1 neuer Befund niedrig (E1: Schrittanzahl in Abschlussbericht), 1 Beobachtung (E2: fehlender Hash in Impl-Protokoll). Kreislauf abgeschlossen. Status: fertig. |
 | [13-doc-inventory.md](13-doc-inventory.md) | Doku-Inventur zur Pflege aller Projektdokumentation auf Stand 14.11.2026 (Doku-Agent: Sonnet). Geprüfte Fakten gegen Git, `gh release list` und `gh issue view 1`, Liste veralteter oder widersprüchlicher Aussagen vor der Änderung (Datei, Stelle, alt, neu, Beleg) und das Ergebnis der Pflege. Status: fertig. |
 
+| [14-plan-nachtrag.md](14-plan-nachtrag.md) | Nachtragsplan (Planer: Fable 5, 2026-11-14). Scope: W1 (Lautstaerke, Solo, Pegel und Welle fuer alle Ausgaben, maxSlots 16 auf 32) und W2 (Welle unter Solo bleibt unveraendert hoch). 8 Schritte NT-S0 bis NT-S7 plus NT-S8, 6 Entscheidungen NT-D1 bis NT-D6. Zwei ENTSCHEIDUNG NUTZER BESTAETIGEN-Punkte (NT-D1 Kapazitaet, NT-D4 Wellen-Auslegung). Status: Final, bereit zur Ausfuehrung durch Fable-Agent. |
+
 ## Hinweis zur Quellenlage
 
 Jedes Dokument in diesem Ordner trennt strikt zwischen:
