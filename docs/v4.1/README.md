@@ -29,6 +29,7 @@ erwiesen, und welche Behauptungen noch unbewiesen sind.
 | [17-plan-nachtrag-v2.md](17-plan-nachtrag-v2.md) | Nachtragsplan Durchlauf 2 (Planer: Fable 5, 2026-11-15). Scope: G1 (Signaturtest W2), G2-Luecke-2 (outputLimitNotice bei Erfolg loeschen), G3 (Kommentar), G4 (bereits geloest), G5 (Kommentar). 4 Schritte NT2-S0 bis NT2-S4, 5 Entscheidungen NT2-D1 bis NT2-D5. Status: umgesetzt, siehe 15 und 18. |
 | [18-impl-nachtrag-v2.md](18-impl-nachtrag-v2.md) | Umsetzungsprotokoll Durchlauf 2 (Umsetzer: Fable 5, 2026-11-15). Pro Schritt NT2-S0 bis NT2-S4 Status, Commit-Hash, Test- und Build-Ergebnis, Abweichungen. Gesamt: 60/96 gruen, BUILD SUCCEEDED. Status: fertig. |
 | [19-audit-nachtrag-v2.md](19-audit-nachtrag-v2.md) | Audit Nachtrag Durchlauf 2 (Auditor: Fable 5, 2026-11-15). 60 swift-testing + 96 XCTest gruen, Build SUCCEEDED, Preflight unveraendert (1 ABBRUCH, 2 Warnungen). G1 bis G4 behoben. G5: Kommentar eingefuegt, aber 1 Befund mittel (H1: Zahlenwert falsch, 5120 statt 20 Allokationen/s). 2 Befunde niedrig. Neuer Durchlauf noetig. Status: fertig. |
+| [20-plan-nachtrag-v3.md](20-plan-nachtrag-v3.md) | Mini-Plan Nachtrag Durchlauf 3 (Planer: Fable 5, 2026-11-15). Scope: H1 (Kommentar-Zahlenfehler, mittel), H2 (Doppelbindestrich, niedrig), H3 (warmRestartForSampleRateChange, niedrig, akzeptiert ohne Code, NT3-D3). 4 Schritte N3-S0 bis N3-S4, 3 Entscheidungen NT3-D1 bis NT3-D3. Status: umgesetzt, siehe 21. |
 
 ## Hinweis zur Quellenlage
 
