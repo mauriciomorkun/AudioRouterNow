@@ -375,7 +375,7 @@ Dieser Abschnitt ist angehängt. Die Abschnitte 1 bis 10 sind unverändert und g
 
 **Anlass.** Ausgaben ab Slot-Index 16 liefen mit festem Unity-Gain, Solo konnte sie nicht stumm schalten, die Pegelanzeige blieb leer, und die Welle war bei mehr als 16 Slots zu klein. Das widersprach den beiden Nutzerwünschen W1 (kein Nachteil bei mehr als 16 Ausgaben) und W2 (die Welle wird unter Solo nie kleiner).
 
-**Dokumente.** Plan: `14-plan-nachtrag.md` (Fassung 2, Commit `5dc55f5`). Umsetzungsprotokoll: `15-impl-nachtrag.md`. Das Audit folgt als `16-audit-nachtrag.md`.
+**Dokumente.** Plan: `14-plan-nachtrag.md` (Fassung 2, Commit `5dc55f5`). Umsetzungsprotokoll: `15-impl-nachtrag.md`. Audit Durchlauf 1: `16-audit-nachtrag-v1.md`.
 
 ### Ergebnis je Wunsch (Code und Unit-Tests, nicht am Gerät geprüft)
 
