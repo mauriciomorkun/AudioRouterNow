@@ -35,9 +35,22 @@ Der Audit schlaegt vor:
 // Falls NM-4 einen messbaren Overhead zeigt: Instance-Variable + removeAll(keepingCapacity: true).
 ```
 
-Dieser Text ist korrekt und im Projektstil. Er wird unveraendert uebernommen.
+Verbindlicher Wortlaut (Auftrag Durchlauf 3), der beide Zahlen getrennt nennt:
+
+```swift
+// NT2-D5: slotPeaks wird je Tick (MainActor, 20 Hz, kein IOProc) einmal angelegt:
+// 20 Allokationen pro Sekunde, bei 256 Slots 5120 Element-Schreibzugriffe pro Sekunde
+// (20 Hz x 256, keine Allokationen). Auf einem Mac vernachlaessigbar. Falls NM-4 einen
+// messbaren Overhead zeigt: Instanzvariable plus removeAll(keepingCapacity: true).
+```
+
 Begruendung: `reserveCapacity(slots)` belegt Speicher einmalig fuer den Tick;
 die 256 `append`-Aufrufe belegen keinen neuen Heap-Speicher. 20 Hz x 1 Allokation = 20/s, nicht 5120/s.
+
+Korrektur zur Erstfassung dieses Plans (Commit `2ae52d9`): Dort stand der kuerzere
+Vorschlag des Audits (nur "1 Heap-Allokation/Tick"). Er war nicht falsch, nannte aber die
+5120 Schreibzugriffe nicht und wich vom verbindlichen Wortlaut ab. Umgesetzt in `e2bcc93`,
+angeglichen in `63b4d04`.
 
 ### NT3-D2: H2 Ersatz fuer " -- "
 
@@ -47,17 +60,23 @@ Kein Gedankenstrich, kein Semikolon (wuerde den Satz staerker trennen als noetig
 ### NT3-D3: H3 akzeptiert ohne Code
 
 `warmRestartForSampleRateChange` loescht `outputLimitNotice` nicht. Die Meldung
-lautet "Remove an output to add another." Nach einem SR-Warmrestart hat der Nutzer
-weiterhin 255 Ausgaben konfiguriert; die Meldung ist also sachlich korrekt.
-Sie ist nicht falsch und nicht irrefuehrend: Der Nutzer kann immer noch keine weitere
-Ausgabe hinzufuegen, ohne eine zu entfernen. Der SR-Warmrestart aendert die Zahl der
-konfigurierten Ausgaben nicht.
+lautet "Output limit reached: AudioRouterNow can route to 255 outputs at once. Remove an
+output to add another." (`OutputLimits.limitMessage`). Sie wird nur durch `addOutputConfig`
+(Fall `.allowed`), `removeOutputConfig`, `performStart` und `restartRouting` geloescht und
+ist nicht an den Routing-Zustand gebunden: Sie bleibt auch ohne jeden Warm-Restart stehen,
+bis eine dieser Aktionen laeuft. Ein SR-Warmrestart aendert `outputConfigs` nicht, die
+Liste hat danach weiter 255 Eintraege, die Aussage der Meldung stimmt also weiter. Er
+erzeugt keinen neuen veralteten Zustand. Ein Fall, in dem die Meldung falsch oder
+irrefuehrend wird, ist am Code nicht belegbar.
 
-NT2-D2 gilt auch fuer diesen Pfad: `addOutputConfig` sperrt das Hinzufuegen waehrend
-aktiven Routings, daher kann die Meldung nach einem Warm-Restart nicht erneut gesetzt
-werden. Die Meldung laeuft weiter, was unschoen ist, aber den Nutzer nicht in die
-Irre fuehrt. Kein Code-Fix. Entscheidung: als akzeptierter Rest dokumentieren
-(NT3-D3), Verweis in `21-impl-nachtrag-v3.md` und `09-final-report.md`.
+Hinweis: `addOutputConfig` sperrt bei aktivem Routing nichts, es ruft
+`applyOutputsIfRouting()` auf. Eine Erstfassung dieses Plans (Commit `2ae52d9`) stuetzte
+sich fehlerhaft auf eine solche Sperre. Die Entscheidung traegt auch ohne sie, weil die
+Meldung zustandsunabhaengig und sachlich korrekt bleibt.
+
+Kein Code-Fix. Entscheidung: als akzeptierter Rest dokumentieren (NT3-D3), Verweis in
+`21-impl-nachtrag-v3.md` und `09-final-report.md`. Ein Fix waere `outputLimitNotice = nil`
+im Erfolgsblock, aendert aber Verhalten ohne belegten Nutzen.
 
 ---
 
@@ -98,8 +117,8 @@ grep -n "5120 Allokationen" /Users/mauriciomorkun/AudioRouterNow/v4/AudioRouterN
 # erwartet: kein Treffer
 
 # H1: Neue Aussage vorhanden
-grep -n "20 Hz" /Users/mauriciomorkun/AudioRouterNow/v4/AudioRouterNow4/EngineController.swift
-# erwartet: Treffer in Zeile ~767-769
+grep -n "20 Allokationen pro Sekunde\|5120 Element-Schreibzugriffe" /Users/mauriciomorkun/AudioRouterNow/v4/AudioRouterNow4/EngineController.swift
+# erwartet: Treffer in Zeile ~767-770
 
 # H2: Doppelter Bindestrich nicht mehr vorhanden
 grep -n " -- " /Users/mauriciomorkun/AudioRouterNow/v4/AudioRouterKit/Tests/AudioRouterKitTests/WaveEnergyMathTests.swift
@@ -125,7 +144,7 @@ Dieser Leitfaden richtet sich an den unabhaengigen Fable-Auditor nach Durchlauf 
 **Pflicht:**
 1. `git log --oneline -5` auf `release/4.1` lesen, Hashes pruefen.
 2. `git diff 07bdfef..HEAD -- v4/` lesen: genau 2 Produktivdateien plus Doku, kein Code-Delta.
-3. `EngineController.swift` Z. ~767-769: "5120 Allokationen" darf nicht vorkommen, "20 Hz" muss vorkommen.
+3. `EngineController.swift` Z. ~767-770: "5120 Allokationen" darf nicht vorkommen, "20 Allokationen pro Sekunde" und "5120 Element-Schreibzugriffe" muessen vorkommen.
 4. `WaveEnergyMathTests.swift` Z. ~29: " -- " darf nicht vorkommen.
 5. Build und `v4/scripts/test.sh` selbst ausfuehren: 60 + 96 gruen.
 6. `warmRestartForSampleRateChange` Z. ~879-883: kein `outputLimitNotice = nil` im Erfolgsblock (NT3-D3 akzeptiert).
