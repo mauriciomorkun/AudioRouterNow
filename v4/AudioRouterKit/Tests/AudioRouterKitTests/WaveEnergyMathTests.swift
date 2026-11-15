@@ -2,7 +2,7 @@
 //  WaveEnergyMathTests.swift
 //  AudioRouterKitTests
 //
-//  Prueft WaveEnergyMath.soloNeutralLinear (NT-S5, W2, NT-D4).
+//  Prüft WaveEnergyMath.soloNeutralLinear (NT-S5, W2, NT-D4).
 //
 
 import XCTest
@@ -19,8 +19,8 @@ final class WaveEnergyMathTests: XCTestCase {
 
     func testSoloDoesNotLowerTheWave() {
         // Drei Slots, gleicher Peak. Die Funktion kennt Solo nicht.
-        // Test dokumentiert: Ergebnis ist identisch, unabhaengig davon, welcher
-        // Key solo'ed waere (soloedKeys wird nicht uebergeben).
+        // Test dokumentiert: Ergebnis ist identisch, unabhängig davon, welcher
+        // Key solo'ed wäre (soloedKeys wird nicht übergeben).
         let peaks = Array(repeating: (l: Float32(0.5), r: Float32(0.5)), count: 3)
         let keys = ["a", "b", "c"]
         let gains: [String: Double] = [:]
@@ -43,7 +43,7 @@ final class WaveEnergyMathTests: XCTestCase {
         let neutral = WaveEnergyMath.soloNeutralLinear(slotPeaks: peaks, keys: keys, deviceGains: gains)
         XCTAssertEqual(neutral, peak, accuracy: 0.001)
 
-        // Alte D1-Formel (SoloGain.effective, Solo auf "b"): nur "b" traegt bei
+        // Alte D1-Formel (SoloGain.effective, Solo auf "b"): nur "b" trägt bei
         let soloedKeys: Set<String> = ["b"]
         var maskedSum: Float32 = 0
         for key in keys {
@@ -57,27 +57,24 @@ final class WaveEnergyMathTests: XCTestCase {
     }
 
     func testQuieterSoloDeviceDoesNotChangeTheWave() {
-        // Solo-Geraet mit Gain 0.2, andere 1.0: gleicher Wert wie ohne Solo.
-        // Die Funktion kennt soloedKeys nicht, deviceGains enthalten den Nutzerwert.
+        // Gegenbeispiel zu Option 2 (Division durch die Zahl hörbarer Slots):
+        // Drei Slots gleichen Peaks 0.8, das Solo-Gerät "b" hat gespeichert Gain 0.2.
+        // Solo schreibt deviceGains nie, die Funktion bekommt daher dieselben Eingaben
+        // mit und ohne Solo. Erwartet ist der Mittelwert über ALLE Slots.
         let peaks = Array(repeating: (l: Float32(0.8), r: Float32(0.8)), count: 3)
         let keys = ["a", "b", "c"]
-        let gainsWithQuiet: [String: Double] = ["b": 0.2]
-        // "b" waere solo'ed, aber die Funktion sieht das nicht
-        let result = WaveEnergyMath.soloNeutralLinear(slotPeaks: peaks, keys: keys, deviceGains: gainsWithQuiet)
-        let resultNoGain = WaveEnergyMath.soloNeutralLinear(slotPeaks: peaks, keys: keys, deviceGains: [:])
-        // Ohne Solo aendern die deviceGains den Wert (Geraet ist leiser konfiguriert):
-        // result = (0.8*1.0 + 0.8*0.2 + 0.8*1.0) / 3 = (0.8 + 0.16 + 0.8) / 3 = 0.587
-        // Das ist nicht gleich resultNoGain (0.8), aber beim Wechsel Solo an/aus
-        // aendert sich nix, weil die Funktion soloedKeys nicht kennt.
-        XCTAssertEqual(result, result) // Aufruf idempotent
-        // "Mit Solo" ergibt denselben Wert wie "ohne Solo" bei gleichen Parametern:
-        let withSolo = WaveEnergyMath.soloNeutralLinear(slotPeaks: peaks, keys: keys, deviceGains: gainsWithQuiet)
-        XCTAssertEqual(result, withSolo, accuracy: 0.0001)
-        _ = resultNoGain
+        let gains: [String: Double] = ["b": 0.2]
+        let result = WaveEnergyMath.soloNeutralLinear(slotPeaks: peaks, keys: keys, deviceGains: gains)
+        let expected = Float32(0.8) * (1.0 + 0.2 + 1.0) / 3.0
+        XCTAssertEqual(result, expected, accuracy: 0.0001)
+        // Option 2 unter Solo auf "b" ergäbe 0.8 * 0.2 / 1 = 0.16 und die Welle
+        // würde gegenüber dem Zustand ohne Solo schrumpfen.
+        let option2UnderSolo = Float32(0.8) * 0.2
+        XCTAssertGreaterThan(result, option2UnderSolo)
     }
 
     func testDisconnectedSoloDeviceChangesWaveOnlyThroughPeaks() {
-        // Slot mit Peak (0, 0) senkt den Mittelwert (dokumentierte physische Aenderung).
+        // Slot mit Peak (0, 0) senkt den Mittelwert (dokumentierte physische Änderung).
         let peaks: [(l: Float32, r: Float32)] = [(0.6, 0.6), (0.0, 0.0), (0.6, 0.6)]
         let keys = ["a", "b", "c"]
         let result = WaveEnergyMath.soloNeutralLinear(slotPeaks: peaks, keys: keys, deviceGains: [:])
@@ -111,7 +108,7 @@ final class WaveEnergyMathTests: XCTestCase {
         let result1 = WaveEnergyMath.soloNeutralLinear(slotPeaks: peaks, keys: keys, deviceGains: [:])
         XCTAssertEqual(result1, 1.0, accuracy: 0.0001)
 
-        // Peaks 2.0 (ueber dem normalen Bereich): geklemmt auf 1.0
+        // Peaks 2.0 (über dem normalen Bereich): geklemmt auf 1.0
         let highPeaks = Array(repeating: (l: Float32(2.0), r: Float32(2.0)), count: 3)
         let result2 = WaveEnergyMath.soloNeutralLinear(slotPeaks: highPeaks, keys: keys, deviceGains: [:])
         XCTAssertEqual(result2, 1.0, accuracy: 0.0001)

@@ -189,9 +189,9 @@ public final class FanOutEngine {
         reseedSlotGains()
     }
 
-    /// Live-Update EINES Gains ohne Rebuild. Wirkt im naechsten IOProc-Callback.
-    /// Der Index liegt durch die Pruefung in start/buildAndStartAggregate immer
-    /// unter der Kapazitaet; SlotGains.set bleibt ein Schutz gegen falsche Indizes.
+    /// Live-Update EINES Gains ohne Rebuild. Wirkt im nächsten IOProc-Callback.
+    /// Der Index liegt durch die Prüfung in start/buildAndStartAggregate immer
+    /// unter der Kapazität; SlotGains.set bleibt ein Schutz gegen falsche Indizes.
     public func setOutputGain(_ gain: Float32, forKey key: String) {
         outputGains[key] = gain
         if let idx = slotDeviceKeys.firstIndex(of: key) {
@@ -424,8 +424,8 @@ public final class FanOutEngine {
     /// CASE-008: `exclusive` steuert ueber ``shouldAppendDefaultSlot`` ob der
     /// Default-Output als Slot angehaengt wird.
     private func buildAndStartAggregate(outputs: [OutputConfig], tapUUID: UUID, exclusive: Bool = false) throws {
-        // NT-D5: Slotzahl pruefen (deckt updateOutputs ab). Die Sperre in
-        // addOutputConfig faengt den Fall in der Praxis vorher ab.
+        // NT-D5: Slotzahl prüfen (deckt updateOutputs ab). Die Sperre in
+        // addOutputConfig fängt den Fall in der Praxis vorher ab.
         try OutputLimits.validateOutputCount(outputs.count)
 
         let diagLogger = Logger(subsystem: "com.mauriciomorkun.audiorouternow", category: "SlotDiag")
@@ -596,7 +596,7 @@ public final class FanOutEngine {
             defaultHasHardwareVolume: defaultHasHW
         )
 
-        reseedSlotGains()   // F16: Slot-Reihenfolge steht jetzt fest, Gains einsaeen
+        reseedSlotGains()   // F16: Slot-Reihenfolge steht jetzt fest, Gains einsäen
 
         // Slotzahl durch OutputLimits.validateOutputCount begrenzt (NT-D5).
 

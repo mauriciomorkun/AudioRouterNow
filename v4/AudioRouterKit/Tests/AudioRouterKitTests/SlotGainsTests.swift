@@ -65,7 +65,7 @@ final class SlotGainsTests: XCTestCase {
         }
     }
 
-    // MARK: - Neue Tests NT-S3: Kapazitaet 256
+    // MARK: - Neue Tests NT-S3: Kapazität 256
 
     func testSlotsBeyondFormerLimitAreWritableAndReadable() {
         let sg = SlotGains()
@@ -80,10 +80,10 @@ final class SlotGainsTests: XCTestCase {
         let last = SlotGains.maxSlots - 1  // 255
         sg.set(0.3, slotIndex: last)
         XCTAssertEqual(sg.gain(slotIndex: last), 0.3, accuracy: 0.0001)
-        // Index maxSlots (256) ist ungueltig
+        // Index maxSlots (256) ist ungültig
         sg.set(0.7, slotIndex: SlotGains.maxSlots)  // No-Op
         XCTAssertEqual(sg.gain(slotIndex: SlotGains.maxSlots), 1.0)
-        // Nachbarslot unveraendert
+        // Nachbarslot unverändert
         XCTAssertEqual(sg.gain(slotIndex: last), 0.3, accuracy: 0.0001)
     }
 
@@ -104,13 +104,13 @@ final class SlotGainsTests: XCTestCase {
 
     func testSetAllWithMoreThanCapacityIgnoresExcess() {
         let sg = SlotGains()
-        // 300 Werte, nur die ersten 256 passen in die Kapazitaet
+        // 300 Werte, nur die ersten 256 passen in die Kapazität
         var gains = [Float32](repeating: 0.5, count: 300)
         for i in 0..<256 { gains[i] = Float32(i) / 256.0 }
         sg.setAll(gains)  // darf nicht crashen
-        // Slot 255 (letzter gueltiger) traegt den Wert aus Index 255
+        // Slot 255 (letzter gültiger) trägt den Wert aus Index 255
         XCTAssertEqual(sg.gain(slotIndex: 255), Float32(255) / 256.0, accuracy: 0.001)
-        // Kein Zugriff ueber die Kapazitaet (kein Absturz genuegt)
+        // Kein Zugriff über die Kapazität (kein Absturz genügt)
         XCTAssertEqual(sg.gain(slotIndex: 256), 1.0)
     }
 

@@ -2,7 +2,7 @@
 //  OutputLimitsTests.swift
 //  AudioRouterKitTests
 //
-//  Prueft OutputLimits-Konstanten, AddDecision und validateOutputCount (NT-S2).
+//  Prüft OutputLimits-Konstanten, AddDecision und validateOutputCount (NT-S2).
 //
 
 import XCTest

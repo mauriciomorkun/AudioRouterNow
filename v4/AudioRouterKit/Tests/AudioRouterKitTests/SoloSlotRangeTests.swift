@@ -2,14 +2,14 @@
 //  SoloSlotRangeTests.swift
 //  AudioRouterKitTests
 //
-//  Prueft, dass SoloGain.effective und SlotGains.set/gain fuer Slots jenseits
+//  Prüft, dass SoloGain.effective und SlotGains.set/gain für Slots jenseits
 //  von Index 16 korrekt zusammenarbeiten (NT-S8, W1).
 //
 //  Hinweis: Diese Datei bildet die Pipeline applySoloGains (EngineController) mit
 //  setOutputGain (FanOutEngine) aus den beiden Kit-Bausteinen nach: SoloGain.effective
-//  je Schluessel, Ergebnis per SlotGains.set(_, slotIndex:), Lesen per gain(slotIndex:).
-//  Dies prueft, dass die Bausteine ueber Index 16 hinaus zusammenpassen, NICHT den
-//  EngineController oder FanOutEngine selbst (diese benoetigen CoreAudio/App-Target).
+//  je Schlüssel, Ergebnis per SlotGains.set(_, slotIndex:), Lesen per gain(slotIndex:).
+//  Dies prüft, dass die Bausteine über Index 16 hinaus zusammenpassen, NICHT den
+//  EngineController oder FanOutEngine selbst (diese benötigen CoreAudio/App-Target).
 //
 
 import XCTest
@@ -21,7 +21,7 @@ final class SoloSlotRangeTests: XCTestCase {
         (0..<count).map { "device-uid:slot-\($0)" }
     }
 
-    /// Hilfsfunktion: simuliert applySoloGains fuer alle Keys mit gegebenen soloedKeys
+    /// Hilfsfunktion: simuliert applySoloGains für alle Keys mit gegebenen soloedKeys
     private func applyGains(keys: [String], soloedKeys: Set<String>, deviceGains: [String: Double],
                             into sg: SlotGains) {
         for (i, key) in keys.enumerated() {
@@ -39,7 +39,7 @@ final class SoloSlotRangeTests: XCTestCase {
 
         applyGains(keys: keys, soloedKeys: soloedKeys, deviceGains: deviceGains, into: sg)
 
-        // Solo-Slot 100 traegt den gespeicherten Gain
+        // Solo-Slot 100 trägt den gespeicherten Gain
         XCTAssertEqual(sg.gain(slotIndex: 100), 0.7, accuracy: 0.001)
         // Alle anderen Slots (0, 15, 16, 17, 119) sind stumm
         for idx in [0, 15, 16, 17, 119] {
@@ -87,7 +87,7 @@ final class SoloSlotRangeTests: XCTestCase {
         let sg = SlotGains()
         sg.set(0.4, slotIndex: 40)
         XCTAssertEqual(sg.gain(slotIndex: 40), 0.4, accuracy: 0.001)
-        // Nachbarn unveraendert (1.0)
+        // Nachbarn unverändert (1.0)
         XCTAssertEqual(sg.gain(slotIndex: 39), 1.0)
         XCTAssertEqual(sg.gain(slotIndex: 41), 1.0)
     }
@@ -135,11 +135,11 @@ final class SoloSlotRangeTests: XCTestCase {
         let keys = ["", "device:0", "device:2"]
         let sg = SlotGains()
         let soloedKeys: Set<String> = ["device:0"]
-        // Leerer Schluessel: unter Solo ergibt SoloGain.effective 0.0 (nicht enthalten)
+        // Leerer Schlüssel: unter Solo ergibt SoloGain.effective 0.0 (nicht enthalten)
         applyGains(keys: keys, soloedKeys: soloedKeys, deviceGains: [:], into: sg)
         XCTAssertEqual(sg.gain(slotIndex: 0), 0.0)   // Leerer Key ist nicht solo'ed
         XCTAssertEqual(sg.gain(slotIndex: 1), 1.0)   // "device:0" ist solo'ed
-        // Schreiben auf einen gueltigen Index ueber 16 ist problemlos
+        // Schreiben auf einen gültigen Index über 16 ist problemlos
         sg.set(0.5, slotIndex: 20)
         XCTAssertEqual(sg.gain(slotIndex: 20), 0.5, accuracy: 0.001)
     }

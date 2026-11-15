@@ -20,7 +20,7 @@ import os
 ///   `deinit` (nach `AudioDeviceStop`, RT-Pfad ruht) freigegeben.
 final class PeakMeters: @unchecked Sendable {
 
-    /// Kapazitaet, gleich `OutputLimits.maxSlots`.
+    /// Kapazität, gleich `OutputLimits.maxSlots`.
     static let maxSlots = OutputLimits.maxSlots
 
     private var _lock = os_unfair_lock_s()

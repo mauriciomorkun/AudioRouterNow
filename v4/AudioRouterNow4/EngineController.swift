@@ -96,7 +96,7 @@ final class EngineController: ObservableObject {
     @Published private(set) var outputConfigs: [OutputConfig] = []
     @Published private(set) var availableDevices: [(uid: String, name: String, channelCount: Int)] = []
 
-    /// NT-D5: Meldung, wenn das Hinzufuegen einer Ausgabe wegen der Slot-Obergrenze abgelehnt wurde.
+    /// NT-D5: Meldung, wenn das Hinzufügen einer Ausgabe wegen der Slot-Obergrenze abgelehnt wurde.
     @Published private(set) var outputLimitNotice: String?
 
     /// Per-Device-Gain [0…1] pro Composite-Key "<uid>:<channelOffset>" (F16).
@@ -537,9 +537,9 @@ final class EngineController: ObservableObject {
         deviceLatencies[config.uid]
     }
 
-    /// Fuegt ein Output-Ziel hinzu, persistiert es und wendet die Aenderung bei
-    /// laufendem Routing per Warm-Restart an. Duplikate und Limit-Ueberschreitungen
-    /// werden abgelehnt (NT-D5).
+    /// Fügt ein Output-Ziel hinzu, persistiert es und wendet die Änderung bei
+    /// laufendem Routing per Warm-Restart an. Duplikate bleiben ein No-Op, eine
+    /// Überschreitung der Slot-Obergrenze wird mit einer Meldung abgelehnt (NT-D5).
     func addOutputConfig(_ config: OutputConfig) {
         switch OutputLimits.addDecision(
             currentCount: outputConfigs.count,
@@ -558,7 +558,7 @@ final class EngineController: ObservableObject {
         }
     }
 
-    /// Entfernt ein Output-Ziel, persistiert und wendet die Aenderung bei
+    /// Entfernt ein Output-Ziel, persistiert und wendet die Änderung bei
     /// laufendem Routing per Warm-Restart an.
     func removeOutputConfig(_ config: OutputConfig) {
         outputLimitNotice = nil
@@ -748,26 +748,29 @@ final class EngineController: ObservableObject {
     }
 
     /// Berechnet die Audio-Energie perceptual (dBFS-skaliert) aus den Slot-Peaks
-    /// und glaettet per EMA: schneller Attack (a = 0.55), langsamer Release
-    /// (a = 0.10), VU-Meter-Charakter. Befuellt zusaetzlich `peakLevels` bei
-    /// 20fps fuer flussige Signal-Meter. Ohne Audio zerfaellt der Wert natuerlich.
+    /// und glättet per EMA: schneller Attack (α = 0.55), langsamer Release
+    /// (α = 0.10), VU-Meter-Charakter. Befüllt zusätzlich `peakLevels` bei
+    /// 20fps für flüssige Signal-Meter. Ohne Audio zerfällt der Wert natürlich.
     private func updateWaveEnergy() {
         guard status == .routing else { decayWaveEnergy(); return }
         let slots = engine.slotDeviceKeys.count
         guard slots > 0 else { decayWaveEnergy(); return }
 
-        // 1. Peaks lesen + peakLevels aktualisieren (20fps fuer Signal-Meter, Fix 2)
+        // 1. Peaks lesen + peakLevels aktualisieren (20fps für Signal-Meter, Fix 2)
         var newPeaks: [String: (l: Float32, r: Float32)] = [:]
         var slotPeaks: [(l: Float32, r: Float32)] = []
         slotPeaks.reserveCapacity(slots)
         for (i, key) in engine.slotDeviceKeys.enumerated() {
+            // W2: Anzeige-Pegel = IOProc-Peak (post-globalVol) × Per-Device-Gain.
+            // Multiplikation bewusst HIER im MainActor-Poll (20 fps), nicht im
+            // IOProc, der RT-Record bleibt gain-frei (eine Quelle, alle Slots).
             let raw = engine.peakLevel(slotIndex: i)
             slotPeaks.append(raw)
             // Meter: effektiver Gain, stumme Karten zeigen keinen Pegel (B1, cba4489).
             let gain = SoloGain.effective(key: key, soloedKeys: soloedKeys, deviceGains: deviceGains)
             let p = (l: raw.l * gain, r: raw.r * gain)
             let prev = peakLevels[key] ?? (l: 0, r: 0)
-            // Peak-Hold: schneller Attack, Release x0.80/Tick bei 20fps
+            // Peak-Hold: schneller Attack, Release ×0.80/Tick bei 20fps
             newPeaks[key] = (
                 l: max(p.l, prev.l * 0.80),
                 r: max(p.r, prev.r * 0.80)
@@ -776,16 +779,16 @@ final class EngineController: ObservableObject {
         if !newPeaks.isEmpty { peakLevels = newPeaks }
 
         // W2 (NT-D4, docs/v4.1/14-plan-nachtrag.md): Welle Solo-neutral, ersetzt D1 (Welle)
-        // aus docs/v4.1/05-plan-v2.md. Solo darf die Wellenhoehe nicht verringern.
+        // aus docs/v4.1/05-plan-v2.md. Solo darf die Wellenhöhe nicht verringern.
         let linear = WaveEnergyMath.soloNeutralLinear(
             slotPeaks: slotPeaks, keys: engine.slotDeviceKeys, deviceGains: deviceGains)
 
-        // 2. Perceptual Energy: linear nach dBFS nach normalisiert [0,1].
+        // 2. Perceptual Energy: linear → dBFS → normalisiert [0,1].
         //    Warum nicht der lineare Peak direkt? Menschliches Lautheitsempfinden
-        //    ist logarithmisch: bei -16 dBFS wirkt Musik "gut hoerbar", der lineare
-        //    Peak ist dort aber nur 0.16, die Welle bliebe optisch fast flach.
-        //    Ueber dBFS wird daraus perceptual etwa 0.73, visuell stimmig.
-        //    a) linearer Mittel-Peak ueber alle Slots, gegen 1.0 geklemmt (von WaveEnergyMath).
+        //    ist logarithmisch: bei −16 dBFS wirkt Musik „gut hörbar", der lineare
+        //    Peak ist dort aber nur 0.16 → die Welle bliebe optisch fast flach.
+        //    Über dBFS wird daraus perceptual ≈ 0.73 → visuell stimmig.
+        //    a) linearer Mittel-Peak über alle Slots, gegen 1.0 geklemmt (siehe oben).
         //    b) in dBFS umrechnen; Floor bei 0.001 verhindert log10(0) = −∞.
         //       Ergebnis liegt in (−60 … 0] (0.001 ≈ −60 dBFS, 1.0 = 0 dBFS).
         let dBFS = 20.0 * log10(Double(max(linear, 0.001)))   // −∞..0

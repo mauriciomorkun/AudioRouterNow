@@ -30,8 +30,8 @@ public final class SlotGains: @unchecked Sendable {
 
     // MARK: - IOProc-Pfad (Reader)
 
-    /// Liest den Gain fuer einen Slot. RT-sicher. Out-of-range: 1.0 (Unity).
-    /// (Reiner Schutz gegen falsche Indizes, in Produktion durch `OutputLimits` nicht erreichbar.)
+    /// Liest den Gain für einen Slot. RT-sicher. Out-of-range → 1.0 (Unity)
+    /// (reiner Schutz gegen falsche Indizes, in Produktion durch `OutputLimits` nicht erreichbar).
     @inline(__always)
     public func gain(slotIndex: Int) -> Float32 {
         guard slotIndex >= 0 && slotIndex < Self.maxSlots else { return 1.0 }
