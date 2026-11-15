@@ -205,3 +205,49 @@ Zählerstand 255 ab (Duplikate zuerst). `validateOutputCount` wirft ab 256. Die 
 und 256 sowie Index 255 (gültig) und 256 (ungültig) in `SlotGains` und `PeakMeters`. Per Lektüre
 zu prüfen bleibt, dass `slots.count <= Konfigurationen + 1` auch im Exklusiv-Modus und bei der
 Deduplizierung über `addedConfigKeys` gilt (Plan, Abschnitt 2.2).
+
+---
+
+## Nachtrag Durchlauf 2 (NT2-S0 bis NT2-S4)
+
+Umsetzer: Fable 5, Durchlauf 2 von hoechstens 3 des Nachtrags-Zyklus.
+Plan: `docs/v4.1/17-plan-nachtrag-v2.md` (Commit `23be274`). Ausgefuehrt: 2026-11-15.
+Vollstaendiges Protokoll in `docs/v4.1/18-impl-nachtrag-v2.md`.
+
+### Schritte
+
+| Schritt | Commit | swift-testing / XCTest | App-Build | Neue Tests |
+|---------|--------|------------------------|-----------|------------|
+| NT2-S0 Baseline | keiner | 60 / 95 | BUILD SUCCEEDED | 0 |
+| NT2-S1 G1+G3 Signaturtest+Kommentar | `5835733` | 60 / 96 | BUILD SUCCEEDED | 1 XCTest |
+| NT2-S2 G2 outputLimitNotice bei Erfolg | `dc32d9b` | 60 / 96 | BUILD SUCCEEDED | 0 |
+| NT2-S3 G5 Kommentar slotPeaks-Allokation | `2ff74a5` | 60 / 96 | BUILD SUCCEEDED | 0 |
+| NT2-S4 Doku-Update | (dieser Commit) | 60 / 96 | n/a | 0 |
+
+### Entscheidungen
+
+- NT2-D1: G2 Luecke 1 kein Fix (akzeptierter Zustand, `errorSection` mit erklaerndem Text genuegt).
+- NT2-D2: G2 Luecke 2 Fix: `outputLimitNotice = nil` in `performStart` und `restartRouting` Erfolgsblock.
+- NT2-D3: G1 Regressionsschutz durch Signatur-Test (Compiler-Pruefung) und Kommentar.
+- NT2-D4: G4 bereits geloest, kein Eingriff.
+- NT2-D5: G5 nur Kommentar, kein Produktivcode-Fix.
+
+### Abweichungen
+
+Keine. Alle Schritte plankonform ausgefuehrt.
+
+### Gesamt-Teststand nach Durchlauf 2
+
+| | swift-testing | XCTest | App-Build |
+|--|---------------|--------|-----------|
+| Eingang (NT2-S0 = NT-S10) | 60 in 10 Suiten | 95 | BUILD SUCCEEDED |
+| Nachher (NT2-S3) | 60 in 10 Suiten | 96 | BUILD SUCCEEDED |
+
+Zuwachs: 1 XCTest (`testSoloNeutralLinearSignatureHasNoSoloedKeys` in `WaveEnergyMathTests`).
+Alle gruen, 0 Fehler.
+
+### Offene Messpunkte
+
+Unveraendert NM-1 bis NM-7 (s.o.), alle OFFEN, NICHT VERIFIZIERT.
+NT2-D2 eroeffnet neuen Messpunkt NM-6 (Meldung nach erfolgreichem Start verschwindet),
+bereits in der NM-6-Zeile oben eingetragen.
