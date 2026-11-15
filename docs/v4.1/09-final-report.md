@@ -408,13 +408,13 @@ Dieser Abschnitt ist angehängt. Die Abschnitte 1 bis 10 sind unverändert und g
 
 ### Endstand des Nachtrags (nach Durchlauf 3, Stand 2026-11-15)
 
-Der Nachtrags-Zyklus lief in drei Durchläufen, das Limit ist damit ausgeschöpft. Der Audit zu Durchlauf 3 steht aus und ist der letzte.
+Der Nachtrags-Zyklus lief in drei Durchläufen, das Limit ist damit ausgeschöpft. Der Audit zu Durchlauf 3 (`22-audit-nachtrag-v3.md`) hat alle Befunde geprüft und den Zyklus für abgeschlossen erklärt.
 
 | Durchlauf | Plan | Umsetzung | Audit | Befunde |
 |-----------|------|-----------|-------|---------|
 | 1 | `14-plan-nachtrag.md`, `5dc55f5` | `49f1a2c` bis `634d922`, Protokoll `15-impl-nachtrag.md` | `16-audit-nachtrag-v1.md`, `8dd0838` | G1 und G2 mittel, G3 bis G5 niedrig |
 | 2 | `17-plan-nachtrag-v2.md`, `23be274` | `5835733`, `dc32d9b`, `2ff74a5`, Protokoll `97f687c`, Hash-Nachtrag `07bdfef` | `19-audit-nachtrag-v2.md`, `77f0d1f` | H1 mittel, H2 und H3 niedrig |
-| 3 | `20-plan-nachtrag-v3.md`, `2ae52d9` (korrigiert in `2960723`) | `e2bcc93`, `b9faad8`, `63b4d04`, Protokoll `21-impl-nachtrag-v3.md` | steht aus | offen |
+| 3 | `20-plan-nachtrag-v3.md`, `2ae52d9` (korrigiert in `2960723`) | `e2bcc93`, `b9faad8`, `63b4d04`, Protokoll `21-impl-nachtrag-v3.md` | `22-audit-nachtrag-v3.md` | H1 und H2 behoben, H3 akzeptiert (NT3-D3), keine neuen Befunde |
 
 | ID | Schwere | Befund | Status |
 |----|---------|--------|--------|
@@ -429,4 +429,4 @@ Der Nachtrags-Zyklus lief in drei Durchläufen, das Limit ist damit ausgeschöpf
 
 **Teststand zuletzt** (in Durchlauf 3 selbst ausgeführt, nach `63b4d04`): 60 swift-testing in 10 Suiten und 96 XCTest, alle grün, App-Build (Debug, `CODE_SIGNING_ALLOWED=NO`) erfolgreich. `preflight.sh`: 1 ABBRUCH (Archiv 4.0.1 (10), erwartet 4.1 (11)) und die bekannten Warnungen. `EngineController` und `MenuBarView` haben kein Test-Target, Änderungen dort sind per Lektüre und Build geprüft.
 
-**Offen:** NM-1 bis NM-7 und M1 bis M9 (am Gerät) sowie die Nutzeraufgaben aus Abschnitt 8. Kein Push, kein Tag, keine Einreichung. Der Hash des Dokumentations-Commits von Durchlauf 3 steht nicht hier, er ist per `git log` auffindbar.
+**Offen:** NM-1 bis NM-7 und M1 bis M9 (am Gerät) sowie die Nutzeraufgaben aus Abschnitt 8. Kein Push, kein Tag, keine Einreichung. Hashes der Dokumentations-Commits per `git log` auffindbar.
