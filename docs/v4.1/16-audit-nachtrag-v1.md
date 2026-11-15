@@ -25,7 +25,7 @@ Alle Befehle auf Branch `release/4.1`, Commit `634d922`.
 bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/test.sh
 ```
 
-Ergebnis: 60 swift-testing in 10 Suiten, 95 XCTest -- alle gruen, 0 Fehler.
+Ergebnis: 60 swift-testing in 10 Suiten, 95 XCTest, alle gruen, 0 Fehler.
 Zuwachs gegenueber Baseline (59/56): +1 swift-testing, +39 XCTest. Erwartet.
 
 ### App-Build
@@ -85,7 +85,7 @@ Belege:
 - `testQuieterSoloDeviceDoesNotChangeTheWave` prueft den Erwartungswert
   `0.8 * (1.0 + 0.2 + 1.0) / 3` und ist nicht tautologisch (selbst geprueft).
 - `testSoloDoesNotLowerTheWave` ist planmaessig strukturell tautologisch (zwei
-  identische Aufrufe) -- Schwaeche dokumentiert (G4).
+  identische Aufrufe), Schwaeche dokumentiert (G4).
 - Hardware-Messung (NM-3) steht aus.
 
 ---
@@ -98,7 +98,7 @@ Keine.
 
 ### Mittel
 
-#### G1: `testSoloDoesNotLowerTheWave` -- kein echter Regressionsschutz fuer W2 (mittel)
+#### G1: `testSoloDoesNotLowerTheWave`: kein echter Regressionsschutz fuer W2 (mittel)
 
 **Datei:** `v4/AudioRouterKit/Tests/AudioRouterKitTests/WaveEnergyMathTests.swift`, Z. 20-31.
 
@@ -130,7 +130,7 @@ Wiedereinfuehren der alten Formel, aber nicht gegen das stille Einfuehren von `s
 verschiedenen Eingaben prueft: einmal mit `deviceGains` enthaltend alle Keys mit Gain 1.0
 ("kein Solo"), einmal mit einem Key mit Gain 0.0 (Simulation des Effekts, wenn `soloedKeys`
 in die Funktion sickerte). Der Test sollte zeigen, dass das Ergebnis mit Gain 0.0 kleiner ist
-als mit Gain 1.0 -- das wuerde rot, wenn `soloedKeys` in die Funktion gebaut und Solo dann doch
+als mit Gain 1.0, das wuerde rot, wenn `soloedKeys` in die Funktion gebaut und Solo dann doch
 den Divisor beeinflussen wuerde. Alternativ genuegt ein Kommentar, der diesen Sachverhalt
 explizit als "nur Signatur-Garantie, kein Wert-Test" kennzeichnet. Der Plan nennt diesen
 Sachverhalt bereits; der Test selbst hat keinen erlaeuternden Kommentar ausserhalb von Z. 20-23.
@@ -182,7 +182,7 @@ outputLimitNotice = nil
 
 ### Niedrig
 
-#### G3: `testSoloDoesNotLowerTheWave` -- fehlender erklaerder Kommentar im Testkoerper (niedrig)
+#### G3: `testSoloDoesNotLowerTheWave`: fehlender erklaerder Kommentar im Testkoerper (niedrig)
 
 **Datei:** `WaveEnergyMathTests.swift`, Z. 20-31.
 
@@ -201,7 +201,7 @@ und Lesbarkeitsluecke, kein funktionaler Fehler.
 
 ---
 
-#### G4: `docs/v4.1/09-final-report.md` -- Verweis auf `16-audit-nachtrag.md` statt `16-audit-nachtrag-v1.md` (niedrig)
+#### G4: `docs/v4.1/09-final-report.md`: Verweis auf `16-audit-nachtrag.md` statt `16-audit-nachtrag-v1.md` (niedrig)
 
 **Datei:** `docs/v4.1/09-final-report.md`, Z. 378 (vor der Korrektur durch diesen Audit).
 
@@ -217,7 +217,7 @@ Lauf aktualisiert (nicht Teil des Produktivcode-Nachtrags, nur Doku-Konsistenz).
 
 ---
 
-#### G5: `updateWaveEnergy` -- je Tick eine Array-Allokation auf dem MainActor (niedrig, kein RT-Pfad)
+#### G5: `updateWaveEnergy`: je Tick eine Array-Allokation auf dem MainActor (niedrig, kein RT-Pfad)
 
 **Datei:** `v4/AudioRouterNow4/EngineController.swift`, Z. 761-762.
 
