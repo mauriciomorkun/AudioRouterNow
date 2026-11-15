@@ -29,7 +29,7 @@ Testspalte: swift-testing / XCTest nach dem Schritt, jeweils alle grün. Der App
 | NT-S8 `SoloSlotRangeTests` | `b5a76cf` | 60 / 95 | 7 XCTest |
 | NT-S9 Doku | `b4bf696` | 60 / 95 | 0 |
 | Nacharbeit (Kommentare, ein Test) | `3a6d203` | 60 / 95 | 0 neu, 1 Test ersetzt |
-| NT-S10 Abschluss, dieses Protokoll | Commit "docs(v4.1): Protokoll Nachtrag" im Git-Verlauf | 60 / 95 | 0 |
+| NT-S10 Abschluss, dieses Protokoll | `821e968` (und ein Nachtrag zum Preflight-Lauf 2) | 60 / 95 | 0 |
 
 Alle Schritte haben den Status "erledigt". Der Inhalt entspricht dem Plan, Abweichungen stehen
 im nächsten Abschnitt. Die Akzeptanzprüfungen des Plans, in diesem Lauf ausgeführt:
@@ -47,8 +47,8 @@ im nächsten Abschnitt. Die Akzeptanzprüfungen des Plans, in diesem Lauf ausgef
 - **NT-S7:** `MenuBarView` bekommt die bedingte Zeile und `limitNoticeSection`. Keine neue
   Datei, kein `GeometryReader`, kein `PreferenceKey`.
 - **NT-S9:** `grep -n "Known limitation" CHANGELOG.md RELEASE_NOTES.md` ohne Treffer. Die
-  neuen Texte enthalten keinen Gedankenstrich, Em-Dash oder En-Dash (per `grep -P` auf U+2013,
-  U+2014 und " — " in den eigenen Diffs geprüft). Keine Namen.
+  neuen Texte enthalten keinen Gedankenstrich, Em-Dash oder En-Dash (per `grep -P` auf U+2013
+  und U+2014 sowie dem Gedankenstrich mit Leerzeichen in den eigenen Diffs geprüft). Keine Namen.
 
 ---
 
@@ -150,6 +150,11 @@ Lauf 1, vor dem Commit dieses Protokolls: 1 ABBRUCH, 3 Warnungen.
 - Warnung: nicht committete Änderungen (zu diesem Zeitpunkt nur dieses noch untracked Protokoll).
 - Warnung: Commits sind noch nicht gepusht (bekannt, Push nicht erlaubt).
 - OK: xcconfig 4.1 (11), Tag `v4.1` existiert nicht, App Sandbox und Audio Input vorhanden.
+
+Lauf 2, nach dem Commit `821e968` (Arbeitsbaum sauber): 1 ABBRUCH, 2 Warnungen. Der ABBRUCH
+(Archiv 4.0.1 (10), erwartet 4.1 (11)) und die Warnungen zu `v4-appstore/` und zu nicht
+gepushten Commits sind unverändert gegenüber dem Plan. Die Warnung zu uncommitteten Änderungen
+ist verschwunden. Es gibt keine Abweichung vom erwarteten Ergebnis.
 
 ---
 
