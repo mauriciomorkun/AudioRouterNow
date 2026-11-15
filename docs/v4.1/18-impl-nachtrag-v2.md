@@ -20,7 +20,7 @@ App-Build: `Debug`, `CODE_SIGNING_ALLOWED=NO`, `platform=macOS`.
 | NT2-S1 G1+G3: Signaturtest und Kommentar | `5835733` | 60 / 96 | BUILD SUCCEEDED | 1 XCTest |
 | NT2-S2 G2: outputLimitNotice bei Erfolg loeschen | `dc32d9b` | 60 / 96 | BUILD SUCCEEDED | 0 |
 | NT2-S3 G5: Kommentar zur slotPeaks-Allokation | `2ff74a5` | 60 / 96 | BUILD SUCCEEDED | 0 |
-| NT2-S4 Doku-Update | (dieser Commit) | 60 / 96 | n/a | 0 |
+| NT2-S4 Doku-Update | `97f687c` | 60 / 96 | n/a | 0 |
 
 ---
 
