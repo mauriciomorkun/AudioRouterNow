@@ -356,6 +356,8 @@ final class EngineController: ObservableObject {
                 // P2: Solo-Zustand auf das frische Slot-Layout anwenden
                 // (slotDeviceKeys sind erst NACH start() aktuell).
                 if !soloedKeys.isEmpty { applySoloGains() }
+                // NT2-D2: Meldung loeschen, Routing ist erfolgreich gestartet.
+                outputLimitNotice = nil
                 UserDefaults.standard.set(true, forKey: Self.wasRoutingKey)
             }
         } catch let e as RouterError {
@@ -433,6 +435,8 @@ final class EngineController: ObservableObject {
             captureDeviceLatencies()
             // P2: Solo nach dem Neustart auf das neue Slot-Layout anwenden.
             if !soloedKeys.isEmpty { applySoloGains() }
+            // NT2-D2: Meldung loeschen, Routing-Neustart erfolgreich.
+            outputLimitNotice = nil
         } catch let e as RouterError {
             logger.error("restartRouting: RouterError: \(e.localizedDescription, privacy: .public)")
             status = .error(e)
