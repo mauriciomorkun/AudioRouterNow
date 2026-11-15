@@ -375,7 +375,7 @@ Dieser Abschnitt ist angehängt. Die Abschnitte 1 bis 10 sind unverändert und g
 
 **Anlass.** Ausgaben ab Slot-Index 16 liefen mit festem Unity-Gain, Solo konnte sie nicht stumm schalten, die Pegelanzeige blieb leer, und die Welle war bei mehr als 16 Slots zu klein. Das widersprach den beiden Nutzerwünschen W1 (kein Nachteil bei mehr als 16 Ausgaben) und W2 (die Welle wird unter Solo nie kleiner).
 
-**Dokumente.** Plan: `14-plan-nachtrag.md` (Fassung 2, Commit `5dc55f5`). Umsetzungsprotokoll: `15-impl-nachtrag.md`. Audit Durchlauf 1: `16-audit-nachtrag-v1.md`.
+**Dokumente.** Plan: `14-plan-nachtrag.md` (Fassung 2, Commit `5dc55f5`). Umsetzungsprotokoll: `15-impl-nachtrag.md`. Audit Durchlauf 1: `16-audit-nachtrag-v1.md`. Durchlauf 2: Plan `17-plan-nachtrag-v2.md`, Protokoll `18-impl-nachtrag-v2.md`, Audit `19-audit-nachtrag-v2.md`. Durchlauf 3: Plan `20-plan-nachtrag-v3.md`, Protokoll `21-impl-nachtrag-v3.md`. Der Endstand steht am Ende dieses Abschnitts ("Endstand des Nachtrags").
 
 ### Ergebnis je Wunsch (Code und Unit-Tests, nicht am Gerät geprüft)
 
@@ -405,3 +405,28 @@ Dieser Abschnitt ist angehängt. Die Abschnitte 1 bis 10 sind unverändert und g
 - **M5 (neu):** Mehr als 16 Ausgaben. Ein virtuelles Gerät mit 64 Kanälen (32 Paare) plus ein Interface, mindestens 45 Zeilen. Lautstärke der 17. Ausgabe und einer Ausgabe jenseits der 32. verstellen. Solo auf der 1. Ausgabe, dann Solo auf der 17. und auf einer Ausgabe jenseits der 32. Erwartung: alle Ausgaben verhalten sich gleich, Solo schaltet die anderen stumm, die Lautstärke wirkt. Optionales lokales Experiment für die Grenze: Konstante `OutputLimits.maxSlots` temporär auf 20 senken (nicht committen), bauen, 19 Ausgaben wählen, eine weitere versuchen. Erwartung: Die Meldung erscheint, die Ausgabe wird nicht hinzugefügt. Danach zurückändern.
 - **M9 (neu):** Meter und Welle unter Solo. Wie bisher zeigen die Meter der durch fremdes Solo stummen Karte 0. Neu: Die Welle im Header bleibt unter Solo gleich hoch wie ohne Solo (gleiches Material, mehrere Ausgaben, Solo setzen, wechseln und aufheben).
 - **NM-1 bis NM-7** aus Abschnitt 7 von `14-plan-nachtrag.md` (Hörprüfung über 16 und 32 Ausgaben, Pegelanzeige ab der 17. Ausgabe, Welle unter Solo, CPU-Last, Bedienung bei sehr vielen Zeilen, Meldung am Limit, Speicher). Keine dieser Messungen wurde ausgeführt. Ungeprüft ist insbesondere, ob CoreAudio bei 128 bis 256 Kanalpaaren eines Geräts stabil läuft. Die Messwerte zur CPU-Last im Plan sind synthetisch.
+
+### Endstand des Nachtrags (nach Durchlauf 3, Stand 2026-11-15)
+
+Der Nachtrags-Zyklus lief in drei Durchläufen, das Limit ist damit ausgeschöpft. Der Audit zu Durchlauf 3 steht aus und ist der letzte.
+
+| Durchlauf | Plan | Umsetzung | Audit | Befunde |
+|-----------|------|-----------|-------|---------|
+| 1 | `14-plan-nachtrag.md`, `5dc55f5` | `49f1a2c` bis `634d922`, Protokoll `15-impl-nachtrag.md` | `16-audit-nachtrag-v1.md`, `8dd0838` | G1 und G2 mittel, G3 bis G5 niedrig |
+| 2 | `17-plan-nachtrag-v2.md`, `23be274` | `5835733`, `dc32d9b`, `2ff74a5`, Protokoll `97f687c`, Hash-Nachtrag `07bdfef` | `19-audit-nachtrag-v2.md`, `77f0d1f` | H1 mittel, H2 und H3 niedrig |
+| 3 | `20-plan-nachtrag-v3.md`, `2ae52d9` (korrigiert in `2960723`) | `e2bcc93`, `b9faad8`, `63b4d04`, Protokoll `21-impl-nachtrag-v3.md` | steht aus | offen |
+
+| ID | Schwere | Befund | Status |
+|----|---------|--------|--------|
+| G1 | mittel | `testSoloDoesNotLowerTheWave` schützte W2 nicht (beide Aufrufe identisch) | Behoben in `5835733`: Signaturtest `testSoloNeutralLinearSignatureHasNoSoloedKeys`. Audit 2 hat ihn per Mutation geprüft (Parameter mit und ohne Default-Wert: Kompilierfehler) |
+| G2 | mittel | `outputLimitNotice` nicht synchron mit Start und Restart | Lücke 2 (Erfolgsfall) behoben in `dc32d9b` (`performStart`, `restartRouting`). Lücke 1 (Startfehlerpfad) bewusst kein Fix (NT2-D1, laut Audit 2 genügt der Text in `errorSection`) |
+| G3 | niedrig | Erklärender Kommentar im Testkörper fehlte | Behoben in `5835733` |
+| G4 | niedrig | Dateiname-Verweis `16-audit-nachtrag.md` statt `-v1` | Bereits in Durchlauf 1 behoben, von Audit 2 bestätigt |
+| G5 | niedrig | Je Tick eine Array-Allokation in `updateWaveEnergy` ohne Kommentar | Kommentar in `2ff74a5`, enthielt aber eine falsche Zahl (H1) |
+| H1 | mittel | Kommentar nannte "~5120 Allokationen/s". Richtig: 20 Allokationen pro Sekunde, 5120 sind Element-Schreibzugriffe (20 Hz x 256) | Behoben in `e2bcc93` und `63b4d04` (nur Kommentar). Der Fehler stammte aus dem Plan `17-plan-nachtrag-v2.md` (NT2-D5), der unverändert bleibt |
+| H2 | niedrig | " -- " im Testkommentar von `WaveEnergyMathTests.swift` | Behoben in `b9faad8` |
+| H3 | niedrig | `warmRestartForSampleRateChange` löscht `outputLimitNotice` nicht | Akzeptierter Rest, kein Code (NT3-D3). Die Meldung ist nicht an den Routing-Zustand gebunden und bleibt nach einem SR-Warmrestart sachlich richtig, weil dieser die Ausgabeliste nicht ändert |
+
+**Teststand zuletzt** (in Durchlauf 3 selbst ausgeführt, nach `63b4d04`): 60 swift-testing in 10 Suiten und 96 XCTest, alle grün, App-Build (Debug, `CODE_SIGNING_ALLOWED=NO`) erfolgreich. `preflight.sh`: 1 ABBRUCH (Archiv 4.0.1 (10), erwartet 4.1 (11)) und die bekannten Warnungen. `EngineController` und `MenuBarView` haben kein Test-Target, Änderungen dort sind per Lektüre und Build geprüft.
+
+**Offen:** NM-1 bis NM-7 und M1 bis M9 (am Gerät) sowie die Nutzeraufgaben aus Abschnitt 8. Kein Push, kein Tag, keine Einreichung. Der Hash des Dokumentations-Commits von Durchlauf 3 steht nicht hier, er ist per `git log` auffindbar.
