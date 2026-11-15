@@ -764,8 +764,8 @@ final class EngineController: ObservableObject {
         var newPeaks: [String: (l: Float32, r: Float32)] = [:]
         var slotPeaks: [(l: Float32, r: Float32)] = []
         slotPeaks.reserveCapacity(slots)
-        // NT2-D5: slotPeaks wird je Tick neu angelegt (MainActor, 20 Hz, kein IOProc).
-        // Bei 256 Slots sind das ~5120 Allokationen/s, auf einem Mac vernachlaessigbar.
+        // NT2-D5: slotPeaks wird je Tick einmal angelegt (MainActor, 20 Hz, kein IOProc).
+        // 1 Heap-Allokation/Tick (256 Elemente, ~2 KiB, kurzlebig), auf einem Mac vernachlaessigbar.
         // Falls NM-4 einen messbaren Overhead zeigt: Instance-Variable + removeAll(keepingCapacity: true).
         for (i, key) in engine.slotDeviceKeys.enumerated() {
             // W2: Anzeige-Pegel = IOProc-Peak (post-globalVol) × Per-Device-Gain.
