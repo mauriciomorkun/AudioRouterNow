@@ -212,16 +212,21 @@ Nothing else changes; your routing settings and volume levels are kept.
 The App Store description was updated to remove an unverifiable superlative. This
 is a metadata change in App Store Connect only.
 
-#### Known limitation: more than 16 outputs
+#### Many outputs work like few
 
-The per-device volume controls and the Solo button both work through a fixed
-16-slot gain bridge. If you have more than 16 outputs configured, the ones
-beyond the 16th (zero-based: index 16 and above) will not respond to the
-volume slider or Solo; they play at full gain regardless. This is relevant only
-in very large configurations, such as BlackHole 64ch combined with a
-multi-channel interface. The engine logs a warning to the system log when this
-limit is exceeded. The per-device volume constraint has been present since 4.0;
-Solo is new in 4.1 and inherits it.
+Per-device volume, Solo and the level meters now work for every configured output,
+not just the first 16. The engine can route to up to 255 configured outputs at once
+(plus the default output). Trying to add a 256th configured output shows a message
+in the panel instead of silently ignoring the request. These changes are covered by
+unit tests; whether audio stays correct with 45 or more real outputs has not been
+confirmed with hardware.
+
+#### The wave stays put under Solo
+
+The header wave previously shrank when Solo was active. For example, soloing one of
+three equally loud outputs reduced the wave height to a third of its normal value.
+The wave now ignores Solo; the level meters on the individual device cards still show
+silence for silenced outputs.
 
 ---
 

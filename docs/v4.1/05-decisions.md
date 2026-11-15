@@ -44,3 +44,37 @@ acceptable.
 **Fallback.** If a future App Review rejects this behaviour: revert to persisting
 the Launch at Login state across build numbers. This would require a legal
 review of Guideline 2.4.5(iii) compliance at that time.
+
+---
+
+## D2: The header wave ignores Solo (supersedes D1 (wave) in `05-plan-v2.md`)
+
+Added: 2026-11-14, addendum cycle (NT-D4 in `14-plan-nachtrag.md`). Not to be
+confused with D2 (solo testing) in `05-plan-v2.md`: the numbering of this file is
+independent of the numbering in that plan.
+
+Interpretation to be confirmed by the user.
+
+**Question.** What does "the wave must never shrink under Solo" mean, and which
+formula guarantees it?
+
+**Decision.** Solo is not a parameter of `WaveEnergyMath.soloNeutralLinear`.
+The function takes `slotPeaks`, `keys` and `deviceGains`; `soloedKeys` is
+deliberately absent. The result is the average over all slots of the raw peak times the
+stored device gain. Solo cannot change this result, because Solo never writes
+`deviceGains` (CASE-004/R3). The level meters on the cards continue to use
+`SoloGain.effective` (B1 is preserved). This supersedes D1 (wave) from
+`05-plan-v2.md`, which passed `SoloGain.effective` into the sum as well.
+
+**Rationale.** The IOProc writes the same raw peak to every slot (`peaks.record`
+is gain-free). Therefore for each slot `raw_i = raw`. With `deviceGains` as the
+only factor, the sum is `raw * mean(deviceGains)`. Solo does not appear in the
+expression, so the guarantee holds exactly and by construction, regardless of
+which device is soloed and regardless of how many are.
+
+**Scope clarification (to be confirmed by the user).** This applies to Solo only.
+If the user also wants the wave to be independent of the per-device gain sliders
+(a pure-source wave), that is a different request and is not implemented here.
+
+**Fallback.** Restore `SoloGain.effective` for the sum in `updateWaveEnergy`
+(one-commit revert).

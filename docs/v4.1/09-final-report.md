@@ -368,3 +368,40 @@ Archiv, keine Eingabe in App Store Connect.
 | `07-impl-v2.md` | Umsetzungsprotokoll des zweiten Durchlaufs mit Commits, Preflight-Ergebnis und Restrisiken |
 | `08-audit-v2.md` | Audit des zweiten Durchlaufs: Status von B1 bis B5, neuer Befund C1, Testlauf, Build und Preflight |
 | `09-final-report.md` | Dieser Abschlussbericht |
+
+## 11. Nachtrag: Slots und Welle (Stand 2026-11-14)
+
+Dieser Abschnitt ist angehängt. Die Abschnitte 1 bis 10 sind unverändert und geben den Stand vor dem Nachtrag wieder. Wo sie dem Nachtrag widersprechen, gilt der Nachtrag.
+
+**Anlass.** Ausgaben ab Slot-Index 16 liefen mit festem Unity-Gain, Solo konnte sie nicht stumm schalten, die Pegelanzeige blieb leer, und die Welle war bei mehr als 16 Slots zu klein. Das widersprach den beiden Nutzerwünschen W1 (kein Nachteil bei mehr als 16 Ausgaben) und W2 (die Welle wird unter Solo nie kleiner).
+
+**Dokumente.** Plan: `14-plan-nachtrag.md` (Fassung 2, Commit `5dc55f5`). Umsetzungsprotokoll: `15-impl-nachtrag.md`. Das Audit folgt als `16-audit-nachtrag.md`.
+
+### Ergebnis je Wunsch (Code und Unit-Tests, nicht am Gerät geprüft)
+
+**W1.** Die Kapazität liegt in einer Konstante, `OutputLimits.maxSlots = 256`. `SlotGains` und `PeakMeters` verweisen darauf. Die beiden 16er-Zweige in `FanOutEngine` (in `setOutputGain` und der Warn-Block in `buildAndStartAggregate`) und die Schranke `where i < SlotGains.maxSlots` in `updateWaveEnergy` sind entfernt. Konfiguriert werden können höchstens 255 Ausgaben, ein Slot bleibt für den synthetischen Default-Slot frei. Das Hinzufügen einer weiteren Ausgabe wird mit einer Meldung im Panel abgelehnt. `start` und `buildAndStartAggregate` werfen `RouterError.tooManyOutputs`, bevor ein Tap oder Aggregate entsteht, falls eine gespeicherte Liste zu lang ist.
+
+**W2.** Die Welle wird mit `WaveEnergyMath.soloNeutralLinear` berechnet. Die Funktion hat keinen Solo-Parameter, Solo kann die Wellenhöhe daher nicht verändern. Die Meter der Karten behalten `SoloGain.effective` (B1 bleibt erhalten).
+
+### Entscheidungen NT-D1 bis NT-D7
+
+| ID | Inhalt |
+|----|--------|
+| NT-D1 | Kapazität 256, eine Konstante (zu bestätigen) |
+| NT-D2 | Lock-Mechanik unverändert, kein Snapshot |
+| NT-D3 | Feste Konstante statt dynamischer Kapazität |
+| NT-D4 | Welle ignoriert Solo, Meter behalten die B1-Korrektur, ausdrücklich nicht: Welle ohne Geräte-Gain (zu bestätigen) |
+| NT-D5 | Oberhalb der Kapazität: Sperre mit Meldung, Startfehler bei zu langer gespeicherter Liste (zu bestätigen) |
+| NT-D6 | Wellenformel als Kit-Funktion mit index-gleichen Arrays |
+| NT-D7 | Known-limitation entfällt, ersetzt durch Fixed-Einträge mit nur belegten Aussagen (zu bestätigen) |
+
+### Überholte Aussagen in den Abschnitten oben
+
+- Abschnitt 6a (Welle durch alle Slots geteilt, `SoloGain.effective` auch in der Summe) ist durch NT-D4 überholt. Die Entscheidung D1 (Welle) aus `05-plan-v2.md` ist abgelöst, siehe `05-decisions.md`, Eintrag D2.
+- Abschnitt 6c (`maxSlots = 16`, stilles Unity-Gain ab Slot 16) ist durch NT-D1 und NT-D5 überholt. Der Known-limitation-Absatz in CHANGELOG und RELEASE_NOTES entfällt.
+
+### Neu gefasste Messpunkte
+
+- **M5 (neu):** Mehr als 16 Ausgaben. Ein virtuelles Gerät mit 64 Kanälen (32 Paare) plus ein Interface, mindestens 45 Zeilen. Lautstärke der 17. Ausgabe und einer Ausgabe jenseits der 32. verstellen. Solo auf der 1. Ausgabe, dann Solo auf der 17. und auf einer Ausgabe jenseits der 32. Erwartung: alle Ausgaben verhalten sich gleich, Solo schaltet die anderen stumm, die Lautstärke wirkt. Optionales lokales Experiment für die Grenze: Konstante `OutputLimits.maxSlots` temporär auf 20 senken (nicht committen), bauen, 19 Ausgaben wählen, eine weitere versuchen. Erwartung: Die Meldung erscheint, die Ausgabe wird nicht hinzugefügt. Danach zurückändern.
+- **M9 (neu):** Meter und Welle unter Solo. Wie bisher zeigen die Meter der durch fremdes Solo stummen Karte 0. Neu: Die Welle im Header bleibt unter Solo gleich hoch wie ohne Solo (gleiches Material, mehrere Ausgaben, Solo setzen, wechseln und aufheben).
+- **NM-1 bis NM-7** aus Abschnitt 7 von `14-plan-nachtrag.md` (Hörprüfung über 16 und 32 Ausgaben, Pegelanzeige ab der 17. Ausgabe, Welle unter Solo, CPU-Last, Bedienung bei sehr vielen Zeilen, Meldung am Limit, Speicher). Keine dieser Messungen wurde ausgeführt. Ungeprüft ist insbesondere, ob CoreAudio bei 128 bis 256 Kanalpaaren eines Geräts stabil läuft. Die Messwerte zur CPU-Last im Plan sind synthetisch.

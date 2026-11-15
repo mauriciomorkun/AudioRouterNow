@@ -106,6 +106,20 @@
   restart is now discarded and the engine keeps running on the same session. Devices that
   stay away longer than the settle window follow the existing reconnect path.
 
+- **Per-device volume, Solo and the level meters now cover every configured output.**
+  Previously these controls were backed by a 16-slot bridge: outputs from the 17th on
+  played at a fixed gain, ignored Solo and showed no level. The bridges are now sized
+  for 256 slots and the wave header counts every output. The engine can route to up to
+  255 configured outputs at once (plus the default output). Adding more is refused with
+  a message in the panel, and a stored list that is too long is rejected at start with an
+  error instead of silently degrading. The slot bridges and the limit are covered by
+  unit tests.
+
+- **The header wave no longer shrinks when Solo is active.** The wave previously
+  averaged over all outputs while silenced outputs contributed zero, so soloing one of
+  three equally loud outputs cut the wave to a third. The wave now ignores Solo; the level
+  meters on the cards still show silence for silenced outputs.
+
 ### Changed
 
 - **App description updated: removed an unverifiable superlative.** Wording change
@@ -118,19 +132,6 @@
   open the app, expand the footer, and check "Launch at Login".
   This is intended behaviour under Guideline 2.4.5(iii) and was established
   in 4.0.1. See docs/v4.1/05-decisions.md, D1.
-
-### Known limitation
-
-- **Outputs beyond the first 16 do not respond to per-device volume or Solo.**
-  The per-device volume controls and Solo both operate through a 16-slot gain
-  bridge (`SlotGains.maxSlots = 16`). Configured outputs beyond the 16th
-  (zero-based index 16 and above) are not covered by the bridge and play at
-  a fixed gain of 1.0, regardless of the volume slider or Solo state. The
-  engine logs a warning when more than 16 outputs are configured. The
-  per-device volume limit has been present since 4.0; Solo was added in 4.1
-  and inherits the same constraint. Configurations reaching this limit require
-  a device such as BlackHole 64ch together with a large multi-channel interface,
-  and are uncommon.
 
 ---
 

@@ -88,7 +88,7 @@ RT-relevante Details des IOProc (`ioProcImpl`, ab ca. Zeile 729):
 IOProc-Thread (Single-Writer) und dem MainActor-Polling (Single-Reader).
 
 RT-Safety-Vertrag:
-- `storage` (`UnsafeMutableBufferPointer<Float32>`, `maxSlots * 2 = 32` Werte)
+- `storage` (`UnsafeMutableBufferPointer<Float32>`, `OutputLimits.maxSlots * 2 = 512 Werte`)
   wird EINMAL im `init` alloziert und erst im `deinit`, nach `AudioDeviceStop`,
   wenn der RT-Pfad ruht, freigegeben. Keine Allokation im Audio-Pfad.
 - Jeder Zugriff (`record` / `level` / `reset`) ist genau eine
@@ -98,6 +98,8 @@ RT-Safety-Vertrag:
 - `record(l:r:slotCount:)` klemmt `slotCount` gegen `maxSlots` → kein Overrun.
 - `level(slotIndex:)` liefert bei Out-of-range `(0, 0)`.
 - `reset()` nullt alle Pegel (Silence-Callback ohne Delay, Stop, Teardown).
+- Einzige Quelle der Kapazität: `OutputLimits.maxSlots` (NT-D1). Sowohl
+  `SlotGains.maxSlots` als auch `PeakMeters.maxSlots` verweisen darauf.
 
 ### DeviceLatency
 
