@@ -25,7 +25,11 @@ final class WaveEnergyMathTests: XCTestCase {
         let keys = ["a", "b", "c"]
         let gains: [String: Double] = [:]
         let withoutSolo = WaveEnergyMath.soloNeutralLinear(slotPeaks: peaks, keys: keys, deviceGains: gains)
-        // "Solo auf Slot 1": Funktion hat kein soloedKeys, beide Aufrufe identisch
+        // Absicht: soloNeutralLinear hat kein soloedKeys-Argument. Beide Aufrufe sind
+        // identisch -- die Regressionsgarantie liegt in der Signatur der Funktion,
+        // nicht im Vergleichswert. Kein Copy-Paste-Fehler.
+        // Der Signatur-Test testSoloNeutralLinearSignatureHasNoSoloedKeys prueft,
+        // dass die Signatur unveraendert bleibt.
         let withSolo = WaveEnergyMath.soloNeutralLinear(slotPeaks: peaks, keys: keys, deviceGains: gains)
         XCTAssertEqual(withoutSolo, withSolo, accuracy: 0.0001)
     }
@@ -130,5 +134,16 @@ final class WaveEnergyMathTests: XCTestCase {
         let result = WaveEnergyMath.soloNeutralLinear(slotPeaks: peaks, keys: keys, deviceGains: [:])
         // Nur ein Slot mit Peak 1.0: 1.0 / 100 = 0.01
         XCTAssertEqual(result, 1.0 / 100.0, accuracy: 0.001)
+    }
+
+    func testSoloNeutralLinearSignatureHasNoSoloedKeys() {
+        // Regressionsschutz fuer W2 (NT2-D3): Wenn jemand soloedKeys als
+        // Parameter einfuehrt, kompiliert diese Zuweisung nicht mehr.
+        // Der Typ muss exakt ([(l: Float32, r: Float32)], [String], [String: Double]) -> Float32 sein.
+        // Kein Laufzeit-Assert noetig: der Compiler uebernimmt die Pruefung.
+        let _: ([(l: Float32, r: Float32)], [String], [String: Double]) -> Float32
+            = WaveEnergyMath.soloNeutralLinear
+        // Platzhalter-Assertion damit der Compiler kein "never used"-Warn ausgibt.
+        XCTAssertTrue(true)
     }
 }
