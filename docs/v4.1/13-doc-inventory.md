@@ -52,3 +52,23 @@ geschriebenem Text. Keine Nutzer- oder Drittnamen in getrackten Dateien (getrack
 geändert wurden nur `docs/v4.1/README.md` und diese Datei). Getrackter Arbeitsbaum
 nach den Commits sauber.
 
+## Nachtrag 15.11.2026
+
+Erneut gepflegt nach Abschluss des Nachtrag-Zyklus zu 4.1 (W1 und W2, Doku `14` bis `22`):
+
+| Datei | getrackt/lokal | Was geändert |
+|-------|----------------|--------------|
+| `docs/v4.1/13-doc-inventory.md` | getrackt | Dieser Abschnitt angefügt |
+| `BACKLOG.md` | lokal (gitignored) | 4.1-Absatz auf Stand 15.11.2026; `maxSlots`-Eintrag und Wellen-Energie-Teiler-Eintrag als erledigt (W1, W2); M5-Formulierung auf Nachtrag-Stand; neue akzeptierte Reste (NM-5/NM-7, NT3-D3, Test-Target-Lücke) |
+| `TODO.md` | lokal (gitignored) | Stand-Datum und offener-Punkt-Text auf 15.11.2026 und 63 Commits |
+| `LAUNCH_EXECUTION.md` | lokal (gitignored) | Drei neue Einträge für den Nachtrag-Zyklus (Durchlauf 1 bis 3, 14. bis 15.11.2026) |
+| `.claude/CLAUDE.md` | lokal (gitignored) | 4.1-Stand-Block auf 15.11.2026 und 63 Commits; Nachtrag-Inhalt (W1, W2); Messpunkte NM-1 bis NM-7; Lehren aus dem Nachtrag als eigener Abschnitt |
+| `project_audiorouternow_v41_status.md` | lokal (Memory) | Stand 15.11.2026, Nachtrag W1 und W2, Tests 60 plus 96, 63 Commits, NM-1 bis NM-7 |
+| `feedback_agent_auftraege_doppelbindestrich.md` | lokal (Memory) | Neue Datei: " -- " in Agentenauftraegen verbieten |
+| `MEMORY.md` | lokal (Memory) | Zeile `v41_status` auf Stand; neue Zeile `feedback_agent_auftraege_doppelbindestrich` |
+
+Konsistenzprüfung Nachtrag: kein eigener Satz mehr mit "16er-Grenze offen" oder "maxSlots = 16".
+Testzahlen 60 plus 96 konsistent. Commit-Zahl 63 konsistent. Keine Em-, En-Dashes oder
+" -- " in neu geschriebenem Text. Keine Nutzer- oder Drittnamen in getrackten Dateien
+(getrackt geändert wurde nur diese Datei).
+
