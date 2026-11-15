@@ -28,6 +28,7 @@ erwiesen, und welche Behauptungen noch unbewiesen sind.
 | [16-audit-nachtrag-v1.md](16-audit-nachtrag-v1.md) | Audit Nachtrag Durchlauf 1 (Auditor: Fable 5, 2026-11-15). 60 swift-testing + 95 XCTest gruen, Build SUCCEEDED, Preflight unveraendert (1 ABBRUCH, 2 Warnungen). W1 und W2 erfuellt. 2 Befunde mittel (G1: Testluecke Solo-Neutralitaet W2, G2: outputLimitNotice nicht synchronisiert mit Start-Fehlerpfad), 3 Befunde niedrig. Neuer Durchlauf noetig. Status: fertig. |
 | [17-plan-nachtrag-v2.md](17-plan-nachtrag-v2.md) | Nachtragsplan Durchlauf 2 (Planer: Fable 5, 2026-11-15). Scope: G1 (Signaturtest W2), G2-Luecke-2 (outputLimitNotice bei Erfolg loeschen), G3 (Kommentar), G4 (bereits geloest), G5 (Kommentar). 4 Schritte NT2-S0 bis NT2-S4, 5 Entscheidungen NT2-D1 bis NT2-D5. Status: umgesetzt, siehe 15 und 18. |
 | [18-impl-nachtrag-v2.md](18-impl-nachtrag-v2.md) | Umsetzungsprotokoll Durchlauf 2 (Umsetzer: Fable 5, 2026-11-15). Pro Schritt NT2-S0 bis NT2-S4 Status, Commit-Hash, Test- und Build-Ergebnis, Abweichungen. Gesamt: 60/96 gruen, BUILD SUCCEEDED. Status: fertig. |
+| [19-audit-nachtrag-v2.md](19-audit-nachtrag-v2.md) | Audit Nachtrag Durchlauf 2 (Auditor: Fable 5, 2026-11-15). 60 swift-testing + 96 XCTest gruen, Build SUCCEEDED, Preflight unveraendert (1 ABBRUCH, 2 Warnungen). G1 bis G4 behoben. G5: Kommentar eingefuegt, aber 1 Befund mittel (H1: Zahlenwert falsch, 5120 statt 20 Allokationen/s). 2 Befunde niedrig. Neuer Durchlauf noetig. Status: fertig. |
 
 ## Hinweis zur Quellenlage
 
