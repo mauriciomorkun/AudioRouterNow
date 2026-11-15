@@ -26,7 +26,7 @@ final class WaveEnergyMathTests: XCTestCase {
         let gains: [String: Double] = [:]
         let withoutSolo = WaveEnergyMath.soloNeutralLinear(slotPeaks: peaks, keys: keys, deviceGains: gains)
         // Absicht: soloNeutralLinear hat kein soloedKeys-Argument. Beide Aufrufe sind
-        // identisch -- die Regressionsgarantie liegt in der Signatur der Funktion,
+        // identisch, die Regressionsgarantie liegt in der Signatur der Funktion,
         // nicht im Vergleichswert. Kein Copy-Paste-Fehler.
         // Der Signatur-Test testSoloNeutralLinearSignatureHasNoSoloedKeys prueft,
         // dass die Signatur unveraendert bleibt.
