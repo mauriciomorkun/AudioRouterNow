@@ -123,6 +123,34 @@ Filter"), nicht Teil dieser Entscheidung. V1 (Untermenue je Mehrkanalgeraet) und
 | [26-release-plan.md](26-release-plan.md) | Release-Plan: der Weg von `release/4.1` bis zur Einreichung bei App Review (Ist-Stand, Commit-Plan, Voraussetzungen vor dem Archiv, Release-Ablauf, Risiken, Nutzerentscheidungen). Status: fertig (17.11.2026), Architekturaussage am selben Tag korrigiert (v4 ist belegt universal). |
 | [screenshots/](screenshots/README.md) | Sechs Screenshots der Test-Version (Endstand C3 mit V2), aufgenommen am Gerät am 18.11.2026: Leerlauf, Hover-Hinweis am Bug-Symbol, Routing mit 3 Ausgängen, Solo, aufgeklappter Ausgang, Add-device-Menü mit Haken. Arbeitsbilder (Fensterausschnitte), keine fertigen App-Store-Screenshots. |
 
+## Stand vor dem Archiv (18.11.2026)
+
+Checkliste der Vorbereitungen bis zum 4.1-Archiv. Belege und Details in
+`26-release-plan.md` (Hauptteil und Nachtrag 18.11.2026).
+
+**Erledigt:**
+
+- [x] Bedienoberflaeche entschieden: C3 mit V2 (17.11.2026).
+- [x] E2 (Architektur) entschieden: Option A, universal belassen, kein ARCHS
+      (18.11.2026); v4-Aussagen ehrlich formuliert, v3 unveraendert.
+- [x] C3/V2-Arbeitsbaum lokal in Commits gesichert (`1a5a959`, `730b8cf`,
+      `30c4d5e`, `01125b5`, `27dcd0e`, `4942a34`). Nicht gepusht, kein Tag.
+- [x] Signierung in `v4/project.yml` vorbereitet (`CODE_SIGN_STYLE: Automatic`;
+      Team ID bleibt in der gitignorierten `Signing.local.xcconfig`). In einer
+      /tmp-Kopie belegt, dass `xcodegen generate` damit die heutige Signierung
+      reproduziert. Nicht committet.
+- [x] `v4-appstore/` umkehrbar umbenannt nach `v4-appstore.STALE-2026-10-01`;
+      Preflight-Warnung dazu entfaellt.
+- [x] Screenshot-Vorlage vorhanden (Endstand C3 mit V2, `screenshots/`).
+
+**Offen (beim Nutzer):**
+
+- [ ] Messpunkte am Geraet (M1 bis M9, M2b/M2c/M2d, NM-1 bis NM-7).
+- [ ] Lokale `Signing.local.xcconfig` aus der Vorlage anlegen und Team ID setzen.
+- [ ] Neues 4.1-Archiv bauen und signieren (behebt den Preflight-ABBRUCH).
+- [ ] Preflight erneut, App-Store-Connect-Texte, Datum, Tag, Merge, Push,
+      Einreichung. Nur auf ausdrueckliche Anweisung.
+
 ## Hinweis zur Quellenlage
 
 Jedes Dokument in diesem Ordner trennt strikt zwischen:

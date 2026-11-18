@@ -520,3 +520,81 @@ nur Doku: 4.0.1 (10) seit 13.10.2026); Screenshot-Anforderungen in App Store
 Connect; Intel-Verfuegbarkeit von v4 im Portal (ob der App Store Intel-Macs als
 kompatibel fuehrt, trotz universalem Binary). Die Architektur selbst ist **BELEGT
 universal** (siehe oben), nicht mehr offen.
+
+---
+
+## Nachtrag 18.11.2026
+
+Die beiden Vorbereitungspunkte 4(b) und 4(c) wurden angegangen. Belege in
+eckigen Klammern. Nichts committet, kein Push, kein Tag, kein Archiv.
+
+### 4(b) Signierung in `v4/project.yml`
+
+**Ist-Stand (belegt).** Die Signierung lag bisher getrennt: `CODE_SIGN_ENTITLEMENTS`
+und `ENABLE_HARDENED_RUNTIME` in der Spec, aber `DEVELOPMENT_TEAM`,
+`CODE_SIGN_STYLE` und `CODE_SIGN_IDENTITY` nur im getrackten `project.pbxproj`
+[git grep DEVELOPMENT_TEAM HEAD: Treffer in `v4/AudioRouterNow4.xcodeproj/project.pbxproj`;
+Commit `1a8257a`]. Die xcconfig bindet bereits per `#include?` eine lokale,
+gitignorierte `Configs/Signing.local.xcconfig` ein, die bisher nicht existierte
+[ls: No such file]; eine Vorlage `Signing.local.xcconfig.example` war vorhanden.
+
+**Risiko belegt.** In einer /tmp-Kopie (rsync ohne `.git` und `v4-appstore`)
+`xcodegen generate` ausgefuehrt und `xcodebuild -showBuildSettings` davor und danach
+verglichen: vorher `DEVELOPMENT_TEAM = 5...W`, `CODE_SIGN_STYLE = Automatic`,
+`CODE_SIGN_IDENTITY = Apple Development`; nachher `CODE_SIGN_IDENTITY = -` (ad-hoc),
+`CODE_SIGN_STYLE` und `DEVELOPMENT_TEAM` entfallen. Das bestaetigt den Plan-Caveat.
+
+**Team-ID-Offenlegung.** Die Team ID steht bereits getrackt im `project.pbxproj`
+[Fundstelle oben], also waere die Uebernahme in die Spec keine neue Offenlegung.
+Das etablierte Design haelt die Kennung dennoch bewusst aus der getrackten Spec
+heraus (gitignorierte lokale xcconfig plus Vorlage). Dieser Weg wird beibehalten.
+
+**Vorbereitete Aenderung (nicht committet).** `v4/project.yml`: `CODE_SIGN_STYLE:
+Automatic` in die base-Settings des App-Targets (keine persoenliche Kennung). Die
+Team ID bleibt in der gitignorierten `Configs/Signing.local.xcconfig`; die Vorlage
+`Signing.local.xcconfig.example` wurde praezisiert. Nachweis in der /tmp-Kopie: mit
+`CODE_SIGN_STYLE: Automatic` in der Spec plus lokaler xcconfig reproduziert
+`xcodegen generate` die heutige Signierung (`DEVELOPMENT_TEAM`,
+`CODE_SIGN_STYLE = Automatic`, `CODE_SIGN_IDENTITY = Apple Development`,
+`ENABLE_HARDENED_RUNTIME = YES`). `bash v4/scripts/test.sh` 60 swift-testing gruen;
+Debug-Build der /tmp-Kopie mit `CODE_SIGNING_ALLOWED=NO` erfolgreich. Schluesselbund:
+drei gueltige codesigning-Identitaeten vorhanden (zwei "Apple Development", eine
+"Developer ID Application"), nur lesend geprueft. **Noch aus:** Die lokale
+`Signing.local.xcconfig` muss der Nutzer aus der Vorlage anlegen und die Team ID
+eintragen; ein signiertes Store-Archiv wurde nicht gebaut und nichts hochgeladen
+(NICHT PRUEFBAR ohne Archivlauf im Organizer).
+
+### 4(c) `v4-appstore/`
+
+**Befund.** untracked und gitignored [git ls-files: leer; check-ignore: `.gitignore`
+Zeile 156], 594 MB, kein `.git` darin, kein Xcode-Prozess hielt ihn offen. Nur
+dort vorhanden: `PLAN.md` (AirPlay-Architektur, bereits gesichert in
+`docs/v4.1/01-airplay-research.md`), `IMPLEMENTATION_PLAN*.md`, `screenshots/`,
+`review issues/`. Getrackte Erwaehnungen sind reine Doku-Chronik plus die
+Preflight-Pruefung.
+
+**Ausgefuehrt.** Weil Einzigartiges enthalten ist, umkehrbar umbenannt statt
+geloescht: `mv v4-appstore v4-appstore.STALE-2026-10-01`. Rueckgaengig:
+`mv v4-appstore.STALE-2026-10-01 v4-appstore`. `.gitignore` um den neuen Namen
+ergaenzt (sonst erschien er als untracked).
+
+### Preflight vorher und nachher
+
+| Pruefung | vorher | nachher |
+|----------|--------|---------|
+| 1 Projektbaum | WARNUNG v4-appstore/ | **OK** kein zweiter Projektbaum |
+| 6 Letztes Archiv | ABBRUCH 4.0.1 (10) statt 4.1 (11) | ABBRUCH (unveraendert) |
+| Arbeitsbaum / Push | 2 Warnungen | 2 Warnungen |
+
+Vorher 1 ABBRUCH und 3 Warnungen, nachher 1 ABBRUCH und 2 Warnungen. Der ABBRUCH
+verschwindet erst mit einem frischen 4.1-Archiv (Nutzerschritt).
+
+### Stand der Entscheidungen
+
+- C3 mit V2 entschieden (17.11.2026) [docs/v4.1/README.md].
+- E2 = Option A entschieden (18.11.2026): universal belassen, kein ARCHS
+  [Nachtrag in `v4_tags_pending.md`; BACKLOG].
+- C3/V2-Arbeitsbaum lokal gesichert, Commits `1a5a959`, `730b8cf`, `30c4d5e`,
+  `01125b5`, `27dcd0e`, `4942a34`. Nicht gepusht, kein Tag.
+- Screenshot-Vorlage vorhanden (Panel C3 aus der Test-App).
+- **Offen:** Messpunkte am Geraet, neues Archiv, Einreichung.
