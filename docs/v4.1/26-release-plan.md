@@ -472,11 +472,10 @@ Einreichung, Loeschen) nur **auf ausdrueckliche Anweisung**. Reihenfolge verbind
 7. **Einreichungszeitpunkt und Release-Option:** Datum? Release manuell (wie 4.0.1)
    oder automatisch? **Empfehlung:** manuell. **Auswirkung:** Nutzer entscheidet, wann
    4.1 oeffentlich wird.
-8. **Homepage zeitgleich umstellen?** und **Google-Kalender neu anmelden** fuer die
-   Erinnerungen (Anmeldung abgelaufen [CLAUDE.md])? **Empfehlung:** Homepage erst
-   **nach** Live-Gehen (automatischer Umschalter wie 4.0.1); Kalender neu anmelden,
-   wenn Messtermin steht. **Auswirkung:** keine Vorab-Aussage auf der Seite vor der
-   Freigabe.
+8. **Homepage zeitgleich umstellen?** und **Messtermin in Apple Kalender?** 
+   **Empfehlung:** Homepage erst **nach** Live-Gehen (automatischer Umschalter wie 4.0.1); 
+   Messtermin als .ics fuer Apple Kalender anlegen, wenn dieser steht (Uhrzeit beim 
+   Nutzer erfragen). **Auswirkung:** keine Vorab-Aussage auf der Seite vor der Freigabe.
 
 ---
 
