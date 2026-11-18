@@ -1,3 +1,18 @@
-// Copy this file to Signing.local.xcconfig (gitignored) and fill in your Apple Team ID.
-// Do NOT commit Signing.local.xcconfig — it contains your private Team ID.
+// Vorlage fuer die lokale, gitignorierte Signierdatei.
+//
+// So einrichten:
+//   1. Diese Datei kopieren nach Configs/Signing.local.xcconfig
+//      (dieser Name ist in .gitignore ausgenommen und wird nie committet).
+//   2. YOUR_TEAM_ID_HERE durch die eigene Apple Team ID ersetzen.
+//
+// Warum lokal und gitignored:
+//   Die Team ID ist eine persoenliche Kennung und soll nicht in der getrackten
+//   Spec stehen. Configs/AudioRouterNow4.xcconfig bindet diese Datei per
+//   #include? ein (fehlt sie, wird der Eintrag still uebersprungen).
+//   Der Signierstil (CODE_SIGN_STYLE = Automatic) steht in v4/project.yml und
+//   ueberlebt damit jeden xcodegen-Lauf; die Identitaet "Apple Development"
+//   loest Xcode bei Automatic selbst aus der Team ID auf.
+//
+// Nicht ins Repo gehoeren ausserdem: Zertifikate, privater Schluessel,
+// Provisioning Profiles, Passwoerter.
 DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE

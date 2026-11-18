@@ -58,6 +58,17 @@ targets:
         # SWIFT_STRICT_CONCURRENCY: settings.base propagiert es bereits —
         # hier nicht duplizieren (Single-Source-Doktrin, Minor-Audit-Fix 06.07.2026).
         ENABLE_HARDENED_RUNTIME: YES
+        # Signierstil fest in der Spec, damit ein xcodegen-Lauf ihn nicht verwirft.
+        # Ohne diese Zeile setzte xcodegen CODE_SIGN_IDENTITY auf "-" (ad-hoc) und
+        # entfernte CODE_SIGN_STYLE sowie DEVELOPMENT_TEAM (am 18.11.2026 in einer
+        # /tmp-Kopie belegt: xcodebuild -showBuildSettings vor und nach dem Lauf).
+        # Automatic loest die Identitaet "Apple Development" selbst auf.
+        # Die Team ID bleibt bewusst ausserhalb dieser getrackten Datei: sie kommt
+        # aus der gitignorierten Configs/Signing.local.xcconfig (Vorlage:
+        # Configs/Signing.local.xcconfig.example), eingebunden per #include? in
+        # Configs/AudioRouterNow4.xcconfig. So reproduziert xcodegen generate die
+        # heutige Store-Signierung (Automatic, Apple Development, Hardened Runtime).
+        CODE_SIGN_STYLE: Automatic
         INFOPLIST_FILE: AudioRouterNow4/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         # LSUIElement / LSApplicationCategoryType sind Info.plist-Keys,
