@@ -7,9 +7,11 @@
 
 > ⚠️ **Diese Datei beschreibt v3, nicht v4.**
 > v4 ist der Swift-Rewrite für den Mac App Store (Process Tap API, macOS 14.4+,
-> Apple Silicon, Apache-2.0). Dessen Architektur steht in [`v4/ARCHITECTURE.md`](v4/ARCHITECTURE.md).
+> getestet auf Apple Silicon, Apache-2.0). Dessen Architektur steht in [`v4/ARCHITECTURE.md`](v4/ARCHITECTURE.md).
 > v3 bleibt gepflegt, weil es auf macOS 11 bis 14.3 die einzige Option ist.
-> Apple Silicon setzen beide Versionen voraus, Intel wird von keiner unterstützt.
+> Für v4 gilt: macOS 14.4 oder neuer, entwickelt und getestet auf Apple Silicon,
+> Intel ist nicht getestet (das Binary ist universal gebaut). Für v3: Apple Silicon,
+> Intel wird nicht unterstützt.
 
 > **Schnelle Versions-Übersicht:** Siehe [`RELEASE_NOTES.md`](RELEASE_NOTES.md), zweigeteilt in "For Everyone" (Klartext) und "For Power Users" (technische Details). Diese Datei enthält die vollständige Architektur- und Implementierungsdokumentation.
 

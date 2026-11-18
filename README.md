@@ -5,7 +5,7 @@
 # AudioRouterNow
 
 > **Current version: [AudioRouterNow 4](v4/), Swift rewrite, [on the Mac App Store](https://apps.apple.com/app/audiorouternow/id6787215635)**
-> Requires macOS 14.4+ and Apple Silicon. No driver, no admin password, fully sandboxed.
+> Requires macOS 14.4 or later. Developed and tested on Apple Silicon; Intel Macs are not tested. No driver, no admin password, fully sandboxed.
 >
 > **On macOS 11 through 14.3?** Use the legacy Python/HAL version:
 > [v3 (legacy-v3/)](legacy-v3/), currently v3.4.6. Apple Silicon only, still maintained
@@ -101,14 +101,14 @@ macOS System Audio
 
 ## Requirements
 
-- macOS 11 (Big Sur) or later
-- Apple Silicon (arm64). Intel Macs are not supported.
+- **v4 (App Store):** macOS 14.4 or later. Developed and tested on Apple Silicon; Intel Macs are not tested (the binary is built universal).
+- **v3 (legacy):** macOS 11 (Big Sur) or later. Apple Silicon only; Intel Macs are not supported.
 
 ---
 
 ## Installation
 
-### v4 (current, macOS 14.4+, Apple Silicon)
+### v4 (current, macOS 14.4+, tested on Apple Silicon)
 
 **Option A, Mac App Store**
 

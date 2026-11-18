@@ -35,6 +35,11 @@ turned out to be wrong, and which claims are still unproven.
 | Commits | `f6d0bb9`, `dc59f98`, `27bc3ce`, `9f0a871`, `db1ecb4`, `c34fd7b`, `4a0f6c1`, `c9e097d`, `a76a1e2`, `0bbad31`, `1a8257a`, `41246bc`, `b1dcf8e`, `9bbd131`, `e3ac13b`, `3dc3cfa`, `70d9ab7` (docs: submission plan), `b5652be` (docs: submission status in changelog and release notes), `ff85d4f` (docs: in review), `fb78c96` (landing page, deployed on release day), `6917cfe` (docs: released) and `ca75c3c` (support page) |
 | Internal case IDs | CASE-003 (crash), CASE-004 (volume), CASE-007 (volume jump on hotplug), CASE-008 (speakers play despite exclusive selection) |
 
+> **Note as of 18.11.2026:** the "Apple Silicon" entry above records the wording used
+> at the time of this release. The v4 binary is built universal (x86_64 arm64); it is
+> developed and tested on Apple Silicon and not tested on Intel. The current public
+> wording lives in `README.md`. This chronicle is left as written.
+
 **Uploaded is not submitted.** The distinction is kept exact throughout this
 folder, and for most of the folder's life it marked the open question: the build
 sat on Apple's servers and App Review had not seen it. That is now history. The

@@ -154,7 +154,7 @@ commit, so the claim and its evidence sit together in the history.
 ---
 
 ## AudioRouterNow 4.1 (Build 11), not yet submitted
-_Mac App Store, macOS 14.4 or later, Apple Silicon_
+_Mac App Store, macOS 14.4 or later, tested on Apple Silicon_
 
 > **Status: not yet submitted.** The submission date is set when the build is
 > submitted to App Review. The work record is in [`docs/v4.1/`](docs/v4.1/).
