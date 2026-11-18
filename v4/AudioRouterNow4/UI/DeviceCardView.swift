@@ -345,19 +345,42 @@ struct DeviceSelectionRow: View {
 struct AddDeviceRow: View {
     @EnvironmentObject var controller: EngineController
 
+    /// V2: Menue-Eintraege aus der reinen Kit-Logik. Ein Eintrag je Kanalpaar je
+    /// verfuegbarem Geraet; `isAdded` markiert bereits konfigurierte Paare
+    /// (Identitaet uid plus channelOffset). Titelformat und pairCount liegen im
+    /// Kit (`AddDeviceMenuModel`), die View liest nur ab.
+    private var entries: [AddDeviceMenuEntry] {
+        AddDeviceMenuModel.entries(
+            availableDevices: controller.availableDevices,
+            configuredOutputs: controller.outputConfigs.map {
+                (uid: $0.uid, channelOffset: $0.channelOffset)
+            })
+    }
+
     var body: some View {
         Menu {
-            ForEach(controller.availableDevices, id: \.uid) { device in
-                let pairCount = max(1, device.channelCount / 2)
-                if pairCount == 1 {
-                    Button(device.name) {
-                        controller.addOutputConfig(OutputConfig(uid: device.uid, channelOffset: 0))
-                    }
-                } else {
-                    ForEach(0..<pairCount, id: \.self) { pair in
-                        let offset = pair * 2
-                        Button("\(device.name) (Ch\(offset + 1)-\(offset + 2))") {
-                            controller.addOutputConfig(OutputConfig(uid: device.uid, channelOffset: offset))
+            // V2: Sind alle verfuegbaren Paare schon hinzugefuegt, ersetzt ein
+            // einziger deaktivierter Hinweis die lauter deaktivierten Zeilen,
+            // damit das Menue nicht leer oder nutzlos wirkt.
+            if AddDeviceMenuModel.allAdded(entries) {
+                Button(AddDeviceMenuModel.allAddedNotice) { }
+                    .disabled(true)
+            } else {
+                ForEach(entries, id: \.self) { entry in
+                    if entry.isAdded {
+                        // Bereits hinzugefuegt: als deaktivierter Toggle mit Haken.
+                        // Ein Toggle im Menue erzeugt auf macOS einen nativen Haken
+                        // im On-Zustand (Apple: "Populating SwiftUI menus with
+                        // adaptive controls"); `.disabled(true)` graut ihn aus und
+                        // macht ihn unklickbar. So sieht der Nutzer, dass das Paar
+                        // schon aktiv ist, und der stille No-Op-Klick entfaellt.
+                        // VoiceOver liest Titel plus On-/Dimm-Zustand.
+                        Toggle(entry.title, isOn: .constant(true))
+                            .disabled(true)
+                    } else {
+                        Button(entry.title) {
+                            controller.addOutputConfig(
+                                OutputConfig(uid: entry.uid, channelOffset: entry.channelOffset))
                         }
                     }
                 }
