@@ -78,6 +78,12 @@ buffer_promote.log
 # Marketing-Dokumentation (Pitches, Outreach, Assets — NIEMALS ins Repo)
 docs/marketing/
 
+# Homepage-Redesign (Konzepte, Recherche, Messplan, intern, nicht oeffentlich)
+docs/homepage-redesign/
+
+# 4.1-Screenshots und Store-Vorlagen, intern
+docs/v4.1/screenshots/
+
 # Support-Kommunikation (Mails, X, Reddit, GitHub — User-Content, nie ins Repo)
 docs/support/
 
