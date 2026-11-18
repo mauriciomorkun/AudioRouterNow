@@ -6,6 +6,17 @@ Dokumenten in `docs/v4.1/`, dem Commit-Verlauf `e7db9fe^..HEAD` auf `release/4.1
 und den Angaben im Auftrag. Wo etwas in diesen Quellen nicht steht, steht hier
 "ungeprüft". Dieser Bericht enthält keinen neuen Code und keine neue Messung.
 
+> **Bedienoberflaeche entschieden: C3 mit V2 (17.11.2026).** Der Nutzer hat am
+> 17.11.2026 C3 mit V2 gewaehlt (Stand der Test-App "AudioRouterNow 4.1 TEST C3b"):
+> ein grosser Start/Stop-Knopf oben als einziger, Support als beschrifteter Knopf,
+> Hover-Erklaerungen im Footer, Footer in einer Reihe, dazu V2 im "Add device"-Menue
+> (hinzugefuegte Paare mit Haken und ausgegraut, Hinweis "All outputs are added.").
+> Die Varianten C und C2 sind verworfen und nur noch als Patches unter
+> `.claude/variants/` archiviert. Details, Begruendung und Sicherungsorte:
+> `docs/v4.1/README.md`, Abschnitt "Entscheidung: Bedienoberflaeche". Die
+> Nachtrag-Abschnitte unten (C, C2) bleiben als historischer Verlauf stehen; die
+> Messpunkte M2/M2b/M2c/M2d beschreiben den gewaehlten Stand C3 mit V2.
+
 ## 1. Ergebnis in 5 Sätzen
 
 1. Der Code von 4.1 (Version 4.1, Build 11) enthält eine scrollbare Geräteliste
@@ -64,6 +75,16 @@ Alle Zeilenangaben stammen aus den Audit-Dokumenten, nicht aus einer eigenen
 Nachprüfung am Code.
 
 ### 3.1 ScrollView plus Header-Toggle (P1)
+
+> **Nachtrag C3 (2026-11-16):** Der hier beschriebene Icon-Button in der
+> Statuszeile (E3) ist im UI-Nachtrag C3 entfernt. Endstand: der grosse
+> `RoutingButton` oben unter der Statuszeile ist der einzige Start/Stop-Knopf im
+> Fenster; die Statuszeilen-Pille (C1) und die Footer-Pille (C2) sind beide
+> entfernt, die zugehoerige `HeaderToggle`-Logik geloescht. Die ScrollView
+> (`maxHeight: 400`) und der Footer ausserhalb der ScrollView bleiben unveraendert.
+> Siehe `docs/v4.1/23-ui-start-button-oben.md`, Abschnitt "Variante C3", und den
+> C3-Nachtrag am Ende dieses Berichts. Die folgende Tabelle beschreibt den Stand
+> von P1 vor dem UI-Nachtrag.
 
 | Feld | Inhalt |
 |------|--------|
@@ -279,8 +300,11 @@ Unit-Test kann sie ersetzen. Die Spalte "Ergebnis" ist bewusst leer.
 
 | ID | Thema | Prüfanleitung | Erwartetes Ergebnis | Ergebnis |
 |----|-------|---------------|---------------------|----------|
-| M1 | ScrollView mit 45 oder mehr Einträgen | BlackHole 64ch und ein Interface mit vielen Kanälen (z.B. Scarlett 18i20) verbinden, App starten, Panel öffnen. Scroll-Indikator, Scrollbarkeit, Footer und Header-Toggle prüfen. Auf einem MacBook 13" prüfen, ob das Panel auf den Bildschirm passt | Ja zu allen Fragen: Indikator sichtbar, Liste scrollbar, Footer immer sichtbar, Toggle sichtbar, Footer nicht abgeschnitten | |
-| M2 | Header-Toggle | Mindestens ein Gerät konfiguriert. Im Zustand idle `play.fill` klicken, im Zustand active `stop.fill` klicken, im Zustand starting den Toggle ansehen | Routing startet und stoppt korrekt, im Zustand starting deaktiviert, kein doppelter Start | |
+| M1 | ScrollView mit 45 oder mehr Einträgen | BlackHole 64ch und ein Interface mit vielen Kanälen (z.B. Scarlett 18i20) verbinden, App starten, Panel öffnen. Scroll-Indikator, Scrollbarkeit, grosser Knopf oben und Footer prüfen. Auf einem MacBook 13" prüfen, ob das Panel auf den Bildschirm passt. Zusätzlich (UI-Nachtrag 23, Variante C3): bei langer Liste prüfen, ob der grosse Start/Stop-Knopf oben (unter der Statuszeile, ausserhalb des ScrollViews) sichtbar bleibt und ob der Status-Text zusammen mit "CBs" in die Statuszeile passt, ohne Umbruch oder Abschneiden. Gerendert (Nachbau, ImageRenderer, C3): das volle Panel mit 18 Zeilen ist 589 pt hoch (C3 ohne die zweite Footer-Reihe), unter den ~700 pt eines 13-Zoll-Geraets, am Geraet zu bestaetigen | Ja zu allen Fragen: Indikator sichtbar, Liste scrollbar, grosser Knopf oben immer sichtbar, Footer immer sichtbar, nichts umgebrochen oder abgeschnitten, Panel passt auf den Bildschirm | |
+| M2 | Start/Stop-Knopf oben (gewaehlter Stand C3 mit V2) | Mindestens ein Gerät konfiguriert. Im Zustand idle den grossen Knopf oben klicken, im Zustand active klicken, im Zustand starting ansehen. (Der obere Knopf ist der einzige Start/Stop-Knopf im Panel; keine Pille in der Statuszeile, keine Pille im Footer.) Offen: Start ueber den oberen Knopf ohne Absturz, Audio spielt auf den gewaehlten Geraeten | Routing startet und stoppt korrekt ueber den oberen Knopf, im Zustand starting ist er deaktiviert, kein doppelter Start bei schnellen Klicks | |
+| M2b | Knopfoptik oben und Footer (gewaehlter Stand C3 mit V2) | Grosser Knopf oben: im Leerlauf mit Auswahl gefuellte Mint-Pille "Start Routing", ohne Auswahl gedimmt, beim Routen umrandet "Stop Routing", beim Starten Spinner "Connecting…". Maus darueber und druecken, mit VoiceOver navigieren. Footer (eine Reihe) prüfen: Launch at Login sichtbar und als Checkbox bedienbar, Support als Mint-Pille mit Herz und Wort "Support" (beim Aufklappen des Tip Jar X plus "Close"), Lock/Exclusive/Bug und Quit erreichbar. Offen: VoiceOver-Ausgabe, Tab-Fokus-Reihenfolge und das Verhalten des Footers bei grosser Dynamic Type (Umbruch von Launch at Login, Support, Quit) am Geraet | Der obere Knopf ist in jedem Zustand als Knopf erkennbar, Druecken sinkt kurz ein, VoiceOver liest "Start Routing"/"Stop Routing". Support ist als Knopf mit Wort erkennbar. Keine Footer-Funktion fehlt | |
+| M2c | Hover-Erklaerungen im Footer (gewaehlter Stand C3 mit V2) | Mit der Maus nacheinander ueber Support, Lock, Exclusive, Bug, Quit und Launch at Login fahren und je ca. 0,4 s warten. Auch die aeussersten Elemente links (Launch at Login) und rechts (Quit) pruefen. Mit Trackpad und mit Maus testen. Offen: ob die Hover-Sprechblasen im echten, nicht-aktivierenden Panel erscheinen (Verzoegerung, Ausblenden, Clamping am Fensterrand) am Geraet | Nach kurzer Verzoegerung erscheint eine kleine Textbox ueber dem Footer mit der Erklaerung des Elements, verschwindet beim Verlassen und beim Klick, wird an beiden Fensterraendern nicht abgeschnitten (am Rand geclampt), und flackert beim Wechsel zwischen Elementen nicht. Die Texte: Support "Opens the tip jar. Tipping is optional and unlocks nothing.", Lock "Keeps macOS from switching the output device while routing.", Exclusive "Only selected devices play. The default output stays silent.", Bug "Opens a pre-filled bug report email with version info.", Quit "Quits AudioRouterNow.", Launch at Login "Starts AudioRouterNow automatically when you log in." | |
+| M2d | "Add device"-Menue: scrollbar bei sehr langer Liste (Frage 25) und bereits hinzugefuegte Eintraege gekennzeichnet (V2) | Scrollbarkeit: Pruefhilfe-App "AudioRouterNow 4.1 TEST C3 LISTE.app" (Desktop) starten, Panel oeffnen, Zeile "Add device" anklicken (die Testversion zeigt sie auch im Leerlauf und fuegt 120 kuenstliche Eintraege hinzu, die kein Routing ausloesen). Kennzeichnung (V2): "AudioRouterNow 4.1 TEST C3b.app" starten, ein Mehrkanalgeraet (z.B. KA6 Ch1-2 und Ch3-4) auswaehlen, Routing starten, dann "Add device" oeffnen. Alternativ in der echten App bei aktivem Routing mit realen Geraeten. Am Geraet bereits bestaetigt (Nutzer, 17.11.2026): die Scrollbarkeit mit der Pruefhilfe "TEST C3 LISTE" und die V2-Kennzeichnung in "TEST C3b" (hinzugefuegte Eintraege markiert, verdunkelt, nicht waehlbar). Zugrunde liegende Belege: Scrollen per Messung am NSMenu (auf Bildschirmhoehe begrenzt, Scroll-Pfeil); Kennzeichnung per NSMenu-Probe (Haken plus ausgegraut, Hinweis "All outputs are added."); das echte SwiftUI-Menue in der Menueleiste der ausgelieferten App bleibt am Geraet zu bestaetigen (Details `docs/v4.1/25-add-device-liste.md`) | Das Menue ist scrollbar (Scroll-Pfeil, Scrollrad und Tastatur), alle Eintraege erreichbar. Bereits hinzugefuegte Eintraege sind gekennzeichnet (Haken) und nicht waehlbar (ausgegraut); sind alle hinzugefuegt, steht nur "All outputs are added." Klicks auf "Test Output N" tun bewusst nichts | |
 | M3 | Solo ohne Knacksen | Mindestens zwei Ausgaben, Routing aktiv, Musik läuft. Solo eines Outputs setzen, einen anderen solo setzen, Solo aufheben. Während Solo den Regler einer stummen Ausgabe verschieben und nach dem Aufheben prüfen | Kein Knacksen, kein Lautstärkesprung. Nach dem Aufheben gilt die gespeicherte Lautstärke der vorher stummen Ausgaben, inklusive des verschobenen Reglerwerts | |
 | M4 | Solo bei abgestecktem Gerät | Zwei Ausgaben, eine solo setzen, dann das Solo-Gerät entfernen | Alle anderen Ausgaben bleiben stumm. Nach dem Aufheben von Solo hören alle verbliebenen Ausgaben wieder | |
 | M5 | Grenze `maxSlots` (16) | 17 konfigurierte Ausgaben (z.B. BlackHole 64ch, Paare 1 bis 17). Slot 1 (Index 0) solo setzen, Slot 17 (Index 16) solo setzen; prüfen, ob Slot 17 (Index 16) weiter spielt und nicht stummgeschaltet wird | Solo schaltet die Slots 0 bis 15 stumm. Ein Slot ab Index 16 spielt weiter (bekannte Einschränkung) | |
@@ -430,3 +454,86 @@ Der Nachtrags-Zyklus lief in drei Durchläufen, das Limit ist damit ausgeschöpf
 **Teststand zuletzt** (in Durchlauf 3 selbst ausgeführt, nach `63b4d04`): 60 swift-testing in 10 Suiten und 96 XCTest, alle grün, App-Build (Debug, `CODE_SIGNING_ALLOWED=NO`) erfolgreich. `preflight.sh`: 1 ABBRUCH (Archiv 4.0.1 (10), erwartet 4.1 (11)) und die bekannten Warnungen. `EngineController` und `MenuBarView` haben kein Test-Target, Änderungen dort sind per Lektüre und Build geprüft.
 
 **Offen:** NM-1 bis NM-7 und M1 bis M9 (am Gerät) sowie die Nutzeraufgaben aus Abschnitt 8. Kein Push, kein Tag, keine Einreichung. Hashes der Dokumentations-Commits per `git log` auffindbar.
+
+## Nachtrag UI (2026-11-16): Start/Stop-Knopf oben als erkennbarer Knopf
+
+Nach dem Nachtrag-Zyklus hat der Nutzer zwei Screenshots geschickt (Leerlauf und
+aktiv). Der in 4.1 ergänzte obere Start/Stop-Knopf (E3) war ein nacktes SF-Symbol
+ohne sichtbare Fläche und wurde als Status-Symbol gelesen, nicht als Knopf. Da der
+Knopf genau für die Nutzer existiert, die den Footer-Knopf bei langer Liste nicht
+erreichen, muss er als Knopf erkennbar sein. Umgesetzt: im Leerlauf eine gefüllte
+Mint-Pille mit dem Wort "Start" (spiegelt den Footer-Knopf), im aktiven Zustand ein
+umrandeter runder Stop-Knopf fester Größe, der die Callback-Anzeige "CBs" nicht
+verdrängt; dazu Hover, Pressed (einmalig, keine Dauer-Animation), Tooltip und
+VoiceOver-Beschriftung. Die Platzierung und die Aktion bleiben wie in E3. Die
+Darstellungslogik liegt testbar im Kit (`AudioRouterKit.HeaderToggle`), die View
+`HeaderToggleButton` in `UI/RoutingControls.swift` liest nur ab. Teststand danach:
+60 swift-testing und 105 XCTest grün (9 neue HeaderToggle-Fälle), App-Build (Debug,
+`CODE_SIGNING_ALLOWED=NO`) erfolgreich. Visuell per `ImageRenderer` geprüft (Pille,
+Stop-Knopf, deaktiviert, langer Status-Text passen ohne Umbruch); das echte Aussehen
+in der Menüleiste und VoiceOver sind nur am Gerät belegbar. Die Messpunkte M1 und M2
+sind erweitert, neue Prüfzeile M2b (Knopfoptik). Vollständige Aufzeichnung:
+`23-ui-start-button-oben.md`. Entscheidung E3 bleibt bestätigt, nur die Darstellung
+geändert.
+
+### Nachtrag UI, Variante C2 (2026-11-16): Positionen getauscht
+
+Der Nutzer mochte die C-Optik, wünschte aber den Tausch der Positionen: der grosse
+Start/Stop-Knopf (vorher unten im Footer) nach ganz oben, dorthin wo in C die Pille
+sass; die Pille nach unten in den Footer. Umgesetzt: der grosse `RoutingButton`
+sitzt jetzt direkt unter der Statuszeile, ausserhalb des ScrollViews, und bleibt so
+bei langer Liste immer sichtbar. Die kompakte Pille (gleiche Aktion, über
+`HeaderToggle`) steht im Footer, Reihe 1 links, mit Quit rechts; Reihe 2 trägt
+"Launch at Login" (sichtbar, Checkbox, Guideline 2.4.5(iii)) plus die Icon-Gruppe
+Support, Lock (Stable Output Mode), Exclusive (CASE-008) und Bug. Keine Funktion
+entfernt, nichts in ein verstecktes Menü verschoben; nur die Anordnung aufgeräumt
+(zwei Reihen, einheitliche Icon-Grössen). Die Footer-Pille trägt jetzt in jedem
+Zustand ein Wort ("Start"/"Stop"/"Connecting"), weil im Footer Platz ist und keine
+"CBs"-Anzeige konkurriert; das steuert der neue Parameter `placement` in
+`HeaderToggle.style(for:placement:)`. Die Statuszeile zeigt nur noch Punkt,
+Status-Text und (aktiv) "CBs". Teststand danach: 60 swift-testing und 110 XCTest
+grün (5 neue HeaderToggle-Placement-Fälle), App-Build (Debug,
+`CODE_SIGNING_ALLOWED=NO`) erfolgreich. Visuell per `ImageRenderer` (Nachbau)
+geprüft in fünf Zuständen (Leerlauf mit und ohne Auswahl, aktiv, langer Status-Text,
+lange Liste): kein Umbruch der Pille, kein Abschneiden, Footer nicht zu eng; das
+volle Panel mit 18 Zeilen ist 621 pt hoch (unter ~700 pt). Das echte Aussehen in
+der Menüleiste, VoiceOver und die Tab-Fokus-Reihenfolge sind nur am Gerät belegbar.
+Variante C ist unter `.claude/variants/C1-obere-pille/` gesichert und der Patch
+verifiziert. Die Messpunkte M1, M2 und M2b sind auf C2 angepasst. Vollständige
+Aufzeichnung: `23-ui-start-button-oben.md`, Abschnitt "Variante C2".
+
+### Nachtrag UI, Variante C3 (2026-11-16): Footer-Pille entfernt, Support aufgewertet, Hover-Bubbles
+
+Der Nutzer wünschte drei Änderungen gegenüber C2: der grosse Knopf bleibt oben
+(wie in C2), die kompakte Start/Stop-Pille im Footer wird entfernt (sie war neben
+dem immer sichtbaren oberen Knopf nutzlos), der Support-Knopf soll klarer sein, und
+die Footer-Symbole sollen beim Hovern eine Erklärung zeigen. Umgesetzt: Die
+Footer-Pille ist entfernt; damit war die gesamte `HeaderToggle`-Logik und ihre Tests
+ungenutzt (der grosse Knopf ist ein `RoutingButton`, nicht `HeaderToggle`) und wurde
+gelöscht (keine toten Codepfade). Der grosse Knopf oben ist jetzt der einzige
+Start/Stop-Knopf im Panel und deckt alle Zustände schon ab (Start, Connecting, Stop,
+gedimmt ohne Auswahl, Fehler wie idle). Der Support-Knopf ist eine dezente Mint-Pille
+mit Herz und dem Wort "Support" (aufgeklappt X plus "Close"); von vier bewerteten
+Varianten gewählt, weil das Wort den Zweck sofort klarmacht, ohne Animation, Badge
+oder Zähler aufdringlich zu werden, und weil "Support" der von App Review akzeptierte,
+neutrale Begriff ist (der Tip Jar ist ein freiwilliger In-App-Kauf, der nichts
+freischaltet). Die Footer-Symbole bekommen eine eigene SwiftUI-Hover-Bubble im
+Fenster statt `.help`: `.help`/NSToolTip ist in einem nicht aktivierenden
+MenuBarExtra-Panel unzuverlässig (Key-Window-Bindung, ca. 1 s Verzögerung) und kann
+am Panelrand abgeschnitten werden; die eigene Bubble ist davon unabhängig und wird
+am Rand geclampt. An den Bubble-Elementen ist `.help` entfernt (kein Doppel-Tooltip);
+`accessibilityLabel` bleibt. Die Tooltip-Texte liegen testbar im Kit
+(`AudioRouterKit.FooterTips`, mit Validierung: nicht leer, unter 90 Zeichen, kein
+Gedankenstrich, kein Superlativ). Der Footer ist jetzt eine Reihe. Teststand danach:
+60 swift-testing und 110 XCTest grün (14 neue FooterTips-Fälle; die 14
+HeaderToggle-Fälle sind mit der Logik entfernt, Summe gleich), App-Build (Debug,
+`CODE_SIGNING_ALLOWED=NO`) erfolgreich. Visuell per `ImageRenderer` (Nachbau)
+geprüft in sechs Zuständen (Leerlauf, aktiv, lange Liste, Hover über Support, Clamping
+links und rechts): Support-Pille erkennbar, Bubble erscheint über dem Footer und wird
+an beiden Rändern korrekt geclampt; gerenderte Höhen idle 270 pt, aktiv 247 pt, lange
+Liste 589 pt (C3 spart gegenüber C2 die zweite Footer-Reihe), alle unter 700 pt. Das
+echte Aussehen in der Menüleiste, das Hover-Verhalten im echten Panel, Verzögerung,
+Trackpad gegen Maus, VoiceOver und die Tab-Fokus-Reihenfolge sind nur am Gerät
+belegbar. Varianten C und C2 sind unter `.claude/variants/` gesichert. Die Messpunkte
+M1, M2 und M2b sind auf C3 angepasst, neu M2c (Hover-Erklärungen). Vollständige
+Aufzeichnung: `23-ui-start-button-oben.md`, Abschnitt "Variante C3".

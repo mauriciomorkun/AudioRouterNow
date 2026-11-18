@@ -79,8 +79,8 @@
   interface, 45 or more rows) the panel previously grew past the screen and the
   footer with the start/stop button could end up out of reach. The device list is
   now wrapped in a scroll view capped at 400 pt; the footer stays outside the
-  scroll view and is always visible. An additional start/stop toggle has been
-  added to the status bar at the top, so routing can be started or stopped without
+  scroll view and is always visible. The start/stop button has been moved to the
+  top of the panel (see Changed), so routing can be started or stopped without
   reaching the footer.
 
 - **Solo button per output.** Each output card carries a solo button while routing
@@ -121,6 +121,29 @@
   meters on the cards still show silence for silenced outputs.
 
 ### Changed
+
+- **The start/stop button now sits at the top of the panel.** The wide
+  "Start Routing" / "Stop Routing" button is placed directly below the status line,
+  outside the scroll view, so it stays visible with a long device list. It is the
+  only start/stop button in the panel. The footer is a single row with
+  "Launch at Login", a "Support" button, the output-lock, exclusive-routing and
+  bug-report controls, and Quit. No control was removed.
+
+- **The support control is now a labelled button.** The footer support control
+  shows a heart and the word "Support" so its purpose is clear at a glance. It
+  opens the optional tip jar (an in-app purchase that unlocks nothing); the app is
+  fully usable without it.
+
+- **Footer controls now show a short explanation on hover.** Hovering a footer
+  control shows a small in-window bubble describing what it does. The bubble is
+  drawn inside the panel so it is not clipped at the window edge. VoiceOver labels
+  are unchanged.
+
+- **The "Add device" menu marks outputs that are already added.** While routing,
+  outputs already in the list (device plus channel pair) now appear with a
+  checkmark and are greyed out instead of looking selectable. When every output of
+  every connected device is added, the menu shows a single disabled note,
+  "All outputs are added".
 
 - **App description updated: removed an unverifiable superlative.** Wording change
   in App Store Connect metadata only; no code or repository content was affected.

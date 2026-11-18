@@ -161,15 +161,29 @@ _Mac App Store, macOS 14.4 or later, Apple Silicon_
 
 ### For Everyone
 
-#### A scrollable device list and a start/stop toggle at the top
+#### A scrollable device list and a start/stop button at the top
 
 With many outputs configured (for example BlackHole 64ch together with a
 multi-channel interface, which can add up to 45 rows or more), the panel used to
 grow past the screen and the start/stop button in the footer could end up out of
 reach. The device list now scrolls, capped at a fixed height, while the footer
-stays visible below it. A small start/stop button has also been added to the
-status bar at the top, so routing can be started or stopped from either end of
-the panel.
+stays visible below it. The start/stop button now sits at the top of the panel,
+directly below the status line and outside the scroll view, so routing can be
+started or stopped without reaching the footer. It is the only start/stop button
+in the panel.
+
+#### A clearer footer
+
+The footer is now a single row. The support control shows a heart and the word
+"Support" so its purpose is clear at a glance; it opens the optional tip jar, which
+unlocks nothing. Hovering a footer control shows a short in-window note describing
+what it does.
+
+#### The "Add device" menu marks outputs that are already added
+
+While routing, outputs that are already in the list appear with a checkmark and are
+greyed out instead of looking selectable. When every output of every connected
+device is added, the menu shows a single note, "All outputs are added".
 
 #### Solo per output
 

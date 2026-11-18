@@ -11,8 +11,14 @@ interruptions, and makes the device list scrollable when many devices
 are configured.
 
 Scrollable device list. The panel no longer grows past the screen when you
-have many outputs configured. The start/stop button in the footer stays
-visible. A second start/stop button has been added to the status bar at the top.
+have many outputs configured. The device list scrolls, and the start/stop button
+now sits at the top of the panel so it stays visible with a long list.
+
+Clearer footer. The footer is a single row. The support control is a labelled
+button, and footer controls show a short note on hover.
+
+The "Add device" menu now marks outputs that are already added with a checkmark
+and greys them out.
 
 Solo per output. While routing is active, each output has a solo button (the
 "S" icon). Tap it to hear only that output. Tap it again to release. Solo is
@@ -39,8 +45,8 @@ Vorlage:
 This update adds three features and fixes two defects.
 
 1. Scrollable device list: the panel now has a ScrollView capped at 400 pt.
-   The footer with the routing button stays outside the scroll view. An
-   additional start/stop icon button was added to the status bar.
+   The footer stays outside the scroll view. The start/stop button sits at the
+   top of the panel, above the scroll view, and is the only start/stop button.
 
 2. Solo per output: a session-only solo button on each device card. Tap to
    play only that output. Solo uses engine.setOutputGain exclusively and never

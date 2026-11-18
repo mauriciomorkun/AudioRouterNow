@@ -5,6 +5,91 @@ folgt demselben Zweck wie `docs/v4.0.1/`: nicht was am Ende ausgeliefert wird,
 sondern wie die Entscheidungen zustande kamen, welche Annahmen sich als falsch
 erwiesen, und welche Behauptungen noch unbewiesen sind.
 
+## Entscheidung: Bedienoberflaeche (C3 mit V2, getroffen am 17.11.2026)
+
+**Der Nutzer hat am 17.11.2026 C3 mit V2 gewaehlt** (im Stand der Test-App
+"AudioRouterNow 4.1 TEST C3b"). Diese Bedienoberflaeche bleibt in der finalen 4.1.
+Die Varianten C und C2 sind damit verworfen und nur noch als Patches unter
+`.claude/variants/` archiviert.
+
+**Begruendung des Nutzers (soweit bekannt):** C3 gefaellt ihm am Geraet. Die
+V2-Kennzeichnung (bereits hinzugefuegte Ausgaenge mit Haken, ausgegraut, nicht
+waehlbar) hat er in der Test-App "AudioRouterNow 4.1 TEST C3b" am Geraet gesehen,
+markiert und verdunkelt. Die Scrollbarkeit des "Add device"-Menues hat er mit der
+Pruefhilfe "AudioRouterNow 4.1 TEST C3 LISTE" (120 kuenstliche Eintraege) am Geraet
+bestaetigt. Weitere Begruendungen sind nicht festgehalten.
+
+**Was dadurch festgelegt ist:** ein grosser Start/Stop-Knopf oben (unter der
+Statuszeile, ausserhalb der Scroll-Ansicht) als einziger Start/Stop-Knopf, keine
+Start/Stop-Pille in der Statuszeile und keine Pille im Footer, Support als Mint-Pille
+mit Herz und Wort "Support", Hover-Erklaerungen fuer die Footer-Symbole, Footer in
+einer Reihe, dazu V2 im "Add device"-Menue (bereits hinzugefuegte Paare mit Haken und
+ausgegraut, bei allen hinzugefuegt der deaktivierte Hinweis "All outputs are
+added.").
+
+### Verworfene Varianten und ihre Sicherungsorte
+
+| Variante | Kurzbeschreibung | Sicherung (archiviert) |
+|----------|------------------|------------------------|
+| **C** | Mint-Pille "Start" in der Statuszeile, grosser Knopf im Footer | `.claude/variants/C1-obere-pille/` (`C1.patch`) |
+| **C2** | grosser Knopf oben plus Pille im Footer, Footer in zwei Reihen | `.claude/variants/C2-grosser-knopf-oben/` (`C2.patch`) |
+
+Der gewaehlte Stand C3 mit V2 (C3b) ist als `.claude/variants/C3b-aktuell/`
+(`C3b.patch` plus `untracked/`) gesichert und entspricht dem Arbeitsbaum von
+`release/4.1`.
+
+### Vergleichstabelle (historischer Verlauf vor der Entscheidung)
+
+Die folgende Tabelle hielt die drei Varianten vor der Entscheidung gegenueber. Sie
+bleibt als Verlauf stehen; gewaehlt ist C3 mit V2.
+
+| Variante | Layout (Skizze) | Staerken | Schwaechen / Risiken | Test-App (Desktop) | Sicherung / Rueckweg | Pruefstand |
+|----------|-----------------|----------|----------------------|--------------------|----------------------|------------|
+| **C** | Statuszeile traegt rechts eine Mint-Pille "Start" (Leerlauf) bzw. runder Stop-Knopf (aktiv); grosser Start-Knopf bleibt unten im Footer. `[• status  (Start)]` ... `[ Start Routing ]`(Footer) | Vertraute Footer-Position des grossen Knopfs; Pille oben zusaetzlich sichtbar | Bei langer Liste ist der grosse Footer-Knopf wieder ausser Sicht (der Ausgangsfall); zwei Start-Elemente | "AudioRouterNow 4.1 TEST (neu).app" | `.claude/variants/C1-obere-pille/` (`C1.patch`); Rueckweg: Arbeitsbaum zuruecksetzen, Patch anwenden | ImageRenderer-Nachbau, nicht am Geraet |
+| **C2** | grosser Start/Stop-Knopf OBEN (unter der Statuszeile, ausserhalb der Scroll-Ansicht); kompakte Pille unten im Footer neben Quit; Footer in zwei Reihen. `[ Start Routing ]`(oben) ... `[(Start) ... Quit]` / `[Launch ♥🔒🔇🐞]` | Grosser Knopf immer sichtbar (loest den Ausgangsfall); Footer aufgeraeumt | Footer-Pille neben dem immer sichtbaren oberen Knopf wirkt redundant; zwei Reihen = mehr Hoehe (volle Liste 621 pt im Nachbau) | "AudioRouterNow 4.1 TEST C2.app" | `.claude/variants/C2-grosser-knopf-oben/` (`C2.patch`); Rueckweg wie C | ImageRenderer-Nachbau, Start-Smoke-Test crashfrei, nicht am Geraet |
+| **C3** (Arbeitsbaum) | grosser Knopf OBEN als einziger Start/Stop-Knopf; Footer-Pille entfernt; Support als Mint-Pille mit Herz und Wort "Support"; Hover-Sprechblasen fuer die Footer-Symbole; Footer in einer Reihe. `[ Start Routing ]`(oben) ... `[Launch (♥ Support) 🔒🔇🐞   Quit]` | Nur ein Start/Stop-Knopf, kein Dublettenrisiko; Support klarer; eine Reihe spart Hoehe (volle Liste 589 pt im Nachbau) | Hover-Bubble und VoiceOver nur am Geraet voll belegbar; "Launch at Login"-Umbruch bei grosser Dynamic Type nur abgesichert, nicht am Geraet bestaetigt | "AudioRouterNow 4.1 TEST C3.app" (C3b = C3 plus V2: "AudioRouterNow 4.1 TEST C3b.app") | aktueller Arbeitsbaum, gesichert als `.claude/variants/C3b-aktuell/` (`C3b.patch` plus `untracked/`); Rueckweg wie C | ImageRenderer-Nachbau, unabhaengiger Audit `24-audit-ui-c3.md` (Freigabe mit Auflagen, danach nachgebessert), nicht am Geraet |
+
+NICHT zur Auswahl standen (zur Klarstellung ausdruecklich genannt):
+
+- **Urzustand 4.1 (P1):** kleines Start/Stop-Icon (Dreieck/Quadrat) rechts in der
+  Statuszeile, grosser Start-Knopf im Footer. Verworfen, weil das Icon nicht als
+  Knopf erkannt wurde. Test-App "AudioRouterNow 4.1 TEST.app".
+- **Pruefhilfe (C3 LISTE):** "AudioRouterNow 4.1 TEST C3 LISTE.app" mit 120
+  kuenstlichen Eintraegen im "Add device"-Menue, die kein Routing ausloesen. Reine
+  Pruefhilfe fuer die Scrollbarkeit (`25-add-device-liste.md`), keine Variante.
+
+**V2 (Add-device-Menue, Duplikate gekennzeichnet)** ist Teil des gewaehlten Stands
+C3b. V2 betrifft nur das native "Add device"-Menue (bereits hinzugefuegte Paare mit
+Haken und ausgegraut, Hinweis "All outputs are added."). Umgesetzt und auditiert
+(`25-add-device-liste.md`, Abschnitt "Audit V2": Freigabe). Die Logik liegt
+ausschliesslich in `AddDeviceRow` (`DeviceCardView.swift`) plus der reinen Kit-Logik
+`AddDeviceMenuModel`.
+
+### Nach der Entscheidung noch zu tun
+
+1. Den Stand C3 mit V2 (bereits im Arbeitsbaum) committen; die Varianten C und C2
+   bleiben als Patches unter `.claude/variants/` archiviert.
+2. RELEASE_NOTES auf den Endstand C3 mit V2 bringen (der CHANGELOG beschreibt bereits
+   C3 mit V2; RELEASE_NOTES beschrieb noch den aelteren Statuszeilen-Stand, siehe
+   `13-doc-inventory.md`).
+3. `v4/scripts/preflight.sh`, Datum im CHANGELOG, Tag `v4.1`, neues Archiv, Merge,
+   Push, Einreichung (verbindliche Reihenfolge in `09-final-report.md`, Abschnitt 8).
+   Nur auf Anweisung des Nutzers.
+
+### Pruefpunkte am Geraet
+
+Am Geraet bereits gesehen: Scrollbarkeit des "Add device"-Menues (Pruefhilfe
+"TEST C3 LISTE") und die V2-Kennzeichnung (markiert, verdunkelt, nicht waehlbar, in
+"TEST C3b"). Weiterhin offen: M1 (ScrollView und Sichtbarkeit des oberen Knopfs bei
+langer Liste), M2 (Start/Stop ueber den oberen Knopf), M2b (Knopfoptik oben und
+Footer), M2c (Hover-Erklaerungen im echten Panel, VoiceOver). Anleitungen in
+`09-final-report.md`, Abschnitt 7.
+
+Zur Einordnung: C3 loest nur das aktuelle Darstellungsproblem. Ein breiterer Wunsch
+"Geraete im Menue ausblenden" liegt als v4.2-Idee im BACKLOG ("Device Visibility
+Filter"), nicht Teil dieser Entscheidung. V1 (Untermenue je Mehrkanalgeraet) und V3
+(Suchfeld-Popover) im "Add device"-Menue bleiben offene Ideen ohne Termin.
+
 ## Inhalt
 
 | Dokument | Was darin steht |
@@ -32,6 +117,11 @@ erwiesen, und welche Behauptungen noch unbewiesen sind.
 | [20-plan-nachtrag-v3.md](20-plan-nachtrag-v3.md) | Mini-Plan Nachtrag Durchlauf 3 (Planer: Fable 5, 2026-11-15). Scope: H1 (Kommentar-Zahlenfehler, mittel), H2 (Doppelbindestrich, niedrig), H3 (warmRestartForSampleRateChange, niedrig, akzeptiert ohne Code, NT3-D3). 4 Schritte N3-S0 bis N3-S4, 3 Entscheidungen NT3-D1 bis NT3-D3. Begruendung von NT3-D3 nachtraeglich am Code korrigiert (`2960723`). Status: umgesetzt, siehe 21. |
 | [21-impl-nachtrag-v3.md](21-impl-nachtrag-v3.md) | Umsetzungsprotokoll Nachtrag Durchlauf 3 (Fable 5, 2026-11-15). H1 und H2 als reine Kommentarkorrekturen behoben, H3 als akzeptierter Rest ohne Code (NT3-D3). Suche nach weiteren Kommentarfehlern ohne Fund. 60 swift-testing + 96 XCTest gruen, Build SUCCEEDED, Preflight 1 ABBRUCH wie erwartet. Status: fertig. |
 | [22-audit-nachtrag-v3.md](22-audit-nachtrag-v3.md) | Audit Nachtrag Durchlauf 3 (Auditor: Fable 5, 2026-11-15). 60 swift-testing + 96 XCTest gruen, Build SUCCEEDED, Preflight 1 ABBRUCH + 3 Warnungen (dritte Warnung: noch ungetrackte Auditdatei). H1 behoben (Zahlen geprueft: 20 Allokationen/s, 5120 Schreibzugriffe/s). H2 behoben (kein " -- " mehr). H3 akzeptierter Rest (NT3-D3, Begruendung am Code bestaetigt). Keine neuen Befunde. Nachtrags-Zyklus abgeschlossen. Status: fertig. |
+| [23-ui-start-button-oben.md](23-ui-start-button-oben.md) | UI-Nachtrag (2026-11-16). Drei Teile. Teil C (Verlauf): der obere Start/Stop-Knopf in der Statuszeile war ein nacktes Symbol und wurde nicht als Knopf erkannt (zwei Screenshots des Nutzers); Variantenvergleich A/B/C, gewaehlte Loesung C (Pille oben, grosser Knopf unten). Teil C2 (Verlauf): die Positionen getauscht, der grosse Knopf nach oben, die Pille in den Footer, Footer in zwei Reihen. Teil C3 (aktueller Stand): der grosse Knopf bleibt oben und ist der einzige Start/Stop-Knopf, die Footer-Pille ist entfernt (samt der nur fuer sie gebauten `HeaderToggle`-Logik und ihren Tests), der Support-Knopf ist als Mint-Pille mit Wort "Support" aufgewertet (Bewertung von vier Varianten), die Footer-Symbole bekommen eine eigene SwiftUI-Hover-Bubble im Fenster (von NSToolTip unabhaengig, am Rand geclampt; `.help` an diesen Elementen entfernt), der Footer ist eine Reihe. Enthaelt Support-Bewertungstabelle, Hover-Verfahren mit technischer Begruendung, Tooltip-Texte je Symbol, Layout-Skizze, Hoehenrechnung, Barrierefreiheit, Tests (60 swift-testing plus 110 XCTest), visuelle Pruefung per ImageRenderer, Sicherungen von C und C2 unter `.claude/variants/`, was nicht geprueft ist. Tooltip-Texte testbar in `AudioRouterKit.FooterTips` (neu). Enthaelt auch die Audit-Nachbesserung (Abschnitt 6b) nach `24-audit-ui-c3.md`: Doku-Nachzug im Abschlussbericht 3.1, Umbruchschutz fuer Launch at Login, Support und Quit (`lineLimit(1)` plus `fixedSize`), `accessibilityHint` aus derselben Quelle wie die Hover-Bubble, `clearHover()` auch in Lock und Exclusive. Tests danach 60 swift-testing plus 112 XCTest. Status: umgesetzt; C3 am 17.11.2026 vom Nutzer gewaehlt (C3 mit V2), nicht am Geraet verifiziert. |
+| [25-add-device-liste.md](25-add-device-liste.md) | Frage (2026-11-17): Ist die "Add device"-Liste scrollbar bei sehr vielen Ausgaengen (BlackHole 64ch = 32 Paare, ueber 100 Eintraege)? Antwort JA, belegt: das `Menu` in `AddDeviceRow` ist ein natives macOS-NSMenu, das bei Ueberlaenge scrollt (Scroll-Pfeil, Scrollrad, Tastatur). Direkt gemessen an einem NSMenu mit 300 Eintraegen: das Menue-Fenster wurde auf 1090 pt (Bildschirm 1440 pt) begrenzt statt 5700 pt, mit Scroll-Pfeil (Screenshot `/tmp`). Das echte SwiftUI-Menue per Klick nicht automatisierbar (Accessibility-Rechte fehlten, kein Dialog ausgeloest). Entscheidung Fall A: keine Code-Aenderung, kein CHANGELOG-Eintrag, nur Doku. Drei Verbesserungsvorschlaege mit Aufwand/Risiko (V1 Untermenue je Multi-Channel-Geraet, V2 bereits hinzugefuegte Paare mit Haken/ausblenden, V3 Suchfeld-Popover). V2 ist nun umgesetzt (2026-11-17, Abschnitt "V2 umgesetzt"): bereits hinzugefuegte Paare (uid plus channelOffset) erscheinen mit Haken und ausgegraut (deaktivierter `Toggle` im Menue, systemkonformer NSMenu-Haken laut Apple), bei "alle hinzugefuegt" ein Hinweis "All outputs are added."; Logik testbar im Kit (`AddDeviceMenuModel`, 17 Tests), Testversion "AudioRouterNow 4.1 TEST C3b.app". V1 und V3 weiter nicht umgesetzt. Pruefhilfe-App "AudioRouterNow 4.1 TEST C3 LISTE.app" auf dem Desktop (120 kuenstliche Eintraege, die kein Routing ausloesen). Status: Scrollbarkeit fertig (Fall A, am Geraet bestaetigt), V2 Teil der finalen 4.1 (Entscheidung 17.11.2026). |
+| [24-audit-ui-c3.md](24-audit-ui-c3.md) | Unabhaengiger Audit der Variante C3 (Opus, 2026-11-16). Urteil "Freigabe mit Auflagen", keine Blocker. Prueft Tooltip-Texte am Code, Hover-Bubble-Robustheit und Clamping (nachgerechnet), restlose Entfernung der `HeaderToggle`-Logik, Footer-Layout und Umbruchrisiko bei grosser Dynamic Type, App-Review-Regeln, Tests und Stil, Signierung der Test-App, Regressionen. Zwei "sollte behoben" (Doku-Nachzug 3.1, Launch-at-Login-Umbruch) und drei kosmetische Punkte (accessibilityHint, Nicht-C3-Diff an `.gitignore`, `clearHover` bei Lock/Exclusive); alle ausser dem `.gitignore`-Punkt in Abschnitt 6b von Dok 23 behoben. Status: fertig. |
+| [26-release-plan.md](26-release-plan.md) | Release-Plan: der Weg von `release/4.1` bis zur Einreichung bei App Review (Ist-Stand, Commit-Plan, Voraussetzungen vor dem Archiv, Release-Ablauf, Risiken, Nutzerentscheidungen). Status: fertig (17.11.2026), Architekturaussage am selben Tag korrigiert (v4 ist belegt universal). |
+| [screenshots/](screenshots/README.md) | Sechs Screenshots der Test-Version (Endstand C3 mit V2), aufgenommen am Gerät am 18.11.2026: Leerlauf, Hover-Hinweis am Bug-Symbol, Routing mit 3 Ausgängen, Solo, aufgeklappter Ausgang, Add-device-Menü mit Haken. Arbeitsbilder (Fensterausschnitte), keine fertigen App-Store-Screenshots. |
 
 ## Hinweis zur Quellenlage
 

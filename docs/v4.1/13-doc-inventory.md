@@ -134,3 +134,172 @@ Nachtrag-Abschnitt listet NM-1 bis NM-7 als offen. Kein Widerspruch zum neuen Pu
   Kommentar in EngineController.swift verweist inzwischen auf `docs/v4.1/05-plan-v2.md`
   (laut Audit). Am Code nicht erneut verifiziert.
 
+## Konsistenzpruefung 17.11.2026
+
+Anlass: Es liegen DREI Bedienkonzepte (C, C2, C3) im Arbeitsbaum von `release/4.1`;
+welche in 4.1 erscheint, ist noch nicht entschieden (C3b = C3 plus V2 ist der
+aktuelle Arbeitsbaum). Diese Pruefung haelt fest, welche Doku die offene Entscheidung
+nennt und welche Aussagen bei Wahl von C oder C2 neu zu formulieren sind.
+
+### Was geaendert wurde (diese Pflege)
+
+| Datei | getrackt/lokal | Was |
+|-------|----------------|-----|
+| `docs/v4.1/README.md` | getrackt | Abschnitt "Offene Entscheidung: Bedienoberflaeche (Variante C, C2 oder C3)" mit Varianten-Tabelle, Test-Apps, Sicherungen, V2-Einordnung (Annahme markiert), Schritten nach der Entscheidung, Pruefpunkten, Kalender-Hinweis |
+| `docs/v4.1/09-final-report.md` | getrackt | Banner ganz oben: Entscheidung zwischen drei Varianten offen, Verweis auf 23 und README |
+| `docs/v4.1/23-ui-start-button-oben.md` | getrackt (untracked im Git) | Abschnitt "Entscheidungsstand und Vergleich" mit Vergleichstabelle, Empfehlung (als Einschaetzung), "Entscheidung des Nutzers: OFFEN" mit Platz fuer Datum/Wahl |
+| `docs/v4.1/25-add-device-liste.md` | getrackt (untracked im Git) | Abschnitt "Audit V2" (Teil A dieses Auftrags) |
+| `docs/v4.1/13-doc-inventory.md` | getrackt | dieser Abschnitt plus Arbeitsstand-Notiz |
+
+Lokale (gitignorierte) Dateien: TODO.md, BACKLOG.md, `.claude/CLAUDE.md`,
+`docs/homepage-redesign/00-verlauf.md` sowie Memory (neue Datei plus Index) siehe
+Punkt 5 bis 7 des Auftrags und die Arbeitsstand-Notiz unten.
+
+### Von der offenen Entscheidung betroffene Dokumente
+
+| Dokument | Beschreibt derzeit | Bei Wahl C oder C2 neu zu formulieren? |
+|----------|--------------------|-----------------------------------------|
+| `CHANGELOG.md` (4.1-Abschnitt) | bewusst den Stand **C3b** | Ja. Betroffen sind im Abschnitt "Changed": die Zeile "The start/stop button now sits at the top of the panel ... It is the only start/stop button in the panel. The footer is a single row ..." (bei C faellt der obere Knopf weg und der grosse Knopf bleibt im Footer; bei C2 traegt der Footer eine Pille und zwei Reihen), die Zeile "The support control is now a labelled button" (C/C2: Support ist ein Icon, kein beschrifteter Knopf) und die Zeile "Footer controls now show a short explanation on hover" (die Hover-Bubbles sind nur in C3). Die Zeile "The Add device menu marks outputs that are already added" (V2) bleibt unabhaengig von der Variante. **Nicht jetzt geaendert** (der CHANGELOG beschreibt bewusst C3b). |
+| `RELEASE_NOTES.md` (4.1-Abschnitt) | beschreibt noch den **aelteren Statuszeilen-Stand** (P1/C): "A small start/stop button has also been added to the status bar at the top, so routing can be started or stopped from either end of the panel." Das passt zu C (Pille oben plus Footer-Knopf), NICHT zu C2/C3 (ein grosser Knopf oben, kein Statuszeilen-Toggle). Es fehlen die C3-Punkte (Support als Knopf, Hover-Erklaerungen, Footer eine Reihe) und die V2-Kennzeichnung ("Add device" markiert hinzugefuegte Paare). | Ja, in jedem Fall. Bei C3: den Statuszeilen-Satz durch "the start/stop button has moved to the top and is the only one" ersetzen, Support-Knopf, Hover-Erklaerungen und V2 ergaenzen. Bei C: Satz bleibt naeher am jetzigen Text. Bei C2: Pille-im-Footer-Formulierung. **Nicht jetzt geaendert** (Variante offen; Angleich gehoert in den Schritt nach der Entscheidung). |
+| `docs/v4.1/06-appstore-texts.md` (App-Store-Texte) | What's New und Review-Notiz zu 4.1 | Pruefen bei der Einreichung. Soweit die Texte die UI-Anordnung (oberer Knopf, Footer, Support) nennen, an die gewaehlte Variante angleichen. Hier nicht geaendert. |
+| Screenshots (App Store) | zeigen den UI-Stand der gewaehlten Variante | Nach der Entscheidung mit der gewaehlten Variante neu erstellen. Nicht Teil dieser Pflege. |
+
+Ergebnis: Kein CHANGELOG-Eintrag wurde geaendert (er beschreibt bewusst C3b), nichts
+Vorlaeufiges oben angefuegt. Die Zeilen, die bei Wahl von C oder C2 neu zu formulieren
+waeren, sind oben benannt, damit der Angleich nach der Entscheidung vollstaendig
+gelingt.
+
+## Konsistenzpruefung 17.11.2026, Entscheidung C3
+
+Anlass: Der Nutzer hat am 17.11.2026 C3 mit V2 gewaehlt. Diese Pflege stellt die
+"offen"-Aussagen in der Doku auf den Endstand um.
+
+### Dadurch angepasste Dateien
+
+| Datei | getrackt/lokal | Was |
+|-------|----------------|-----|
+| `docs/v4.1/README.md` | getrackt | Abschnitt "Offene Entscheidung" in "Entscheidung: Bedienoberflaeche (C3 mit V2, getroffen am 17.11.2026)" umgewandelt; Tabelle der verworfenen Varianten; Vergleichstabelle als Verlauf behalten; Inhaltstabelle um 26-release-plan.md ergaenzt, Status in 23/25 angepasst |
+| `docs/v4.1/09-final-report.md` | getrackt | Banner auf "Bedienoberflaeche entschieden: C3 mit V2"; M2/M2b/M2c/M2d auf den gewaehlten Stand, am Geraet Gesehenes und Offenes vermerkt |
+| `docs/v4.1/23-ui-start-button-oben.md` | getrackt | "Entscheidung des Nutzers: OFFEN" durch "Entscheidung: C3 mit V2, 17.11.2026"; OFFEN-Satz im Vergleichsabschnitt umgestellt |
+| `docs/v4.1/25-add-device-liste.md` | getrackt | V2 als Teil der finalen 4.1 vermerkt, Scrollbarkeit am Geraet bestaetigt, V1/V3 offen |
+| `docs/v4.1/13-doc-inventory.md` | getrackt | dieser Abschnitt plus Arbeitsstand-Notiz |
+| `RELEASE_NOTES.md` | getrackt | 4.1-UI-Beschreibung auf den Endstand C3 mit V2 (siehe verbleibende Punkte) |
+| `docs/v4.1/06-appstore-texts.md` | getrackt | UI-Beschreibungsstellen zum zweiten Statuszeilen-Knopf auf C3 angepasst |
+| `CHANGELOG.md` | getrackt | geprueft, beschreibt bereits C3 mit V2, nicht geaendert |
+
+Lokale (gitignorierte) Dateien und Memory: siehe Punkte 8 und 9 des Auftrags und die
+Arbeitsstand-Notiz unten.
+
+### Verbleibende Punkte (RELEASE_NOTES.md, aelterer Statuszeilen-Stand)
+
+Vor der Anpassung beschrieb `RELEASE_NOTES.md` im 4.1-Abschnitt den aelteren
+Statuszeilen-Stand (C/P1). Die konkreten Stellen:
+
+- Zeile 170 (ca.): "A small start/stop button has also been added to the status bar
+  at the top, so routing can be started or stopped from either end of the panel."
+  Das passt zu C (Statuszeilen-Toggle plus Footer-Knopf), NICHT zu C3 (ein grosser
+  Knopf oben, kein Statuszeilen-Toggle). Auf den Endstand gebracht.
+- Es fehlten die C3-Punkte (Start/Stop-Knopf oben als einziger, Support als Knopf,
+  Hover-Erklaerungen, Footer eine Reihe) und die V2-Kennzeichnung. Ergaenzt.
+
+Der CHANGELOG beschreibt im 4.1-Abschnitt bereits C3 mit V2 (Zeilen "The start/stop
+button now sits at the top of the panel", "The support control is now a labelled
+button", "Footer controls now show a short explanation on hover", "The Add device
+menu marks outputs that are already added") und wurde nicht geaendert.
+
+### Screenshots (App Store)
+
+`docs/v4.1/06-appstore-texts.md` enthielt zwei UI-Beschreibungsstellen, die den
+aelteren Statuszeilen-Knopf nannten ("A second start/stop button ... status bar",
+"An additional start/stop icon button ... status bar"); beide sind auf den C3-Stand
+gebracht (oberer Knopf als einziger, Support als beschrifteter Knopf, Hover-Hinweise,
+V2 im "Add device"-Menue). Der Store-Description-Baustein in Abschnitt 3 (reiner
+Nutzertext ohne UI-Anordnung) ist unveraendert. **Neue Screenshots noetig:** die fuer
+App Store Connect geplanten Screenshots muessen den Endstand C3 mit V2 zeigen (oberer
+Start/Stop-Knopf, einreihiger Footer mit beschriftetem Support, V2-Markierung im
+"Add device"-Menue), nicht die aeltere Optik. Erstellung ist Nutzeraufgabe, nicht Teil
+dieser Pflege.
+
+## Arbeitsstand Doku 17.11.
+
+Zwischenstand der Doku-Pflege zur offenen Bedienoberflaechen-Entscheidung (C/C2/C3)
+und zu V2. Wird je Teilschritt fortgeschrieben, damit ein Sitzungslimit keinen
+Fortschritt kostet.
+
+- [x] Teil A: Audit V2 als Abschnitt "Audit V2" ans Ende von `docs/v4.1/25-add-device-liste.md`.
+      Urteil Freigabe. Tests 60 swift-testing plus 129 XCTest selbst ausgefuehrt und gruen,
+      `git status --short` davor und danach gleich.
+- [x] C3b-Sicherung: `.claude/variants/C3b-aktuell/` (Patch `C3b.patch` plus Kopien der
+      untracked Dateien unter `untracked/`). Patch per `git apply --check` gegen eine frische
+      `git archive HEAD`-Kopie in /tmp geprueft: OK. /tmp-Kopie geloescht.
+- [x] Punkt 1: `docs/v4.1/README.md` (Abschnitt "Offene Entscheidung").
+- [x] Punkt 2: `docs/v4.1/09-final-report.md` (Banner).
+- [x] Punkt 3: `docs/v4.1/23-ui-start-button-oben.md` (Abschnitt "Entscheidungsstand und Vergleich").
+- [x] Punkt 4: Konsistenzpruefung 17.11.2026 (oben).
+- [x] Punkt 5: lokale Dateien. BACKLOG.md (4.1-Block um Varianten C/C2/C3 und V1/V3 plus
+      Verweis auf v4.2 "Device Visibility Filter" ergaenzt, nichts entfernt), TODO.md
+      (WICHTIGSTER NAECHSTER SCHRITT um die offene Variantenwahl und Kalender-Hinweis),
+      `.claude/CLAUDE.md` (Session-Start-Erinnerungsblock), `00-verlauf.md` (Eintrag 11).
+- [x] Punkt 6: Memory. Neue Datei `project_audiorouternow_v41_variantenentscheidung_pending.md`
+      (Frontmatter name/description/type: project), neue OFFEN-Zeile in MEMORY.md,
+      `project_audiorouternow_v41_status.md` auf Stand 17.11.2026 (Teststand 60 plus 129,
+      Verweis auf die neue Datei). Acht Memory-Dateien ohne Indexeintrag nicht angefasst.
+- [x] Punkt 7: Kalender-Hinweis in README und TODO ("Zusatzerinnerung per Kalender nicht
+      eingerichtet, Anmeldung abgelaufen"). Nichts installiert (kein launchd, kein cron).
+
+## Arbeitsstand Entscheidung C3 (17.11.2026)
+
+Der Nutzer hat am 17.11.2026 C3 mit V2 gewaehlt (Stand der Test-App "TEST C3b").
+Diese Notiz wird je Teilschritt fortgeschrieben, damit ein Sitzungslimit keinen
+Fortschritt kostet. Regeln: kein Commit, kein Push, kein Tag, keine Gedankenstriche,
+keine Klarnamen in getrackten Dateien, nichts am Swift-Code, landing-page/, GitHub,
+docs/support/. `docs/v4.1/26-release-plan.md` nicht angefasst (anderer Agent).
+
+- [x] Punkt 1: `docs/v4.1/README.md`. Abschnitt "Offene Entscheidung" in "Entscheidung:
+      Bedienoberflaeche (C3 mit V2, getroffen am 17.11.2026)" umgewandelt (Entscheidung,
+      Begruendung des Nutzers, Tabelle der verworfenen Varianten mit Sicherungsorten,
+      was festgelegt ist, Vergleichstabelle als historischer Verlauf behalten). Inhalts-
+      tabelle: 26-release-plan.md ergaenzt (als "in Arbeit" markiert), Status in 23 und
+      25 auf "entschieden C3 mit V2" angepasst.
+- [x] Punkt 2: `docs/v4.1/09-final-report.md`. Banner auf "Bedienoberflaeche entschieden:
+      C3 mit V2 (17.11.2026)" ersetzt. M2/M2b/M2c/M2d auf den gewaehlten Stand C3 mit V2
+      umformuliert; bei M2d vermerkt, was der Nutzer am Geraet gesehen hat (Scrollbarkeit
+      mit "TEST C3 LISTE", V2-Kennzeichnung in "TEST C3b"); offene Punkte uebernommen aus
+      23 Abschnitt 7 (Hover im echten Panel, VoiceOver, Tab-Fokus, Umbruch bei grosser
+      Schrift, Start ohne Absturz, Audiotest). Datierte C3-Protokolle (Teststand 110) nicht
+      veraendert; der aktuelle Stand mit V2 (60 plus 129) steht in dieser Datei und im Memory.
+- [x] Punkt 3: `docs/v4.1/23-ui-start-button-oben.md`. "Entscheidung des Nutzers: OFFEN"
+      durch "Entscheidung: C3 mit V2, 17.11.2026" ersetzt (Datum, Wahl, Begruendung,
+      Folgen). Der OFFEN-Satz im Abschnitt "Entscheidungsstand und Vergleich" auf die
+      getroffene Wahl umgestellt; Vergleichstabelle und Empfehlung als Verlauf behalten;
+      Kopf "Aktuell: Variante C3" beibehalten.
+- [x] Punkt 4: `docs/v4.1/25-add-device-liste.md`. Vermerk im V2-Abschnitt: V2 ist Teil
+      der finalen 4.1 (Entscheidung 17.11.2026, C3 mit V2), Scrollbarkeit am Geraet mit
+      der Pruefhilfe bestaetigt, V1 und V3 bleiben offene Ideen ohne Termin.
+- [x] Punkt 5: Abschnitt "Konsistenzpruefung 17.11.2026, Entscheidung C3" oben in dieser
+      Datei (Liste der angepassten Dateien plus RELEASE_NOTES-Zeilenliste, konkrete Zeilen
+      benannt).
+- [x] Punkt 6: CHANGELOG geprueft (beschreibt bereits C3 mit V2, nicht geaendert).
+      RELEASE_NOTES.md: 4.1-UI-Beschreibung auf den Endstand gebracht (oberer Knopf als
+      einziger statt "small ... from either end", neuer Abschnitt "A clearer footer" mit
+      Support-Knopf und Hover-Hinweisen, neuer Abschnitt zur V2-Kennzeichnung im
+      "Add device"-Menue). Englisch, neutral, ohne Superlativ, ohne Gedankenstrich.
+- [x] Punkt 7: `docs/v4.1/06-appstore-texts.md`. Zwei UI-Beschreibungsstellen
+      (What's New, Review-Notiz) vom zweiten Statuszeilen-Knopf auf C3 gebracht; Store-
+      Description-Baustein (Abschnitt 3) unberuehrt. Screenshot-Hinweis im Konsistenz-
+      pruefungs-Abschnitt oben ergaenzt (neue Screenshots fuer den Endstand noetig).
+- [x] Punkt 8: lokale Dateien. `.claude/CLAUDE.md` (Erinnerungsblock durch kurzen Vermerk
+      "C3 mit V2 (17.11.2026)" ersetzt; Messpunkte-Block M1 bis M9 / NM-1 bis NM-7 bleibt
+      als wichtigster naechster Schritt). TODO.md (Variantenwahl auf erledigt, naechste
+      Schritte: Messpunkte mit TEST C3b, ARCHS, Signierung project.yml, v4-appstore/,
+      Preflight, App-Store-Texte und Screenshots, Commit-Reihenfolge, Tag, Einreichung).
+      BACKLOG.md (4.1-Block: Variante entschieden; V1/V3 offen; "Device Visibility Filter"
+      nicht angefasst). 00-verlauf.md (Eintrag 12, keine Aenderung an landing-page/).
+- [x] Punkt 9: Memory. `project_audiorouternow_v41_variantenentscheidung_pending.md` auf
+      Status ENTSCHIEDEN umgeschrieben (Dateiname unveraendert; Wahl C3 mit V2, Folgen,
+      Sicherungspfade, Test-Apps mit Aufraeumungsvorschlag TEST/TEST (neu)/TEST C2, nichts
+      geloescht). MEMORY.md-Zeile von OFFEN auf "ERLEDIGT, entschieden" gesetzt.
+      `project_audiorouternow_v41_status.md` aktualisiert (Entscheidung, Teststand 60 plus
+      129, naechster Schritt Messpunkte mit TEST C3b). Acht Memory-Dateien ohne Indexeintrag
+      nicht angefasst; docs/support/ nicht angefasst; keine Klarnamen in Memory.
+
