@@ -38,6 +38,18 @@ struct MenuBarView: View {
             // ── Status-Bar ───────────────────────────────────────────────
             statusBar(ui)
 
+            // ── Grosser Start/Stop-Knopf oben (C2) ───────────────────────
+            // Der breite Routing-Knopf (frueher im Footer) sitzt jetzt direkt unter
+            // der Statuszeile, ausserhalb des ScrollViews. So ist er bei langer
+            // Geraeteliste immer sichtbar und erhaelt im Tab-Fokus frueh die Reihe
+            // (der Tab-Weg war der Workaround fuer die betroffenen Nutzer). Gleiche
+            // Optik und gleiche Aktion wie bisher (`RoutingButton`); die kompakte
+            // Pille steht zusaetzlich im Footer.
+            RoutingButton(state: ui)
+                .padding(.horizontal, 14)
+                .padding(.top, 2)
+                .padding(.bottom, 8)
+
             // ── TCC-Warnung (unverändert übernommen) ─────────────────────
             if controller.isSuspectedTCCDenied {
                 tccWarningSection
@@ -81,12 +93,16 @@ struct MenuBarView: View {
 
             Divider()
 
-            // ── State-Button + Footer ────────────────────────────────────
-            VStack(spacing: 10) {
-                RoutingButton(state: ui)
-                FooterRow()
-            }
-            .padding(14)
+            // ── Footer (C3) ──────────────────────────────────────────────
+            // Der grosse Start/Stop-Knopf sitzt oben (siehe oben) und ist der
+            // einzige Start/Stop-Knopf. Die frueher hier stehende kompakte Pille
+            // ist entfernt (C3); der Footer traegt die aufgeraeumten Elemente in
+            // einer Reihe: Launch at Login, Support (als Mint-Pille), Lock,
+            // Exclusive, Bug und Quit. Keine weitere Funktion entfernt. Die
+            // Hover-Erklaerungen sind eigene SwiftUI-Bubbles (kein `.help`), siehe
+            // `FooterRow`.
+            FooterRow()
+                .padding(14)
         }
         .frame(width: 320)
         // Bug-Fix: MenuBarExtra(.window)-Panel erhält sonst keine korrekte
@@ -163,6 +179,12 @@ struct MenuBarView: View {
     /// Status-Zeile: Puls-Punkt (Farbe/Animation je Phase) + Text; im Aktiv-
     /// Zustand zusätzlich der monospaced Callback-Zähler.
     private func statusBar(_ ui: ARNUIState) -> some View {
+        // C2: Der Start/Stop-Knopf ist jetzt der grosse Knopf direkt oberhalb
+        // (siehe `body`, Abschnitt "Grosser Start/Stop-Knopf oben"). Die Statuszeile
+        // zeigt nur noch Punkt, Status-Text und (aktiv) die Callback-Anzeige. Die
+        // kompakte Pille sitzt im Footer (`FooterRow`). Der grosse Knopf liegt wie
+        // die Statuszeile ausserhalb des ScrollViews und ist damit auch bei langer
+        // Geraeteliste immer sichtbar (das war der Grund fuer den oberen Knopf).
         HStack(spacing: 7) {
             PulsingDot(color: dotColor(ui), pulsing: ui == .active || ui == .starting)
             Text(statusText(ui))
@@ -174,47 +196,9 @@ struct MenuBarView: View {
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.tertiary)
             }
-            // P1: Header-Start/Stop-Toggle. Liegt in der Status-Bar und damit
-            // ausserhalb des ScrollViews → auch bei langer Geraeteliste immer
-            // sichtbar. Gleiche Aktionslogik wie der RoutingButton im Footer,
-            // kein neuer Controller-Pfad.
-            Button(action: headerToggleAction(ui)) {
-                Image(systemName: headerToggleIcon(ui))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(ui == .starting
-                        ? Color.secondary
-                        : ARNColor.accent)
-            }
-            .buttonStyle(.plain)
-            // Deckungsgleich mit RoutingButton.disabled: im starting-Zustand und
-            // immer dann, wenn nichts konfiguriert ist und nicht gerade aktiv.
-            .disabled(ui == .starting || (controller.outputConfigs.isEmpty && !ui.isActive))
-            .accessibilityLabel(ui == .active ? "Stop Routing" : "Start Routing")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-    }
-
-    /// P1: SF-Symbol fuer den Header-Toggle je UI-Phase.
-    private func headerToggleIcon(_ ui: ARNUIState) -> String {
-        switch ui {
-        case .idle, .error: return "play.fill"
-        case .starting:     return "ellipsis"
-        case .active:       return "stop.fill"
-        }
-    }
-
-    /// P1: Aktion des Header-Toggles. Identisch zum RoutingButton: startet aus
-    /// idle/error, stoppt aus active, im starting-Zustand ein No-Op (Button ist
-    /// dort ohnehin deaktiviert).
-    private func headerToggleAction(_ ui: ARNUIState) -> () -> Void {
-        return {
-            switch ui {
-            case .active:        controller.stopRouting()
-            case .idle, .error:  controller.startRouting()
-            case .starting:      break
-            }
-        }
     }
 
     /// Farbe des Status-Punkts je Phase (aktiv: mint bei Audio, sonst gelb).
