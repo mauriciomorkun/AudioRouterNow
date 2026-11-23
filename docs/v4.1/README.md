@@ -177,7 +177,9 @@ das Repo blieb unverändert.
       gegenüber 41,5 Prozent (4.1) bei 3 Zeilen, kein Unterschied im Rahmen der Streuung.
       Die Basislast von etwa 40 % eines Kerns hat schon 4.0.1.
 - [ ] Erneute Bestätigung von E1, E3 (durch C3 abgelöst), E4, E6 sowie Annahme von 6a und 6d.
-- [ ] Neues Archiv, Preflight, App-Store-Connect-Texte, Datum, Tag, Merge, Push,
+- [x] Neues 4.1-Archiv gebaut und geprüft (23.11.2026, 17:23 Uhr, aus HEAD `429b865`), Preflight ohne
+      Abbruchgrund (siehe `09-final-report.md` Abschnitt 12.4).
+- [ ] Hochladen (Organizer, Distribute App), App-Store-Connect-Texte, Datum, Tag, Merge, Push,
       Einreichung. Nur auf ausdrückliche Anweisung.
 
 ## Hinweis zur Quellenlage
