@@ -173,8 +173,9 @@ das Repo blieb unverändert.
 
 - [ ] Zusatzzeilen: VoiceOver-Hinweis je Footer-Symbol, Tab-Fokus-Reihenfolge, Umbruch
       bei großer Schrift (je etwa 5 Minuten).
-- [ ] CPU-Vergleich mit der Store-Version 4.0.1 (etwa 5 Minuten): Die App liegt schon bei
-      3 Zeilen bei etwa 40 % eines Kerns; ob das bei 4.0.1 gleich ist, ist nicht gemessen.
+- [x] CPU-Vergleich mit der Store-Version 4.0.1 (erledigt 23.11.2026): 38,7 Prozent (4.0.1)
+      gegenüber 41,5 Prozent (4.1) bei 3 Zeilen, kein Unterschied im Rahmen der Streuung.
+      Die Basislast von etwa 40 % eines Kerns hat schon 4.0.1.
 - [ ] Erneute Bestätigung von E1, E3 (durch C3 abgelöst), E4, E6 sowie Annahme von 6a und 6d.
 - [ ] Neues Archiv, Preflight, App-Store-Connect-Texte, Datum, Tag, Merge, Push,
       Einreichung. Nur auf ausdrückliche Anweisung.

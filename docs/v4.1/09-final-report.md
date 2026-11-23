@@ -38,7 +38,8 @@ und den Angaben im Auftrag. Wo etwas in diesen Quellen nicht steht, steht hier
    Einreichung (neues Archiv, App Store Connect, Tag, Merge, Push).
    *Nachtrag 23.11.2026: Die Messungen sind durchgeführt, keine fiel negativ aus
    (Abschnitt 12). Offen bleiben die Zusatzzeilen (VoiceOver-Hinweise, Tab-Fokus,
-   große Schrift), ein CPU-Vergleich mit 4.0.1 und die Einreichung.*
+   große Schrift) und die Einreichung. Der CPU-Vergleich mit 4.0.1 ist am
+   23.11.2026 gemacht, kein Unterschied (Abschnitt 12.1).*
 5. Kein Agent hat gepusht, getaggt oder eingereicht; `preflight.sh` meldet bis zum
    Bau eines neuen Archivs einen ABBRUCH wegen des alten Archivs 4.0.1 (10).
 6. Durchlauf 3 behebt F1 (CHANGELOG-Formulierung), F2 (Kommentar-Präzisierung),
@@ -335,7 +336,7 @@ Archiv, keine Eingabe in App Store Connect.
 1. **Messungen M1 bis M9** durchführen (Abschnitt 7) und die Ergebnisse
    eintragen. Fällt M8 negativ aus, `5798a63` umkehren, bevor es weitergeht.
    *Erledigt 23.11.2026, kein Messpunkt negativ, `5798a63` bleibt (Abschnitt 12). Die
-   Zusatzzeilen und der CPU-Vergleich mit 4.0.1 sind offen.*
+   Zusatzzeilen sind offen, der CPU-Vergleich mit 4.0.1 ist erledigt (kein Unterschied).*
 2. **Entscheidungen bestätigen:** E1, E3, E4, E6 sind vor der Umsetzung bestätigt,
    nach den Messungen erneut prüfen. Dazu die Welle (6a) und der Launch-at-Login-Reset
    (6d) ausdrücklich annehmen oder die Rückfälle wählen.
@@ -583,7 +584,7 @@ Kein Messpunkt ist negativ ausgefallen. Der einzige feste Rückfall (M8, Commit 
 | NM-1 | ok | Wie M5 |
 | NM-2 | ok | Pegelbalken ab Platz 17 und 33 zeigen Pegel. Die Null unter fremdem Solo wurde nicht einzeln bestätigt |
 | NM-3 | ok | Welle bleibt unter Solo gleich hoch (Beobachtung, keine Höhenmessung) |
-| NM-4 | ok | CPU hängt nicht von der Zeilenzahl ab (Tabelle unten). Der Absolutwert ist nicht gegen 4.0.1 verglichen, siehe 12.3 |
+| NM-4 | ok | CPU hängt nicht von der Zeilenzahl ab (Tabelle unten). Der Absolutwert ist gegen 4.0.1 verglichen: gleiche Größenordnung (38,7 Prozent), siehe 12.1 unten |
 | NM-5 | ok für 48 Zeilen | Scrollen, Regler, Aufklappen flüssig, auch bei laufendem Routing. Ein Gerät mit 128 oder 256 Kanälen war nicht vorhanden |
 | NM-6 | ok | Experiment ohne Repo-Änderung (Kopie in `/tmp` mit `maxSlots = 4`): viertes Gerät abgelehnt, Warnzeile "Output limit reached: AudioRouterNow can route to 3 outputs at once. Remove an output to add another." vollständig lesbar, Liste bleibt bei 3 Zeilen |
 | NM-7 | ok | Etwa 70 KiB je Zeile (18 auf 48 Zeilen: +2 MB), passt zur Rechnung (etwa 65 KiB je Slot) |
@@ -597,6 +598,9 @@ Kein Messpunkt ist negativ ausgefallen. Der einzige feste Rückfall (M8, Commit 
 | 18 | zu | 40,3 % (35,0 bis 41,3) | 113 MB / 155,8 MiB |
 | 18 | offen | 42,6 % (37,3 bis 45,0) | 116 MB / 132,0 MiB |
 | 48 | zu | 42,4 % (35,4 bis 44,5) | 115 MB / 164,6 MiB |
+| 3 (Store-Version 4.0.1, Build 10) | zu | 38,7 % (30,6 bis 42,3) | 41 MB / 79,6 MiB |
+
+**Vergleich mit 4.0.1 (23.11.2026):** Die Store-Version liegt mit 3 Zeilen bei 38,7 Prozent, 4.1 mit 3 Zeilen bei 41,5 Prozent. Der Unterschied von etwa 3 Prozentpunkten liegt im Rauschen (die Streuung von Min bis Max beträgt bei 4.1 etwa 8, bei 4.0.1 etwa 12 Punkte). Die Basislast von etwa 40 % eines Kerns hat also schon 4.0.1, es gibt keinen Hinweis auf eine Verschlechterung durch 4.1. Einschränkungen: je ein Lauf, andere Ausgänge als bei 4.1 (Kopfhörer, Komplete Audio Ch1-2 und Ch3-4; bei 4.1 war die CPU von der Zeilenzahl unabhängig), nicht verblindet; die Ursache der Basislast ist nicht untersucht.
 
 Die Prozesse waren unterschiedlich lange gelaufen. Der Sprung von 3 auf 18 Zeilen (+74 MB) ist nicht zeilenproportional; Hypothese, ungeprüft: feste Kosten der BlackHole-Geräte (Datenströme), nicht der Slots.
 
@@ -614,7 +618,7 @@ Die Prozesse waren unterschiedlich lange gelaufen. Der Sprung von 3 auf 18 Zeile
 | Punkt | Stand | Einordnung |
 |-------|-------|------------|
 | Zusatzzeilen: VoiceOver-Hinweis je Footer-Symbol, Tab-Fokus-Reihenfolge, Umbruch bei großer Schrift | nicht geprüft (je etwa 5 Minuten) | Vor der Einreichung empfohlen, bisher nur am Quellcode und per Nachbau belegt |
-| CPU-Vergleich mit der Store-Version 4.0.1 | nicht gemessen (etwa 5 Minuten) | Schon bei 3 Zeilen liegt die App bei etwa 40 % eines Kerns. Ob 4.0.1 gleich liegt oder 4.1 eine neue Last erzeugt, ist unbekannt. Vor der Einreichung empfohlen, um eine Verschlechterung auszuschließen |
+| CPU-Vergleich mit der Store-Version 4.0.1 | **erledigt 23.11.2026** | 38,7 Prozent (4.0.1) gegenüber 41,5 Prozent (4.1) bei 3 Zeilen: gleiche Größenordnung, keine Verschlechterung erkennbar. Die Basislast von etwa 40 % eines Kerns war schon in 4.0.1 vorhanden |
 | Vergleich der hörbaren Pause bei M8 mit 4.0.1 | nicht gemessen | Belegt ist nur der fehlende Engine-Neustart |
 | 128/256-Kanal-Gerät (NM-5) | nicht vorhanden | Für die Einreichung nicht verlangt |
 | 13"-Bildschirm (M1) | Bildschirmgröße nicht erfasst | Nur das Verhalten bei 48 Zeilen ist belegt |

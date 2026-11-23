@@ -13,8 +13,8 @@ Code, an `landing-page/`, bei GitHub oder auf Servern, und committet nichts.
 > **Nachtrag 23.11.2026:** Die Messpunkte (Voraussetzung (b) unten, Abschnitt 4(e)) sind
 > durchgeführt, keiner fiel negativ aus (`27-messprotokoll.md`, `09-final-report.md`
 > Abschnitt 12). "Nicht am Gerät verifiziert" in dieser Kurzfassung gilt für den Stand
-> vom 18.11.2026. Offen blieben Zusatzzeilen und der CPU-Vergleich mit 4.0.1, siehe
-> den Nachtrag am Ende dieser Datei.
+> vom 18.11.2026. Offen blieben die Zusatzzeilen (der CPU-Vergleich mit 4.0.1 ist am
+> 23.11.2026 erledigt, kein Unterschied), siehe den Nachtrag am Ende dieser Datei.
 
 - 4.1 (Version 4.1, Build 11) liegt fertig und auditiert auf `release/4.1`,
   **65 Commits vor `main`** [git rev-list --count main..HEAD], plus unverbuchter
@@ -629,10 +629,10 @@ in `09-final-report.md` Abschnitt 12.
 
 1. **Keine Blocker aus den Messungen.** Die Reihenfolge aus Abschnitt 5 gilt ab dem
    Schritt "Entscheidungen bestätigen" weiter.
-2. **Zwei Punkte vor der Einreichung empfohlen:** die Zusatzzeilen (VoiceOver-Hinweise,
-   Tab-Fokus, große Schrift) und ein CPU-Vergleich mit der Store-Version 4.0.1. Die App
-   liegt schon bei 3 Zeilen bei etwa 40 % eines Kerns (NM-4); ob 4.1 das gegenüber 4.0.1
-   verschlechtert, ist nicht gemessen.
+2. **Vor der Einreichung empfohlen:** die Zusatzzeilen (VoiceOver-Hinweise, Tab-Fokus,
+   große Schrift). Der CPU-Vergleich mit der Store-Version 4.0.1 ist am 23.11.2026
+   erledigt: 38,7 Prozent (4.0.1) gegenüber 41,5 Prozent (4.1) bei 3 Zeilen, die Basislast
+   von etwa 40 % eines Kerns ist kein 4.1-Effekt.
 3. **Entscheidung für später, nicht für 4.1:** Die Blip-Frist (3,0 s) liegt knapp unter
    der Wiederanmeldezeit der Komplete Audio (etwa 3,1 s). Bei schnellem Wiedereinstecken
    greift die Absorption, bei normalem nicht. Kein Code geändert.
