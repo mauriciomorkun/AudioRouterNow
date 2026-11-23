@@ -4,7 +4,7 @@ Phase 4 des Kreislaufs (Planung durch Fable, Umsetzung durch Opus, Audit durch
 Fable, 3 Durchläufe). Geschrieben nach der Arbeit, ausschließlich aus den
 Dokumenten in `docs/v4.1/`, dem Commit-Verlauf `e7db9fe^..HEAD` auf `release/4.1`
 und den Angaben im Auftrag. Wo etwas in diesen Quellen nicht steht, steht hier
-"ungeprüft". Dieser Bericht enthält keinen neuen Code und keine neue Messung.
+"ungeprüft". Dieser Bericht enthält keinen neuen Code und keine neue Messung. (Stand der Abschnitte 1 bis 11. Die Messsitzung am Gerät vom 21. bis 23.11.2026 steht in Abschnitt 12.)
 
 > **Bedienoberflaeche entschieden: C3 mit V2 (17.11.2026).** Der Nutzer hat am
 > 17.11.2026 C3 mit V2 gewaehlt (Stand der Test-App "AudioRouterNow 4.1 TEST C3b"):
@@ -36,6 +36,9 @@ und den Angaben im Auftrag. Wo etwas in diesen Quellen nicht steht, steht hier
    dokumentiert (`12-audit-v3.md`, Commit `5bf8d4f`).
 4. Es fehlen alle Messungen am Gerät (M1 bis M9, keine ist erledigt) und die
    Einreichung (neues Archiv, App Store Connect, Tag, Merge, Push).
+   *Nachtrag 23.11.2026: Die Messungen sind durchgeführt, keine fiel negativ aus
+   (Abschnitt 12). Offen bleiben die Zusatzzeilen (VoiceOver-Hinweise, Tab-Fokus,
+   große Schrift), ein CPU-Vergleich mit 4.0.1 und die Einreichung.*
 5. Kein Agent hat gepusht, getaggt oder eingereicht; `preflight.sh` meldet bis zum
    Bau eines neuen Archivs einen ABBRUCH wegen des alten Archivs 4.0.1 (10).
 6. Durchlauf 3 behebt F1 (CHANGELOG-Formulierung), F2 (Kommentar-Präzisierung),
@@ -204,7 +207,7 @@ Durchlauf ist nicht vorgesehen.
 
 ### 5.1 Entscheidungen des Nutzers
 
-Vor der Umsetzung bestätigt, am Gerät nicht verifiziert:
+Vor der Umsetzung bestätigt, am Gerät nicht verifiziert (Stand der Tabelle: vor der Messsitzung; Nachtrag 23.11.2026: M1, M2, M3, M8 und M9 sind gemessen und nicht negativ, siehe Abschnitt 12.1):
 
 | ID | Entscheidung | Stand |
 |----|--------------|-------|
@@ -298,6 +301,12 @@ den Hauptagenten vermerkt.
 Keine dieser Messungen wurde von einem Agenten durchgeführt. Kein Build und kein
 Unit-Test kann sie ersetzen. Die Spalte "Ergebnis" ist bewusst leer.
 
+> **Nachtrag 23.11.2026:** Alle Messpunkte dieser Tabelle sind am Gerät durchgeführt
+> (Ergebnisse in Abschnitt 12.1, Belege in `27-messprotokoll.md`). Die Spalte "Ergebnis"
+> bleibt hier unverändert leer, damit die Tabelle den Planungsstand zeigt. M5 galt
+> in der hier stehenden Fassung für `maxSlots` 16 und wurde durch Abschnitt 11
+> neu gefasst (48 Zeilen gemessen).
+
 | ID | Thema | Prüfanleitung | Erwartetes Ergebnis | Ergebnis |
 |----|-------|---------------|---------------------|----------|
 | M1 | ScrollView mit 45 oder mehr Einträgen | BlackHole 64ch und ein Interface mit vielen Kanälen (z.B. Scarlett 18i20) verbinden, App starten, Panel öffnen. Scroll-Indikator, Scrollbarkeit, grosser Knopf oben und Footer prüfen. Auf einem MacBook 13" prüfen, ob das Panel auf den Bildschirm passt. Zusätzlich (UI-Nachtrag 23, Variante C3): bei langer Liste prüfen, ob der grosse Start/Stop-Knopf oben (unter der Statuszeile, ausserhalb des ScrollViews) sichtbar bleibt und ob der Status-Text zusammen mit "CBs" in die Statuszeile passt, ohne Umbruch oder Abschneiden. Gerendert (Nachbau, ImageRenderer, C3): das volle Panel mit 18 Zeilen ist 589 pt hoch (C3 ohne die zweite Footer-Reihe), unter den ~700 pt eines 13-Zoll-Geraets, am Geraet zu bestaetigen | Ja zu allen Fragen: Indikator sichtbar, Liste scrollbar, grosser Knopf oben immer sichtbar, Footer immer sichtbar, nichts umgebrochen oder abgeschnitten, Panel passt auf den Bildschirm | |
@@ -325,6 +334,8 @@ Archiv, keine Eingabe in App Store Connect.
 
 1. **Messungen M1 bis M9** durchführen (Abschnitt 7) und die Ergebnisse
    eintragen. Fällt M8 negativ aus, `5798a63` umkehren, bevor es weitergeht.
+   *Erledigt 23.11.2026, kein Messpunkt negativ, `5798a63` bleibt (Abschnitt 12). Die
+   Zusatzzeilen und der CPU-Vergleich mit 4.0.1 sind offen.*
 2. **Entscheidungen bestätigen:** E1, E3, E4, E6 sind vor der Umsetzung bestätigt,
    nach den Messungen erneut prüfen. Dazu die Welle (6a) und der Launch-at-Login-Reset
    (6d) ausdrücklich annehmen oder die Rückfälle wählen.
@@ -537,3 +548,77 @@ Trackpad gegen Maus, VoiceOver und die Tab-Fokus-Reihenfolge sind nur am Gerät
 belegbar. Varianten C und C2 sind unter `.claude/variants/` gesichert. Die Messpunkte
 M1, M2 und M2b sind auf C3 angepasst, neu M2c (Hover-Erklärungen). Vollständige
 Aufzeichnung: `23-ui-start-button-oben.md`, Abschnitt "Variante C3".
+
+## 12. Nachtrag: Messsitzung am Gerät (21. bis 23.11.2026)
+
+Dieser Abschnitt ist angehängt. Die Abschnitte 1 bis 11 geben den Stand vor der Messsitzung wieder. Wo sie dem widersprechen ("keine Messung erledigt", leere Spalte "Ergebnis" in Abschnitt 7), gilt dieser Abschnitt. Die Einzelbelege (Zeitstempel, Screenshots, Wortlaut der Nutzerangaben, Einschränkungen je Messpunkt) stehen in `27-messprotokoll.md`.
+
+**Durchführung.** Der Nutzer hat am Gerät gemessen, Claude hat Punkt für Punkt angeleitet, das System-Log ausgelesen (`log show`, `top`, `ps`) und die Ergebnisse eingetragen. Am App-Code, an der Store-App und an ihren Einstellungen wurde nichts verändert. Verändert wurden nur die Einstellungen der Test-App (vorübergehend, für die Messung, siehe 12.2 Punkt 6) und danach diese Dokumentation. Die Sitzung lief über mehrere Tage, weil M6 lange Laufzeiten braucht.
+
+| Feld | Wert |
+|------|------|
+| Getestete App | "AudioRouterNow 4.1 TEST C3b.app", Info.plist 4.1 (11), Test-Bundle-ID `com.mauriciomorkun.audiorouternow.test`, ad-hoc signiert. Stand: Code von `release/4.1` (C3 mit V2), nach Datumsvergleich nach der letzten Swift-Änderung gebaut, byteweise Gleichheit mit HEAD nicht prüfbar |
+| Gerät | MacBook Pro mit Apple M1, macOS 26.6.2 |
+| Vorhandene Ausgänge | BenQ PD2700U (HDMI, 2 Kanäle), Komplete Audio 6 MK2 (USB, 6), Kopfhörerausgang (2), MacBook-Lautsprecher (2), NI Audio 4 DJ (virtuell, 4): 8 Kanalpaare |
+| Zusatz am 23.11. | BlackHole 16ch und 64ch (Homebrew-Cask, Version 0.7.1) vorübergehend installiert: 8 plus 32 Paare, insgesamt 48 Zeilen. Danach wieder entfernt, belegt durch den Treiberordner (nur `CaiaqAudio`, `ParrotAudioPlugin`, `TVRemoteAudio`) und `brew list` |
+
+### 12.1 Ergebnis je Messpunkt
+
+Kein Messpunkt ist negativ ausgefallen. Der einzige feste Rückfall (M8, Commit `5798a63` umkehren) wurde nicht ausgelöst.
+
+| ID | Ergebnis | Kern des Belegs |
+|----|----------|-----------------|
+| M1 | ok | Mit 48 Zeilen: Liste scrollt (Rad und Trackpad), oberer Knopf und Footer bleiben sichtbar, Panel passt. Eine 13"-Prüfung ist nicht belegt (Bildschirmgröße nicht erfasst) |
+| M2 | ok | Oberer Knopf schaltet in allen Zuständen richtig |
+| M2b | ok | Knopfoptik und Footer wie vorgesehen. Ob VoiceOver benutzt wurde, ist nicht ausdrücklich gesagt |
+| M2c | ok | Hover-Erklärungen, Maus und Trackpad |
+| M2d | ok | Scrollbarkeit und Kennzeichnung (Haken, ausgegraut) jetzt auch im echten Menü bestätigt |
+| M3 | ok | Kein Knacksen, kein Sprung gehört. Der verschobene Reglerwert nach dem Aufheben wurde nicht ausdrücklich bestätigt |
+| M4 | ok | Andere Ausgänge bleiben stumm. Welches Gerät entfernt wurde, ist nicht erfasst |
+| M5 | ok | 48 Zeilen: Lautstärke und Solo auf Platz 17 und 33 (jenseits der 32) wirken wie auf Platz 1 |
+| M6 | ok | Zähler 0: keine einzige Logzeile in mindestens 90 Minuten Routing (Gegenprobe per `log show`, Prozess lief durchgehend) |
+| M7 | ok | Warm-Restart bei Rate-Wechsel in beide Richtungen wie erwartet. Im Log ein einzelnes "M4-Noop" 16 s nach dem Wechsel, kein Dauerfeuer |
+| M8 | ok | Erster Versuch (22.11.): nicht ausgelöst, das Gerät kam erst nach etwa 3,1 s zurück. Wiederholung mit schnellem Wiedereinstecken (23.11.): dreimal "L1: Blip erkannt" nach 1,20 s, 2,03 s und 1,55 s, in keinem Versuch ein Engine-Neustart |
+| M9 | ok | Meter der durch fremdes Solo stummen Karte zeigen -∞ (Screenshot), Welle bleibt gleich hoch |
+| NM-1 | ok | Wie M5 |
+| NM-2 | ok | Pegelbalken ab Platz 17 und 33 zeigen Pegel. Die Null unter fremdem Solo wurde nicht einzeln bestätigt |
+| NM-3 | ok | Welle bleibt unter Solo gleich hoch (Beobachtung, keine Höhenmessung) |
+| NM-4 | ok | CPU hängt nicht von der Zeilenzahl ab (Tabelle unten). Der Absolutwert ist nicht gegen 4.0.1 verglichen, siehe 12.3 |
+| NM-5 | ok für 48 Zeilen | Scrollen, Regler, Aufklappen flüssig, auch bei laufendem Routing. Ein Gerät mit 128 oder 256 Kanälen war nicht vorhanden |
+| NM-6 | ok | Experiment ohne Repo-Änderung (Kopie in `/tmp` mit `maxSlots = 4`): viertes Gerät abgelehnt, Warnzeile "Output limit reached: AudioRouterNow can route to 3 outputs at once. Remove an output to add another." vollständig lesbar, Liste bleibt bei 3 Zeilen |
+| NM-7 | ok | Etwa 70 KiB je Zeile (18 auf 48 Zeilen: +2 MB), passt zur Rechnung (etwa 65 KiB je Slot) |
+| Zusatz: Start ohne Absturz | ok (abgeleitet) | Die App startete in der Sitzung mehrfach und lief durchgehend |
+
+**CPU und Speicher (NM-4, NM-7).** Gemessen mit `top -l 31 -s 2` (30 Werte, der erste verworfen), `ps` für RSS, Routing aktiv, Musik. CPU ist der Wert eines einzelnen Kerns.
+
+| Zeilen | Panel | CPU Mittel (Min bis Max) | Speicher `top` / `ps` RSS |
+|--------|-------|--------------------------|---------------------------|
+| 3 | zu | 41,5 % (34,8 bis 42,7) | 39 MB / 93,0 MiB |
+| 18 | zu | 40,3 % (35,0 bis 41,3) | 113 MB / 155,8 MiB |
+| 18 | offen | 42,6 % (37,3 bis 45,0) | 116 MB / 132,0 MiB |
+| 48 | zu | 42,4 % (35,4 bis 44,5) | 115 MB / 164,6 MiB |
+
+Die Prozesse waren unterschiedlich lange gelaufen. Der Sprung von 3 auf 18 Zeilen (+74 MB) ist nicht zeilenproportional; Hypothese, ungeprüft: feste Kosten der BlackHole-Geräte (Datenströme), nicht der Slots.
+
+### 12.2 Befunde und Beobachtungen
+
+1. **M8 war zuerst falsch bewertet.** Am 22.11. war M8 nach der Nutzerangabe "kurze Unterbrechung, Musik läuft weiter" als ok eingetragen. Die Log-Auswertung zeigte: In beiden Versuchen lief die 3-s-Frist ungestört ab (`hdmiSettleDelay` = 3,0 s), zwei Neustarts folgten, "L1: Blip erkannt" fehlte. Die Komplete Audio kam aus Sicht der App etwa 3,1 s nach dem Verschwinden zurück (3,14 s und 3,09 s, Unsicherheit etwa ±0,1 s). Der Eintrag wurde zurückgenommen und erst nach der Wiederholung am 23.11. wieder auf ok gesetzt. Folge für die Nutzer: Die Absorption greift nur, wenn das Gerät innerhalb von 3,0 s zurück ist. Wer ein USB-Interface langsamer wieder anmeldet, bekommt weiter den regulären Neustart. Das ist so gedacht, die Frist liegt aber bei der Komplete Audio knapp unter ihrer Wiederanmeldezeit. Ob die Frist für USB-Interfaces zu knapp ist, ist eine Designfrage für später, kein Code wurde geändert.
+2. **Die Anleitung zu M6 war an einer Stelle falsch.** Sie vermutete, das Subsystem der Test-App weiche wegen der Bundle-ID `.test` ab. Im Code steht das Subsystem fest als `com.mauriciomorkun.audiorouternow` (`DeviceLifecycleManager.swift`, `FanOutEngine.swift`, `EngineController.swift`, `VolumeTracker.swift`). Das Prädikat braucht keine Anpassung. Praktisch: `log stream` zeigt nur neue Einträge, ein leeres Terminal beweist für sich nichts. Die rückwirkende Abfrage `/usr/bin/log show --info --debug --predicate 'subsystem == "com.mauriciomorkun.audiorouternow"'` ist die belastbare Gegenprobe. In der zsh ist `log` ein eingebauter Befehl, deshalb den vollen Pfad `/usr/bin/log` verwenden.
+3. **M7 zeigt einen einzelnen Noop** 16 s nach dem Neustart (Rate 44100, `total_noops=1`). Das ist ein Folgeping des Systems nach dem Warm-Restart. Es ist kein Dauerfeuer (M6 zählt über mindestens 90 Minuten 0), aber die Erwartung "kein M4-Noop im Log" ist für diesen Wechsel wörtlich nicht erfüllt.
+4. **Die Meldung am Limit erscheint beim Anklicken, nicht beim Öffnen des Menüs** (`EngineController.addOutputConfig`). Das Menü bietet am Limit weiter alle Einträge an. Kein Mangel, aber das Ausgrauen der Einträge am Limit wäre eine mögliche Verbesserung für später.
+5. **Kein Ersatz für fehlende Hardware.** Mit 8 echten Paaren war die Großliste nicht prüfbar. Die Nachmessung mit BlackHole liefert 48 Zeilen, aber nur etwa 6 davon sind hörbar (Kopfhörer, Lautsprecher, Komplete Audio, BenQ); die BlackHole-Zeilen sind Aufnahmegeräte ohne Lautsprecher. Geprüft wurde Index 16 (Platz 17) und Index 32 (Platz 33) hörbar, nicht jede Zeile.
+6. **Messumgebung.** Die Auswahl der Test-App liegt in den Einstellungen der Test-Bundle-ID unter `arn.v4.outputConfigs` (JSON mit `uid`, `channelCount`, `channelOffset`). Für die Messung wurde sie mit 16 und mit 48 Einträgen vorbefüllt (nur Test-Bundle-ID, nicht die Store-App) und am Ende aus einer Sicherung im Home-Ordner (`arn-test-prefs-backup-20261123.plist`) auf die ursprünglichen 3 Zeilen zurückgesetzt. Die NM6-Testkopie (Desktop) und das Build-Verzeichnis in `/tmp` sind gelöscht. Das Repo blieb unverändert.
+
+### 12.3 Offen nach der Messsitzung
+
+| Punkt | Stand | Einordnung |
+|-------|-------|------------|
+| Zusatzzeilen: VoiceOver-Hinweis je Footer-Symbol, Tab-Fokus-Reihenfolge, Umbruch bei großer Schrift | nicht geprüft (je etwa 5 Minuten) | Vor der Einreichung empfohlen, bisher nur am Quellcode und per Nachbau belegt |
+| CPU-Vergleich mit der Store-Version 4.0.1 | nicht gemessen (etwa 5 Minuten) | Schon bei 3 Zeilen liegt die App bei etwa 40 % eines Kerns. Ob 4.0.1 gleich liegt oder 4.1 eine neue Last erzeugt, ist unbekannt. Vor der Einreichung empfohlen, um eine Verschlechterung auszuschließen |
+| Vergleich der hörbaren Pause bei M8 mit 4.0.1 | nicht gemessen | Belegt ist nur der fehlende Engine-Neustart |
+| 128/256-Kanal-Gerät (NM-5) | nicht vorhanden | Für die Einreichung nicht verlangt |
+| 13"-Bildschirm (M1) | Bildschirmgröße nicht erfasst | Nur das Verhalten bei 48 Zeilen ist belegt |
+| Intel | nicht testbar | Das Binary ist universal, es gibt kein Intel-Gerät (E2, Option A) |
+| Erneute Bestätigung E1, E3, E4, E6 und Annahme von 6a und 6d (Abschnitt 8, Punkt 2) | steht beim Nutzer aus | Die Messungen widersprechen keiner dieser Entscheidungen: M1 zeigt, dass das Scrollen bei 48 Zeilen funktioniert (die konkrete Höhe von 400 pt in E1 wurde nicht einzeln gemessen), M3 und M9 passen zu E4, M8 stützt E6. E3 (Icon-Knopf in der Statuszeile) ist durch die Entscheidung für C3 (großer Knopf oben) abgelöst und wird durch M2 nicht mehr gemessen. Der Launch-at-Login-Reset (6d) wurde nicht gemessen |
+
+**Nächste Schritte** unverändert nach Abschnitt 8, ab Punkt 2. Jeder unumkehrbare Schritt (Archiv, Tag, Merge, Push, Einreichung) nur auf ausdrückliche Anweisung des Nutzers. Kein Push, kein Tag, keine Einreichung bisher.

@@ -303,3 +303,20 @@ docs/support/. `docs/v4.1/26-release-plan.md` nicht angefasst (anderer Agent).
       129, naechster Schritt Messpunkte mit TEST C3b). Acht Memory-Dateien ohne Indexeintrag
       nicht angefasst; docs/support/ nicht angefasst; keine Klarnamen in Memory.
 
+### Nachtrag 23.11.2026: Stand nach der Messsitzung
+
+Die Messsitzung (21. bis 23.11.2026) ist durchgeführt. Die Stellen, die den Prioritätspunkt
+"Messpunkte M1 bis M9 und NM-1 bis NM-7 gemeinsam mit Claude durchgehen" vom 15.11.2026
+tragen, wurden auf den Endstand gebracht:
+
+- `docs/v4.1/27-messprotokoll.md`: Kopf, Ergebnisse je Zeile, Abschnitt 7 (Zusammenfassung)
+- `docs/v4.1/09-final-report.md`: neuer Abschnitt 12, datierte Hinweise in der Einleitung,
+  in Abschnitt 1, 5.1, 7 und 8 (die älteren Abschnitte bleiben als Planungsstand stehen)
+- `docs/v4.1/README.md`: neue Zeile für Dokument 27, Abschnitt "Stand nach der Messsitzung"
+- `docs/v4.1/26-release-plan.md`: Hinweis in der Kurzfassung und Nachtrag 23.11.2026
+- `.claude/CLAUDE.md`, `TODO.md`, `BACKLOG.md` (lokal) sowie die Memory-Dateien
+  `project_audiorouternow_v41_status.md` und `MEMORY.md`
+
+Nicht geändert, weil sie von den Messungen nicht berührt werden: `CHANGELOG.md`,
+`RELEASE_NOTES.md`, `README.md` (Wurzel), `DOKUMENTATION.md`, `docs/v4.1/06-appstore-texts.md`.
+

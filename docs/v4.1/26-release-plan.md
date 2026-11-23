@@ -10,6 +10,12 @@ Code, an `landing-page/`, bei GitHub oder auf Servern, und committet nichts.
 
 ## 1. Kurzfassung
 
+> **Nachtrag 23.11.2026:** Die Messpunkte (Voraussetzung (b) unten, Abschnitt 4(e)) sind
+> durchgeführt, keiner fiel negativ aus (`27-messprotokoll.md`, `09-final-report.md`
+> Abschnitt 12). "Nicht am Gerät verifiziert" in dieser Kurzfassung gilt für den Stand
+> vom 18.11.2026. Offen blieben Zusatzzeilen und der CPU-Vergleich mit 4.0.1, siehe
+> den Nachtrag am Ende dieser Datei.
+
 - 4.1 (Version 4.1, Build 11) liegt fertig und auditiert auf `release/4.1`,
   **65 Commits vor `main`** [git rev-list --count main..HEAD], plus unverbuchter
   Arbeitsbaum (8 geaenderte, 7 neue Dateien) fuer die am 17.11. entschiedene
@@ -597,3 +603,41 @@ verschwindet erst mit einem frischen 4.1-Archiv (Nutzerschritt).
   `01125b5`, `27dcd0e`, `4942a34`. Nicht gepusht, kein Tag.
 - Screenshot-Vorlage vorhanden (Panel C3 aus der Test-App).
 - **Offen:** Messpunkte am Geraet, neues Archiv, Einreichung.
+
+## Nachtrag 23.11.2026
+
+Messsitzung durchgeführt. Belege und Einzelwerte in `27-messprotokoll.md`, Einordnung
+in `09-final-report.md` Abschnitt 12.
+
+### 4(e) Messpunkte am Gerät: erledigt
+
+- Durchgeführt am 21., 22. und 23.11.2026 mit "AudioRouterNow 4.1 TEST C3b.app" auf
+  einem MacBook Pro (Apple M1, macOS 26.6.2). Ergebnis: alle Hauptzeilen (M1 bis M9 mit
+  M2b/M2c/M2d, NM-1 bis NM-7) ok, 20 von 23 Tabellenzeilen ok, 3 Zusatzzeilen offen.
+  Kein Messpunkt negativ, der Rückfall bei M8 (Commit `5798a63`) bleibt ungenutzt.
+- Dauer: deutlich länger als die Planung (2,5 bis 3,5 Stunden), weil M6 lange
+  Laufzeiten braucht (mindestens 90 Minuten Gegenprobe), die Großliste eine
+  Nachmessung mit vorübergehend installiertem BlackHole brauchte und M8 wiederholt
+  wurde.
+- Planung von 4(e), Annahme "17 echte Geräte sind nicht nötig, BlackHole 64ch liefert
+  32 Paare": Der Nutzer besaß kein BlackHole. Es wurde am 23.11. per Homebrew
+  (`blackhole-64ch`, `blackhole-16ch`, 0.7.1) vorübergehend installiert und danach
+  entfernt (Treiberordner und `brew list` geprüft). Das Installieren und Entfernen
+  braucht das Administratorpasswort, das nur der Nutzer eingeben kann.
+
+### Was die Sitzung für den weiteren Weg bedeutet
+
+1. **Keine Blocker aus den Messungen.** Die Reihenfolge aus Abschnitt 5 gilt ab dem
+   Schritt "Entscheidungen bestätigen" weiter.
+2. **Zwei Punkte vor der Einreichung empfohlen:** die Zusatzzeilen (VoiceOver-Hinweise,
+   Tab-Fokus, große Schrift) und ein CPU-Vergleich mit der Store-Version 4.0.1. Die App
+   liegt schon bei 3 Zeilen bei etwa 40 % eines Kerns (NM-4); ob 4.1 das gegenüber 4.0.1
+   verschlechtert, ist nicht gemessen.
+3. **Entscheidung für später, nicht für 4.1:** Die Blip-Frist (3,0 s) liegt knapp unter
+   der Wiederanmeldezeit der Komplete Audio (etwa 3,1 s). Bei schnellem Wiedereinstecken
+   greift die Absorption, bei normalem nicht. Kein Code geändert.
+4. **Frage 3 aus Abschnitt 7 (Messtermin) ist beantwortet.** Frage 4 (Screenshots):
+   Vorlage liegt vor, der Nutzer finalisiert (Gerätename "NI Audio 4 DJ" in zwei Motiven
+   sichtbar, Entscheidung offen).
+5. **Stand der Entscheidungen:** unverändert (C3 mit V2, E2 = Option A, Commits lokal).
+   Offen: neues Archiv, Einreichung.
