@@ -176,7 +176,7 @@ das Repo blieb unverändert.
 - [x] CPU-Vergleich mit der Store-Version 4.0.1 (erledigt 23.11.2026): 38,7 Prozent (4.0.1)
       gegenüber 41,5 Prozent (4.1) bei 3 Zeilen, kein Unterschied im Rahmen der Streuung.
       Die Basislast von etwa 40 % eines Kerns hat schon 4.0.1.
-- [ ] Erneute Bestätigung von E1, E3 (durch C3 abgelöst), E4, E6 sowie Annahme von 6a und 6d.
+- [x] Launch-at-Login-Reset (6d) angenommen, Gerätename "NI Audio 4 DJ" in den Screenshots bleibt (beides 23.11.2026, `09-final-report.md` Abschnitt 12.5). E1, E4, E6, 6a nicht ausdrücklich bestätigt, die Messungen widersprechen nicht.
 - [x] Neues 4.1-Archiv gebaut und geprüft (23.11.2026, 17:23 Uhr, aus HEAD `429b865`), Preflight ohne
       Abbruchgrund (siehe `09-final-report.md` Abschnitt 12.4).
 - [ ] Hochladen (Organizer, Distribute App), App-Store-Connect-Texte, Datum, Tag, Merge, Push,

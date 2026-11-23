@@ -647,3 +647,11 @@ in `09-final-report.md` Abschnitt 12.
 Archiv gebaut am 23.11.2026, 17:23 Uhr, per `xcodebuild archive` (Release, `generic/platform=macOS`) aus dem sauberen Arbeitsbaum bei HEAD `429b865`. Ablage im Xcode-Archivordner (`~/Library/Developer/Xcode/Archives/2026-11-23/`, Name "AudioRouterNow4 23-11-2026, 17.23.xcarchive", 14 MB, sichtbar im Organizer). Geprüft am Archiv selbst: Version 4.1 (11), Bundle-ID `com.mauriciomorkun.audiorouternow`, `LSMinimumSystemVersion` 14.4, universal (`x86_64 arm64`), `codesign --verify --deep --strict` gültig, Hardened Runtime, Entitlements nur App Sandbox und Audio Input (kein `get-task-allow`), dSYM vorhanden, Signatur "Apple Development" (wie beim 4.0.1-Archiv; die Neusignierung für den Store übernimmt die Verteilung im Organizer). Der Binary enthält die Endstand-Texte (Support-Hinweis, Schloss-Hinweis, "All outputs are added.", Limit-Meldung). Tests vor dem Archiv: 60 swift-testing und 129 XCTest, alle grün. Preflight: kein Abbruchgrund mehr, eine Warnung (Commits nicht gepusht).
 
 Damit ist der Preflight-ABBRUCH aus Abschnitt 4(d) behoben. Nächster Schritt laut Abschnitt 5: Distribute App im Organizer (Upload), danach App-Store-Connect.
+
+### Entscheidungen vom 23.11.2026
+
+**Launch at Login (6d), angenommen.** Der Nutzer bestätigt, dass die Einwilligung bewusst an die Build-Nummer gebunden ist: Bei jedem Update muss der Nutzer die Option selbst wieder aktivieren (Guideline 2.4.5(iii), kein stilles Wiederaktivieren nach Updates). Das ist nicht auf den Sprung von Build 10 auf 11 beschränkt. Am Code belegt (`EngineController.swift`, `launchAtLoginConsentBuildKey` und `hasValidLaunchAtLoginConsent`: gültig nur bei `optedIn == true` und gespeicherter Build-Nummer gleich `CFBundleVersion`). Der Hinweis steht in "Was ist neu" und in der Review-Notiz (`06-appstore-texts.md`). Nicht am Gerät beobachtet: das Verhalten beim echten Update von 4.0.1 auf 4.1.
+
+**Screenshots, Gerätename.** "NI Audio 4 DJ" bleibt in den Motiven 4 und 5 sichtbar. Der Name ist der echte Gerätename des Nutzers und keine Aussage der App (Herkunftsregel: Hi-Fi-/Abhör-Setup, nicht DJing, siehe `facts.md`, bleibt davon unberührt).
+
+**Nicht ausdrücklich bestätigt:** E1, E4, E6 und 6a. Die Messungen widersprechen keiner dieser Entscheidungen; sie blockieren die Einreichung nicht.
