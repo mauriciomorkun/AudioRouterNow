@@ -147,7 +147,7 @@ Checkliste der Vorbereitungen bis zum 4.1-Archiv. Belege und Details in
 **Offen (beim Nutzer):**
 
 - [x] Messpunkte am Geraet (M1 bis M9, M2b/M2c/M2d, NM-1 bis NM-7): durchgefuehrt 21. bis 23.11.2026, keiner negativ (siehe unten, `27-messprotokoll.md`). Zusatzzeilen offen.
-- [ ] Lokale `Signing.local.xcconfig` aus der Vorlage anlegen und Team ID setzen.
+- [x] Lokale `Signing.local.xcconfig` ist angelegt (18.11.2026, Team ID aus `project.pbxproj`, gitignoriert, belegt am 23.11.2026: Datei vorhanden, `DEVELOPMENT_TEAM` gesetzt). Vor dem Archiv in Xcode prüfen, dass das Team angezeigt wird.
 - [ ] Neues 4.1-Archiv bauen und signieren (behebt den Preflight-ABBRUCH).
 - [ ] Preflight erneut, App-Store-Connect-Texte, Datum, Tag, Merge, Push,
       Einreichung. Nur auf ausdrueckliche Anweisung.
@@ -176,8 +176,8 @@ das Repo blieb unverändert.
 - [ ] CPU-Vergleich mit der Store-Version 4.0.1 (etwa 5 Minuten): Die App liegt schon bei
       3 Zeilen bei etwa 40 % eines Kerns; ob das bei 4.0.1 gleich ist, ist nicht gemessen.
 - [ ] Erneute Bestätigung von E1, E3 (durch C3 abgelöst), E4, E6 sowie Annahme von 6a und 6d.
-- [ ] Lokale `Signing.local.xcconfig`, neues Archiv, Preflight, App-Store-Connect-Texte,
-      Datum, Tag, Merge, Push, Einreichung. Nur auf ausdrückliche Anweisung.
+- [ ] Neues Archiv, Preflight, App-Store-Connect-Texte, Datum, Tag, Merge, Push,
+      Einreichung. Nur auf ausdrückliche Anweisung.
 
 ## Hinweis zur Quellenlage
 
