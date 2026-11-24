@@ -613,7 +613,7 @@ in `09-final-report.md` Abschnitt 12.
 
 - Durchgeführt am 21., 22. und 23.11.2026 mit "AudioRouterNow 4.1 TEST C3b.app" auf
   einem MacBook Pro (Apple M1, macOS 26.6.2). Ergebnis: alle Hauptzeilen (M1 bis M9 mit
-  M2b/M2c/M2d, NM-1 bis NM-7) ok, 20 von 23 Tabellenzeilen ok, 3 Zusatzzeilen offen.
+  M2b/M2c/M2d, NM-1 bis NM-7) ok, 21 von 23 Tabellenzeilen ok (Stand 24.11.2026), 2 Zusatzzeilen offen (Tab-Fokus, große Schrift).
   Kein Messpunkt negativ, der Rückfall bei M8 (Commit `5798a63`) bleibt ungenutzt.
 - Dauer: deutlich länger als die Planung (2,5 bis 3,5 Stunden), weil M6 lange
   Laufzeiten braucht (mindestens 90 Minuten Gegenprobe), die Großliste eine
@@ -629,8 +629,8 @@ in `09-final-report.md` Abschnitt 12.
 
 1. **Keine Blocker aus den Messungen.** Die Reihenfolge aus Abschnitt 5 gilt ab dem
    Schritt "Entscheidungen bestätigen" weiter.
-2. **Vor der Einreichung empfohlen:** die Zusatzzeilen (VoiceOver-Hinweise, Tab-Fokus,
-   große Schrift). Der CPU-Vergleich mit der Store-Version 4.0.1 ist am 23.11.2026
+2. **Vor der Einreichung empfohlen:** die Zusatzzeilen Tab-Fokus und große Schrift
+   (der VoiceOver-Hinweis ist am 24.11.2026 auf Nutzerangabe ok). Der CPU-Vergleich mit der Store-Version 4.0.1 ist am 23.11.2026
    erledigt: 38,7 Prozent (4.0.1) gegenüber 41,5 Prozent (4.1) bei 3 Zeilen, die Basislast
    von etwa 40 % eines Kerns ist kein 4.1-Effekt.
 3. **Entscheidung für später, nicht für 4.1:** Die Blip-Frist (3,0 s) liegt knapp unter

@@ -76,7 +76,7 @@ Dauerangaben ohne Quelle sind als "(Schätzung)" markiert.
 | 3 | M2b | Knopfoptik oben und Footer, VoiceOver liest "Start/Stop Routing" | ~10 min | 1 Gerät, VoiceOver | nein | [x] ok  [ ] negativ  [ ] nicht pruefbar | Nutzer am Gerät bestätigt, 21.11.2026. Ob VoiceOver dabei benutzt wurde, nicht ausdrücklich gesagt. |
 | 4 | Zusatz: Start ohne Absturz | App startet crashfrei (Start-Smoke-Test der C3b-App wurde laut Anleitung nie gemacht) | ~2 min (Schätzung) | 1 Gerät | nein | [x] ok  [ ] negativ  [ ] nicht pruefbar | Abgeleitet, 23.11.2026: Die App C3b startete in der Sitzung mehrfach (auch nach Beenden und Neustart mit vorbefüllter Konfiguration) und lief über Tage durchgehend. Kein Nutzerurteil, sondern Beobachtung aus Prozessliste und Log. |
 | 5 | M2c | Hover-Erklärungen im Footer, Clamping an beiden Rändern, Maus und Trackpad | ~10 min | Maus + Trackpad | nein | [x] ok  [ ] negativ  [ ] nicht pruefbar | Nutzer am Gerät bestätigt, 21.11.2026. |
-| 6 | Zusatz: VoiceOver-Hint je Footer-Symbol | VoiceOver liest zu jedem Footer-Symbol den Erklärtext (accessibilityHint) | ~5 min (Schätzung) | VoiceOver | nein | [ ] ok  [ ] negativ  [ ] nicht pruefbar | **Nicht geprüft (Stand 23.11.2026), offen.** |
+| 6 | Zusatz: VoiceOver-Hint je Footer-Symbol | VoiceOver liest zu jedem Footer-Symbol den Erklärtext (accessibilityHint) | ~5 min (Schätzung) | VoiceOver | nein | [x] ok  [ ] negativ  [ ] nicht pruefbar | 24.11.2026, Nutzer: Die Hinweise kommen am echten Gerät an, bereits getestet (Zeitpunkt der Prüfung, Umfang und ob alle sechs Footer-Elemente einzeln geprüft wurden, nicht genannt und nicht erfasst). Im Code haben alle sechs Footer-Elemente `accessibilityHint` aus `FooterTips` (`RoutingControls.swift:465`, Verwendung über `tracked(...)`). |
 | 7 | Zusatz: Tab-Fokus | Tab-Fokus-Reihenfolge im Panel sinnvoll | ~5 min (Schätzung) | Tastatur | nein | [ ] ok  [ ] negativ  [ ] nicht pruefbar | **Nicht geprüft (Stand 23.11.2026), offen.** |
 | 8 | Zusatz: Umbruch bei großer Schrift | "Launch at Login", Support, Quit bleiben einzeilig bei großer Dynamic Type / Bedienungshilfen | ~5 min (Schätzung) | Systemeinstellungen | nein | [ ] ok  [ ] negativ  [ ] nicht pruefbar | **Nicht geprüft (Stand 23.11.2026), offen.** |
 | 9 | M2d | Add-device scrollbar und bereits hinzugefügte Einträge gekennzeichnet (Haken, ausgegraut) | ~10 min | Mehrkanalgerät (z.B. KA6) | teilweise (Scrollbarkeit per Prüfhilfe "TEST C3 LISTE" und V2-Kennzeichnung in C3b am 17.11. vom Nutzer bestätigt; echtes SwiftUI-Menü noch offen) | [x] ok  [ ] negativ  [ ] nicht pruefbar | Nutzer am Gerät bestätigt, 21.11.2026 ("wie sie sollen"), damit auch im echten Menü. |
@@ -234,22 +234,22 @@ Gekürzt aus den Prüfleitfäden. Erwartung und Verhalten bei negativem Ergebnis
 
 Stand 23.11.2026: Die Spalten "Ergebnis" und "Notiz" in Abschnitt 3 sind ausgefüllt. Die
 Spalte "bereits gesehen" gilt weiter als Stand vor der Sitzung (für M2d teilweise,
-Quelle 17.11.2026). Offen sind nur die drei Zusatzzeilen VoiceOver-Hinweis, Tab-Fokus
-und Umbruch bei großer Schrift (Zeilen 6 bis 8). Jede Nutzerangabe steht mit Datum
+Quelle 17.11.2026). Offen sind nur noch die zwei Zusatzzeilen Tab-Fokus und Umbruch bei
+großer Schrift (Zeilen 7 und 8); Zeile 6 (VoiceOver-Hinweis) ist am 24.11.2026 auf Nutzerangabe ok. Jede Nutzerangabe steht mit Datum
 und, wo vorhanden, mit Beleg (Screenshot, Zeitstempel) in der Notiz. Wo eine Angabe
 nicht ausdrücklich gemacht wurde, steht das dort (zum Beispiel bei M2b, M3, M4, M8).
 
 ## 7. Zusammenfassung der Sitzung (Stand 23.11.2026)
 
-**Ergebnis:** 20 von 23 Zeilen der Tabelle in Abschnitt 3 sind ok. Keine Zeile ist
-negativ. Offen sind 3 Zusatzzeilen (VoiceOver-Hinweis je Footer-Symbol, Tab-Fokus,
-Umbruch bei großer Schrift). Der feste Rückfall aus M8 (Commit `5798a63` umkehren)
+**Ergebnis:** 21 von 23 Zeilen der Tabelle in Abschnitt 3 sind ok (Stand 24.11.2026). Keine
+Zeile ist negativ. Offen sind 2 Zusatzzeilen (Tab-Fokus, Umbruch bei großer Schrift). Die
+Zeile VoiceOver-Hinweis ist am 24.11.2026 auf Nutzerangabe ok. Der feste Rückfall aus M8 (Commit `5798a63` umkehren)
 wurde nicht ausgelöst.
 
 Hinweis zur Zählung: Die Tabelle hat 23 Zeilen, davon 4 Zusatzzeilen und 19 Hauptzeilen
 (M1 bis M9 mit M2b, M2c, M2d sowie NM-1 bis NM-7). Alle 19 Hauptzeilen sind ok. Von den
-4 Zusatzzeilen ist "Start ohne Absturz" ok (abgeleitet), die anderen drei sind offen.
-Daraus folgen 20 ok und 3 offen.
+4 Zusatzzeilen sind "Start ohne Absturz" (abgeleitet) und "VoiceOver-Hinweis" (Nutzerangabe
+24.11.2026) ok, die anderen zwei sind offen. Daraus folgen 21 ok und 2 offen.
 
 | Gruppe | Zeilen | Ergebnis |
 |--------|--------|----------|
@@ -258,7 +258,8 @@ Daraus folgen 20 ok und 3 offen.
 | Geräteverhalten | M7, M8, M6 | ok (M8 erst nach Wiederholung, siehe unten) |
 | Viele Ausgänge | M5, NM-1 bis NM-7 | ok (48 Zeilen, kein 128/256-Kanal-Gerät) |
 | Zusatzzeilen | Start ohne Absturz | ok (abgeleitet) |
-| Zusatzzeilen | VoiceOver-Hinweis, Tab-Fokus, große Schrift | offen |
+| Zusatzzeilen | VoiceOver-Hinweis | ok (Nutzerangabe 24.11.2026) |
+| Zusatzzeilen | Tab-Fokus, große Schrift | offen |
 
 **Was über die Ergebnisse hinaus herauskam:**
 

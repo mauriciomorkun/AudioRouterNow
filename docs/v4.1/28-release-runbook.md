@@ -19,7 +19,7 @@ ausdrückliche Anweisung des Nutzers.
 | App-Code seit dem Archiv | unverändert (`git diff --stat 429b865..HEAD v4` leer, geprüft 24.11.2026) | Git |
 | Preflight | kein Abbruchgrund, eine Warnung (Commits nicht gepusht) | `v4/scripts/preflight.sh` |
 | Tests | 60 swift-testing, 129 XCTest, alle grün (23.11.2026) | `scripts/test.sh` |
-| Messungen am Gerät | 20 von 23 Zeilen ok, keine negativ, 3 Zusatzzeilen offen | `27-messprotokoll.md` |
+| Messungen am Gerät | 21 von 23 Zeilen ok, keine negativ, 2 Zusatzzeilen offen (Tab-Fokus, große Schrift) | `27-messprotokoll.md` |
 | CPU gegen 4.0.1 | 38,7 Prozent (4.0.1) gegen 41,5 Prozent (4.1), kein Unterschied | `09-final-report.md` 12.1 |
 | Entscheidungen | C3 mit V2, E2 = Option A (universal), Launch-at-Login-Reset angenommen, Gerätename in den Screenshots bleibt | `09-final-report.md` 12.5 |
 | Store-Texte | What's New, Review-Notiz, Ersatzsatz für den Superlativ liegen vor | `06-appstore-texts.md` |
@@ -43,7 +43,7 @@ Legende: Nutzer, Claude. U = unumkehrbar.
 | Nr. | Schritt | Wer | Ort | Vorbedingung | Prüfung danach | U |
 |-----|---------|-----|-----|--------------|----------------|---|
 | S01 | Überholte Stellen in Doku und Memory angleichen (siehe 6) | Claude | Repo, Memory | nichts | Querlesen, Stilregel, Commit lokal | nein |
-| S02 | Zusatzzeilen am Gerät prüfen: VoiceOver-Hinweis je Footer-Symbol, Tab-Fokus-Reihenfolge, "Launch at Login" bei großer Schrift (je etwa 5 Minuten, Anleitung in `27-messprotokoll.md` Abschnitt 4 und Gerätetest-Hinweis im Qualitätsbericht). Der Code enthält beide Korrekturen bereits (`accessibilityHint` in `RoutingControls.swift:465`, `lineLimit(1)` plus `fixedSize` in Zeile 254 bis 273), offen ist nur die Prüfung am Gerät | Nutzer, Claude | Gerät | nichts | Ergebnis in `27-messprotokoll.md` Zeilen 6 bis 8 | nein |
+| S02 | Zusatzzeilen am Gerät prüfen: Tab-Fokus-Reihenfolge und "Launch at Login" bei großer Schrift (je etwa 5 Minuten; der VoiceOver-Hinweis je Footer-Symbol ist am 24.11.2026 auf Nutzerangabe ok, Anleitung in `27-messprotokoll.md` Abschnitt 4 und Gerätetest-Hinweis im Qualitätsbericht). Der Code enthält beide Korrekturen bereits (`accessibilityHint` in `RoutingControls.swift:465`, `lineLimit(1)` plus `fixedSize` in Zeile 254 bis 273), offen ist nur die Prüfung am Gerät | Nutzer, Claude | Gerät | nichts | Ergebnis in `27-messprotokoll.md` Zeilen 6 bis 8 | nein |
 | S03 | Optional: Liste mit 120 bis 200 Zeilen prüfen, weil drei Nutzer mit etwa 125 Zeilen schreiben. Bisher gemessen sind 48 Zeilen. Verfahren: Konfiguration der Test-App vorbefüllen (`arn.v4.outputConfigs`). Ob künstliche, nicht vorhandene Geräte-Kennungen als Zeilen erscheinen, ist ungeprüft | Claude, Nutzer | Gerät | nichts | Ergebnis ins Messprotokoll | nein |
 | S04 | Upload: Xcode, Organizer, Archiv "AudioRouterNow4 23-11-2026, 17.23", Distribute App, App Store Connect, Upload. Im Organizer muss "4.1 (11)" stehen (am 01.10.2026 wurde so ein falsches Archiv erkannt) | Nutzer | Xcode | Tor A | Mail von Apple über die Verarbeitung | teilweise: Der Upload ist keine Einreichung, aber Build 11 ist danach bei Apple belegt. Nach einer Ablehnung folgt Build 12 (die Build-Nummer muss höher sein als die zuletzt hochgeladene) |
 | S05 | Verarbeitung abwarten (Minuten bis etwa eine Stunde) | Nutzer | App Store Connect | S04 | Build 11 ist unter "Build" wählbar | nein |

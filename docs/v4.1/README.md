@@ -121,7 +121,7 @@ Filter"), nicht Teil dieser Entscheidung. V1 (Untermenue je Mehrkanalgeraet) und
 | [25-add-device-liste.md](25-add-device-liste.md) | Frage (2026-11-17): Ist die "Add device"-Liste scrollbar bei sehr vielen Ausgaengen (BlackHole 64ch = 32 Paare, ueber 100 Eintraege)? Antwort JA, belegt: das `Menu` in `AddDeviceRow` ist ein natives macOS-NSMenu, das bei Ueberlaenge scrollt (Scroll-Pfeil, Scrollrad, Tastatur). Direkt gemessen an einem NSMenu mit 300 Eintraegen: das Menue-Fenster wurde auf 1090 pt (Bildschirm 1440 pt) begrenzt statt 5700 pt, mit Scroll-Pfeil (Screenshot `/tmp`). Das echte SwiftUI-Menue per Klick nicht automatisierbar (Accessibility-Rechte fehlten, kein Dialog ausgeloest). Entscheidung Fall A: keine Code-Aenderung, kein CHANGELOG-Eintrag, nur Doku. Drei Verbesserungsvorschlaege mit Aufwand/Risiko (V1 Untermenue je Multi-Channel-Geraet, V2 bereits hinzugefuegte Paare mit Haken/ausblenden, V3 Suchfeld-Popover). V2 ist nun umgesetzt (2026-11-17, Abschnitt "V2 umgesetzt"): bereits hinzugefuegte Paare (uid plus channelOffset) erscheinen mit Haken und ausgegraut (deaktivierter `Toggle` im Menue, systemkonformer NSMenu-Haken laut Apple), bei "alle hinzugefuegt" ein Hinweis "All outputs are added."; Logik testbar im Kit (`AddDeviceMenuModel`, 17 Tests), Testversion "AudioRouterNow 4.1 TEST C3b.app". V1 und V3 weiter nicht umgesetzt. Pruefhilfe-App "AudioRouterNow 4.1 TEST C3 LISTE.app" auf dem Desktop (120 kuenstliche Eintraege, die kein Routing ausloesen). Status: Scrollbarkeit fertig (Fall A, am Geraet bestaetigt), V2 Teil der finalen 4.1 (Entscheidung 17.11.2026). |
 | [24-audit-ui-c3.md](24-audit-ui-c3.md) | Unabhaengiger Audit der Variante C3 (Opus, 2026-11-16). Urteil "Freigabe mit Auflagen", keine Blocker. Prueft Tooltip-Texte am Code, Hover-Bubble-Robustheit und Clamping (nachgerechnet), restlose Entfernung der `HeaderToggle`-Logik, Footer-Layout und Umbruchrisiko bei grosser Dynamic Type, App-Review-Regeln, Tests und Stil, Signierung der Test-App, Regressionen. Zwei "sollte behoben" (Doku-Nachzug 3.1, Launch-at-Login-Umbruch) und drei kosmetische Punkte (accessibilityHint, Nicht-C3-Diff an `.gitignore`, `clearHover` bei Lock/Exclusive); alle ausser dem `.gitignore`-Punkt in Abschnitt 6b von Dok 23 behoben. Status: fertig. |
 | [26-release-plan.md](26-release-plan.md) | Release-Plan: der Weg von `release/4.1` bis zur Einreichung bei App Review (Ist-Stand, Commit-Plan, Voraussetzungen vor dem Archiv, Release-Ablauf, Risiken, Nutzerentscheidungen). Status: fertig (17.11.2026), Architekturaussage am selben Tag korrigiert (v4 ist belegt universal). |
-| [27-messprotokoll.md](27-messprotokoll.md) | Messprotokoll der Sitzung am Gerät (21. bis 23.11.2026). 23 Zeilen mit Anleitung, Ergebnis und Notiz je Messpunkt (M1 bis M9, M2b/M2c/M2d, NM-1 bis NM-7, vier Zusatzzeilen): 20 ok, 3 offen (VoiceOver-Hinweis, Tab-Fokus, große Schrift), keine negativ. Mit Zeitstempeln aus dem System-Log, Screenshots, CPU- und Speicherwerten bei 3, 18 und 48 Zeilen und der Dokumentation der vorübergehenden BlackHole-Messumgebung. Einordnung: `09-final-report.md` Abschnitt 12. |
+| [27-messprotokoll.md](27-messprotokoll.md) | Messprotokoll der Sitzung am Gerät (21. bis 23.11.2026). 23 Zeilen mit Anleitung, Ergebnis und Notiz je Messpunkt (M1 bis M9, M2b/M2c/M2d, NM-1 bis NM-7, vier Zusatzzeilen): 21 ok, 2 offen (Tab-Fokus, große Schrift), keine negativ. Mit Zeitstempeln aus dem System-Log, Screenshots, CPU- und Speicherwerten bei 3, 18 und 48 Zeilen und der Dokumentation der vorübergehenden BlackHole-Messumgebung. Einordnung: `09-final-report.md` Abschnitt 12. |
 | [28-release-runbook.md](28-release-runbook.md) | Release-Runbook (24.11.2026): Ist-Stand, vier Tore (Upload, Einreichung, Release, Öffentlichkeit), 19 Schritte vom Archiv bis zur Nachsorge mit Ablehnungszweig, Smoke-Test des Store-Builds, Risikoregister, Ergebnis des Vor-Push-Audits (keine Zugangsdaten, Team-Kennung schon öffentlich), Liste überholter Dokumentstellen und Entscheidungen D1 bis D7. Nur App-Ablauf, kein Marketing. Erarbeitet aus fünf Fachprüfungen und zwei Gegenprüfungen. |
 | [screenshots/](screenshots/README.md) | Sechs Screenshots der Test-Version (Endstand C3 mit V2), aufgenommen am Gerät am 18.11.2026: Leerlauf, Hover-Hinweis am Bug-Symbol, Routing mit 3 Ausgängen, Solo, aufgeklappter Ausgang, Add-device-Menü mit Haken. Arbeitsbilder (Fensterausschnitte), keine fertigen App-Store-Screenshots. |
 
@@ -158,7 +158,7 @@ Checkliste der Vorbereitungen bis zum 4.1-Archiv. Belege und Details in
 Die Messsitzung am Gerät ist durchgeführt. Belege je Messpunkt in `27-messprotokoll.md`,
 Einordnung in `09-final-report.md` (Abschnitt 12).
 
-**Ergebnis:** 20 von 23 Zeilen ok, 3 offen, keine negativ. Der feste Rückfall bei M8
+**Ergebnis:** 21 von 23 Zeilen ok, 2 offen (Stand 24.11.2026), keine negativ. Der feste Rückfall bei M8
 (Commit `5798a63` umkehren) wurde nicht ausgelöst. M8 war zunächst falsch als ok
 eingetragen, nach der Log-Auswertung zurückgenommen und nach einer Wiederholung mit
 schnellem Wiedereinstecken (dreimal "L1: Blip erkannt", kein Engine-Neustart) bestätigt.
@@ -172,8 +172,8 @@ das Repo blieb unverändert.
 
 **Offen nach der Sitzung:**
 
-- [ ] Zusatzzeilen: VoiceOver-Hinweis je Footer-Symbol, Tab-Fokus-Reihenfolge, Umbruch
-      bei großer Schrift (je etwa 5 Minuten).
+- [ ] Zusatzzeilen: Tab-Fokus-Reihenfolge und Umbruch bei großer Schrift (je etwa 5 Minuten).
+      Der VoiceOver-Hinweis je Footer-Symbol ist am 24.11.2026 auf Nutzerangabe ok.
 - [x] CPU-Vergleich mit der Store-Version 4.0.1 (erledigt 23.11.2026): 38,7 Prozent (4.0.1)
       gegenüber 41,5 Prozent (4.1) bei 3 Zeilen, kein Unterschied im Rahmen der Streuung.
       Die Basislast von etwa 40 % eines Kerns hat schon 4.0.1.
