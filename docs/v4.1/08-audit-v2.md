@@ -33,7 +33,7 @@ Urteil: **Kein neuer Durchlauf noetig.**
 Befehl (selbst ausgefuehrt):
 
 ```
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && bash scripts/test.sh
+cd ~/AudioRouterNow/v4 && bash scripts/test.sh
 ```
 
 Ergebnis:
@@ -60,7 +60,7 @@ VolumeScalingTests (15).
 Befehl (selbst ausgefuehrt):
 
 ```
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && \
+cd ~/AudioRouterNow/v4 && \
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project AudioRouterNow4.xcodeproj \
   -scheme AudioRouterNow4 -configuration Debug \
@@ -76,7 +76,7 @@ Xcode-Installations-Hinweise, keine Build-Fehler).
 Befehl (selbst ausgefuehrt):
 
 ```
-bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/preflight.sh
+bash ~/AudioRouterNow/v4/scripts/preflight.sh
 ```
 
 Ergebnis (waehrend Audit-Lauf; der untracked Entwurf dieser Datei erzeugt

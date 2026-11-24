@@ -37,8 +37,8 @@ und den Angaben im Auftrag. Wo etwas in diesen Quellen nicht steht, steht hier
 4. Es fehlen alle Messungen am Gerät (M1 bis M9, keine ist erledigt) und die
    Einreichung (neues Archiv, App Store Connect, Tag, Merge, Push).
    *Nachtrag 23.11.2026: Die Messungen sind durchgeführt, keine fiel negativ aus
-   (Abschnitt 12). Offen bleiben die Zusatzzeilen Tab-Fokus und große Schrift (der
-   VoiceOver-Hinweis ist am 24.11.2026 auf Nutzerangabe ok) und die Einreichung. Der CPU-Vergleich mit 4.0.1 ist am
+   (Abschnitt 12). Die drei Zusatzzeilen (VoiceOver-Hinweis, Tab-Fokus, große Schrift) sind am
+   24.11.2026 auf Nutzerangabe ok. Offen bleibt die Einreichung. Der CPU-Vergleich mit 4.0.1 ist am
    23.11.2026 gemacht, kein Unterschied (Abschnitt 12.1).*
 5. Kein Agent hat gepusht, getaggt oder eingereicht; `preflight.sh` meldet bis zum
    Bau eines neuen Archivs einen ABBRUCH wegen des alten Archivs 4.0.1 (10).
@@ -333,6 +333,10 @@ Die Reihenfolge ist verbindlich. Nicht von Agenten gemacht und deshalb alle offe
 kein Push, keine Einreichung, kein Tag `v4.1`, kein Merge nach `main`, kein
 Archiv, keine Eingabe in App Store Connect.
 
+> *Nachtrag 24.11.2026: Seither erledigt sind Punkt 1 (Messungen, alle 23 Zeilen ok), Punkt 4 (Archiv
+> gebaut am 23.11.) und Punkt 5 (Preflight ohne Abbruch). Die übrigen Punkte und ihre Reihenfolge
+> stehen in `28-release-runbook.md`.*
+
 1. **Messungen M1 bis M9** durchführen (Abschnitt 7) und die Ergebnisse
    eintragen. Fällt M8 negativ aus, `5798a63` umkehren, bevor es weitergeht.
    *Erledigt 23.11.2026, kein Messpunkt negativ, `5798a63` bleibt (Abschnitt 12). Die
@@ -589,6 +593,7 @@ Kein Messpunkt ist negativ ausgefallen. Der einzige feste Rückfall (M8, Commit 
 | NM-6 | ok | Experiment ohne Repo-Änderung (Kopie in `/tmp` mit `maxSlots = 4`): viertes Gerät abgelehnt, Warnzeile "Output limit reached: AudioRouterNow can route to 3 outputs at once. Remove an output to add another." vollständig lesbar, Liste bleibt bei 3 Zeilen |
 | NM-7 | ok | Etwa 70 KiB je Zeile (18 auf 48 Zeilen: +2 MB), passt zur Rechnung (etwa 65 KiB je Slot) |
 | Zusatz: VoiceOver-Hinweis je Footer-Symbol | ok (Nutzerangabe 24.11.2026) | Die Hinweise kommen am echten Gerät an, bereits getestet. Zeitpunkt und Umfang nicht erfasst |
+| Zusatz: Tab-Fokus-Reihenfolge und Umbruch bei großer Schrift | ok (Nutzerangabe 24.11.2026) | "Beides in Ordnung", Einzelbeobachtungen nicht erfasst |
 | Zusatz: Start ohne Absturz | ok (abgeleitet) | Die App startete in der Sitzung mehrfach und lief durchgehend |
 
 **CPU und Speicher (NM-4, NM-7).** Gemessen mit `top -l 31 -s 2` (30 Werte, der erste verworfen), `ps` für RSS, Routing aktiv, Musik. CPU ist der Wert eines einzelnen Kerns.
@@ -618,7 +623,7 @@ Die Prozesse waren unterschiedlich lange gelaufen. Der Sprung von 3 auf 18 Zeile
 
 | Punkt | Stand | Einordnung |
 |-------|-------|------------|
-| Zusatzzeilen: Tab-Fokus-Reihenfolge, Umbruch bei großer Schrift | nicht geprüft (je etwa 5 Minuten) | Vor der Einreichung empfohlen, bisher nur am Quellcode und per Nachbau belegt. Der VoiceOver-Hinweis je Footer-Symbol ist am 24.11.2026 auf Nutzerangabe ok (Umfang nicht erfasst) |
+| Zusatzzeilen: VoiceOver-Hinweis, Tab-Fokus-Reihenfolge, Umbruch bei großer Schrift | **erledigt 24.11.2026** auf Nutzerangabe | Einzelbeobachtungen (Reihenfolge, Textgröße, Umfang beim VoiceOver) nicht erfasst |
 | CPU-Vergleich mit der Store-Version 4.0.1 | **erledigt 23.11.2026** | 38,7 Prozent (4.0.1) gegenüber 41,5 Prozent (4.1) bei 3 Zeilen: gleiche Größenordnung, keine Verschlechterung erkennbar. Die Basislast von etwa 40 % eines Kerns war schon in 4.0.1 vorhanden |
 | Vergleich der hörbaren Pause bei M8 mit 4.0.1 | nicht gemessen | Belegt ist nur der fehlende Engine-Neustart |
 | 128/256-Kanal-Gerät (NM-5) | nicht vorhanden | Für die Einreichung nicht verlangt |

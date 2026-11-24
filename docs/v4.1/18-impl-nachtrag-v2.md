@@ -28,7 +28,7 @@ App-Build: `Debug`, `CODE_SIGNING_ALLOWED=NO`, `platform=macOS`.
 
 ### NT2-S0 (Baseline)
 
-Ausgefuehrt: `bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/test.sh`.
+Ausgefuehrt: `bash ~/AudioRouterNow/v4/scripts/test.sh`.
 Ergebnis: "Test run with 60 tests in 10 suites passed", "Executed 95 tests, with 0 failures".
 App-Build: BUILD SUCCEEDED. Entspricht der Plan-Baseline.
 
@@ -122,7 +122,7 @@ Alle gruen, 0 Fehler.
 ## Preflight (selbst ausgefuehrt)
 
 Lauf nach NT2-S3, vor NT2-S4 (Arbeitsbaum enthielt noch ungetracktes Protokoll):
-`bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/preflight.sh`
+`bash ~/AudioRouterNow/v4/scripts/preflight.sh`
 
 Ergebnis: 1 ABBRUCH, 3 Warnungen:
 - ABBRUCH: letztes Archiv ist 4.0.1 (10), erwartet 4.1 (11). Laut Plan erwartet.

@@ -51,7 +51,7 @@ Verifiziert durch Audit v2 (Commit `080f0c8`):
 App-Build-Befehl:
 
 ```
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && \
+cd ~/AudioRouterNow/v4 && \
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project AudioRouterNow4.xcodeproj \
   -scheme AudioRouterNow4 -configuration Debug \
@@ -190,7 +190,7 @@ Scope fuer diesen Durchlauf.
 
 Vorgehen:
 1. `git status` prueft, dass `release/4.1` sauber ist (HEAD = `14a6417`).
-2. `cd /Users/mauriciomorkun/AudioRouterNow/v4 && bash scripts/test.sh`
+2. `cd ~/AudioRouterNow/v4 && bash scripts/test.sh`
    Erwartet: 59 swift-testing, alle gruen.
 3. App-Build (Befehl aus Abschnitt 1.4). Erwartet: BUILD SUCCEEDED.
 

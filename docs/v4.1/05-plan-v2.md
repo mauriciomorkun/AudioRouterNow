@@ -39,7 +39,7 @@ Verifiziert vom Planer:
 
 App-Build-Befehl (unveraendert aus Plan v1 und Audit):
 ```
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && \
+cd ~/AudioRouterNow/v4 && \
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project AudioRouterNow4.xcodeproj \
   -scheme AudioRouterNow4 -configuration Debug \
@@ -191,7 +191,7 @@ Verhalten aendern will; die Funktion selbst bleibt unberuehrt.
 
 Vorgehen:
 1. `git status` prueft, dass `release/4.1` sauber ist (Commit `338855e`).
-2. `cd /Users/mauriciomorkun/AudioRouterNow/v4 && bash scripts/test.sh` ausfuehren.
+2. `cd ~/AudioRouterNow/v4 && bash scripts/test.sh` ausfuehren.
    Erwartet: 59 swift-testing, alle gruen.
 3. App-Build ausfuehren (Befehl aus Abschnitt 1.4). Erwartet: BUILD SUCCEEDED.
 
@@ -606,7 +606,7 @@ Commit: `docs(v4.1): app store connect text templates for 4.1 submission`
 **Dateien:** `docs/v4.1/README.md`
 
 Vorgehen:
-1. `cd /Users/mauriciomorkun/AudioRouterNow/v4 && bash scripts/test.sh`
+1. `cd ~/AudioRouterNow/v4 && bash scripts/test.sh`
    Alle Tests gruen. Zaehlstand notieren. Erwartet: 59 swift-testing (unveraendert),
    XCTest: 56 (unveraendert, da N3 nur Assertionen ergaenzt, keine neue Methode).
 2. App-Build ausfuehren (Befehl aus Abschnitt 1.4). Erwartet: BUILD SUCCEEDED.

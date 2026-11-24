@@ -26,7 +26,7 @@ Urteil: **Kreislauf abgeschlossen: ja.**
 Befehl (selbst ausgefuehrt):
 
 ```
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && bash scripts/test.sh
+cd ~/AudioRouterNow/v4 && bash scripts/test.sh
 ```
 
 Ergebnis:
@@ -44,7 +44,7 @@ Durchlauf 2.
 Befehl (selbst ausgefuehrt):
 
 ```
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && \
+cd ~/AudioRouterNow/v4 && \
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project AudioRouterNow4.xcodeproj \
   -scheme AudioRouterNow4 -configuration Debug \
@@ -58,7 +58,7 @@ Ergebnis: `** BUILD SUCCEEDED **`, keine neuen Warnungen.
 Befehl (selbst ausgefuehrt):
 
 ```
-bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/preflight.sh
+bash ~/AudioRouterNow/v4/scripts/preflight.sh
 ```
 
 Ergebnis:

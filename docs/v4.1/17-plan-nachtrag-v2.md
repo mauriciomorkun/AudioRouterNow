@@ -28,7 +28,7 @@ Stellen. Keine neuen Dateien im App-Target.
 App-Build-Befehl:
 
 ```
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && \
+cd ~/AudioRouterNow/v4 && \
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project AudioRouterNow4.xcodeproj \
   -scheme AudioRouterNow4 -configuration Debug \
@@ -38,7 +38,7 @@ cd /Users/mauriciomorkun/AudioRouterNow/v4 && \
 Test-Befehl:
 
 ```
-bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/test.sh
+bash ~/AudioRouterNow/v4/scripts/test.sh
 ```
 
 ### 1.4 Leitplanken
@@ -193,7 +193,7 @@ Nach jedem Schritt: `bash v4/scripts/test.sh` und App-Build; lokaler Commit.
 
 Datei: keine Aenderung.
 
-Ausfuehren: `bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/test.sh` und App-Build.
+Ausfuehren: `bash ~/AudioRouterNow/v4/scripts/test.sh` und App-Build.
 
 Akzeptanz: 60 swift-testing und 95 XCTest gruen, BUILD SUCCEEDED.
 Commit: keiner.

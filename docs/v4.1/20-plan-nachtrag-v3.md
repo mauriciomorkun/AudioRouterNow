@@ -113,23 +113,23 @@ Nach Abschluss muss jeder der folgenden Tests gruen sein:
 
 ```bash
 # H1: Alte Zahl nicht mehr vorhanden
-grep -n "5120 Allokationen" /Users/mauriciomorkun/AudioRouterNow/v4/AudioRouterNow4/EngineController.swift
+grep -n "5120 Allokationen" ~/AudioRouterNow/v4/AudioRouterNow4/EngineController.swift
 # erwartet: kein Treffer
 
 # H1: Neue Aussage vorhanden
-grep -n "20 Allokationen pro Sekunde\|5120 Element-Schreibzugriffe" /Users/mauriciomorkun/AudioRouterNow/v4/AudioRouterNow4/EngineController.swift
+grep -n "20 Allokationen pro Sekunde\|5120 Element-Schreibzugriffe" ~/AudioRouterNow/v4/AudioRouterNow4/EngineController.swift
 # erwartet: Treffer in Zeile ~767-770
 
 # H2: Doppelter Bindestrich nicht mehr vorhanden
-grep -n " -- " /Users/mauriciomorkun/AudioRouterNow/v4/AudioRouterKit/Tests/AudioRouterKitTests/WaveEnergyMathTests.swift
+grep -n " -- " ~/AudioRouterNow/v4/AudioRouterKit/Tests/AudioRouterKitTests/WaveEnergyMathTests.swift
 # erwartet: kein Treffer
 
 # Tests gruen
-bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/test.sh
+bash ~/AudioRouterNow/v4/scripts/test.sh
 # erwartet: 60 swift-testing + 96 XCTest, alle gruen
 
 # Build gruen
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+cd ~/AudioRouterNow/v4 && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project AudioRouterNow4.xcodeproj -scheme AudioRouterNow4 \
   -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -3
 # erwartet: BUILD SUCCEEDED

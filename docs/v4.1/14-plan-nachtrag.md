@@ -75,7 +75,7 @@ Doku: `CHANGELOG.md`, `RELEASE_NOTES.md`, `v4/ARCHITECTURE.md` (zwei Stellen),
 App-Build-Befehl:
 
 ```
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && \
+cd ~/AudioRouterNow/v4 && \
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project AudioRouterNow4.xcodeproj \
   -scheme AudioRouterNow4 -configuration Debug \
@@ -85,7 +85,7 @@ cd /Users/mauriciomorkun/AudioRouterNow/v4 && \
 Test-Befehl (liefert beide Zähler, XCTest und swift-testing):
 
 ```
-bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/test.sh
+bash ~/AudioRouterNow/v4/scripts/test.sh
 ```
 
 Hinweis zur Testlage (am Code geprüft): In `v4/AudioRouterNow4.xcodeproj/project.pbxproj`
@@ -981,8 +981,8 @@ Der unabhängige Auditor arbeitet diese Checkliste ab und führt Build und Tests
 ### 8.1 Build und Tests
 
 ```
-bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/test.sh
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+bash ~/AudioRouterNow/v4/scripts/test.sh
+cd ~/AudioRouterNow/v4 && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project AudioRouterNow4.xcodeproj -scheme AudioRouterNow4 -configuration Debug \
   -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 ```

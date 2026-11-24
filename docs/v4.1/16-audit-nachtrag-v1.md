@@ -22,7 +22,7 @@ Alle Befehle auf Branch `release/4.1`, Commit `634d922`.
 ### test.sh
 
 ```
-bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/test.sh
+bash ~/AudioRouterNow/v4/scripts/test.sh
 ```
 
 Ergebnis: 60 swift-testing in 10 Suiten, 95 XCTest, alle gruen, 0 Fehler.
@@ -31,7 +31,7 @@ Zuwachs gegenueber Baseline (59/56): +1 swift-testing, +39 XCTest. Erwartet.
 ### App-Build
 
 ```
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+cd ~/AudioRouterNow/v4 && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project AudioRouterNow4.xcodeproj -scheme AudioRouterNow4 \
   -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 ```
@@ -41,7 +41,7 @@ Ergebnis: BUILD SUCCEEDED. Keine Swift-Warnungen (selbst geprueft).
 ### preflight.sh
 
 ```
-bash /Users/mauriciomorkun/AudioRouterNow/v4/scripts/preflight.sh
+bash ~/AudioRouterNow/v4/scripts/preflight.sh
 ```
 
 Ergebnis: 1 ABBRUCH (letztes Archiv ist 4.0.1 (10), erwartet 4.1 (11)), 2 Warnungen

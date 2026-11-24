@@ -28,7 +28,7 @@ Urteil: **Kein neuer Durchlauf notwendig.**
 Befehl (ausgefuehrt vom Auditor):
 
 ```
-cd /Users/mauriciomorkun/AudioRouterNow/v4 && bash scripts/test.sh
+cd ~/AudioRouterNow/v4 && bash scripts/test.sh
 ```
 
 Ergebnis:

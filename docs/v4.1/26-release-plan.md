@@ -342,11 +342,8 @@ Zeichen, Review-Notiz, Ersatzsatz fuer den Superlativ) [09-final-report 3.6; Aud
   **Tip Jar** (freiwilliger In-App-Kauf, schaltet nichts frei).
 - **Promotional Text:** in der Vorlage nicht enthalten; bei 4.0.1 wurde Promotional
   Text im Portal gesetzt [08-submission-log, Phase 4]. Fuer 4.1 pruefen/uebernehmen.
-- **Keywords/Subtitle (ASO-Tipp):** Subtitle (max. 30 Zeichen) "audio splitter for
-  Mac" (22 Zeichen), Longtail "multi-output audio", "speaker routing Mac" ins
-  Keyword-Feld; pro Phrase erst Search Suggestions pruefen, Phrasen einzeln testen
-  (ein paar Wochen je Storefront) [project_audiorouternow_aso_pending.md]. Optional,
-  nicht release-blockierend.
+- **Keywords und Subtitle:** optional, nicht release-blockierend. Die Hinweise dazu stehen in den
+  privaten Unterlagen und nicht in diesem Dokument.
 
 ---
 
@@ -545,7 +542,7 @@ gitignorierte `Configs/Signing.local.xcconfig` ein, die bisher nicht existierte
 
 **Risiko belegt.** In einer /tmp-Kopie (rsync ohne `.git` und `v4-appstore`)
 `xcodegen generate` ausgefuehrt und `xcodebuild -showBuildSettings` davor und danach
-verglichen: vorher `DEVELOPMENT_TEAM = 5...W`, `CODE_SIGN_STYLE = Automatic`,
+verglichen: vorher `DEVELOPMENT_TEAM = <Team-ID>`, `CODE_SIGN_STYLE = Automatic`,
 `CODE_SIGN_IDENTITY = Apple Development`; nachher `CODE_SIGN_IDENTITY = -` (ad-hoc),
 `CODE_SIGN_STYLE` und `DEVELOPMENT_TEAM` entfallen. Das bestaetigt den Plan-Caveat.
 
@@ -613,7 +610,7 @@ in `09-final-report.md` Abschnitt 12.
 
 - Durchgeführt am 21., 22. und 23.11.2026 mit "AudioRouterNow 4.1 TEST C3b.app" auf
   einem MacBook Pro (Apple M1, macOS 26.6.2). Ergebnis: alle Hauptzeilen (M1 bis M9 mit
-  M2b/M2c/M2d, NM-1 bis NM-7) ok, 21 von 23 Tabellenzeilen ok (Stand 24.11.2026), 2 Zusatzzeilen offen (Tab-Fokus, große Schrift).
+  M2b/M2c/M2d, NM-1 bis NM-7) ok, alle 23 Tabellenzeilen ok (Stand 24.11.2026).
   Kein Messpunkt negativ, der Rückfall bei M8 (Commit `5798a63`) bleibt ungenutzt.
 - Dauer: deutlich länger als die Planung (2,5 bis 3,5 Stunden), weil M6 lange
   Laufzeiten braucht (mindestens 90 Minuten Gegenprobe), die Großliste eine
@@ -629,8 +626,8 @@ in `09-final-report.md` Abschnitt 12.
 
 1. **Keine Blocker aus den Messungen.** Die Reihenfolge aus Abschnitt 5 gilt ab dem
    Schritt "Entscheidungen bestätigen" weiter.
-2. **Vor der Einreichung empfohlen:** die Zusatzzeilen Tab-Fokus und große Schrift
-   (der VoiceOver-Hinweis ist am 24.11.2026 auf Nutzerangabe ok). Der CPU-Vergleich mit der Store-Version 4.0.1 ist am 23.11.2026
+2. **Vor der Einreichung empfohlen:** nichts mehr aus den Messungen (die drei Zusatzzeilen sind am 24.11.2026 auf
+   Nutzerangabe ok). Der CPU-Vergleich mit der Store-Version 4.0.1 ist am 23.11.2026
    erledigt: 38,7 Prozent (4.0.1) gegenüber 41,5 Prozent (4.1) bei 3 Zeilen, die Basislast
    von etwa 40 % eines Kerns ist kein 4.1-Effekt.
 3. **Entscheidung für später, nicht für 4.1:** Die Blip-Frist (3,0 s) liegt knapp unter

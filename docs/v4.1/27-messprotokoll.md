@@ -18,7 +18,7 @@
 | Datum der Sitzung | 21. bis 23.11.2026 (ursprünglich für den 19.11. vorgesehen; M6 brauchte lange Laufzeiten, die BlackHole-Nachmessung folgte am 23.11.) |
 | Teilnehmer | Nutzer (misst am Gerät), Claude (führt Punkt für Punkt durch, trägt Ergebnisse ein) |
 | Getestete App | "AudioRouterNow 4.1 TEST C3b.app" (Desktop), Bundle-ID `com.mauriciomorkun.audiorouternow.test`, Info.plist 4.1 (11) |
-| Commit des Codes (HEAD) | `c393e6d` (`release/4.1`, 74 Commits vor `main`, nicht gepusht, kein Tag). Seit `47a727b` kam nur ein Doku-Commit hinzu, kein App-Code |
+| Commit des Codes | Gemessen gegen den Stand `c393e6d` (`release/4.1`, damals 74 Commits vor `main`). Der Archiv-Stand ist `429b865`, dazwischen nur Doku-Commits, kein App-Code (geprüft 24.11.2026). Nicht gepusht, kein Tag |
 | macOS des Geräts | 26.6.2 (Build 25G83) |
 | Hardware | MacBook Pro, Apple M1 (Seriennummer bewusst nicht erfasst) |
 | Vorhandene Ausgänge | BenQ PD2700U (HDMI, 2), Komplete Audio 6 MK2 (USB, 6), Kopfhörerausgang (2), MacBook-Lautsprecher (2), NI Audio 4 DJ (virtuell, 4): 8 Kanalpaare. Für die Großlisten-Punkte am 23.11. vorübergehend BlackHole 16ch und 64ch (Homebrew, 0.7.1), danach entfernt: 48 Zeilen |
@@ -77,8 +77,8 @@ Dauerangaben ohne Quelle sind als "(Schätzung)" markiert.
 | 4 | Zusatz: Start ohne Absturz | App startet crashfrei (Start-Smoke-Test der C3b-App wurde laut Anleitung nie gemacht) | ~2 min (Schätzung) | 1 Gerät | nein | [x] ok  [ ] negativ  [ ] nicht pruefbar | Abgeleitet, 23.11.2026: Die App C3b startete in der Sitzung mehrfach (auch nach Beenden und Neustart mit vorbefüllter Konfiguration) und lief über Tage durchgehend. Kein Nutzerurteil, sondern Beobachtung aus Prozessliste und Log. |
 | 5 | M2c | Hover-Erklärungen im Footer, Clamping an beiden Rändern, Maus und Trackpad | ~10 min | Maus + Trackpad | nein | [x] ok  [ ] negativ  [ ] nicht pruefbar | Nutzer am Gerät bestätigt, 21.11.2026. |
 | 6 | Zusatz: VoiceOver-Hint je Footer-Symbol | VoiceOver liest zu jedem Footer-Symbol den Erklärtext (accessibilityHint) | ~5 min (Schätzung) | VoiceOver | nein | [x] ok  [ ] negativ  [ ] nicht pruefbar | 24.11.2026, Nutzer: Die Hinweise kommen am echten Gerät an, bereits getestet (Zeitpunkt der Prüfung, Umfang und ob alle sechs Footer-Elemente einzeln geprüft wurden, nicht genannt und nicht erfasst). Im Code haben alle sechs Footer-Elemente `accessibilityHint` aus `FooterTips` (`RoutingControls.swift:465`, Verwendung über `tracked(...)`). |
-| 7 | Zusatz: Tab-Fokus | Tab-Fokus-Reihenfolge im Panel sinnvoll | ~5 min (Schätzung) | Tastatur | nein | [ ] ok  [ ] negativ  [ ] nicht pruefbar | **Nicht geprüft (Stand 23.11.2026), offen.** |
-| 8 | Zusatz: Umbruch bei großer Schrift | "Launch at Login", Support, Quit bleiben einzeilig bei großer Dynamic Type / Bedienungshilfen | ~5 min (Schätzung) | Systemeinstellungen | nein | [ ] ok  [ ] negativ  [ ] nicht pruefbar | **Nicht geprüft (Stand 23.11.2026), offen.** |
+| 7 | Zusatz: Tab-Fokus | Tab-Fokus-Reihenfolge im Panel sinnvoll | ~5 min (Schätzung) | Tastatur | nein | [x] ok  [ ] negativ  [ ] nicht pruefbar | 24.11.2026, Nutzer: "beides ist in Ordnung". Konkrete Beobachtungen (Reihenfolge, eingestellte Textgröße) nicht genannt und nicht erfasst. |
+| 8 | Zusatz: Umbruch bei großer Schrift | "Launch at Login", Support, Quit bleiben einzeilig bei großer Dynamic Type / Bedienungshilfen | ~5 min (Schätzung) | Systemeinstellungen | nein | [x] ok  [ ] negativ  [ ] nicht pruefbar | 24.11.2026, Nutzer: "beides ist in Ordnung". Konkrete Beobachtungen (Reihenfolge, eingestellte Textgröße) nicht genannt und nicht erfasst. |
 | 9 | M2d | Add-device scrollbar und bereits hinzugefügte Einträge gekennzeichnet (Haken, ausgegraut) | ~10 min | Mehrkanalgerät (z.B. KA6) | teilweise (Scrollbarkeit per Prüfhilfe "TEST C3 LISTE" und V2-Kennzeichnung in C3b am 17.11. vom Nutzer bestätigt; echtes SwiftUI-Menü noch offen) | [x] ok  [ ] negativ  [ ] nicht pruefbar | Nutzer am Gerät bestätigt, 21.11.2026 ("wie sie sollen"), damit auch im echten Menü. |
 | 10 | M9 | Peak-Meter unter Solo zeigen 0, Welle bleibt unter Solo gleich hoch | ~5 min | 2 Ausgaben | nein | [x] ok  [ ] negativ  [ ] nicht pruefbar | 22.11.2026, Screenshot des Nutzers (Komplete Audio 6 MK2, Ch1-2 solo, Ch3-4 abgedunkelt): Meter der stummen Karte zeigen -∞ (L und R), die Solo-Karte zeigt -33/-34 dB. Das belegt den Meter-Teil. Die Wellenhöhe ist auf einem Einzelbild nicht vergleichbar; dazu Aussage des Nutzers "scheint alles zu funktionieren". |
 | 11 | M3 | Solo ohne Knacksen, kein Pegelsprung, gespeicherter Reglerwert gilt wieder | ~10 min | 2+ Ausgaben, Musik | nein | [x] ok  [ ] negativ  [ ] nicht pruefbar | 22.11.2026, Nutzer: kein Knacksen und kein Sprung aufgefallen (Hörprüfung, Komplete Audio 6 MK2, Ch1-2 und Ch3-4). Nicht ausdrücklich bestätigt: ob der Reglerwert des stummen Ausgangs nach dem Aufheben von Solo gilt. Beruht auf der Annahme E5 (vorhandene Rampe genügt). |
@@ -234,22 +234,22 @@ Gekürzt aus den Prüfleitfäden. Erwartung und Verhalten bei negativem Ergebnis
 
 Stand 23.11.2026: Die Spalten "Ergebnis" und "Notiz" in Abschnitt 3 sind ausgefüllt. Die
 Spalte "bereits gesehen" gilt weiter als Stand vor der Sitzung (für M2d teilweise,
-Quelle 17.11.2026). Offen sind nur noch die zwei Zusatzzeilen Tab-Fokus und Umbruch bei
-großer Schrift (Zeilen 7 und 8); Zeile 6 (VoiceOver-Hinweis) ist am 24.11.2026 auf Nutzerangabe ok. Jede Nutzerangabe steht mit Datum
+Quelle 17.11.2026). Es ist nichts mehr offen: Die drei zuvor offenen Zusatzzeilen (6 bis 8) sind am
+24.11.2026 auf Nutzerangabe ok. Jede Nutzerangabe steht mit Datum
 und, wo vorhanden, mit Beleg (Screenshot, Zeitstempel) in der Notiz. Wo eine Angabe
 nicht ausdrücklich gemacht wurde, steht das dort (zum Beispiel bei M2b, M3, M4, M8).
 
 ## 7. Zusammenfassung der Sitzung (Stand 23.11.2026)
 
-**Ergebnis:** 21 von 23 Zeilen der Tabelle in Abschnitt 3 sind ok (Stand 24.11.2026). Keine
-Zeile ist negativ. Offen sind 2 Zusatzzeilen (Tab-Fokus, Umbruch bei großer Schrift). Die
-Zeile VoiceOver-Hinweis ist am 24.11.2026 auf Nutzerangabe ok. Der feste Rückfall aus M8 (Commit `5798a63` umkehren)
+**Ergebnis:** 23 von 23 Zeilen der Tabelle in Abschnitt 3 sind ok (Stand 24.11.2026). Keine
+Zeile ist negativ, keine ist offen. Die drei Zusatzzeilen VoiceOver-Hinweis, Tab-Fokus und große
+Schrift sind am 24.11.2026 auf Nutzerangabe ok (ohne erfasste Einzelbeobachtungen). Der feste Rückfall aus M8 (Commit `5798a63` umkehren)
 wurde nicht ausgelöst.
 
 Hinweis zur Zählung: Die Tabelle hat 23 Zeilen, davon 4 Zusatzzeilen und 19 Hauptzeilen
 (M1 bis M9 mit M2b, M2c, M2d sowie NM-1 bis NM-7). Alle 19 Hauptzeilen sind ok. Von den
-4 Zusatzzeilen sind "Start ohne Absturz" (abgeleitet) und "VoiceOver-Hinweis" (Nutzerangabe
-24.11.2026) ok, die anderen zwei sind offen. Daraus folgen 21 ok und 2 offen.
+4 Zusatzzeilen sind "Start ohne Absturz" (abgeleitet) sowie VoiceOver-Hinweis, Tab-Fokus und
+große Schrift (Nutzerangabe 24.11.2026) ok. Daraus folgen 23 ok und 0 offen.
 
 | Gruppe | Zeilen | Ergebnis |
 |--------|--------|----------|
@@ -259,7 +259,7 @@ Hinweis zur Zählung: Die Tabelle hat 23 Zeilen, davon 4 Zusatzzeilen und 19 Hau
 | Viele Ausgänge | M5, NM-1 bis NM-7 | ok (48 Zeilen, kein 128/256-Kanal-Gerät) |
 | Zusatzzeilen | Start ohne Absturz | ok (abgeleitet) |
 | Zusatzzeilen | VoiceOver-Hinweis | ok (Nutzerangabe 24.11.2026) |
-| Zusatzzeilen | Tab-Fokus, große Schrift | offen |
+| Zusatzzeilen | Tab-Fokus, große Schrift | ok (Nutzerangabe 24.11.2026) |
 
 **Was über die Ergebnisse hinaus herauskam:**
 

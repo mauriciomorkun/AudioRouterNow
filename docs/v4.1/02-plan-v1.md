@@ -37,7 +37,7 @@ und dann den vollständigen Test-Lauf ausführen.
 
 Erwarteter Befehl fuer den Test-Lauf:
 ```
-cd /Users/mauriciomorkun/AudioRouterNow/v4
+cd ~/AudioRouterNow/v4
 bash scripts/test.sh
 ```
 
@@ -234,7 +234,7 @@ Kein Geraetename im Log-String (privacy .public nur fuer Zaehler).
 
 Vorgehen:
 1. `sudo xcodebuild -license accept` ausfuehren.
-2. `cd /Users/mauriciomorkun/AudioRouterNow/v4 && bash scripts/test.sh`
+2. `cd ~/AudioRouterNow/v4 && bash scripts/test.sh`
    ausfuehren. Ergebnis notieren (Anzahl Tests, gruen/rot).
 3. Sicherstellen, dass `git branch` `release/4.1` zeigt und `git status`
    sauber ist.
@@ -833,7 +833,7 @@ Commit: `fix(lifecycle): absorb device blips within settle window`
 
 Vorgehen: Im gesamten Repo nach dem Superlativ-Satz suchen:
 ```
-grep -r "the only sandboxed" /Users/mauriciomorkun/AudioRouterNow/
+grep -r "the only sandboxed" ~/AudioRouterNow/
 ```
 
 Alle Treffer durch den neuen Satz ersetzen:
@@ -908,7 +908,7 @@ Commit: `docs(changelog): release notes for v4.1`
 **ID:** S12
 
 Vorgehen:
-1. `cd /Users/mauriciomorkun/AudioRouterNow/v4 && bash scripts/test.sh`
+1. `cd ~/AudioRouterNow/v4 && bash scripts/test.sh`
    Alle Tests gruen. Zaehlstand notieren.
 2. `v4/scripts/preflight.sh` laufen lassen.
    Erwartetes Ergebnis: "Tag v4.1 existiert noch nicht" (OK), "xcconfig
@@ -1185,7 +1185,7 @@ Pruefen: `AudioRouterNow4.xcconfig` hat `MARKETING_VERSION = 4.1` und
 
 ### A14: Superlativ aus Repo entfernt
 
-Pruefen: `grep -r "the only sandboxed" /Users/mauriciomorkun/AudioRouterNow/`
+Pruefen: `grep -r "the only sandboxed" ~/AudioRouterNow/`
 liefert keine Treffer.
 
 ---
