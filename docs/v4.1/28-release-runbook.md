@@ -16,6 +16,8 @@ ausdrückliche Anweisung des Nutzers.
 |-------|-------|--------|
 | Code | Version 4.1 (Build 11) auf `release/4.1`, 81 Commits vor `origin/main`, 79 vor lokalem `main`, nicht gepusht, kein Tag `v4.1` | `git rev-list --count`, `git tag` |
 | Archiv | gebaut am 23.11.2026 um 17:23 aus Commit `429b865` (Archiv-Stand; aktueller HEAD ist `013f50c`, seither nur Doku-Commits), 4.1 (11), universal, signiert, im Xcode-Archivordner | `09-final-report.md` 12.4 |
+| Upload | erledigt 24.11.2026 (Nutzerangabe): Build 4.1 (11) ist bei App Store Connect angekommen und unter TestFlight, macOS, verarbeitet. Beim ersten Versuch blockierte ein offener Hinweis "PLA Update available" (Lizenzvereinbarung im Entwicklerkonto nicht akzeptiert) die Verteilung, danach lief der Upload (Ablauf im Einzelnen nicht erfasst) | Nutzerangabe, Portal-Screenshots |
+| Portal | Version 4.1 "Prepare for Submission" angelegt, Build 11 und manuelle Freigabe laut Nutzer gesetzt, Entwurf gespeichert (24.11.2026, gegen das Portal nicht von Claude geprüft). 4.0.1 bleibt "Ready for Distribution". Stand der weiteren Felder in Abschnitt 8 | Nutzerangabe, Portal-Screenshot |
 | App-Code seit dem Archiv | unverändert (`git diff --stat 429b865..HEAD v4` leer, geprüft 24.11.2026) | Git |
 | Preflight | kein Abbruchgrund, eine Warnung (Commits nicht gepusht) | `v4/scripts/preflight.sh` |
 | Tests | 60 swift-testing, 129 XCTest, alle grün (23.11.2026) | `scripts/test.sh` |
@@ -154,3 +156,31 @@ Rezensionen beobachten.
 | D7 | Bestätigung der UI-Entscheidungen E1, E4, E6 aus dem 4.1-Plan und von 6a (nicht zu verwechseln mit den Homepage-Entscheidungen HP-E1 bis HP-E8) | nicht blockierend, die Messungen widersprechen keiner |
 
 Weitere Entscheidungen zu Zeitpunkt und Marketing (D8, D9) stehen nur im privaten Gesamtplan, nicht im Repository.
+
+## 8. Übergabe: Stand der Portal-Schritte (24.11.2026)
+
+Hier setzt die nächste Sitzung an. Die Schritte S05 bis S08 aus Abschnitt 3 laufen im Portal der Reihe nach,
+der Nutzer klickt, Claude führt Schritt für Schritt und prüft jede Angabe vor dem Einreichen. Nichts davon
+ist ein Marketing-Inhalt. Einordnung: **Nutzerangabe** = vom Nutzer gemeldet, von Claude nicht gegengeprüft.
+
+| Nr. | Portal-Schritt | Stand | Einordnung |
+|-----|----------------|-------|------------|
+| P1 | Build 4.1 (11) ist unter TestFlight, macOS, verarbeitet | erledigt | Nutzerangabe |
+| P2 | Version 4.1 anlegen, Build 11 wählen, Release auf "Manually release this version", Save | erledigt, gespeichert | Nutzerangabe (Save per Nutzer bestätigt) |
+| P3 | Screenshots ersetzen | **offen, hier weitermachen.** Im Portal liegen noch vier Bilder von 4.0.1 (alter Start-Knopf unten, "4 of 10 App Screenshots", Mac). Alle entfernen ("Remove All") und die fünf neuen hochladen: `docs/v4.1/screenshots/appstore-vorlage/2880x1800/`, Reihenfolge 01 bis 05 (siehe dort README). Format 2880x1800 laut Apple-Spezifikation zulässig (Abruf 18.11.2026), Rückfall 2560x1600 | belegt (Dateien), Portal ungeprüft |
+| P4 | "What's New" eintragen (Sprache English (U.K.)) | offen. Vorlage in `06-appstore-texts.md` Abschnitt 1 ist älter als der Nachtrag W1 (Grenze 255) und nennt ihn nicht. Ergänzte Fassung als Vorschlag in `06-appstore-texts.md` Abschnitt 4, **Nutzer entscheidet** | Vorschlag |
+| P5 | Review-Notiz und Kontakt (App Review) eintragen | offen. Vorlage Abschnitt 2, ergänzt in Abschnitt 4. Code-Angabe "ScrollView gedeckelt auf 400 pt" gegen `MenuBarView.swift:92` geprüft (24.11.2026), stimmt | belegt |
+| P6 | Description: Superlativ-Satz ersetzen durch "AudioRouterNow runs fully sandboxed. No kernel extension. No virtual driver. No reboot." Promotional Text prüfen | offen (Satz steht nur im Portal, nicht im Repo) | `06-appstore-texts.md` Abschnitt 3 |
+| P7 | App-Privacy, Altersfreigabe, App Compliance (Export) gegen 4.0.1 gegenprüfen, nur ansehen | offen. Die Altersfreigabe-Fragen (Standort, Dating) sind laut Portal erst ab 15.01.2027 Pflicht, **den Bereich nicht öffnen**, damit die Pflicht nicht vorzeitig ausgelöst wird. Hinweise zu China (Security Assessment, AIGC, Frist 31.01.2027) betreffen nur den Vertrieb in Festlandchina, ob die App dort angeboten wird ist ungeprüft, kein Blocker für 4.1. Export-Compliance: Schlüssel `ITSAppUsesNonExemptEncryption` steht in der Info.plist, die Frage sollte entfallen, sonst keine eigene Verschlüsselung | Portal-Hinweise belegt, Rest ungeprüft |
+| P8 | Alles speichern, "Add for Review" (ist grau, bis alle Pflichtfelder gesetzt sind), Claude prüft vorher alle Felder anhand von Screenshots, dann Einreichen | offen, U (unumkehrbar) | |
+| P9 | Nach dem Einreichen: S09 (CHANGELOG-Datum, RELEASE_NOTES) und parallel S06 (TestFlight-Update-Test) | offen | |
+
+**Offene Fragen an den Nutzer für P4 bis P7:**
+1. Soll die ergänzte "What's New"-Fassung (mit 255) verwendet werden oder die ältere Vorlage?
+2. Subtitle und Keywords (Tipp vom 28.10.2026, siehe Memory zu ASO): jetzt mit 4.1 ändern oder bewusst nicht? Sie sind nicht Teil der 4.1-Änderungen und werden von dieser Doku nicht vorgegeben.
+3. Zeitpunkt der Einreichung, da Release danach manuell erfolgt.
+
+**Beobachtungen vom Upload (für die Doku, nicht für den Code):**
+- Eine nicht akzeptierte Programmlizenz (PLA) im Entwicklerkonto sperrt die Verteilung aus dem Organizer. Meldungen "No signing certificate Mac App Distribution / Mac Installer Distribution found" sind in diesem Fall Folgefehler: Xcode kann die Zertifikate wegen der Sperre nicht anlegen. Das Archiv selbst war nicht betroffen und musste nicht neu gebaut werden. Es ist der Kontoinhaber, der die Vereinbarung akzeptiert.
+- In der Schlüsselbundverwaltung lagen am 24.11.2026 vor dem Upload nur "Apple Development" und "Developer ID Application", keine App-Store-Verteilungszertifikate (geprüft per `security find-identity`).
+- Xcode-Projektansicht: "App Category: None" und leerer "Display Name" sind nur die Anzeige. Die Kategorie steht in der `Info.plist` (`public.app-category.utilities`, im Archiv geprüft).

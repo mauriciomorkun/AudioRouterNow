@@ -104,3 +104,67 @@ Wo in App Store Connect:
 
 Hinweis: die Superlativ-Stelle liegt nur in App Store Connect, NICHT im
 Repository (verifiziert im Impl-Protokoll S9).
+
+## 4. Ergänzte Fassung nach dem Nachtrag W1 (Vorschlag vom 24.11.2026, Nutzer entscheidet)
+
+**Warum:** Die Abschnitte 1 und 2 entstanden vor dem Nachtrag W1 (`OutputLimits.maxSlots` 256, sichtbare
+Grenze 255, vorher 16). Für Nutzer mit langen Listen ist das neben dem Scrollen die wichtigste Änderung.
+Die Texte oben nennen sie nicht. Die Fassung unten ergänzt genau das und sonst nichts.
+
+**Einordnung der Aussage:** Die Grenze 255 ist aus dem Code belegt, am Gerät gemessen sind Listen bis 48 Zeilen
+(`27-messprotokoll.md`). Der Satz sagt deshalb "up to 255" und nennt keine gemessene Zahl darüber. Der Zustand in
+4.0.1 (ab dem 17. Ausgang fester Pegel ohne Regler und Pegelanzeige, kein Abbruch) ist am Code von 4.0.1 belegt.
+
+### 4.1 "What's New", ergänzte Fassung (1565 Zeichen, Grenze 4000)
+
+---
+
+This update adds a solo button, supports up to 255 outputs with full controls,
+makes the device list scrollable, and fixes two causes of unnecessary audio
+interruptions.
+
+Scrollable device list. The panel no longer grows past the screen when you
+have many outputs configured. The device list scrolls, and the start/stop button
+now sits at the top of the panel so it stays visible with a long list.
+
+More outputs, all with controls. Volume, solo and level meters now work for
+every configured output, up to 255. In 4.0.1, outputs after the 16th played at
+a fixed volume, without a volume control or level meter.
+
+Clearer footer. The footer is a single row. The support control is a labelled
+button, and footer controls show a short note on hover.
+
+The "Add device" menu now marks outputs that are already added with a checkmark
+and greys them out.
+
+Solo per output. While routing is active, each output has a solo button (the
+"S" icon). Tap it to hear only that output. Tap it again to release. Solo is
+session-only and resets when you stop routing. It does not change your stored
+volume settings.
+
+Fewer unnecessary restarts. The sample rate listener no longer restarts the
+engine when macOS fires a notification but the rate did not actually change.
+A device that briefly disconnects and reconnects within the settle window
+no longer forces a restart.
+
+Note: "Launch at Login" is reset by this update. The consent is tied to the
+exact build number it was granted for. If you had it turned on, open the app
+and check "Launch at Login" in the footer to re-enable it.
+
+---
+
+### 4.2 Review-Notiz, Ergänzung
+
+Im ersten Satz "This update adds three features and fixes two defects." beibehalten und als Punkt 6 einfügen,
+direkt vor "5. Store description" oder dahinter:
+
+---
+
+6. Output limit: the per-output controls (volume, solo, level meters) now cover
+   up to 255 outputs. In the previous version (4.0.1) outputs after the 16th
+   ran at a fixed volume without these controls.
+
+---
+
+Die Angaben "ScrollView gedeckelt auf 400 pt" und "Start/Stop oben, einziger Knopf" in Abschnitt 2 sind gegen
+`MenuBarView.swift` (Zeilen 43 und 92) geprüft und stimmen (24.11.2026).
