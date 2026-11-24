@@ -67,10 +67,9 @@
 
 ---
 
-## [4.1 (11)], YYYY-MM-DD · _Mac App Store (macOS 14.4+)_
+## [4.1 (11)], 2026-11-24 · _Mac App Store (macOS 14.4+)_
 
-> **Status: not yet submitted.** Date is the submission date, set when the build
-> is submitted to App Review. Work record in [`docs/v4.1/`](docs/v4.1/).
+> **Status: submitted 2026-11-24.** Awaiting App Review. Work record in [`docs/v4.1/`](docs/v4.1/).
 
 ### Added
 
