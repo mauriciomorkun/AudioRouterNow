@@ -655,3 +655,7 @@ Damit ist der Preflight-ABBRUCH aus Abschnitt 4(d) behoben. Nächster Schritt la
 **Screenshots, Gerätename.** "NI Audio 4 DJ" bleibt in den Motiven 4 und 5 sichtbar. Der Name ist der echte Gerätename des Nutzers und keine Aussage der App (Herkunftsregel: Hi-Fi-/Abhör-Setup, nicht DJing, siehe `facts.md`, bleibt davon unberührt).
 
 **Nicht ausdrücklich bestätigt:** E1, E4, E6 und 6a. Die Messungen widersprechen keiner dieser Entscheidungen; sie blockieren die Einreichung nicht.
+
+### Präzisierung 24.11.2026: Zeitpunkt des Tags
+
+Schritt 12 (Tag `v4.1`) ist so zu lesen: Der Tag wird erst nach dem Release gesetzt und gepusht (wie bei 4.0.1), nicht schon nach der Einreichung. Wird die Einreichung abgelehnt, bekommt ein Build 12 den Tag. Siehe `28-release-runbook.md`, Schritt S13.
