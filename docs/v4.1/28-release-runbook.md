@@ -93,7 +93,7 @@ erhält, ist eine Annahme und ungeprüft. Falls nicht, ist der Schritt 12 nach d
 
 | ID | Risiko | Wahrscheinlichkeit | Auswirkung | Einordnung | Gegenmaßnahme | Blocker |
 |----|--------|--------------------|-----------|------------|---------------|---------|
-| R1 | Echter Update-Pfad (Berechtigung, Einstellungen, Reset) am Store-Build nicht beobachtet | mittel | hoch | ungeprüft | S06 und S12 | nein, vor Tor C |
+| R1 | Echter Update-Pfad (Berechtigung, Einstellungen, Reset) am Store-Build nicht beobachtet | mittel | hoch | **geschlossen (S06 bestanden 25.11.2026)** | S06 und S12 | nein, vor Tor C |
 | R2 | Liste mit 49 bis 255 Zeilen nie real geprüft, drei Nutzer mit etwa 125 | mittel | mittel | ungeprüft | S03, Rückmeldung der Nutzer nach dem Release | nein |
 | R3 | Screenshots mit alter Oberfläche führen zur Ablehnung (Guideline 2.3) | mittel | hoch | Annahme | nur die neuen Motive hochladen | ja für S07 |
 | R4 | Superlativ in der Live-Description (Guideline 2.3) | mittel | mittel | Annahme | Ersatzsatz vor S08 eintragen | ja für S08 |
@@ -172,7 +172,7 @@ Einordnung: **Nutzerangabe** = vom Nutzer gemeldet, von Claude nicht gegengeprü
 | P6 | Superlativ ersetzt durch "runs fully sandboxed. No kernel extension. No virtual driver. No reboot." Promotional Text: Variante A ("Send your Mac's audio...volume keys keep working...") | erledigt 25.11.2026 | Nutzerangabe |
 | P7 | App-Privacy gecheckt (unverändert), Altersfreigabe-Bereich nicht geöffnet, Export-Compliance kein Blocker | erledigt 25.11.2026 | Nutzerangabe |
 | P8 | "Submit to App Review" geklickt | erledigt 25.11.2026, U | Nutzerangabe |
-| P9 | S09 (CHANGELOG-Datum "2026-11-24", RELEASE_NOTES "submitted") committed (`3122566`). S06 TestFlight-Smoke-Test empfohlen, noch nicht durchgeführt | S09 erledigt, S06 offen | Git |
+| P9 | S09 (CHANGELOG-Datum "2026-11-24", RELEASE_NOTES "submitted") committed (`3122566`). S06 TestFlight-Smoke-Test: alle 10 Punkte bestanden (25.11.2026): Start, Onboarding, Einstellungen erhalten, Berechtigungen, Audio, Start/Stop, Solo, Launch-at-Login-Reset, Add-device-Markierung, Blip-Absorption. | S09 erledigt, S06 bestanden. Tor C freigegeben. | Nutzerangabe |
 
 **Offene Fragen an den Nutzer für P4 bis P7:**
 1. Soll die ergänzte "What's New"-Fassung (mit 255) verwendet werden oder die ältere Vorlage?
