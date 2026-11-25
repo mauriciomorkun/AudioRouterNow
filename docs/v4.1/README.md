@@ -180,8 +180,22 @@ das Repo blieb unverändert.
 - [x] Launch-at-Login-Reset (6d) angenommen, Gerätename "NI Audio 4 DJ" in den Screenshots bleibt (beides 23.11.2026, `09-final-report.md` Abschnitt 12.5). E1, E4, E6, 6a nicht ausdrücklich bestätigt, die Messungen widersprechen nicht.
 - [x] Neues 4.1-Archiv gebaut und geprüft (23.11.2026, 17:23 Uhr, aus HEAD `429b865`), Preflight ohne
       Abbruchgrund (siehe `09-final-report.md` Abschnitt 12.4).
-- [ ] Hochladen (Organizer, Distribute App), App-Store-Connect-Texte, Datum, Tag, Merge, Push,
-      Einreichung. Nur auf ausdrückliche Anweisung.
+- [x] Hochladen, App-Store-Connect-Texte, Einreichung erledigt (25.11.2026).
+      CHANGELOG und RELEASE_NOTES auf "submitted 2026-11-24" gesetzt (Commit `3122566`).
+      Tag, Merge und Push erst nach dem Release (Tor D), nur auf ausdrückliche Anweisung.
+
+## Stand nach der Einreichung (25.11.2026)
+
+4.1 (Build 11) wurde am 25.11.2026 bei Apple eingereicht. Status: "Waiting for Review".
+
+Portal vollständig ausgefüllt: 5 Screenshots (C3-Motive 2880x1800, 01 bis 05), What's New (Langfassung
+mit 255-Limit), Review-Notiz (6 Punkte), Superlativ ersetzt, Promotional Text Variante A,
+Subtitle/Keywords angepasst, Privacy gecheckt, Altersfreigabe-Bereich nicht geöffnet.
+
+CHANGELOG und RELEASE_NOTES auf Einreichungsdatum gesetzt (Commit `3122566`). Kein Push, kein Tag,
+kein Merge, keine öffentlichen Aktionen bis zur Genehmigung und ausdrücklichen Freigabe durch den Nutzer.
+
+Noch offen: S06 TestFlight-Smoke-Test (empfohlen, gatet Tor C/Release), Apple-Prüfung (1 bis 3 Tage).
 
 ## Hinweis zur Quellenlage
 
