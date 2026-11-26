@@ -378,8 +378,8 @@
     .screenshots-label { text-align: center; font-size: .72rem; color: var(--faint); letter-spacing: .07em; text-transform: uppercase; margin-bottom: .875rem; padding: 0 1.5rem; }
     .screenshots-scroll { display: flex; gap: 1rem; overflow-x: auto; padding: 0 1.5rem 1rem; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
     .screenshots-scroll::-webkit-scrollbar { display: none; }
-    .ss-item { flex: 0 0 auto; width: clamp(260px, 70vw, 480px); scroll-snap-align: start; }
-    .ss-item img { width: 100%; height: clamp(380px, 85vw, 560px); object-fit: cover; object-position: top; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 16px 48px rgba(0,0,0,.6); display: block; }
+    .ss-item { flex: 0 0 auto; width: clamp(280px, 88vw, 600px); scroll-snap-align: start; }
+    .ss-item img { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 16px 48px rgba(0,0,0,.6); display: block; }
     .ss-item figcaption { margin-top: .5rem; font-size: .72rem; color: var(--faint); text-align: center; }
     .ss-label { padding: 0 0 .875rem; text-align: left; }
     .ss-title { display: block; font-size: 1rem; font-weight: 700; color: #fff; letter-spacing: -.02em; margin-bottom: .2rem; line-height: 1.2; }
@@ -530,48 +530,72 @@
       <h3>Not a mixer. No restart.</h3>
       <p>No mixer, no routing diagram, no per-app rules. Pick your outputs, click once, done. No restart, no setup wizard.</p>
     </div>
+    <!-- New in 4.1 (26.11.2026). -->
+    <div class="feature">
+      <span class="feature-icon">📜</span>
+      <h3>List that scrolls.</h3>
+      <p>Large device setups no longer push the controls off screen. The list scrolls, start/stop stays at the top, and Quit stays at the bottom.</p>
+    </div>
+    <div class="feature">
+      <span class="feature-icon">🎧</span>
+      <h3>Solo any output.</h3>
+      <p>Tap S on any output card to hear just that one while routing continues. Solo lasts for the session and does not change your saved volumes.</p>
+    </div>
+    <div class="feature">
+      <span class="feature-icon">🔢</span>
+      <h3>Up to 255 outputs.</h3>
+      <p>Volume sliders and level meters work for every output, up to 255. No silent cards, no uncontrollable channels at the end of the list.</p>
+    </div>
     <!-- Added for 4.0.1 (13.10.2026). Wording mirrors the store text, which was
          verified against the code in submission phase 5.1: only selected devices
          play, system default output stays silent unless selected, off by default. -->
-    <div class="feature feature-wide">
+    <div class="feature">
       <span class="feature-icon">🎯</span>
       <h3>Only the outputs you pick.</h3>
       <p>Optional Exclusive Routing: only the devices you select play audio. The system default output stays silent unless you add it. Off by default, one toggle in the footer.</p>
     </div>
   </section>
 
-  <!-- APP STORE SCREENSHOTS -->
-  <!-- Images (ss_*.jpg) live on server only, gitignored binary assets -->
+  <!-- APP STORE SCREENSHOTS 4.1 -->
+  <!-- Images (ss41-*.jpg) live on server only, gitignored binary assets. 2880x1800 landscape. -->
+  <!-- Previous portrait screenshots (ss_routing.jpg etc.) remain on server for cache safety. -->
   <div class="screenshots-section">
-    <p class="screenshots-label">AudioRouterNow 4, in action</p>
+    <p class="screenshots-label">AudioRouterNow 4.1 &middot; What&#39;s new</p>
     <div class="screenshots-scroll">
       <figure class="ss-item">
         <div class="ss-label">
           <strong class="ss-title">One source. Every output.</strong>
-          <span class="ss-subtitle">Route to any combination of outputs</span>
+          <span class="ss-subtitle">Route your Mac&#39;s audio to any combination</span>
         </div>
-        <img src="ss_routing.jpg" alt="AudioRouterNow routing to 4 devices simultaneously" width="892" height="1516" loading="lazy" decoding="async">
+        <img src="ss41-01.jpg" alt="AudioRouterNow 4.1 routing to multiple outputs at once" width="2880" height="1800" loading="lazy" decoding="async">
       </figure>
       <figure class="ss-item">
         <div class="ss-label">
-          <strong class="ss-title">Pick the exact channels.</strong>
-          <span class="ss-subtitle">Select exact channel pairs per interface</span>
+          <strong class="ss-title">Full control per output.</strong>
+          <span class="ss-subtitle">Volume, solo and level meters for every device</span>
         </div>
-        <img src="ss_tipjar.jpg" alt="AudioRouterNow, free with optional tip jar" width="892" height="1342" loading="lazy" decoding="async">
+        <img src="ss41-02.jpg" alt="AudioRouterNow 4.1 volume sliders and level meters" width="2880" height="1800" loading="lazy" decoding="async">
       </figure>
       <figure class="ss-item">
         <div class="ss-label">
-          <strong class="ss-title">Full control. No driver.</strong>
-          <span class="ss-subtitle">Per-device L/R meters &#183; latency &#183; sample rate</span>
+          <strong class="ss-title">Solo any output.</strong>
+          <span class="ss-subtitle">Hear just one while routing continues</span>
         </div>
-        <img src="ss_fullcontrol.jpg" alt="Per-device level meters and latency display" width="892" height="1576" loading="lazy" decoding="async">
+        <img src="ss41-03.jpg" alt="AudioRouterNow 4.1 solo button on output card" width="2880" height="1800" loading="lazy" decoding="async">
       </figure>
       <figure class="ss-item">
         <div class="ss-label">
-          <strong class="ss-title">Free forever.</strong>
-          <span class="ss-subtitle">Optional tip jar. No subscription, ever.</span>
+          <strong class="ss-title">Start/stop from the top.</strong>
+          <span class="ss-subtitle">Controls always reachable, no matter how long the list</span>
         </div>
-        <img src="ss_channels.jpg" alt="Select exact channel pairs per device" width="892" height="1188" loading="lazy" decoding="async">
+        <img src="ss41-04.jpg" alt="AudioRouterNow 4.1 scrollable list with start button at top" width="2880" height="1800" loading="lazy" decoding="async">
+      </figure>
+      <figure class="ss-item">
+        <div class="ss-label">
+          <strong class="ss-title">Add outputs while routing.</strong>
+          <span class="ss-subtitle">Menu shows what&#39;s added, what&#39;s still available</span>
+        </div>
+        <img src="ss41-05.jpg" alt="AudioRouterNow 4.1 add device menu with checkmarks" width="2880" height="1800" loading="lazy" decoding="async">
       </figure>
     </div>
   </div>
@@ -618,7 +642,7 @@
       </div>
       <div class="req-item">
         <span class="req-label">Version</span>
-        <span class="req-value">4.0.1 · App Store</span>
+        <span class="req-value">4.1 · App Store</span>
       </div>
       <div class="req-item">
         <span class="req-label">License</span>

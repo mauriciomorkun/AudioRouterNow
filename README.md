@@ -18,6 +18,8 @@
 > out to be wrong, and the one finding that could not be fixed because no unit test
 > can reach it.
 >
+> 4.1 is **live on the Mac App Store since 26.11.2026** (build 11, submitted 24.11.2026). Scrollable device list, solo button, 255-output limit.
+>
 > 4.0.1 is **live on the Mac App Store since 13.10.2026** (build 10, submitted to
 > App Review on 09.10.2026). Existing installs update through the App Store.
 

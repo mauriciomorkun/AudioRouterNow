@@ -67,9 +67,9 @@
 
 ---
 
-## [4.1 (11)], 2026-11-24 · _Mac App Store (macOS 14.4+)_
+## [4.1 (11)], 2026-11-26 · _Mac App Store (macOS 14.4+)_
 
-> **Status: submitted 2026-11-24.** Awaiting App Review. Work record in [`docs/v4.1/`](docs/v4.1/).
+> **Status: released. Live since 26.11.2026 (submitted 24.11.2026).** Work record in [`docs/v4.1/`](docs/v4.1/).
 
 ### Added
 

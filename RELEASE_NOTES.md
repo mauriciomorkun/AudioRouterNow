@@ -153,10 +153,10 @@ commit, so the claim and its evidence sit together in the history.
 
 ---
 
-## AudioRouterNow 4.1 (Build 11), submitted 2026-11-24
+## AudioRouterNow 4.1 (Build 11), November 26, 2026
 _Mac App Store, macOS 14.4 or later, tested on Apple Silicon_
 
-> **Status: submitted 2026-11-24.** Awaiting App Review. The work record is in [`docs/v4.1/`](docs/v4.1/).
+> **Status: released. Live since 26.11.2026 (submitted 24.11.2026).** The work record is in [`docs/v4.1/`](docs/v4.1/).
 
 ### For Everyone
 

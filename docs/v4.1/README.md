@@ -197,6 +197,19 @@ kein Merge, keine öffentlichen Aktionen bis zur Genehmigung und ausdrücklichen
 
 Noch offen: S06 TestFlight-Smoke-Test (empfohlen, gatet Tor C/Release), Apple-Prüfung (1 bis 3 Tage).
 
+## Stand nach dem Release (26.11.2026)
+
+4.1 (Build 11) ist seit **26.11.2026** im Mac App Store live. Apple-Genehmigung kam am selben Tag
+wie die Einreichung (Thanksgiving US, 1 Tag Review). Release manuell ausgelöst um ca. 14:00 CET
+durch den Nutzer ("Release this version" im Portal). Phased Release deaktiviert (volle Auslieferung
+an alle Nutzer sofort).
+
+Landing Page (audiorouternow.mauriciomorkun.com) bereits vor dem Release-Klick aktualisiert:
+3 neue Feature-Karten (Scroll, Solo, 255 Outputs), 5 neue Screenshots (ss41-01 bis ss41-05, 2880x1800).
+Buffer-Kampagne: 11 Posts eingereiht (P01-P10 geplant, P11 als Draft), P01 um 15:00 CET.
+
+Tor D abgeschlossen: FF-Merge nach `main`, Tag `v4.1`, Push, GitHub Release erstellt.
+
 ## Hinweis zur Quellenlage
 
 Jedes Dokument in diesem Ordner trennt strikt zwischen:
